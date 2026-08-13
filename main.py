@@ -49,6 +49,7 @@ from modules.geocoding.router import router as geocode_router
 from modules.server_health.router import router as server_health_router
 from modules.db_health.router import router as db_health_router
 from modules.employee.permissions import authorize_inferior_admin_request
+from modules.discounts.router import router as discounts_router
 
 
 # Configure logging
@@ -143,6 +144,7 @@ app.include_router(audit_router)
 app.include_router(geocode_router)
 app.include_router(server_health_router)
 app.include_router(db_health_router)
+app.include_router(discounts_router)
 
 
 _media_root = Path(settings.MEDIA_ROOT)
