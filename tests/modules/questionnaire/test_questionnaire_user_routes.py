@@ -156,6 +156,55 @@ async def test_list_category_questions_allows_user_and_returns_only_active(async
     assert data[0]["question_id"] == 8991
 
 
+@pytest.mark.asyncio
+async def test_list_category_questions_allows_employee(async_client, test_db_session):
+    from modules.employee.models import Employee
+    from tests.helpers.auth import employee_auth_header
+
+    await _seed_user(test_db_session, user_id=88010)
+    test_db_session.add(
+        Employee(
+            employee_id=8801,
+            name="QA Admin",
+            phone="8801000001",
+            email="qa.admin.8801@example.com",
+            role="admin",
+            status="active",
+        )
+    )
+    test_db_session.add(
+        QuestionnaireCategory(
+            category_id=7997,
+            category_key="cat_7997",
+            display_name="Category 7997",
+            status="active",
+        )
+    )
+    test_db_session.add(
+        QuestionnaireDefinition(
+            question_id=8990,
+            question_key="q8990",
+            question_text="Employee-visible question",
+            question_type="text",
+            status="active",
+        )
+    )
+    await test_db_session.commit()
+    await _map_question_to_category(
+        test_db_session, mapping_id=9900, category_id=7997, question_id=8990
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        "/questionnaire/categories/7997/questions",
+        headers=employee_auth_header(8801),
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert len(data) == 1
+    assert data[0]["question_id"] == 8990
+
+
 # ==================== GET /questionnaire/{assessment_instance_id}/category/{category_id} Tests ====================
 
 
