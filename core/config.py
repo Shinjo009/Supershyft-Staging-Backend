@@ -127,11 +127,6 @@ class Settings:
     BLOOD_REPORTS_TIMEOUT_SECONDS: int = int(os.getenv("BLOOD_REPORTS_TIMEOUT_SECONDS", "60"))
     BLOOD_REPORTS_MAX_MB: int = int(os.getenv("BLOOD_REPORTS_MAX_MB", "10"))
 
-    # Nutrition API settings
-    NUTRITION_API_URL: str = os.getenv("NUTRITION_API_URL", "https://nutrition.supershyft.com/calculate")
-    NUTRITION_API_KEY: str = os.getenv("NUTRITION_API_KEY", "metsights-secret-2024")
-    NUTRITION_API_TIMEOUT_SECONDS: int = int(os.getenv("NUTRITION_API_TIMEOUT_SECONDS", "15"))
-
     # Align with admin axios timeout for camp report refresh/validate gating
     CAMP_REPORT_CLIENT_TIMEOUT_SECONDS: int = int(
         os.getenv("CAMP_REPORT_CLIENT_TIMEOUT_SECONDS", "120")

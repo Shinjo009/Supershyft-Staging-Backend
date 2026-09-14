@@ -1,0 +1,955 @@
+{
+  "height": {
+    "question_key": "height",
+    "prompt": "What is your height?",
+    "question_type": "scale",
+    "options": [
+      [
+        "0",
+        "cm"
+      ],
+      [
+        "2",
+        "ft/in"
+      ]
+    ]
+  },
+  "weight": {
+    "question_key": "weight",
+    "prompt": "What is your body weight?",
+    "question_type": "scale",
+    "options": [
+      [
+        "0",
+        "kg"
+      ],
+      [
+        "1",
+        "lb"
+      ]
+    ]
+  },
+  "waist_circumference": {
+    "question_key": "waist_circumference",
+    "prompt": "What is your waist size?",
+    "question_type": "scale",
+    "options": [
+      [
+        "0",
+        "cm"
+      ],
+      [
+        "1",
+        "in"
+      ]
+    ]
+  },
+  "hip_circumference": {
+    "question_key": "hip_circumference",
+    "prompt": "What is your hip size?",
+    "question_type": "scale",
+    "options": [
+      [
+        "0",
+        "cm"
+      ],
+      [
+        "1",
+        "in"
+      ]
+    ]
+  },
+  "body_fat": {
+    "question_key": "body_fat",
+    "prompt": "What is your body fat percent?",
+    "question_type": "scale",
+    "options": [
+      [
+        "0",
+        "%"
+      ]
+    ]
+  },
+  "living_region": {
+    "question_key": "living_region",
+    "prompt": "Where have you lived most of your life?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "0",
+        "Coastal region"
+      ],
+      [
+        "1",
+        "Inland region"
+      ]
+    ]
+  },
+  "family_health_history": {
+    "question_key": "family_health_history",
+    "prompt": "Do any of your close blood relatives have the following health conditions?",
+    "question_type": "multiple_choice",
+    "options": [
+      [
+        "0",
+        "Type 2 diabetes"
+      ],
+      [
+        "1",
+        "Hypertension"
+      ],
+      [
+        "2",
+        "Fatty liver"
+      ],
+      [
+        "3",
+        "Lipid disorders"
+      ],
+      [
+        "4",
+        "Heart ailments"
+      ],
+      [
+        "5",
+        "Thyroid disorders"
+      ],
+      [
+        "8",
+        "PCOS"
+      ],
+      [
+        "6",
+        "Stroke"
+      ],
+      [
+        "7",
+        "Mental Health"
+      ],
+      [
+        "O",
+        "Other"
+      ],
+      [
+        "none",
+        "None"
+      ]
+    ]
+  },
+  "diagnosed_diseases": {
+    "question_key": "diagnosed_diseases",
+    "prompt": "Are you diagnosed with the following diseases?",
+    "question_type": "multiple_choice",
+    "options": [
+      [
+        "0",
+        "Type 2 diabetes"
+      ],
+      [
+        "1",
+        "Hypertension"
+      ],
+      [
+        "2",
+        "Fatty liver"
+      ],
+      [
+        "3",
+        "Lipid disorders"
+      ],
+      [
+        "4",
+        "Heart ailments"
+      ],
+      [
+        "5",
+        "Thyroid disorders"
+      ],
+      [
+        "8",
+        "PCOS"
+      ],
+      [
+        "6",
+        "Stroke"
+      ],
+      [
+        "7",
+        "Mental Health"
+      ],
+      [
+        "O",
+        "Other"
+      ],
+      [
+        "none",
+        "None"
+      ]
+    ]
+  },
+  "diagnosed_diseases_medications": {
+    "question_key": "diagnosed_diseases_medications",
+    "prompt": "Are you taking medications for the following diseases?",
+    "question_type": "multiple_choice",
+    "options": [
+      [
+        "0",
+        "Type 2 diabetes"
+      ],
+      [
+        "1",
+        "Hypertension"
+      ],
+      [
+        "2",
+        "Fatty liver"
+      ],
+      [
+        "3",
+        "Lipid disorders"
+      ],
+      [
+        "4",
+        "Heart ailments"
+      ],
+      [
+        "5",
+        "Thyroid disorders"
+      ],
+      [
+        "8",
+        "PCOS"
+      ],
+      [
+        "6",
+        "Stroke"
+      ],
+      [
+        "7",
+        "Mental Health"
+      ],
+      [
+        "O",
+        "Other"
+      ],
+      [
+        "none",
+        "None"
+      ]
+    ]
+  },
+  "family_health_history_other": {
+    "question_key": "family_health_history_other",
+    "prompt": "Family health history (other)",
+    "question_type": "text",
+    "options": []
+  },
+  "diagnosed_diseases_other": {
+    "question_key": "diagnosed_diseases_other",
+    "prompt": "Diagnosed diseases (other)",
+    "question_type": "text",
+    "options": []
+  },
+  "diagnosed_diseases_medications_other": {
+    "question_key": "diagnosed_diseases_medications_other",
+    "prompt": "Medications (other)",
+    "question_type": "text",
+    "options": []
+  },
+  "sitting_hours": {
+    "question_key": "sitting_hours",
+    "prompt": "How long do you sit continuously every day due to work or lifestyle?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "0",
+        "Less than 1 hour"
+      ],
+      [
+        "1",
+        "1-4 hours"
+      ],
+      [
+        "2",
+        "More than 4 hours"
+      ]
+    ]
+  },
+  "physical_activity_frequency": {
+    "question_key": "physical_activity_frequency",
+    "prompt": "How much time do you spend engaging in physical activity or exercise daily?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "5",
+        "Rarely or never"
+      ],
+      [
+        "1",
+        "Less than 30 minutes a day"
+      ],
+      [
+        "2",
+        "30-60 minutes a day"
+      ],
+      [
+        "3",
+        "More than 60 minutes a day"
+      ]
+    ]
+  },
+  "exercise_frequency_week": {
+    "question_key": "exercise_frequency_week",
+    "prompt": "On a typical week, how much time do you dedicate to leisure activities, workouts or sports?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "0",
+        "Rarely or never"
+      ],
+      [
+        "1",
+        "Less than 1-hour"
+      ],
+      [
+        "2",
+        "1 to 3 hours"
+      ],
+      [
+        "3",
+        "4 to 8 hours"
+      ],
+      [
+        "4",
+        "More than 8 hours"
+      ]
+    ]
+  },
+  "exercise_level": {
+    "question_key": "exercise_level",
+    "prompt": "On an average week, how would you rate the intensity of your activities or workouts?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "0",
+        "Low-intensity"
+      ],
+      [
+        "1",
+        "Moderate-intensity"
+      ],
+      [
+        "2",
+        "High-intensity"
+      ]
+    ]
+  },
+  "daily_active_duration": {
+    "question_key": "daily_active_duration",
+    "prompt": "How much time do you spend actively walking each day?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "0",
+        "Less than 15 mins"
+      ],
+      [
+        "1",
+        "Between 15-30 mins"
+      ],
+      [
+        "2",
+        "Between 30-60 mins"
+      ],
+      [
+        "3",
+        "Between 1-2 hours"
+      ],
+      [
+        "4",
+        "More than 2 hours"
+      ]
+    ]
+  },
+  "sleeping_hours": {
+    "question_key": "sleeping_hours",
+    "prompt": "What is your average duration of good-quality sleep?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "0",
+        "Less than 5 hours"
+      ],
+      [
+        "1",
+        "Between 5 to 7 hours"
+      ],
+      [
+        "2",
+        "Between 7 to 9 hours"
+      ],
+      [
+        "3",
+        "More than 9 hours"
+      ]
+    ]
+  },
+  "alcohol_frequency": {
+    "question_key": "alcohol_frequency",
+    "prompt": "What is your alcohol consumption?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "0",
+        "I do not drink alcohol"
+      ],
+      [
+        "1",
+        "I quit alcohol"
+      ],
+      [
+        "2",
+        "3 servings per week or less"
+      ],
+      [
+        "3",
+        "More than 3 servings per week"
+      ],
+      [
+        "4",
+        "1-2 times in 3 months"
+      ],
+      [
+        "5",
+        "1-2 times in 6 months"
+      ]
+    ]
+  },
+  "tobacco_frequency": {
+    "question_key": "tobacco_frequency",
+    "prompt": "How often do you smoke cigarettes or tobacco?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "0",
+        "I do not smoke"
+      ],
+      [
+        "1",
+        "I quit smoking"
+      ],
+      [
+        "2",
+        "1 to 3 times a week"
+      ],
+      [
+        "3",
+        "5 to 7 times a week"
+      ],
+      [
+        "4",
+        "More than 7 times a week"
+      ],
+      [
+        "5",
+        "4-5 times a month"
+      ],
+      [
+        "6",
+        "1-2 times a month"
+      ]
+    ]
+  },
+  "health_priorities": {
+    "question_key": "health_priorities",
+    "prompt": "What are your primary health and wellness priorities?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "0",
+        "Weight Loss"
+      ],
+      [
+        "1",
+        "Building Muscle Mass"
+      ],
+      [
+        "2",
+        "Improving Metabolic Health"
+      ],
+      [
+        "3",
+        "Increasing Energy Levels"
+      ],
+      [
+        "4",
+        "Increasing Strength"
+      ],
+      [
+        "5",
+        "Improving Physical Endurance"
+      ]
+    ]
+  },
+  "goal_preference": {
+    "question_key": "goal_preference",
+    "prompt": "What aspect of your lifestyle changes would you like to prioritize?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "0",
+        "Reducing daily diet intake"
+      ],
+      [
+        "1",
+        "Increasing physical activity"
+      ],
+      [
+        "2",
+        "Forming healthy habits"
+      ]
+    ]
+  },
+  "diet_preference": {
+    "question_key": "diet_preference",
+    "prompt": "What type of diet do you primarily consume?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "0",
+        "Vegetarian"
+      ],
+      [
+        "1",
+        "Non-Vegetarian"
+      ],
+      [
+        "2",
+        "Eggetarian"
+      ],
+      [
+        "3",
+        "Pescatarian"
+      ],
+      [
+        "4",
+        "Flexitarian"
+      ],
+      [
+        "5",
+        "Jain"
+      ]
+    ]
+  },
+  "food_groups": {
+    "question_key": "food_groups",
+    "prompt": "Which of the following food groups do you consume every day?",
+    "question_type": "multiple_choice",
+    "options": [
+      [
+        "0",
+        "Whole grains"
+      ],
+      [
+        "1",
+        "Pulses/ Legumes"
+      ],
+      [
+        "2",
+        "Whole Milk/ Curd"
+      ],
+      [
+        "3",
+        "Fresh vegetables"
+      ],
+      [
+        "4",
+        "Fresh fruits"
+      ],
+      [
+        "5",
+        "Nuts/ Seeds"
+      ],
+      [
+        "6",
+        "Eggs"
+      ],
+      [
+        "7",
+        "Chicken/ Fish"
+      ],
+      [
+        "9",
+        "Cruciferous (Cauliflower, Cabbage)"
+      ]
+    ]
+  },
+  "healthy_breakfast_frequency": {
+    "question_key": "healthy_breakfast_frequency",
+    "prompt": "How frequently do you have a healthy homemade breakfast in a week?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "0",
+        "Do not have breakfast"
+      ],
+      [
+        "1",
+        "Less than 5 times"
+      ],
+      [
+        "2",
+        "More than 5 times"
+      ]
+    ]
+  },
+  "fresh_fruit_frequency": {
+    "question_key": "fresh_fruit_frequency",
+    "prompt": "How frequently do you consume fresh fruits?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "0",
+        "1-2 times per day"
+      ],
+      [
+        "2",
+        "2-3 times a week"
+      ],
+      [
+        "3",
+        "Once a week or less"
+      ],
+      [
+        "4",
+        "1-2 times per month"
+      ],
+      [
+        "5",
+        "Rarely or never"
+      ]
+    ]
+  },
+  "baked_goods_frequency": {
+    "question_key": "baked_goods_frequency",
+    "prompt": "How frequently do you consume cookies, biscuits, bread, or cakes?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "1",
+        "4 or more times a week"
+      ],
+      [
+        "2",
+        "2-3 times a week"
+      ],
+      [
+        "3",
+        "Once a week or less"
+      ],
+      [
+        "4",
+        "1-2 times per month"
+      ],
+      [
+        "5",
+        "Rarely or never"
+      ]
+    ]
+  },
+  "fresh_vegetable_frequency": {
+    "question_key": "fresh_vegetable_frequency",
+    "prompt": "How frequently do you consume fresh vegetables?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "0",
+        "1-2 times per day"
+      ],
+      [
+        "2",
+        "2-3 times a week"
+      ],
+      [
+        "3",
+        "Once a week or less"
+      ],
+      [
+        "4",
+        "1-2 times per month"
+      ],
+      [
+        "5",
+        "Rarely or never"
+      ]
+    ]
+  },
+  "dessert_frequency": {
+    "question_key": "dessert_frequency",
+    "prompt": "How frequently do you consume sugary drinks and desserts?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "1",
+        "4 or more times a week"
+      ],
+      [
+        "2",
+        "2-3 times a week"
+      ],
+      [
+        "3",
+        "Once a week or less"
+      ],
+      [
+        "4",
+        "1-2 times per month"
+      ],
+      [
+        "5",
+        "Rarely or never"
+      ]
+    ]
+  },
+  "iodized_salt_status": {
+    "question_key": "iodized_salt_status",
+    "prompt": "Do you use iodized salt in your diet?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "true",
+        "Yes"
+      ],
+      [
+        "false",
+        "No"
+      ]
+    ]
+  },
+  "extra_salt_frequency": {
+    "question_key": "extra_salt_frequency",
+    "prompt": "How often do you add extra salt to your food?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "0",
+        "Never"
+      ],
+      [
+        "1",
+        "Rarely"
+      ],
+      [
+        "2",
+        "Usually"
+      ]
+    ]
+  },
+  "caffeine_frequency": {
+    "question_key": "caffeine_frequency",
+    "prompt": "What's your coffee or tea intake?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "0",
+        "I do not drink coffee or tea"
+      ],
+      [
+        "1",
+        "1-2 cups per day"
+      ],
+      [
+        "2",
+        "More than 2 cups per day"
+      ],
+      [
+        "3",
+        "2-3 times a week"
+      ]
+    ]
+  },
+  "caffeine_type": {
+    "question_key": "caffeine_type",
+    "prompt": "What type of coffee or tea do you drink?",
+    "question_type": "multiple_choice",
+    "options": [
+      [
+        "1",
+        "Green Tea"
+      ],
+      [
+        "2",
+        "Black Tea"
+      ],
+      [
+        "3",
+        "Tea with sugar and milk"
+      ],
+      [
+        "4",
+        "Black Coffee"
+      ],
+      [
+        "5",
+        "Coffee with sugar and milk"
+      ],
+      [
+        "6",
+        "Milk Coffee without sugar"
+      ],
+      [
+        "7",
+        "Milk Tea without sugar"
+      ]
+    ]
+  },
+  "butter_dish_frequency": {
+    "question_key": "butter_dish_frequency",
+    "prompt": "How frequently do you indulge in dishes rich in butter?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "1",
+        "4 or more times a week"
+      ],
+      [
+        "2",
+        "2-3 times a week"
+      ],
+      [
+        "3",
+        "Once a week or less"
+      ],
+      [
+        "4",
+        "1-2 times per month"
+      ],
+      [
+        "5",
+        "Rarely or never"
+      ]
+    ]
+  },
+  "red_meat_frequency": {
+    "question_key": "red_meat_frequency",
+    "prompt": "How frequently do you consume red meat?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "1",
+        "4 or more times a week"
+      ],
+      [
+        "2",
+        "2-3 times a week"
+      ],
+      [
+        "3",
+        "Once a week or less"
+      ],
+      [
+        "4",
+        "1-2 times per month"
+      ],
+      [
+        "5",
+        "Rarely or never"
+      ]
+    ]
+  },
+  "water_intake_frequency": {
+    "question_key": "water_intake_frequency",
+    "prompt": "How many glasses of water do you drink in a day?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "0",
+        "Less than 2 glasses"
+      ],
+      [
+        "1",
+        "2 glasses"
+      ],
+      [
+        "2",
+        "4 glasses"
+      ],
+      [
+        "3",
+        "6 glasses"
+      ],
+      [
+        "4",
+        "8 glasses"
+      ],
+      [
+        "5",
+        "More than 8 glasses"
+      ]
+    ]
+  },
+  "sickness_frequency": {
+    "question_key": "sickness_frequency",
+    "prompt": "How often do you fall sick in a year?",
+    "question_type": "single_choice",
+    "options": [
+      [
+        "0",
+        "Rarely or Never"
+      ],
+      [
+        "1",
+        "1 to 2 times"
+      ],
+      [
+        "2",
+        "2 to 3 times"
+      ],
+      [
+        "3",
+        "4 to 5 times"
+      ],
+      [
+        "4",
+        "More than 6 times"
+      ]
+    ]
+  },
+  "systolic_blood_pressure": {
+    "question_key": "systolic_blood_pressure",
+    "prompt": "Systolic Blood Pressure",
+    "question_type": "scale",
+    "options": [
+      [
+        "0",
+        "mmHG"
+      ]
+    ]
+  },
+  "diastolic_blood_pressure": {
+    "question_key": "diastolic_blood_pressure",
+    "prompt": "Diastolic Blood Pressure",
+    "question_type": "scale",
+    "options": [
+      [
+        "0",
+        "mmHG"
+      ]
+    ]
+  },
+  "weight_loss_goal": {
+    "question_key": "weight_loss_goal",
+    "prompt": "What is your desired weight loss goal in upcoming months?",
+    "question_type": "scale",
+    "options": [
+      [
+        "0",
+        "kg"
+      ],
+      [
+        "1",
+        "lb"
+      ]
+    ]
+  }
+}

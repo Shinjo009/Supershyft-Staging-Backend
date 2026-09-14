@@ -9,7 +9,6 @@ from collections.abc import Callable, Coroutine
 from datetime import date, datetime, timezone
 from typing import Any, Literal
 
-import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -28,6 +27,7 @@ from modules.diagnostics.service import DiagnosticsService
 from modules.bioai_report.pdf_registration import register_permanent_bio_ai_report_url
 from modules.metsights.service import MetsightsService
 from modules.metsights.sync_service import MetsightsSyncService
+from modules.nutrition_score import NUTRITION_INTERNAL_ENDPOINT, calculate_nutrition
 from modules.reports.blood_parameters_normalizer import build_grouped_from_healthians
 from modules.reports.blood_parameters_read_service import BloodParametersReadService
 from modules.reports.blood_parameters_questionnaire_reader import BloodParametersQuestionnaireReader
@@ -1756,7 +1756,7 @@ class ReportsService:
                         engagement_id=engagement_id,
                         user_id=user_id,
                         provider="nutrition_api",
-                        api_endpoint_url=settings.NUTRITION_API_URL,
+                        api_endpoint_url=NUTRITION_INTERNAL_ENDPOINT,
                         request_payload=payload,
                         status=status,
                         response_payload=response_payload,
@@ -1794,59 +1794,39 @@ class ReportsService:
         )
 
         try:
-            async with httpx.AsyncClient(timeout=settings.NUTRITION_API_TIMEOUT_SECONDS) as client:
-                response = await client.post(
-                    settings.NUTRITION_API_URL,
-                    json=payload,
-                    headers={"X-API-Key": settings.NUTRITION_API_KEY},
-                )
-                response.raise_for_status()
-                data = response.json()
-                response_payload = data if isinstance(data, dict) else {}
-                await self._persist_nutrition_sync_log(
-                    engagement_id=engagement_id,
-                    user_id=user_id,
-                    payload=payload,
-                    status="success",
-                    response_payload=response_payload,
-                    sync_log_id=sync_log_id,
-                )
-                return response_payload
-        except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code
-            error_message = f"HTTP {status}"
-            if 400 <= status < 500:
-                detail: str | None = None
-                try:
-                    body = exc.response.json()
-                    if isinstance(body, dict):
-                        raw_detail = body.get("detail")
-                        if isinstance(raw_detail, str):
-                            detail = raw_detail
-                        elif isinstance(raw_detail, list):
-                            # FastAPI-style validation error array from nutrition API.
-                            detail = str(raw_detail)[:500]
-                except Exception:
-                    detail = None
-                error_message = detail or "Nutrition API rejected request payload"
-                # Annotate which payload field likely caused the rejection.
-                for qkey, qval in payload.items():
-                    if str(qval) and str(qval) in error_message:
-                        error_message = f"[{qkey}] {error_message}"
-                        break
-                await self._persist_nutrition_sync_log(
-                    engagement_id=engagement_id,
-                    user_id=user_id,
-                    payload=payload,
-                    status="failed",
-                    error_message=error_message,
-                    sync_log_id=sync_log_id,
-                )
-                raise AppError(
-                    status_code=400,
-                    error_code="INVALID_INPUT",
-                    message=error_message,
-                ) from exc
+            response_payload = calculate_nutrition(payload)
+            if not isinstance(response_payload, dict):
+                response_payload = {}
+            await self._persist_nutrition_sync_log(
+                engagement_id=engagement_id,
+                user_id=user_id,
+                payload=payload,
+                status="success",
+                response_payload=response_payload,
+                sync_log_id=sync_log_id,
+            )
+            return response_payload
+        except (TypeError, ValueError, KeyError, FileNotFoundError) as exc:
+            error_message = str(exc) or "Nutrition score rejected request payload"
+            for qkey, qval in payload.items():
+                if str(qval) and str(qval) in error_message:
+                    error_message = f"[{qkey}] {error_message}"
+                    break
+            await self._persist_nutrition_sync_log(
+                engagement_id=engagement_id,
+                user_id=user_id,
+                payload=payload,
+                status="failed",
+                error_message=error_message,
+                sync_log_id=sync_log_id,
+            )
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message=error_message,
+            ) from exc
+        except Exception as exc:
+            error_message = str(exc) or "Nutrition score calculation failed"
             await self._persist_nutrition_sync_log(
                 engagement_id=engagement_id,
                 user_id=user_id,
@@ -1858,21 +1838,7 @@ class ReportsService:
             raise AppError(
                 status_code=503,
                 error_code="EXTERNAL_SERVICE_UNAVAILABLE",
-                message="Nutrition API request failed",
-            ) from exc
-        except httpx.HTTPError as exc:
-            await self._persist_nutrition_sync_log(
-                engagement_id=engagement_id,
-                user_id=user_id,
-                payload=payload,
-                status="failed",
-                error_message=str(exc),
-                sync_log_id=sync_log_id,
-            )
-            raise AppError(
-                status_code=503,
-                error_code="EXTERNAL_SERVICE_UNAVAILABLE",
-                message="Nutrition API request failed",
+                message="Nutrition score calculation failed",
             ) from exc
 
     async def _build_questionnaire_lookup(

@@ -1,18 +1,17 @@
-"""Tests for integration_sync_logs on nutrition API calls."""
+"""Tests for integration_sync_logs on nutrition score calculations."""
 
 from __future__ import annotations
 
 import pytest
-import httpx
 from datetime import date
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from core.config import settings
 from core.exceptions import AppError
 from modules.assessments.repository import AssessmentsRepository
 from modules.audit.repository import AuditRepository
 from modules.audit.service import AuditService
+from modules.nutrition_score import NUTRITION_INTERNAL_ENDPOINT
 from modules.questionnaire.repository import QuestionnaireRepository
 from modules.reports.repository import ReportsRepository
 from modules.reports.service import ReportsService
@@ -66,55 +65,6 @@ def _build_reports_service(session_factory=None) -> ReportsService:
     )
 
 
-def _fake_httpx_client_success(*, nutrition_score: int = 75):
-    class _FakeResponse:
-        status_code = 200
-
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"nutrition_score": nutrition_score}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None, headers=None):
-            return _FakeResponse()
-
-    return _FakeClient
-
-
-def _fake_httpx_client_client_error():
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None, headers=None):
-            request = httpx.Request("POST", url)
-            response = httpx.Response(
-                400,
-                request=request,
-                json={"detail": "invalid literal for int() with base 10: 'Moderate-intensity'"},
-            )
-            raise httpx.HTTPStatusError("bad request", request=request, response=response)
-
-    return _FakeClient
-
-
 @pytest.mark.asyncio
 async def test_call_nutrition_api_creates_integration_sync_log_on_success(
     test_db_session, test_engine, monkeypatch
@@ -122,9 +72,13 @@ async def test_call_nutrition_api_creates_integration_sync_log_on_success(
     await _seed_user(test_db_session, user_id=8801)
     await _seed_engagement(test_db_session, engagement_id=9901)
     payload = {"diet_preference": "vegetarian", "water_intake_frequency": "often"}
+
+    def _mock_calculate_nutrition(_payload):
+        return {"nutrition_score": 82}
+
     monkeypatch.setattr(
-        "modules.reports.service.httpx.AsyncClient",
-        _fake_httpx_client_success(nutrition_score=82),
+        "modules.reports.service.calculate_nutrition",
+        _mock_calculate_nutrition,
     )
 
     session_factory = async_sessionmaker(bind=test_engine, class_=AsyncSession, expire_on_commit=False)
@@ -149,7 +103,7 @@ async def test_call_nutrition_api_creates_integration_sync_log_on_success(
     assert row["provider"] == "nutrition_api"
     assert row["engagement_id"] == 9901
     assert row["user_id"] == 8801
-    assert row["api_endpoint_url"] == settings.NUTRITION_API_URL
+    assert row["api_endpoint_url"] == NUTRITION_INTERNAL_ENDPOINT
     assert row["request_payload"] == payload
     assert row["status"] == "success"
     assert row["response_payload"] == {"nutrition_score": 82}
@@ -164,9 +118,13 @@ async def test_call_nutrition_api_creates_integration_sync_log_on_failure_withou
     await _seed_user(test_db_session, user_id=8802)
     await _seed_engagement(test_db_session, engagement_id=9902)
     payload = {"exercise_level": "Moderate-intensity"}
+
+    def _mock_calculate_nutrition(_payload):
+        raise ValueError("invalid literal for int() with base 10: 'Moderate-intensity'")
+
     monkeypatch.setattr(
-        "modules.reports.service.httpx.AsyncClient",
-        _fake_httpx_client_client_error(),
+        "modules.reports.service.calculate_nutrition",
+        _mock_calculate_nutrition,
     )
 
     session_factory = async_sessionmaker(bind=test_engine, class_=AsyncSession, expire_on_commit=False)
@@ -197,6 +155,35 @@ async def test_call_nutrition_api_creates_integration_sync_log_on_failure_withou
     assert "Moderate-intensity" in (row["error_message"] or "")
     assert row["response_payload"] is None
     assert row["request_payload"] == payload
+
+
+@pytest.mark.asyncio
+async def test_call_nutrition_api_creates_integration_sync_log_on_unexpected_failure(
+    test_db_session, test_engine, monkeypatch
+):
+    await _seed_user(test_db_session, user_id=8803)
+    await _seed_engagement(test_db_session, engagement_id=9903)
+    payload = {"diet_preference": "1"}
+
+    def _mock_calculate_nutrition(_payload):
+        raise RuntimeError("config load failed")
+
+    monkeypatch.setattr(
+        "modules.reports.service.calculate_nutrition",
+        _mock_calculate_nutrition,
+    )
+
+    session_factory = async_sessionmaker(bind=test_engine, class_=AsyncSession, expire_on_commit=False)
+    service = _build_reports_service(session_factory=session_factory)
+    with pytest.raises(AppError) as exc_info:
+        await service._call_nutrition_api(
+            test_db_session,
+            payload,
+            user_id=8803,
+            engagement_id=9903,
+        )
+    assert exc_info.value.error_code == "EXTERNAL_SERVICE_UNAVAILABLE"
+    assert exc_info.value.message == "Nutrition score calculation failed"
 
 
 def test_resolve_nutrition_choice_maps_label_variants_to_option_value():
