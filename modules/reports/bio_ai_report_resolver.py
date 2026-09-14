@@ -5,7 +5,10 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.exceptions import AppError
-from modules.bioai_report.pdf_registration import register_permanent_bio_ai_report_url
+from modules.bioai_report.pdf_registration import (
+    lookup_existing_bio_ai_report_url,
+    register_permanent_bio_ai_report_url,
+)
 from modules.metsights.service import MetsightsService
 from modules.reports.models import IndividualHealthReport
 from modules.reports.repository import ReportsRepository
@@ -61,6 +64,15 @@ async def resolve_bio_ai_report_url(
         )
 
     repo = reports_repository or ReportsRepository()
+
+    existing_url = await lookup_existing_bio_ai_report_url(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+        assessment_instance_id=assessment_instance_id,
+    )
+    if existing_url:
+        return _normalize_report_url(existing_url)
 
     assessment_report = await repo.get_individual_report_by_assessment(
         db, assessment_instance_id=assessment_instance_id

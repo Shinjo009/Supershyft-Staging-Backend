@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import settings
 from core.exceptions import AppError
 from modules.audit.cron_sync_logging import tracked_integration_call
+from modules.audit.models import IntegrationSyncLog
 from modules.bioai_report.client import BioAiReportsClient
 from modules.bioai_report.report_engine.services.report_service import BioReportService
+from modules.reports.repository import ReportsRepository
 
 _PROVIDER = "bio_ai_reports"
 _BIO_AI_TYPE_CODES = frozenset({"1", "2"})
@@ -42,6 +45,114 @@ def extract_slug_from_report_url(url: str | None) -> str | None:
     slug = cleaned.split("/r/", 1)[1]
     slug = slug.split("?", 1)[0].split("#", 1)[0].strip().rstrip("/")
     return slug or None
+
+
+def is_bio_ai_reports_permanent_url(url: str | None) -> bool:
+    return extract_slug_from_report_url(url) is not None
+
+
+def _url_from_register_response_payload(payload: Any) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    url = payload.get("url")
+    if isinstance(url, str) and is_bio_ai_reports_permanent_url(url):
+        return url.strip()
+    slug = payload.get("slug")
+    if isinstance(slug, str) and slug.strip():
+        base = (settings.BIO_AI_REPORTS_BASE_URL or "").strip().rstrip("/")
+        if base:
+            return f"{base}/r/{slug.strip()}"
+    return None
+
+
+async def lookup_first_registered_bio_ai_report_url(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    engagement_id: int,
+) -> str | None:
+    """Return the earliest successful bio-ai-reports register URL for this participant."""
+    register_endpoint = bioreport_register_endpoint()
+    result = await db.execute(
+        select(IntegrationSyncLog.response_payload)
+        .where(IntegrationSyncLog.provider == _PROVIDER)
+        .where(IntegrationSyncLog.user_id == user_id)
+        .where(IntegrationSyncLog.engagement_id == engagement_id)
+        .where(IntegrationSyncLog.status == "success")
+        .where(IntegrationSyncLog.api_endpoint_url == register_endpoint)
+        .order_by(
+            IntegrationSyncLog.created_at.asc(),
+            IntegrationSyncLog.sync_log_id.asc(),
+        )
+        .limit(1)
+    )
+    payload = result.scalar_one_or_none()
+    return _url_from_register_response_payload(payload)
+
+
+async def lookup_existing_bio_ai_report_url(
+    db: AsyncSession,
+    *,
+    user_id: int | None,
+    engagement_id: int | None,
+    assessment_instance_id: int,
+) -> str | None:
+    """Return a cached permanent bio-ai-reports URL without creating a new slug."""
+    if user_id is not None and engagement_id is not None:
+        first_registered = await lookup_first_registered_bio_ai_report_url(
+            db,
+            user_id=user_id,
+            engagement_id=engagement_id,
+        )
+        if first_registered:
+            return first_registered
+
+    repo = ReportsRepository()
+    assessment_report = await repo.get_individual_report_by_assessment(
+        db,
+        assessment_instance_id=assessment_instance_id,
+    )
+    if assessment_report is not None:
+        cached = (assessment_report.report_url or "").strip()
+        if is_bio_ai_reports_permanent_url(cached):
+            return cached
+
+    if user_id is not None and engagement_id is not None:
+        engagement_report = await repo.get_individual_report_by_engagement(
+            db,
+            user_id=user_id,
+            engagement_id=engagement_id,
+        )
+        if engagement_report is not None:
+            cached = (engagement_report.report_url or "").strip()
+            if is_bio_ai_reports_permanent_url(cached):
+                return cached
+
+    return None
+
+
+async def resolve_canonical_bio_ai_report_url(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    engagement_id: int,
+    assessment_instance_id: int,
+    report_url: str | None,
+) -> str | None:
+    """Prefer the first registered slug (emailed link) over later overwritten URLs."""
+    existing = await lookup_existing_bio_ai_report_url(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+        assessment_instance_id=assessment_instance_id,
+    )
+    if existing:
+        return existing
+
+    current = (report_url or "").strip()
+    if is_bio_ai_reports_permanent_url(current):
+        return current
+    return None
 
 
 def summarize_bioreport_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -84,6 +195,15 @@ async def register_permanent_bio_ai_report_url(
         service = get_bioreport_service()
     client = bio_ai_reports_client or BioAiReportsClient()
     instance_id = int(assessment_instance_id)
+
+    existing_url = await lookup_existing_bio_ai_report_url(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+        assessment_instance_id=instance_id,
+    )
+    if existing_url:
+        return existing_url
 
     bioreport_payload = await tracked_integration_call(
         db,

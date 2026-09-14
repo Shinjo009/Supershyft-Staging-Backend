@@ -31,6 +31,7 @@ from modules.bioai_report.pdf_registration import (
     extract_slug_from_report_url,
     is_bio_ai_assessment_type,
     regenerate_permanent_bio_ai_report_url,
+    resolve_canonical_bio_ai_report_url,
 )
 from modules.engagements.models import Engagement, EngagementParticipant
 from modules.metsights.service import MetsightsService
@@ -408,6 +409,27 @@ async def regenerate_bioai_reports(
                 })
                 continue
 
+            canonical_report_url = await resolve_canonical_bio_ai_report_url(
+                db,
+                user_id=user_id,
+                engagement_id=row_engagement_id,
+                assessment_instance_id=instance_id,
+                report_url=report_url,
+            )
+            if not canonical_report_url:
+                skipped += 1
+                details.append({
+                    "user_id": user_id,
+                    "engagement_id": row_engagement_id,
+                    "action": "skipped",
+                    "reason": "no bio-ai-reports permanent URL found for participant",
+                })
+                continue
+
+            stored_report_url = report_url
+            report_url = canonical_report_url
+            using_first_registered_slug = report_url != stored_report_url
+
             slug = extract_slug_from_report_url(report_url)
             if not slug:
                 skipped += 1
@@ -531,6 +553,7 @@ async def regenerate_bioai_reports(
                 continue
 
             ihr.reports = fetched_reports
+            ihr.report_url = report_url
             await db.flush()
 
             try:
@@ -561,11 +584,14 @@ async def regenerate_bioai_reports(
 
             await db.commit()
             regenerated += 1
+            regen_reason = f"reports refreshed and PDF regenerated at slug={slug}"
+            if using_first_registered_slug:
+                regen_reason += " (restored first registered slug emailed to participant)"
             details.append({
                 "user_id": user_id,
                 "engagement_id": row_engagement_id,
                 "action": "regenerated",
-                "reason": f"reports refreshed and PDF regenerated at slug={slug}",
+                "reason": regen_reason,
             })
         except Exception as exc:
             await db.rollback()
