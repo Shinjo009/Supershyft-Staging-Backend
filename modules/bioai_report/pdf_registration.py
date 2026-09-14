@@ -29,6 +29,21 @@ def bioreport_register_endpoint() -> str:
     return f"{base}/api/reports"
 
 
+def bioreport_regenerate_endpoint() -> str:
+    base = (settings.BIO_AI_REPORTS_BASE_URL or "").strip().rstrip("/")
+    return f"{base}/api/reports/regenerate"
+
+
+def extract_slug_from_report_url(url: str | None) -> str | None:
+    """Parse the public slug from a bio-ai-reports permanent URL."""
+    cleaned = (url or "").strip()
+    if not cleaned or "/r/" not in cleaned:
+        return None
+    slug = cleaned.split("/r/", 1)[1]
+    slug = slug.split("?", 1)[0].split("#", 1)[0].strip().rstrip("/")
+    return slug or None
+
+
 def summarize_bioreport_payload(payload: dict[str, Any]) -> dict[str, Any]:
     metadata = payload.get("report_metadata") if isinstance(payload.get("report_metadata"), dict) else {}
     patient = payload.get("patient") if isinstance(payload.get("patient"), dict) else {}
@@ -108,6 +123,85 @@ async def register_permanent_bio_ai_report_url(
             message="bio-ai-reports returned an invalid response",
         )
     return extract_registered_report_url(registration_response)
+
+
+async def regenerate_permanent_bio_ai_report_url(
+    db: AsyncSession,
+    *,
+    assessment_instance_id: int,
+    report_url: str,
+    engagement_id: int | None = None,
+    user_id: int | None = None,
+    bio_report_service: BioReportService | None = None,
+    bio_ai_reports_client: BioAiReportsClient | None = None,
+) -> str:
+    """Regenerate BioReport JSON and overwrite the PDF at an existing permanent slug."""
+    slug = extract_slug_from_report_url(report_url)
+    if not slug:
+        raise AppError(
+            status_code=400,
+            error_code="VALIDATION_ERROR",
+            message="report_url does not contain a bio-ai-reports slug",
+        )
+
+    service = bio_report_service
+    if service is None:
+        from modules.bioai_report.report_engine.api.dependencies import get_bioreport_service
+
+        service = get_bioreport_service()
+    client = bio_ai_reports_client or BioAiReportsClient()
+    instance_id = int(assessment_instance_id)
+    existing_url = report_url.strip()
+
+    bioreport_payload = await tracked_integration_call(
+        db,
+        provider=_PROVIDER,
+        api_url=bioreport_generate_endpoint(instance_id),
+        engagement_id=engagement_id,
+        user_id=user_id,
+        request_payload={"assessment_instance_id": instance_id, "slug": slug},
+        operation=lambda: _generate_bioreport_payload(
+            service,
+            assessment_instance_id=instance_id,
+            db=db,
+        ),
+        reraise=True,
+    )
+    if not isinstance(bioreport_payload, dict):
+        raise AppError(
+            status_code=500,
+            error_code="INTERNAL_ERROR",
+            message="BioReport generation returned an invalid payload",
+        )
+
+    registration_response = await tracked_integration_call(
+        db,
+        provider=_PROVIDER,
+        api_url=bioreport_regenerate_endpoint(),
+        engagement_id=engagement_id,
+        user_id=user_id,
+        request_payload={
+            **summarize_bioreport_payload(bioreport_payload),
+            "slug": slug,
+        },
+        operation=lambda: client.regenerate_report(bioreport_payload, slug=slug),
+        reraise=True,
+    )
+    if not isinstance(registration_response, dict):
+        raise AppError(
+            status_code=502,
+            error_code="BIO_AI_REPORTS_ERROR",
+            message="bio-ai-reports returned an invalid response",
+        )
+
+    regenerated_url = extract_registered_report_url(registration_response)
+    if regenerated_url.rstrip("/") != existing_url.rstrip("/"):
+        raise AppError(
+            status_code=502,
+            error_code="BIO_AI_REPORTS_ERROR",
+            message="bio-ai-reports regenerate returned a different report url",
+        )
+    return existing_url
 
 
 async def _generate_bioreport_payload(

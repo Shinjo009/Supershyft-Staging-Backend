@@ -13,7 +13,7 @@ from core.exceptions import AppError
 class BioAiReportsClient:
     """Register BioReport JSON payloads and receive permanent secret PDF links."""
 
-    async def register_report(self, payload: dict[str, Any]) -> dict[str, Any]:
+    async def _post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         base = (settings.BIO_AI_REPORTS_BASE_URL or "").strip().rstrip("/")
         if not base:
             raise AppError(
@@ -22,7 +22,7 @@ class BioAiReportsClient:
                 message="BIO_AI_REPORTS_BASE_URL is not configured",
             )
 
-        url = f"{base}/api/reports"
+        url = f"{base}{path}"
         try:
             async with httpx.AsyncClient(timeout=settings.BIO_AI_REPORTS_TIMEOUT_SECONDS) as client:
                 response = await client.post(url, json=payload)
@@ -48,3 +48,18 @@ class BioAiReportsClient:
                 message="bio-ai-reports returned an invalid response",
             )
         return body
+
+    async def register_report(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self._post_json("/api/reports", payload)
+
+    async def regenerate_report(self, payload: dict[str, Any], *, slug: str) -> dict[str, Any]:
+        public_slug = (slug or "").strip()
+        if not public_slug:
+            raise AppError(
+                status_code=400,
+                error_code="VALIDATION_ERROR",
+                message="slug is required for regenerate",
+            )
+        body = dict(payload)
+        body["slug"] = public_slug
+        return await self._post_json("/api/reports/regenerate", body)
