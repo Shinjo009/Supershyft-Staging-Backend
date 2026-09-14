@@ -122,7 +122,7 @@ async def create_discount(
     employee: EmployeeContext = Depends(get_current_employee),
     service: DiscountService = Depends(get_discount_service),
 ):
-    result = await service.create_code(db, payload, actor_id=employee.user_id)
+    result = await service.create_code(db, payload, actor_id=employee.employee_id)
     err = _err(result)
     if err:
         await db.rollback()
@@ -243,7 +243,7 @@ async def update_discount(
     employee: EmployeeContext = Depends(get_current_employee),
     service: DiscountService = Depends(get_discount_service),
 ):
-    result = await service.update_code(db, discount_code_id, payload, actor_id=employee.user_id)
+    result = await service.update_code(db, discount_code_id, payload, actor_id=employee.employee_id)
     err = _err(result)
     if err:
         await db.rollback()
@@ -262,7 +262,7 @@ async def update_status(
     employee: EmployeeContext = Depends(get_current_employee),
     service: DiscountService = Depends(get_discount_service),
 ):
-    result = await service.set_status(db, discount_code_id, payload.action, actor_id=employee.user_id)
+    result = await service.set_status(db, discount_code_id, payload.action, actor_id=employee.employee_id)
     err = _err(result)
     if err:
         await db.rollback()
@@ -286,7 +286,7 @@ async def list_audit(
             {
                 "audit_id": r.audit_id,
                 "action": r.action,
-                "actor_user_id": r.actor_user_id,
+                "actor_employee_id": r.actor_employee_id,
                 "diff": r.diff,
                 "created_at": r.created_at,
             }
@@ -310,7 +310,7 @@ async def bulk_instances(
         discount_code_id,
         count=payload.count,
         prefix=payload.prefix,
-        actor_id=employee.user_id,
+        actor_id=employee.employee_id,
     )
     err = _err(result)
     if err:
@@ -348,7 +348,7 @@ async def upload_allowlist(
     service: DiscountService = Depends(get_discount_service),
 ):
     result = await service.upload_allowlist(
-        db, discount_code_id, payload.entries, actor_id=employee.user_id
+        db, discount_code_id, payload.entries, actor_id=employee.employee_id
     )
     err = _err(result)
     if err:

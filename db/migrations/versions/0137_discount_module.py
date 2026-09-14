@@ -1,7 +1,7 @@
-"""Discount module tables + diagnostic_package.min_price.
+"""Discount module tables + diagnostic_package.min_price + discounts RBAC category.
 
-Revision ID: 0111_discount_module
-Revises: 0110_cat_ids_is_submitted
+Revision ID: 0137_discount_module
+Revises: 0136_org_manager_partners
 """
 
 from __future__ import annotations
@@ -11,13 +11,14 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 
-revision = "0111_discount_module"
-down_revision = "0110_cat_ids_is_submitted"
+revision = "0137_discount_module"
+down_revision = "0136_org_manager_partners"
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
+    conn = op.get_bind()
     op.execute(sa.text("SET LOCAL lock_timeout = '15s'"))
     op.execute(
         sa.text(
@@ -60,10 +61,25 @@ def upgrade() -> None:
         sa.Column("max_total_discount_paise", sa.Integer(), nullable=True),
         sa.Column("total_discount_given_paise", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("code_kind", sa.String(32), nullable=False, server_default="shared"),
-        sa.Column("referral_user_id", sa.Integer(), sa.ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "referral_user_id",
+            sa.Integer(),
+            sa.ForeignKey("users.user_id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column("min_price_protection", sa.Boolean(), nullable=False, server_default="true"),
-        sa.Column("created_by", sa.Integer(), sa.ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True),
-        sa.Column("updated_by", sa.Integer(), sa.ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "created_employee_id",
+            sa.Integer(),
+            sa.ForeignKey("employee.employee_id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_employee_id",
+            sa.Integer(),
+            sa.ForeignKey("employee.employee_id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.UniqueConstraint("code", name="uq_discount_codes_code"),
@@ -155,7 +171,12 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("code", sa.String(64), nullable=False),
-        sa.Column("assigned_user_id", sa.Integer(), sa.ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "assigned_user_id",
+            sa.Integer(),
+            sa.ForeignKey("users.user_id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column("status", sa.String(32), nullable=False, server_default="available"),
         sa.Column("used_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
@@ -204,7 +225,12 @@ def upgrade() -> None:
             sa.ForeignKey("discount_codes.discount_code_id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column("actor_user_id", sa.Integer(), sa.ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "actor_employee_id",
+            sa.Integer(),
+            sa.ForeignKey("employee.employee_id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column("action", sa.String(64), nullable=False),
         sa.Column("diff", postgresql.JSON(astext_type=sa.Text()), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
@@ -233,19 +259,22 @@ def upgrade() -> None:
         ["client_ip", "created_at"],
     )
 
+    conn.execute(
+        sa.text(
+            """
+            INSERT INTO permission_categories (category_key, display_name, description, display_order, is_active)
+            VALUES (
+              'discounts',
+              'Discounts',
+              'Discount codes, instances, allowlists, and reports',
+              (SELECT COALESCE(MAX(display_order), 0) + 1 FROM permission_categories),
+              true
+            )
+            ON CONFLICT (category_key) DO NOTHING
+            """
+        )
+    )
+
 
 def downgrade() -> None:
-    op.execute(sa.text("SET LOCAL lock_timeout = '15s'"))
-    for table in (
-        "discount_validation_attempts",
-        "discount_code_audit",
-        "discount_usages",
-        "discount_code_instances",
-        "discount_allowlist_users",
-        "discount_code_cities",
-        "discount_code_packages",
-        "discount_code_scopes",
-        "discount_codes",
-    ):
-        op.drop_table(table)
-    op.execute(sa.text("ALTER TABLE diagnostic_package DROP COLUMN IF EXISTS min_price"))
+    raise RuntimeError("Downgrade is not supported for 0137_discount_module")

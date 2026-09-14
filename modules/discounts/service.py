@@ -128,7 +128,7 @@ class DiscountService:
             return {"_error": (400, "Invalid status action")}
         old = row.status
         row.status = new_status
-        row.updated_by = actor_id
+        row.updated_employee_id = actor_id
         await self.repository.add_audit(
             db, discount_code_id, actor_id, "status", {"from": old, "to": new_status, "action": action}
         )

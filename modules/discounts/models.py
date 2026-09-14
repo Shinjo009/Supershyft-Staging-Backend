@@ -46,8 +46,8 @@ class DiscountCode(Base):
     code_kind = Column(String(32), nullable=False, server_default=text("'shared'"))
     referral_user_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
     min_price_protection = Column(Boolean, nullable=False, server_default=text("true"))
-    created_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
-    updated_by = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
+    created_employee_id = Column(Integer, ForeignKey("employee.employee_id", ondelete="SET NULL"), nullable=True)
+    updated_employee_id = Column(Integer, ForeignKey("employee.employee_id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
@@ -181,7 +181,7 @@ class DiscountCodeAudit(Base):
     discount_code_id = Column(
         Integer, ForeignKey("discount_codes.discount_code_id", ondelete="CASCADE"), nullable=False
     )
-    actor_user_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
+    actor_employee_id = Column(Integer, ForeignKey("employee.employee_id", ondelete="SET NULL"), nullable=True)
     action = Column(String(64), nullable=False)
     diff = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

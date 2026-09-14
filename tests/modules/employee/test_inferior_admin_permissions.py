@@ -26,7 +26,7 @@ def _headers(employee_id: int) -> dict[str, str]:
     return employee_auth_header(employee_id)
 
 
-def test_catalog_contract_has_exact_sixteen_categories():
+def test_catalog_contract_has_exact_seventeen_categories():
     assert PERMISSION_CATEGORY_KEYS == {
         "users",
         "organizations",
@@ -37,6 +37,7 @@ def test_catalog_contract_has_exact_sixteen_categories():
         "reports",
         "experts",
         "payments_bookings",
+        "discounts",
         "notifications",
         "checklists_tasks",
         "support",
@@ -65,6 +66,9 @@ def test_catalog_contract_has_exact_sixteen_categories():
         ("POST", "/admin-temp/sync-questionnaire-seed", "system_monitoring", PermissionAction.edit),
         ("GET", "/partners", "partners", PermissionAction.view),
         ("POST", "/partners", "partners", PermissionAction.edit),
+        ("GET", "/discounts", "discounts", PermissionAction.view),
+        ("POST", "/discounts", "discounts", PermissionAction.edit),
+        ("GET", "/discounts/reports/summary", "discounts", PermissionAction.view),
     ],
 )
 def test_operation_manifest_explicit_classification(method, path, category, action):
@@ -97,6 +101,10 @@ def test_operation_manifest_explicit_classification(method, path, category, acti
         ("PATCH", "/platform-settings/b2c-onboarding", "b2c_onboarding"),
         ("GET", "/partners/{partner_id}", "directory"),
         ("PATCH", "/partners/{partner_id}/status", "status"),
+        ("POST", "/discounts", "codes"),
+        ("POST", "/discounts/{discount_code_id}/instances/bulk", "instances"),
+        ("POST", "/discounts/{discount_code_id}/allowlist", "allowlist"),
+        ("GET", "/discounts/reports/summary", "reports"),
     ],
 )
 def test_operation_manifest_assigns_nested_tasks(method, path, task_key):
@@ -124,6 +132,8 @@ def test_every_category_has_configurable_tasks():
         ("GET", "/experts/portal/me"),
         ("POST", "/employees/auth/send-otp"),
         ("POST", "/partners/auth/send-otp"),
+        ("POST", "/discounts/validate"),
+        ("POST", "/discounts/auto-apply"),
     ],
 )
 def test_operation_manifest_explicit_exclusions(method, path):

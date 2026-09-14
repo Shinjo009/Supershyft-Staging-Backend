@@ -38,6 +38,7 @@ CATEGORY_LABELS: Mapping[str, str] = MappingProxyType(
         "reports": "Reports",
         "experts": "Experts",
         "payments_bookings": "Payments & Bookings",
+        "discounts": "Discounts",
         "notifications": "Notifications",
         "checklists_tasks": "Checklists & Tasks",
         "support": "Support",
@@ -117,6 +118,12 @@ TASK_CATALOG: Mapping[str, tuple[tuple[str, str, str], ...]] = MappingProxyType(
         "payments_bookings": (
             ("payments", "Payments", "View and manage payment records"),
             ("bookings", "Bookings", "View and manage booking records"),
+        ),
+        "discounts": (
+            ("codes", "Discount codes", "Create, update, and manage discount codes"),
+            ("instances", "Unique code pools", "Bulk-generate and export unique discount codes"),
+            ("allowlist", "Allowlists", "Manage discount code allowlists"),
+            ("reports", "Reports & support", "View discount reports and support lookups"),
         ),
         "notifications": (
             ("messages", "Messages", "Send and manage notifications"),
@@ -318,6 +325,8 @@ def _excluded(path: str, method: str) -> bool:
         "/payments/bookings",
     }:
         return True
+    if path in {"/discounts/validate", "/discounts/auto-apply"}:
+        return True
     if path == "/checklist/my-tasks":
         return True
     if path in {
@@ -418,7 +427,7 @@ def _task_for_operation(category: str, path: str, method: str) -> str:
             return "package_metadata"
         if "health-parameters" in path:
             return "health_parameters"
-        if path.startswith("/healthians"):
+        if path.startswith("/healthians") or path.startswith("/integrations"):
             return "integrations"
         if path.startswith("/diagnostic-packages"):
             return "packages"
@@ -447,6 +456,14 @@ def _task_for_operation(category: str, path: str, method: str) -> str:
         return "experts"
     if category == "payments_bookings":
         return "bookings" if "booking" in path else "payments"
+    if category == "discounts":
+        if "/instances" in path:
+            return "instances"
+        if "/allowlist" in path:
+            return "allowlist"
+        if "/reports" in path or "/support-lookup" in path or path.endswith("/audit") or path.endswith("/report"):
+            return "reports"
+        return "codes"
     if category == "notifications":
         if "dispatch" in path or "prepare-reports" in path:
             return "dispatch"
@@ -571,6 +588,10 @@ def classify_operation(route_template: str, method: str) -> RouteCapability | No
         category = "experts"
     elif path.startswith("/payments"):
         category = "payments_bookings"
+    elif path.startswith("/discounts"):
+        category = "discounts"
+    elif path.startswith("/integrations"):
+        category = "diagnostics"
     elif path.startswith(("/notifications", "/notification-events")):
         category = "notifications"
     elif path.startswith("/support"):

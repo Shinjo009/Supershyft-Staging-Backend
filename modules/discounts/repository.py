@@ -122,8 +122,8 @@ class DiscountRepository:
             code_kind=payload.code_kind,
             referral_user_id=payload.referral_user_id,
             min_price_protection=payload.min_price_protection,
-            created_by=actor_id,
-            updated_by=actor_id,
+            created_employee_id=actor_id,
+            updated_employee_id=actor_id,
         )
         db.add(row)
         await db.flush()
@@ -142,7 +142,7 @@ class DiscountRepository:
         cities = data.pop("cities", None)
         for key, value in data.items():
             setattr(row, key, value)
-        row.updated_by = actor_id
+        row.updated_employee_id = actor_id
         if "scope_mode" in data or scope_keys is not None:
             await self._replace_scopes(
                 db, row, row.scope_mode, scope_keys if scope_keys is not None else [s.scope_key for s in row.scopes]
@@ -213,7 +213,7 @@ class DiscountRepository:
         db.add(
             DiscountCodeAudit(
                 discount_code_id=discount_code_id,
-                actor_user_id=actor_id,
+                actor_employee_id=actor_id,
                 action=action,
                 diff=diff,
             )
