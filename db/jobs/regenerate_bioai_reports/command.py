@@ -1,7 +1,9 @@
 """Regenerate BioAI PDFs for eligible female booked participants.
 
-Refreshes MetSights report JSON and overwrites PDFs at existing permanent slugs
-via POST /api/reports/regenerate for participants in running engagements.
+Re-drafts blood questionnaire answers with updated unit codes, re-pushes all
+Metsights categories on the primary assessment package, refreshes MetSights
+report JSON, and overwrites PDFs at existing permanent slugs via
+POST /api/reports/regenerate.
 
 Entrypoint: ``python -m db.jobs.regenerate_bioai_reports --yes``
 
@@ -17,9 +19,15 @@ import sys
 from datetime import date
 
 from db.engine import create_job_engine, job_session_factory
+from modules.assessments.dependencies import get_assessments_service
+from modules.engagements.dependencies import get_engagements_service
 from modules.metsights.client import MetsightsClient
 from modules.metsights.service import MetsightsService
+from modules.metsights.sync_service import MetsightsSyncService
 from modules.notifications.regenerate_bioai_reports import regenerate_bioai_reports
+from modules.platform_settings.dependencies import get_platform_settings_service_readonly
+from modules.questionnaire.repository import QuestionnaireRepository
+from modules.users.repository import UsersRepository
 
 _PROGRESS_BAR_WIDTH = 30
 
@@ -88,6 +96,15 @@ async def run_regenerate(
     engine = create_job_engine()
     session_factory = job_session_factory(engine)
     metsights_service = MetsightsService(client=MetsightsClient())
+    sync_service = MetsightsSyncService(
+        metsights_service=metsights_service,
+        users_repository=UsersRepository(),
+        engagements_service=get_engagements_service(),
+        assessments_service=get_assessments_service(),
+        platform_settings_service=get_platform_settings_service_readonly(),
+        questionnaire_repository=QuestionnaireRepository(),
+    )
+    assessments_service = get_assessments_service()
     on_progress = _make_progress_printer()
 
     if engagement_id is not None:
@@ -102,6 +119,8 @@ async def run_regenerate(
         result = await regenerate_bioai_reports(
             session,
             metsights_service=metsights_service,
+            assessments_service=assessments_service,
+            sync_service=sync_service,
             as_of=as_of,
             dry_run=dry_run,
             engagement_id=engagement_id,

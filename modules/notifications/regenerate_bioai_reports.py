@@ -3,8 +3,10 @@
 For participants in running engagements with a Healthians booking_id and an
 existing bio-ai-reports permanent URL on the primary assessment instance:
 1. Verify MetSights blood parameters are complete.
-2. Refresh individual_health_report.reports from MetSights.
-3. Regenerate the PDF at the same slug via POST /api/reports/regenerate.
+2. Draft blood questionnaire answers from IHR (updated unit codes) and re-push
+   all Metsights categories linked to the primary assessment package.
+3. Refresh individual_health_report.reports from MetSights.
+4. Regenerate the PDF at the same slug via POST /api/reports/regenerate.
 """
 
 from __future__ import annotations
@@ -12,12 +14,17 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from datetime import date
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from db.seed.blood_parameters_registry import (
+    ADVANCED_BLOOD_PARAMETER_CATEGORY_KEY,
+    BLOOD_PARAMETER_CATEGORY_KEY,
+)
 from modules.assessments.models import AssessmentInstance, AssessmentPackage
+from modules.assessments.repository import AssessmentsRepository
 from modules.audit.cron_sync_logging import tracked_integration_call
 from modules.bioai_report.pdf_registration import (
     extract_slug_from_report_url,
@@ -30,14 +37,26 @@ from modules.notifications.load_bioai_reports import (
     _fetch_metsights_report_json,
     _metsights_blood_parameters_url,
 )
+from modules.questionnaire.repository import QuestionnaireRepository
 from modules.reports.models import IndividualHealthReport
 from modules.users.models import User
+
+if TYPE_CHECKING:
+    from modules.assessments.service import AssessmentsService
+    from modules.metsights.sync_service import MetsightsSyncService
 
 logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[int, int, int, int, int], None]
 
 _FEMALE_GENDERS = ("female", "f", "2")
+_METSIGHTS_CATEGORY_PUSH_ORDER = (
+    "physical-measurement",
+    "vitals",
+    "diet-lifestyle-parameters",
+    BLOOD_PARAMETER_CATEGORY_KEY,
+    ADVANCED_BLOOD_PARAMETER_CATEGORY_KEY,
+)
 
 
 async def _get_regenerate_candidates(
@@ -52,6 +71,7 @@ async def _get_regenerate_candidates(
             EngagementParticipant.user_id,
             Engagement.engagement_id,
             AssessmentInstance.assessment_instance_id,
+            AssessmentInstance.package_id,
             AssessmentInstance.metsights_record_id,
             AssessmentPackage.assessment_type_code,
             IndividualHealthReport.report_id,
@@ -93,10 +113,136 @@ async def _get_regenerate_candidates(
     return result.all()
 
 
+async def _metsights_category_keys_for_package(
+    db: AsyncSession,
+    *,
+    package_id: int,
+) -> list[str]:
+    """Return Metsights category keys linked to the primary assessment package."""
+    assessments_repo = AssessmentsRepository()
+    questionnaire_repo = QuestionnaireRepository()
+    links = await assessments_repo.list_package_categories(db, package_id=package_id)
+    linked: set[str] = set()
+    for link in links:
+        category = await questionnaire_repo.get_category_by_id(db, int(link.category_id))
+        if category is None:
+            continue
+        if (category.category_of or "").strip().lower() != "metsights":
+            continue
+        key = (category.category_key or "").strip()
+        if key:
+            linked.add(key)
+    return [key for key in _METSIGHTS_CATEGORY_PUSH_ORDER if key in linked]
+
+
+async def _repush_metsights_categories_before_regenerate(
+    db: AsyncSession,
+    *,
+    assessments_service: "AssessmentsService",
+    sync_service: "MetsightsSyncService",
+    user_id: int,
+    engagement_id: int,
+    instance_id: int,
+    package_id: int,
+    details: list[dict[str, Any]],
+) -> bool:
+    """Draft blood units and re-push all Metsights categories. Returns False on failure."""
+    try:
+        draft_result = await assessments_service.draft_blood_parameters_from_report(
+            db,
+            user_id=user_id,
+            assessment_instance_id=instance_id,
+            allow_completed=True,
+        )
+        await db.commit()
+        details.append({
+            "user_id": user_id,
+            "engagement_id": engagement_id,
+            "action": "drafted",
+            "reason": (
+                f"drafted {draft_result.get('responses_drafted', 0)} "
+                "blood questionnaire responses with updated units"
+            ),
+        })
+    except Exception as exc:
+        await db.rollback()
+        logger.warning(
+            "Blood parameter draft failed for user=%s instance=%s: %s",
+            user_id,
+            instance_id,
+            exc,
+        )
+        details.append({
+            "user_id": user_id,
+            "engagement_id": engagement_id,
+            "action": "failed",
+            "reason": f"blood draft failed: {str(exc)[:120]}",
+        })
+        return False
+
+    category_keys = await _metsights_category_keys_for_package(
+        db,
+        package_id=package_id,
+    )
+    if not category_keys:
+        details.append({
+            "user_id": user_id,
+            "engagement_id": engagement_id,
+            "action": "failed",
+            "reason": "no metsights categories linked to primary assessment package",
+        })
+        return False
+
+    for category_key in category_keys:
+        try:
+            push_result = await sync_service._push_category_to_metsights(
+                db,
+                assessment_instance_id=instance_id,
+                user_id=user_id,
+                category_key=category_key,
+            )
+            await db.commit()
+            fields_count = len(push_result.get("fields_pushed") or [])
+            details.append({
+                "user_id": user_id,
+                "engagement_id": engagement_id,
+                "action": "pushed",
+                "reason": (
+                    f"re-pushed {category_key} to Metsights ({fields_count} fields)"
+                ),
+            })
+        except Exception as exc:
+            try:
+                await db.commit()
+            except Exception:
+                await db.rollback()
+            push_error = getattr(exc, "message", None) or str(exc)
+            logger.warning(
+                "Metsights category re-push failed for user=%s category=%s: %s",
+                user_id,
+                category_key,
+                exc,
+            )
+            details.append({
+                "user_id": user_id,
+                "engagement_id": engagement_id,
+                "action": "failed",
+                "reason": (
+                    f"metsights re-push failed for {category_key}: "
+                    f"{str(push_error)[:100]}"
+                ),
+            })
+            return False
+
+    return True
+
+
 async def regenerate_bioai_reports(
     db: AsyncSession,
     *,
     metsights_service: MetsightsService,
+    assessments_service: "AssessmentsService | None" = None,
+    sync_service: "MetsightsSyncService | None" = None,
     as_of: date | None = None,
     dry_run: bool = False,
     engagement_id: int | None = None,
@@ -129,10 +275,11 @@ async def regenerate_bioai_reports(
                 user_id,
                 row_engagement_id,
                 instance_id,
+                package_id,
                 record_id,
                 type_code,
                 ihr_id,
-                existing_reports,
+                _existing_reports,
                 existing_report_url,
             ) = row
 
@@ -162,11 +309,26 @@ async def regenerate_bioai_reports(
                 continue
 
             if dry_run:
+                dry_run_reasons = [
+                    "would_draft_blood_questionnaires",
+                    "would_repush_all_metsights_categories",
+                    f"would regenerate slug={slug}",
+                ]
                 details.append({
                     "user_id": user_id,
                     "engagement_id": row_engagement_id,
                     "action": "dry_run",
-                    "reason": f"would regenerate slug={slug}",
+                    "reason": ", ".join(dry_run_reasons),
+                })
+                continue
+
+            if assessments_service is None or sync_service is None:
+                skipped += 1
+                details.append({
+                    "user_id": user_id,
+                    "engagement_id": row_engagement_id,
+                    "action": "skipped",
+                    "reason": "assessments_service and sync_service are required for metsights re-push",
                 })
                 continue
 
@@ -197,6 +359,30 @@ async def regenerate_bioai_reports(
                     "action": "skipped",
                     "reason": "blood parameters not complete on MetSights",
                 })
+                continue
+
+            if package_id is None:
+                skipped += 1
+                details.append({
+                    "user_id": user_id,
+                    "engagement_id": row_engagement_id,
+                    "action": "skipped",
+                    "reason": "primary assessment package_id missing",
+                })
+                continue
+
+            repushed = await _repush_metsights_categories_before_regenerate(
+                db,
+                assessments_service=assessments_service,
+                sync_service=sync_service,
+                user_id=user_id,
+                engagement_id=row_engagement_id,
+                instance_id=instance_id,
+                package_id=int(package_id),
+                details=details,
+            )
+            if not repushed:
+                failed += 1
                 continue
 
             fetched_reports = await _fetch_metsights_report_json(

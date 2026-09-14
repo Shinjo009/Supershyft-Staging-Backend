@@ -182,6 +182,14 @@ async def test_regenerate_updates_reports_without_changing_report_url(test_db_se
         report_url="https://bio-ai-reports.supershyft.com/r/keep-slug",
     )
     metsights_service = MetsightsService(client=MetsightsClient())
+    assessments_service = AsyncMock()
+    assessments_service.draft_blood_parameters_from_report = AsyncMock(
+        return_value={"responses_drafted": 2}
+    )
+    sync_service = AsyncMock()
+    sync_service._push_category_to_metsights = AsyncMock(
+        return_value={"fields_pushed": ["haemoglobin"]}
+    )
 
     async def _fake_blood_params(*, record_id: str):
         return {"is_complete": True}
@@ -196,13 +204,21 @@ async def test_regenerate_updates_reports_without_changing_report_url(test_db_se
         "modules.notifications.regenerate_bioai_reports.regenerate_permanent_bio_ai_report_url",
         regenerate_mock,
     )
+    monkeypatch.setattr(
+        "modules.notifications.regenerate_bioai_reports._metsights_category_keys_for_package",
+        AsyncMock(return_value=["blood-parameters"]),
+    )
 
     result = await regenerate_bioai_reports(
         test_db_session,
         metsights_service=metsights_service,
+        assessments_service=assessments_service,
+        sync_service=sync_service,
         engagement_id=88004,
     )
     assert result["regenerated"] == 1
+    assessments_service.draft_blood_parameters_from_report.assert_awaited_once()
+    sync_service._push_category_to_metsights.assert_awaited_once()
     regenerate_mock.assert_awaited_once()
 
     row = (
@@ -215,3 +231,24 @@ async def test_regenerate_updates_reports_without_changing_report_url(test_db_se
     ).one()
     assert row[0]["refreshed"] is True
     assert row[1] == "https://bio-ai-reports.supershyft.com/r/keep-slug"
+
+
+@pytest.mark.asyncio
+async def test_regenerate_dry_run_mentions_metsights_repush(test_db_session):
+    await _seed_regenerate_participant(
+        test_db_session,
+        user_id=88005,
+        engagement_id=88005,
+        assessment_id=88005,
+    )
+    metsights_service = MetsightsService(client=MetsightsClient())
+    result = await regenerate_bioai_reports(
+        test_db_session,
+        metsights_service=metsights_service,
+        dry_run=True,
+        engagement_id=88005,
+    )
+    assert result["matched"] == 1
+    reason = result["details"][0]["reason"]
+    assert "would_draft_blood_questionnaires" in reason
+    assert "would_repush_all_metsights_categories" in reason
