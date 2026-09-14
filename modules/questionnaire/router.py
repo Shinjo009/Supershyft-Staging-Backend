@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.responses import success_response
 from core.exceptions import AppError
 from db.session import get_db
-from modules.employee.dependencies import get_current_employee
+from modules.employee.dependencies import get_current_employee, get_optional_employee
 from modules.employee.service import EmployeeContext
 from modules.questionnaire.dependencies import (
     get_questionnaire_management_service,
@@ -34,7 +34,7 @@ from modules.questionnaire.schemas import (
     QuestionnaireResponsesUpsertRequest,
 )
 from modules.questionnaire.service import QuestionnaireService, _VALID_QUESTION_FILTERS
-from core.dependencies import get_current_user
+from core.dependencies import get_current_user, get_optional_user
 
 
 router = APIRouter(tags=["questionnaire"])
@@ -421,11 +421,28 @@ async def update_category_status(
 async def list_category_questions(
     category_id: int,
     db: AsyncSession = Depends(get_db),
-    _current_user=Depends(get_current_user),
+    employee: EmployeeContext | None = Depends(get_optional_employee),
+    current_user=Depends(get_optional_user),
     service: QuestionnaireService = Depends(get_questionnaire_management_service),
 ):
-    rows = await service.list_category_questions_for_user(db, category_id=category_id)
-    return success_response(rows)
+    """List questions for a category.
+
+    Accepts employee JWTs (admin management, includes inactive) or user JWTs
+    (patient fill flow, active questions only).
+    """
+    if employee is not None:
+        rows = await service.list_category_questions(
+            db, employee=employee, category_id=category_id
+        )
+        return success_response(rows)
+    if current_user is not None:
+        rows = await service.list_category_questions_for_user(db, category_id=category_id)
+        return success_response(rows)
+    raise AppError(
+        status_code=401,
+        error_code="AUTH_FAILED",
+        message="Authentication failed",
+    )
 
 
 @management_router.post("/categories/{category_id}/questions", status_code=201)
