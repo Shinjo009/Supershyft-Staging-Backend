@@ -186,6 +186,10 @@ async def test_regenerate_updates_reports_without_changing_report_url(test_db_se
     assessments_service.draft_blood_parameters_from_report = AsyncMock(
         return_value={"responses_drafted": 2}
     )
+    assessments_service.is_vitals_blood_pressure_missing = AsyncMock(return_value=True)
+    assessments_service.draft_vitals_blood_pressure_fallbacks = AsyncMock(
+        return_value={"responses_drafted": 2, "fallback_keys": ["systolic_blood_pressure", "diastolic_blood_pressure"]}
+    )
     sync_service = AsyncMock()
     sync_service._push_category_to_metsights = AsyncMock(
         return_value={"fields_pushed": ["haemoglobin"]}
@@ -206,7 +210,7 @@ async def test_regenerate_updates_reports_without_changing_report_url(test_db_se
     )
     monkeypatch.setattr(
         "modules.notifications.regenerate_bioai_reports._metsights_category_keys_for_package",
-        AsyncMock(return_value=["blood-parameters"]),
+        AsyncMock(return_value=["physical-measurement", "vitals", "blood-parameters"]),
     )
 
     result = await regenerate_bioai_reports(
@@ -218,7 +222,8 @@ async def test_regenerate_updates_reports_without_changing_report_url(test_db_se
     )
     assert result["regenerated"] == 1
     assessments_service.draft_blood_parameters_from_report.assert_awaited_once()
-    sync_service._push_category_to_metsights.assert_awaited_once()
+    assessments_service.draft_vitals_blood_pressure_fallbacks.assert_awaited_once()
+    assert sync_service._push_category_to_metsights.await_count == 3
     regenerate_mock.assert_awaited_once()
 
     row = (
@@ -268,6 +273,67 @@ async def test_regenerate_excludes_completed_engagement_without_engagement_id(te
         dry_run=True,
     )
     assert result["matched"] == 0
+
+
+@pytest.mark.asyncio
+async def test_regenerate_retries_vitals_push_after_default_bp_draft(test_db_session, monkeypatch):
+    await _seed_regenerate_participant(
+        test_db_session,
+        user_id=88008,
+        engagement_id=88008,
+        assessment_id=88008,
+    )
+    metsights_service = MetsightsService(client=MetsightsClient())
+    assessments_service = AsyncMock()
+    assessments_service.draft_blood_parameters_from_report = AsyncMock(
+        return_value={"responses_drafted": 1}
+    )
+    assessments_service.is_vitals_blood_pressure_missing = AsyncMock(return_value=False)
+    assessments_service.draft_vitals_blood_pressure_fallbacks = AsyncMock(
+        return_value={"responses_drafted": 2}
+    )
+    sync_service = AsyncMock()
+    vitals_error = Exception(
+        "Missing required fields for vitals: diastolic_blood_pressure, systolic_blood_pressure."
+    )
+    vitals_push_calls = {"count": 0}
+
+    async def _fake_push(db, *, assessment_instance_id, user_id, category_key):
+        if category_key == "vitals":
+            vitals_push_calls["count"] += 1
+            if vitals_push_calls["count"] == 1:
+                raise vitals_error
+        return {"fields_pushed": ["field"]}
+
+    sync_service._push_category_to_metsights = AsyncMock(side_effect=_fake_push)
+
+    async def _fake_blood_params(*, record_id: str):
+        return {"is_complete": True}
+
+    async def _fake_report(*, record_id: str, assessment_type_code: str | None):
+        return {"record_id": record_id, "refreshed": True}
+
+    monkeypatch.setattr(metsights_service, "get_blood_parameters", _fake_blood_params)
+    monkeypatch.setattr(metsights_service, "get_report", _fake_report)
+    monkeypatch.setattr(
+        "modules.notifications.regenerate_bioai_reports.regenerate_permanent_bio_ai_report_url",
+        AsyncMock(return_value="https://bio-ai-reports.supershyft.com/r/test-slug"),
+    )
+    monkeypatch.setattr(
+        "modules.notifications.regenerate_bioai_reports._metsights_category_keys_for_package",
+        AsyncMock(return_value=["vitals"]),
+    )
+
+    result = await regenerate_bioai_reports(
+        test_db_session,
+        metsights_service=metsights_service,
+        assessments_service=assessments_service,
+        sync_service=sync_service,
+        engagement_id=88008,
+    )
+    assert result["regenerated"] == 1
+    assessments_service.draft_vitals_blood_pressure_fallbacks.assert_awaited_once()
+    assert sync_service._push_category_to_metsights.await_count == 2
 
 
 @pytest.mark.asyncio

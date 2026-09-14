@@ -137,6 +137,43 @@ async def _metsights_category_keys_for_package(
     return [key for key in _METSIGHTS_CATEGORY_PUSH_ORDER if key in linked]
 
 
+async def _draft_vitals_blood_pressure_if_missing(
+    db: AsyncSession,
+    *,
+    assessments_service: "AssessmentsService",
+    user_id: int,
+    engagement_id: int,
+    instance_id: int,
+    details: list[dict[str, Any]],
+) -> None:
+    """Draft default systolic/diastolic BP (120/80) when vitals answers are missing."""
+    if not await assessments_service.is_vitals_blood_pressure_missing(
+        db,
+        assessment_instance_id=instance_id,
+    ):
+        return
+
+    draft_result = await assessments_service.draft_vitals_blood_pressure_fallbacks(
+        db,
+        user_id=user_id,
+        assessment_instance_id=instance_id,
+    )
+    await db.commit()
+    drafted_count = int(draft_result.get("responses_drafted") or 0)
+    if drafted_count > 0:
+        details.append({
+            "user_id": user_id,
+            "engagement_id": engagement_id,
+            "action": "drafted",
+            "reason": f"applied default BP 120/80 ({drafted_count} vitals responses drafted)",
+        })
+
+
+def _is_vitals_blood_pressure_push_error(exc: Exception) -> bool:
+    message = (getattr(exc, "message", None) or str(exc)).lower()
+    return "vitals" in message and "blood_pressure" in message
+
+
 async def _repush_metsights_categories_before_regenerate(
     db: AsyncSession,
     *,
@@ -196,6 +233,16 @@ async def _repush_metsights_categories_before_regenerate(
         return False
 
     for category_key in category_keys:
+        if category_key == "vitals":
+            await _draft_vitals_blood_pressure_if_missing(
+                db,
+                assessments_service=assessments_service,
+                user_id=user_id,
+                engagement_id=engagement_id,
+                instance_id=instance_id,
+                details=details,
+            )
+
         try:
             push_result = await sync_service._push_category_to_metsights(
                 db,
@@ -214,6 +261,46 @@ async def _repush_metsights_categories_before_regenerate(
                 ),
             })
         except Exception as exc:
+            if category_key == "vitals" and _is_vitals_blood_pressure_push_error(exc):
+                try:
+                    draft_result = await assessments_service.draft_vitals_blood_pressure_fallbacks(
+                        db,
+                        user_id=user_id,
+                        assessment_instance_id=instance_id,
+                    )
+                    await db.commit()
+                    drafted_count = int(draft_result.get("responses_drafted") or 0)
+                    if drafted_count > 0:
+                        details.append({
+                            "user_id": user_id,
+                            "engagement_id": engagement_id,
+                            "action": "drafted",
+                            "reason": (
+                                f"applied default BP 120/80 after vitals push failure "
+                                f"({drafted_count} vitals responses drafted)"
+                            ),
+                        })
+                    push_result = await sync_service._push_category_to_metsights(
+                        db,
+                        assessment_instance_id=instance_id,
+                        user_id=user_id,
+                        category_key=category_key,
+                    )
+                    await db.commit()
+                    fields_count = len(push_result.get("fields_pushed") or [])
+                    details.append({
+                        "user_id": user_id,
+                        "engagement_id": engagement_id,
+                        "action": "pushed",
+                        "reason": (
+                            f"re-pushed {category_key} to Metsights after default "
+                            f"BP 120/80 ({fields_count} fields)"
+                        ),
+                    })
+                    continue
+                except Exception as retry_exc:
+                    exc = retry_exc
+
             try:
                 await db.commit()
             except Exception:
