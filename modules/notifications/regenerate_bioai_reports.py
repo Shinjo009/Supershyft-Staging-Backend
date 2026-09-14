@@ -301,6 +301,28 @@ async def _repush_metsights_categories_before_regenerate(
                 except Exception as retry_exc:
                     exc = retry_exc
 
+            if category_key == ADVANCED_BLOOD_PARAMETER_CATEGORY_KEY:
+                try:
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+                push_error = getattr(exc, "message", None) or str(exc)
+                logger.warning(
+                    "Skipping optional advanced-blood-parameters re-push for user=%s: %s",
+                    user_id,
+                    exc,
+                )
+                details.append({
+                    "user_id": user_id,
+                    "engagement_id": engagement_id,
+                    "action": "skipped",
+                    "reason": (
+                        f"skipped optional {category_key} re-push: "
+                        f"{str(push_error)[:100]}"
+                    ),
+                })
+                continue
+
             try:
                 await db.commit()
             except Exception:
