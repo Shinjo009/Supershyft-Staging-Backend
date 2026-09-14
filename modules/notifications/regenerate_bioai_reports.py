@@ -1,7 +1,8 @@
 """Regenerate BioAI PDFs for eligible female booked participants.
 
-For participants in running engagements with a Healthians booking_id and an
-existing bio-ai-reports permanent URL on the primary assessment instance:
+For participants in running engagements (or any status when ``engagement_id`` is
+set) with a Healthians booking_id and an existing bio-ai-reports permanent URL
+on the primary assessment instance:
 1. Verify MetSights blood parameters are complete.
 2. Draft blood questionnaire answers from IHR (updated unit codes) and re-push
    all Metsights categories linked to the primary assessment package.
@@ -92,7 +93,6 @@ async def _get_regenerate_candidates(
             IndividualHealthReport.assessment_instance_id
             == AssessmentInstance.assessment_instance_id,
         )
-        .where(Engagement.status.ilike("running"))
         .where(EngagementParticipant.engagement_date <= today)
         .where(Engagement.assessment_package_id.isnot(None))
         .where(EngagementParticipant.booking_id.isnot(None))
@@ -105,6 +105,8 @@ async def _get_regenerate_candidates(
     )
     if engagement_id is not None:
         query = query.where(Engagement.engagement_id == engagement_id)
+    else:
+        query = query.where(Engagement.status.ilike("running"))
     query = query.order_by(
         Engagement.engagement_id.asc(),
         EngagementParticipant.user_id.asc(),

@@ -234,6 +234,43 @@ async def test_regenerate_updates_reports_without_changing_report_url(test_db_se
 
 
 @pytest.mark.asyncio
+async def test_regenerate_includes_completed_engagement_when_engagement_id_set(test_db_session):
+    await _seed_regenerate_participant(
+        test_db_session,
+        user_id=88006,
+        engagement_id=88006,
+        assessment_id=88006,
+        engagement_status="completed",
+    )
+    metsights_service = MetsightsService(client=MetsightsClient())
+    result = await regenerate_bioai_reports(
+        test_db_session,
+        metsights_service=metsights_service,
+        dry_run=True,
+        engagement_id=88006,
+    )
+    assert result["matched"] == 1
+
+
+@pytest.mark.asyncio
+async def test_regenerate_excludes_completed_engagement_without_engagement_id(test_db_session):
+    await _seed_regenerate_participant(
+        test_db_session,
+        user_id=88007,
+        engagement_id=88007,
+        assessment_id=88007,
+        engagement_status="completed",
+    )
+    metsights_service = MetsightsService(client=MetsightsClient())
+    result = await regenerate_bioai_reports(
+        test_db_session,
+        metsights_service=metsights_service,
+        dry_run=True,
+    )
+    assert result["matched"] == 0
+
+
+@pytest.mark.asyncio
 async def test_regenerate_dry_run_mentions_metsights_repush(test_db_session):
     await _seed_regenerate_participant(
         test_db_session,

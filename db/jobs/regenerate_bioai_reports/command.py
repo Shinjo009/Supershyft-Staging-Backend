@@ -143,8 +143,8 @@ def _parse_as_of(value: str) -> date:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Regenerate BioAI PDFs at existing slugs for female booked participants "
-            "in running engagements."
+            "Regenerate BioAI PDFs at existing slugs for female booked participants. "
+            "Without --engagement-id, only running engagements are processed."
         )
     )
     parser.add_argument(
@@ -169,7 +169,10 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         metavar="ID",
-        help="Optional: limit to one engagement_id.",
+        help=(
+            "Limit to one engagement_id. When set, engagement status is not checked "
+            "(completed/closed camps are allowed)."
+        ),
     )
     return parser
 
