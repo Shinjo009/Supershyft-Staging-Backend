@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy import inspect
 from sqlalchemy.dialects import postgresql
 
 
@@ -17,15 +18,79 @@ branch_labels = None
 depends_on = None
 
 
-def upgrade() -> None:
-    conn = op.get_bind()
-    op.execute(sa.text("SET LOCAL lock_timeout = '15s'"))
-    op.execute(
+def _table_exists(inspector: sa.Inspector, table_name: str) -> bool:
+    return table_name in inspector.get_table_names()
+
+
+def _column_exists(inspector: sa.Inspector, table_name: str, column_name: str) -> bool:
+    if not _table_exists(inspector, table_name):
+        return False
+    return any(col["name"] == column_name for col in inspector.get_columns(table_name))
+
+
+def _index_exists(inspector: sa.Inspector, table_name: str, index_name: str) -> bool:
+    if not _table_exists(inspector, table_name):
+        return False
+    return any(idx["name"] == index_name for idx in inspector.get_indexes(table_name))
+
+
+def _create_index_if_missing(
+    inspector: sa.Inspector,
+    index_name: str,
+    table_name: str,
+    columns: list[str],
+) -> None:
+    if _index_exists(inspector, table_name, index_name):
+        return
+    op.create_index(index_name, table_name, columns)
+
+
+def _migrate_user_audit_column_to_employee(
+    conn,
+    inspector: sa.Inspector,
+    table: str,
+    old_col: str,
+    new_col: str,
+) -> None:
+    if not _table_exists(inspector, table):
+        return
+    if _column_exists(inspector, table, new_col):
+        return
+    if not _column_exists(inspector, table, old_col):
+        op.add_column(
+            table,
+            sa.Column(
+                new_col,
+                sa.Integer(),
+                sa.ForeignKey("employee.employee_id", ondelete="SET NULL"),
+                nullable=True,
+            ),
+        )
+        return
+
+    conn.execute(
         sa.text(
-            "ALTER TABLE diagnostic_package "
-            "ADD COLUMN IF NOT EXISTS min_price NUMERIC(10, 2)"
+            f"""
+            ALTER TABLE {table}
+            DROP CONSTRAINT IF EXISTS {table}_{old_col}_fkey
+            """
         )
     )
+    conn.execute(sa.text(f"ALTER TABLE {table} RENAME COLUMN {old_col} TO {new_col}"))
+    conn.execute(
+        sa.text(
+            f"""
+            ALTER TABLE {table}
+            ADD CONSTRAINT {table}_{new_col}_fkey
+            FOREIGN KEY ({new_col}) REFERENCES employee (employee_id) ON DELETE SET NULL
+            """
+        )
+    )
+
+
+def _create_discount_tables(inspector: sa.Inspector) -> None:
+    if _table_exists(inspector, "discount_codes"):
+        return
 
     op.create_table(
         "discount_codes",
@@ -84,9 +149,6 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.UniqueConstraint("code", name="uq_discount_codes_code"),
     )
-    op.create_index("ix_discount_codes_status", "discount_codes", ["status"])
-    op.create_index("ix_discount_codes_scope_mode", "discount_codes", ["scope_mode"])
-    op.create_index("ix_discount_codes_auto_apply", "discount_codes", ["auto_apply"])
 
     op.create_table(
         "discount_code_scopes",
@@ -106,7 +168,6 @@ def upgrade() -> None:
             name="uq_discount_code_scopes",
         ),
     )
-    op.create_index("ix_discount_code_scopes_lookup", "discount_code_scopes", ["scope_type", "scope_key"])
 
     op.create_table(
         "discount_code_packages",
@@ -158,8 +219,6 @@ def upgrade() -> None:
         sa.Column("email", sa.String(255), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
     )
-    op.create_index("ix_discount_allowlist_phone", "discount_allowlist_users", ["discount_code_id", "phone"])
-    op.create_index("ix_discount_allowlist_email", "discount_allowlist_users", ["discount_code_id", "email"])
 
     op.create_table(
         "discount_code_instances",
@@ -182,7 +241,6 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.UniqueConstraint("code", name="uq_discount_code_instances_code"),
     )
-    op.create_index("ix_discount_instances_parent", "discount_code_instances", ["discount_code_id", "status"])
 
     op.create_table(
         "discount_usages",
@@ -212,9 +270,6 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
     )
-    op.create_index("ix_discount_usages_code_status", "discount_usages", ["discount_code_id", "status"])
-    op.create_index("ix_discount_usages_user_code", "discount_usages", ["user_id", "discount_code_id", "status"])
-    op.create_index("ix_discount_usages_order", "discount_usages", ["order_id"])
 
     op.create_table(
         "discount_code_audit",
@@ -235,7 +290,6 @@ def upgrade() -> None:
         sa.Column("diff", postgresql.JSON(astext_type=sa.Text()), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
     )
-    op.create_index("ix_discount_code_audit_code", "discount_code_audit", ["discount_code_id", "created_at"])
 
     op.create_table(
         "discount_validation_attempts",
@@ -248,16 +302,70 @@ def upgrade() -> None:
         sa.Column("detail", sa.String(255), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
     )
-    op.create_index(
-        "ix_discount_attempts_user_created",
-        "discount_validation_attempts",
-        ["user_id", "created_at"],
+
+
+def _ensure_discount_indexes(inspector: sa.Inspector) -> None:
+    _create_index_if_missing(inspector, "ix_discount_codes_status", "discount_codes", ["status"])
+    _create_index_if_missing(inspector, "ix_discount_codes_scope_mode", "discount_codes", ["scope_mode"])
+    _create_index_if_missing(inspector, "ix_discount_codes_auto_apply", "discount_codes", ["auto_apply"])
+    _create_index_if_missing(
+        inspector, "ix_discount_code_scopes_lookup", "discount_code_scopes", ["scope_type", "scope_key"]
     )
-    op.create_index(
-        "ix_discount_attempts_ip_created",
-        "discount_validation_attempts",
-        ["client_ip", "created_at"],
+    _create_index_if_missing(
+        inspector, "ix_discount_allowlist_phone", "discount_allowlist_users", ["discount_code_id", "phone"]
     )
+    _create_index_if_missing(
+        inspector, "ix_discount_allowlist_email", "discount_allowlist_users", ["discount_code_id", "email"]
+    )
+    _create_index_if_missing(
+        inspector, "ix_discount_instances_parent", "discount_code_instances", ["discount_code_id", "status"]
+    )
+    _create_index_if_missing(
+        inspector, "ix_discount_usages_code_status", "discount_usages", ["discount_code_id", "status"]
+    )
+    _create_index_if_missing(
+        inspector, "ix_discount_usages_user_code", "discount_usages", ["user_id", "discount_code_id", "status"]
+    )
+    _create_index_if_missing(inspector, "ix_discount_usages_order", "discount_usages", ["order_id"])
+    _create_index_if_missing(
+        inspector, "ix_discount_code_audit_code", "discount_code_audit", ["discount_code_id", "created_at"]
+    )
+    _create_index_if_missing(
+        inspector, "ix_discount_attempts_user_created", "discount_validation_attempts", ["user_id", "created_at"]
+    )
+    _create_index_if_missing(
+        inspector, "ix_discount_attempts_ip_created", "discount_validation_attempts", ["client_ip", "created_at"]
+    )
+
+
+def upgrade() -> None:
+    conn = op.get_bind()
+    inspector = inspect(conn)
+
+    op.execute(sa.text("SET LOCAL lock_timeout = '15s'"))
+    op.execute(
+        sa.text(
+            "ALTER TABLE diagnostic_package "
+            "ADD COLUMN IF NOT EXISTS min_price NUMERIC(10, 2)"
+        )
+    )
+
+    _create_discount_tables(inspector)
+    inspector = inspect(conn)
+
+    _migrate_user_audit_column_to_employee(
+        conn, inspector, "discount_codes", "created_by", "created_employee_id"
+    )
+    _migrate_user_audit_column_to_employee(
+        conn, inspector, "discount_codes", "updated_by", "updated_employee_id"
+    )
+    inspector = inspect(conn)
+    _migrate_user_audit_column_to_employee(
+        conn, inspector, "discount_code_audit", "actor_user_id", "actor_employee_id"
+    )
+
+    inspector = inspect(conn)
+    _ensure_discount_indexes(inspector)
 
     conn.execute(
         sa.text(
