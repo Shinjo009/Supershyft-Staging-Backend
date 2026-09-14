@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -9,10 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import settings
 from core.exceptions import AppError
+from modules.assessments.models import AssessmentInstance
 from modules.audit.cron_sync_logging import tracked_integration_call
 from modules.audit.models import IntegrationSyncLog
 from modules.bioai_report.client import BioAiReportsClient
 from modules.bioai_report.report_engine.services.report_service import BioReportService
+from modules.engagements.models import EngagementParticipant
 from modules.reports.repository import ReportsRepository
 
 _PROVIDER = "bio_ai_reports"
@@ -155,6 +158,119 @@ async def resolve_canonical_bio_ai_report_url(
     return None
 
 
+def _extract_assessment_date_from_bioreport_payload(payload: Any) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    patient = payload.get("patient")
+    if isinstance(patient, dict):
+        value = patient.get("assessment_date")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    summary = payload.get("executive_summary")
+    if isinstance(summary, dict):
+        value = summary.get("assessment_date")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def apply_assessment_date_override(payload: dict[str, Any], assessment_date: str) -> dict[str, Any]:
+    """Pin participant-facing assessment date across BioReport patient blocks."""
+    date_value = (assessment_date or "").strip()
+    if not date_value:
+        return payload
+    patient = payload.get("patient")
+    if isinstance(patient, dict):
+        patient["assessment_date"] = date_value
+    summary = payload.get("executive_summary")
+    if isinstance(summary, dict):
+        summary["assessment_date"] = date_value
+        nested_patient = summary.get("patient")
+        if isinstance(nested_patient, dict):
+            nested_patient["assessment_date"] = date_value
+    return payload
+
+
+def _format_fallback_assessment_date(value: date | datetime | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value.isoformat()
+
+
+async def _lookup_engagement_date_fallback(
+    db: AsyncSession,
+    *,
+    user_id: int | None,
+    engagement_id: int | None,
+) -> str | None:
+    if user_id is None or engagement_id is None:
+        return None
+    result = await db.execute(
+        select(EngagementParticipant.engagement_date)
+        .where(EngagementParticipant.user_id == user_id)
+        .where(EngagementParticipant.engagement_id == engagement_id)
+        .limit(1)
+    )
+    return _format_fallback_assessment_date(result.scalar_one_or_none())
+
+
+async def _lookup_completed_at_fallback(
+    db: AsyncSession,
+    *,
+    assessment_instance_id: int,
+) -> str | None:
+    result = await db.execute(
+        select(AssessmentInstance.completed_at).where(
+            AssessmentInstance.assessment_instance_id == assessment_instance_id
+        )
+    )
+    return _format_fallback_assessment_date(result.scalar_one_or_none())
+
+
+async def lookup_original_bio_ai_assessment_date(
+    db: AsyncSession,
+    *,
+    assessment_instance_id: int,
+    user_id: int | None = None,
+    engagement_id: int | None = None,
+) -> str | None:
+    """Return the earliest known assessment date for regenerate (original PDF date)."""
+    if db is None:
+        return None
+
+    generate_endpoint = bioreport_generate_endpoint(int(assessment_instance_id))
+    result = await db.execute(
+        select(IntegrationSyncLog.response_payload)
+        .where(IntegrationSyncLog.provider == _PROVIDER)
+        .where(IntegrationSyncLog.api_endpoint_url == generate_endpoint)
+        .where(IntegrationSyncLog.status == "success")
+        .order_by(
+            IntegrationSyncLog.created_at.asc(),
+            IntegrationSyncLog.sync_log_id.asc(),
+        )
+        .limit(1)
+    )
+    payload = result.scalar_one_or_none()
+    original_date = _extract_assessment_date_from_bioreport_payload(payload)
+    if original_date:
+        return original_date
+
+    engagement_date = await _lookup_engagement_date_fallback(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    )
+    if engagement_date:
+        return engagement_date
+
+    return await _lookup_completed_at_fallback(
+        db,
+        assessment_instance_id=assessment_instance_id,
+    )
+
+
 def summarize_bioreport_payload(payload: dict[str, Any]) -> dict[str, Any]:
     metadata = payload.get("report_metadata") if isinstance(payload.get("report_metadata"), dict) else {}
     patient = payload.get("patient") if isinstance(payload.get("patient"), dict) else {}
@@ -273,6 +389,13 @@ async def regenerate_permanent_bio_ai_report_url(
     instance_id = int(assessment_instance_id)
     existing_url = report_url.strip()
 
+    original_assessment_date = await lookup_original_bio_ai_assessment_date(
+        db,
+        assessment_instance_id=instance_id,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    )
+
     bioreport_payload = await tracked_integration_call(
         db,
         provider=_PROVIDER,
@@ -293,6 +416,9 @@ async def regenerate_permanent_bio_ai_report_url(
             error_code="INTERNAL_ERROR",
             message="BioReport generation returned an invalid payload",
         )
+
+    if original_assessment_date:
+        apply_assessment_date_override(bioreport_payload, original_assessment_date)
 
     registration_response = await tracked_integration_call(
         db,
