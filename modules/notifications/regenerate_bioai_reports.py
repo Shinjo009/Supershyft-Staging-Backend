@@ -4,8 +4,9 @@ For participants in running engagements (or any status when ``engagement_id`` is
 set) with a Healthians booking_id and an existing bio-ai-reports permanent URL
 on the primary assessment instance:
 1. Verify MetSights blood parameters are complete.
-2. Draft blood questionnaire answers from IHR (updated unit codes) and re-push
-   all Metsights categories linked to the primary assessment package.
+2. Re-draft blood ``questionnaire_responses`` from IHR lab values (updated units)
+   and internal defaults for missing keys, then re-push all Metsights categories
+   linked to the primary assessment package.
 3. Refresh individual_health_report.reports from MetSights.
 4. Regenerate the PDF at the same slug via POST /api/reports/regenerate.
 """
@@ -186,28 +187,30 @@ async def _repush_metsights_categories_before_regenerate(
     package_id: int,
     details: list[dict[str, Any]],
 ) -> bool:
-    """Draft blood units and re-push all Metsights categories. Returns False on failure."""
+    """Re-draft blood questionnaire answers and re-push Metsights categories."""
     try:
-        draft_result = await assessments_service.draft_blood_parameters_from_report(
+        redraft_result = await assessments_service.redraft_blood_questionnaire_responses(
             db,
             user_id=user_id,
             assessment_instance_id=instance_id,
             allow_completed=True,
         )
         await db.commit()
+        from_report = int(redraft_result.get("responses_drafted_from_report") or 0)
+        from_fallbacks = int(redraft_result.get("responses_drafted_from_fallbacks") or 0)
         details.append({
             "user_id": user_id,
             "engagement_id": engagement_id,
             "action": "drafted",
             "reason": (
-                f"drafted {draft_result.get('responses_drafted', 0)} "
-                "blood questionnaire responses with updated units"
+                f"re-drafted {from_report} blood questionnaire responses from report "
+                f"and {from_fallbacks} from internal defaults"
             ),
         })
     except Exception as exc:
         await db.rollback()
         logger.warning(
-            "Blood parameter draft failed for user=%s instance=%s: %s",
+            "Blood questionnaire re-draft failed for user=%s instance=%s: %s",
             user_id,
             instance_id,
             exc,
@@ -216,7 +219,7 @@ async def _repush_metsights_categories_before_regenerate(
             "user_id": user_id,
             "engagement_id": engagement_id,
             "action": "failed",
-            "reason": f"blood draft failed: {str(exc)[:120]}",
+            "reason": f"blood questionnaire re-draft failed: {str(exc)[:120]}",
         })
         return False
 
@@ -443,7 +446,7 @@ async def regenerate_bioai_reports(
 
             if dry_run:
                 dry_run_reasons = [
-                    "would_draft_blood_questionnaires",
+                    "would_redraft_blood_questionnaire_responses_from_report_and_defaults",
                     "would_repush_all_metsights_categories",
                     f"would regenerate slug={slug}",
                 ]

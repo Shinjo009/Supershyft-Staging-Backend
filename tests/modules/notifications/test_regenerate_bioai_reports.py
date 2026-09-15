@@ -184,8 +184,12 @@ async def test_regenerate_updates_reports_without_changing_report_url(test_db_se
     )
     metsights_service = MetsightsService(client=MetsightsClient())
     assessments_service = AsyncMock()
-    assessments_service.draft_blood_parameters_from_report = AsyncMock(
-        return_value={"responses_drafted": 2}
+    assessments_service.redraft_blood_questionnaire_responses = AsyncMock(
+        return_value={
+            "responses_drafted": 5,
+            "responses_drafted_from_report": 2,
+            "responses_drafted_from_fallbacks": 3,
+        }
     )
     assessments_service.is_vitals_blood_pressure_missing = AsyncMock(return_value=True)
     assessments_service.draft_vitals_blood_pressure_fallbacks = AsyncMock(
@@ -222,7 +226,7 @@ async def test_regenerate_updates_reports_without_changing_report_url(test_db_se
         engagement_id=88004,
     )
     assert result["regenerated"] == 1
-    assessments_service.draft_blood_parameters_from_report.assert_awaited_once()
+    assessments_service.redraft_blood_questionnaire_responses.assert_awaited_once()
     assessments_service.draft_vitals_blood_pressure_fallbacks.assert_awaited_once()
     assert sync_service._push_category_to_metsights.await_count == 3
     regenerate_mock.assert_awaited_once()
@@ -286,8 +290,12 @@ async def test_regenerate_retries_vitals_push_after_default_bp_draft(test_db_ses
     )
     metsights_service = MetsightsService(client=MetsightsClient())
     assessments_service = AsyncMock()
-    assessments_service.draft_blood_parameters_from_report = AsyncMock(
-        return_value={"responses_drafted": 1}
+    assessments_service.redraft_blood_questionnaire_responses = AsyncMock(
+        return_value={
+            "responses_drafted": 1,
+            "responses_drafted_from_report": 1,
+            "responses_drafted_from_fallbacks": 0,
+        }
     )
     assessments_service.is_vitals_blood_pressure_missing = AsyncMock(return_value=False)
     assessments_service.draft_vitals_blood_pressure_fallbacks = AsyncMock(
@@ -350,8 +358,12 @@ async def test_regenerate_skips_advanced_blood_push_failure_and_continues(
     )
     metsights_service = MetsightsService(client=MetsightsClient())
     assessments_service = AsyncMock()
-    assessments_service.draft_blood_parameters_from_report = AsyncMock(
-        return_value={"responses_drafted": 1}
+    assessments_service.redraft_blood_questionnaire_responses = AsyncMock(
+        return_value={
+            "responses_drafted": 1,
+            "responses_drafted_from_report": 1,
+            "responses_drafted_from_fallbacks": 0,
+        }
     )
     assessments_service.is_vitals_blood_pressure_missing = AsyncMock(return_value=False)
     sync_service = AsyncMock()
@@ -412,5 +424,5 @@ async def test_regenerate_dry_run_mentions_metsights_repush(test_db_session):
     )
     assert result["matched"] == 1
     reason = result["details"][0]["reason"]
-    assert "would_draft_blood_questionnaires" in reason
+    assert "would_redraft_blood_questionnaire_responses_from_report_and_defaults" in reason
     assert "would_repush_all_metsights_categories" in reason

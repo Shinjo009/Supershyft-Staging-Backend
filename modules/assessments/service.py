@@ -65,6 +65,31 @@ def _is_female_gender(gender: str | None) -> bool:
     return normalized in {"female", "f", "2", "woman", "women"}
 
 
+def _should_replace_stale_hormone_placeholder(
+    question_key: str,
+    existing_answer: dict[str, Any],
+    *,
+    target_value: float,
+    target_unit: str,
+) -> bool:
+    """Replace legacy Pro female hormone defaults that used wrong Metsights unit codes."""
+    if question_key not in PRO_FEMALE_HORMONE_PLACEHOLDERS:
+        return False
+    raw_value = existing_answer.get("value")
+    if raw_value is None:
+        return False
+    unit = str(existing_answer.get("unit") or "").strip()
+    if unit != target_unit:
+        return True
+    if question_key == "testosterone":
+        try:
+            value = float(raw_value)
+        except (TypeError, ValueError):
+            return True
+        if value >= 100:
+            return True
+    return False
+
 class AssessmentsService:
     def __init__(
         self,
@@ -737,6 +762,44 @@ class AssessmentsService:
             "categories": category_results,
         }
 
+    async def redraft_blood_questionnaire_responses(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        assessment_instance_id: int,
+        allow_completed: bool = True,
+    ) -> dict[str, Any]:
+        """Re-draft blood ``questionnaire_responses`` from IHR lab data, then internal defaults.
+
+        1. ``draft_blood_parameters_from_report`` — overwrite/create answers from
+           ``individual_health_report.blood_parameters`` (Healthians values + mapped units).
+        2. ``draft_blood_parameter_internal_fallbacks`` — fill remaining mandatory keys
+           from configured averages / Pro female hormone placeholders (including refresh
+           of legacy wrong hormone unit codes).
+        """
+        report_result = await self.draft_blood_parameters_from_report(
+            db,
+            user_id=user_id,
+            assessment_instance_id=assessment_instance_id,
+            allow_completed=allow_completed,
+        )
+        fallback_result = await self.draft_blood_parameter_internal_fallbacks(
+            db,
+            user_id=user_id,
+            assessment_instance_id=assessment_instance_id,
+        )
+        from_report = int(report_result.get("responses_drafted") or 0)
+        from_fallbacks = int(fallback_result.get("responses_drafted") or 0)
+        return {
+            "assessment_instance_id": int(assessment_instance_id),
+            "responses_drafted": from_report + from_fallbacks,
+            "responses_drafted_from_report": from_report,
+            "responses_drafted_from_fallbacks": from_fallbacks,
+            "from_report": report_result,
+            "from_fallbacks": fallback_result,
+        }
+
     async def draft_blood_parameter_internal_fallbacks(
         self,
         db: AsyncSession,
@@ -822,12 +885,22 @@ class AssessmentsService:
                     assessment_instance_id=int(instance.assessment_instance_id),
                     question_id=int(question.question_id),
                 )
+                value, unit_code = fallback_entry
                 if existing is not None:
                     existing_answer = existing.answer if isinstance(existing.answer, dict) else {}
                     if existing_answer.get("value") is not None:
-                        continue
+                        replace_stale_hormone = (
+                            question_key in PRO_FEMALE_HORMONE_PLACEHOLDERS
+                            and _should_replace_stale_hormone_placeholder(
+                                question_key,
+                                existing_answer,
+                                target_value=float(value),
+                                target_unit=str(unit_code),
+                            )
+                        )
+                        if not replace_stale_hormone:
+                            continue
 
-                value, unit_code = fallback_entry
                 if question_key in UNITLESS_BLOOD_PARAMETER_KEYS:
                     answer: dict[str, Any] = {"value": value, "unit": "0"}
                 else:

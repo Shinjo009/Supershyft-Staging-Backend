@@ -1,9 +1,9 @@
 """Regenerate BioAI PDFs for eligible female booked participants.
 
-Re-drafts blood questionnaire answers with updated unit codes, re-pushes all
-Metsights categories on the primary assessment package, refreshes MetSights
-report JSON, and overwrites PDFs at existing permanent slugs via
-POST /api/reports/regenerate.
+Re-drafts blood ``questionnaire_responses`` from IHR lab values (updated units) and
+internal defaults for missing keys, re-pushes all Metsights categories on the
+primary assessment package, refreshes MetSights report JSON, and overwrites PDFs
+at existing permanent slugs via POST /api/reports/regenerate.
 
 Entrypoint: ``python -m db.jobs.regenerate_bioai_reports --yes``
 
