@@ -24,8 +24,8 @@ def test_hormones_required_on_advanced_category():
 
 
 def test_hormone_placeholders_use_metsights_suggested_units():
-    assert PRO_FEMALE_HORMONE_PLACEHOLDERS["lh_value"] == (5.0, "1")
-    assert PRO_FEMALE_HORMONE_PLACEHOLDERS["fsh_value"] == (5.0, "1")
+    assert PRO_FEMALE_HORMONE_PLACEHOLDERS["lh_value"] == (5.0, "3")
+    assert PRO_FEMALE_HORMONE_PLACEHOLDERS["fsh_value"] == (5.0, "3")
     assert PRO_FEMALE_HORMONE_PLACEHOLDERS["testosterone"] == (0.5, "2")
     assert "lh_value" not in BLOOD_PARAMETER_INTERNAL_FALLBACKS
     assert "testosterone" not in BLOOD_PARAMETER_INTERNAL_FALLBACKS

@@ -158,10 +158,10 @@ BLOOD_PARAMETER_INTERNAL_FALLBACKS: dict[str, tuple[float, str]] = {
 }
 
 # Pro female-only hormone placeholders when Healthians values are missing.
-# Units follow Metsights guidance (IU/L for LH/FSH, ng/mL for testosterone).
+# Units align with Healthians catalog and Metsights advanced-blood (mIU/mL, ng/mL).
 PRO_FEMALE_HORMONE_PLACEHOLDERS: dict[str, tuple[float, str]] = {
-    "lh_value": (5.0, "1"),  # IU/L
-    "fsh_value": (5.0, "1"),  # IU/L
+    "lh_value": (5.0, "3"),  # mIU/mL
+    "fsh_value": (5.0, "3"),  # mIU/mL
     "testosterone": (0.5, "2"),  # ng/mL
 }
 

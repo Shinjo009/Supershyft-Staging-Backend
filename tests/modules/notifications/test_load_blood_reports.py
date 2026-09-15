@@ -1856,7 +1856,7 @@ def test_blood_parameter_internal_fallbacks_map_known_keys():
         assert BLOOD_PARAMETER_INTERNAL_FALLBACKS[key][0] == value
 
     assert PRO_FEMALE_HORMONE_PLACEHOLDERS["testosterone"] == (0.5, "2")
-    assert PRO_FEMALE_HORMONE_PLACEHOLDERS["lh_value"][1] == "1"
+    assert PRO_FEMALE_HORMONE_PLACEHOLDERS["lh_value"][1] == "3"
 
 
 @pytest.mark.asyncio
