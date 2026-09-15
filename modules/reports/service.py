@@ -268,15 +268,15 @@ class ReportsService:
         )
 
         if target is None:
-            target = IndividualHealthReport(
+            target = await self._repository.get_or_create_individual_report_by_assessment(
+                db,
                 user_id=user_id,
                 engagement_id=engagement_id,
                 assessment_instance_id=storage_assessment_id,
-                reports=None,
-                blood_parameters=grouped,
-                blood_report_raw=raw,
             )
-            await self._repository.create_individual_report(db, target)
+            target.blood_parameters = grouped
+            target.blood_report_raw = raw
+            await self._repository.update_individual_report(db, target)
         else:
             target.blood_parameters = grouped
             target.blood_report_raw = raw
@@ -817,17 +817,18 @@ class ReportsService:
         # Prefer engagement blood/diag row; else assessment row; else create assessment row.
         target = engagement_report if engagement_report is not None else assessment_report
         if target is None:
-            target = IndividualHealthReport(
-                user_id=assessment_instance.user_id,
-                engagement_id=assessment_instance.engagement_id,
-                assessment_instance_id=assessment_instance.assessment_instance_id,
-                reports=None,
-                blood_parameters=None,
-                diagnostic_report_url=url_to_store,
-                blood_parameters_full_report=full_report,
-                blood_parameters_verified_at=verified_at,
+            target = await self._repository.get_or_create_individual_report_by_assessment(
+                db,
+                user_id=int(assessment_instance.user_id),
+                engagement_id=int(assessment_instance.engagement_id),
+                assessment_instance_id=int(assessment_instance.assessment_instance_id),
             )
-            await self._repository.create_individual_report(db, target)
+            target.diagnostic_report_url = url_to_store
+            if full_report is not None:
+                target.blood_parameters_full_report = full_report
+            if verified_at is not None:
+                target.blood_parameters_verified_at = verified_at
+            await self._repository.update_individual_report(db, target)
         else:
             target.diagnostic_report_url = url_to_store
             if full_report is not None:
@@ -937,15 +938,14 @@ class ReportsService:
         report_url = _BIO_AI_METSIGHTS_REPORT_URL_OVERRIDES.get(report_url, report_url)
 
         if existing_report is None:
-            report = IndividualHealthReport(
-                user_id=assessment_instance.user_id,
-                engagement_id=assessment_instance.engagement_id,
-                assessment_instance_id=assessment_instance.assessment_instance_id,
-                reports=None,
-                blood_parameters=None,
-                report_url=report_url,
+            existing_report = await self._repository.get_or_create_individual_report_by_assessment(
+                db,
+                user_id=int(assessment_instance.user_id),
+                engagement_id=int(assessment_instance.engagement_id),
+                assessment_instance_id=int(assessment_instance.assessment_instance_id),
             )
-            await self._repository.create_individual_report(db, report)
+            existing_report.report_url = report_url
+            await self._repository.update_individual_report(db, existing_report)
         else:
             existing_report.report_url = report_url
             await self._repository.update_individual_report(db, existing_report)
@@ -1059,14 +1059,14 @@ class ReportsService:
 
         if cache_on_fetch:
             if individual_report is None:
-                individual_report = IndividualHealthReport(
-                    user_id=sn_user_id,
-                    engagement_id=sn_engagement_id,
-                    assessment_instance_id=sn_assessment_instance_id,
-                    reports=report_data,
-                    blood_parameters=None,
+                individual_report = await self._repository.get_or_create_individual_report_by_assessment(
+                    db,
+                    user_id=int(sn_user_id),
+                    engagement_id=int(sn_engagement_id),
+                    assessment_instance_id=int(sn_assessment_instance_id),
                 )
-                await self._repository.create_individual_report(db, individual_report)
+                individual_report.reports = report_data
+                await self._repository.update_individual_report(db, individual_report)
             else:
                 individual_report.reports = report_data
                 # Ensure row is pinned to this assessment (corrupt shared-row recovery).
@@ -1523,14 +1523,14 @@ class ReportsService:
         )
 
         if existing_report is None:
-            report = IndividualHealthReport(
-                user_id=sn_user_id,
-                engagement_id=sn_engagement_id,
-                assessment_instance_id=sn_assessment_instance_id,
-                reports=report_data,
-                blood_parameters=None,
+            existing_report = await self._repository.get_or_create_individual_report_by_assessment(
+                db,
+                user_id=int(sn_user_id),
+                engagement_id=int(sn_engagement_id),
+                assessment_instance_id=int(sn_assessment_instance_id),
             )
-            await self._repository.create_individual_report(db, report)
+            existing_report.reports = report_data
+            await self._repository.update_individual_report(db, existing_report)
         else:
             existing_report.reports = report_data
             existing_report.assessment_instance_id = sn_assessment_instance_id
@@ -2280,14 +2280,14 @@ class ReportsService:
             )
 
             if existing_report is None:
-                existing_report = IndividualHealthReport(
-                    user_id=sn_user_id,
-                    engagement_id=sn_engagement_id,
-                    assessment_instance_id=sn_assessment_instance_id,
-                    reports=report_data,
-                    blood_parameters=None,
+                existing_report = await self._repository.get_or_create_individual_report_by_assessment(
+                    db,
+                    user_id=int(sn_user_id),
+                    engagement_id=int(sn_engagement_id),
+                    assessment_instance_id=int(sn_assessment_instance_id),
                 )
-                await self._repository.create_individual_report(db, existing_report)
+                existing_report.reports = report_data
+                await self._repository.update_individual_report(db, existing_report)
             else:
                 existing_report.reports = report_data
                 existing_report.assessment_instance_id = sn_assessment_instance_id

@@ -386,14 +386,14 @@ class WebhooksReceiverService:
         if event == "results":
             data = payload.data if isinstance(payload.data, dict) else {}
             if existing is None:
-                report = IndividualHealthReport(
+                existing = await self._reports_repository.get_or_create_individual_report_by_assessment(
+                    db,
                     user_id=user_id,
                     engagement_id=engagement_id,
                     assessment_instance_id=assessment_instance_id,
-                    reports=data,
-                    blood_parameters=None,
                 )
-                existing = await self._reports_repository.create_individual_report(db, report)
+                existing.reports = data
+                existing = await self._reports_repository.update_individual_report(db, existing)
             else:
                 existing.reports = data
                 existing.assessment_instance_id = assessment_instance_id
@@ -401,15 +401,14 @@ class WebhooksReceiverService:
         else:
             report_url = self._first_vifc_report_url(payload.reports)
             if existing is None:
-                report = IndividualHealthReport(
+                existing = await self._reports_repository.get_or_create_individual_report_by_assessment(
+                    db,
                     user_id=user_id,
                     engagement_id=engagement_id,
                     assessment_instance_id=assessment_instance_id,
-                    reports=None,
-                    blood_parameters=None,
-                    report_url=report_url,
                 )
-                existing = await self._reports_repository.create_individual_report(db, report)
+                existing.report_url = report_url
+                existing = await self._reports_repository.update_individual_report(db, existing)
             else:
                 existing.report_url = report_url
                 existing.assessment_instance_id = assessment_instance_id

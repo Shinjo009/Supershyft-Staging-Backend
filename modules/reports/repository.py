@@ -67,6 +67,49 @@ class ReportsRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_or_create_individual_report_by_assessment(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        engagement_id: int,
+        assessment_instance_id: int,
+    ) -> IndividualHealthReport:
+        """Return the single IHR row for this assessment, creating one if missing."""
+        result = await db.execute(
+            select(IndividualHealthReport)
+            .where(IndividualHealthReport.assessment_instance_id == assessment_instance_id)
+            .order_by(IndividualHealthReport.report_id.desc())
+            .limit(1)
+            .with_for_update()
+        )
+        ihr = result.scalar_one_or_none()
+        if ihr is not None:
+            return ihr
+
+        ihr = IndividualHealthReport(
+            user_id=user_id,
+            engagement_id=engagement_id,
+            assessment_instance_id=assessment_instance_id,
+        )
+        return await self.create_individual_report(db, ihr)
+
+    @staticmethod
+    def canonical_individual_health_report_subquery():
+        """One IHR row per non-null ``assessment_instance_id`` (best row by data richness)."""
+        return (
+            select(IndividualHealthReport)
+            .where(IndividualHealthReport.assessment_instance_id.isnot(None))
+            .distinct(IndividualHealthReport.assessment_instance_id)
+            .order_by(
+                IndividualHealthReport.assessment_instance_id,
+                IndividualHealthReport.report_url.isnot(None).desc(),
+                IndividualHealthReport.blood_parameters.isnot(None).desc(),
+                IndividualHealthReport.diagnostic_report_url.isnot(None).desc(),
+                IndividualHealthReport.report_id.desc(),
+            )
+        ).subquery("canonical_ihr")
+
     async def create_individual_report(
         self,
         db: AsyncSession,

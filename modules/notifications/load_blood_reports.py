@@ -511,6 +511,9 @@ async def _get_eligible_participants(
         .subquery("en_blood")
     )
 
+    from modules.reports.repository import ReportsRepository
+
+    canonical_ihr = ReportsRepository.canonical_individual_health_report_subquery()
     query = (
         select(
             EngagementParticipant.user_id,
@@ -518,10 +521,10 @@ async def _get_eligible_participants(
             AssessmentInstance.metsights_record_id,
             User.first_name,
             User.last_name,
-            IndividualHealthReport.blood_parameters,
-            IndividualHealthReport.diagnostic_report_url,
+            canonical_ihr.c.blood_parameters,
+            canonical_ihr.c.diagnostic_report_url,
             en_sub.c.notification_services.label("blood_report_services"),
-            IndividualHealthReport.report_id,
+            canonical_ihr.c.report_id,
             AssessmentInstance.assessment_instance_id,
             AssessmentInstance.package_id,
             Engagement.diagnostic_package_id,
@@ -529,8 +532,8 @@ async def _get_eligible_participants(
             DiagnosticPackage.diagnostic_provider,
             AssessmentPackage.package_code,
             AssessmentPackage.assessment_type_code,
-            IndividualHealthReport.blood_parameters_full_report,
-            IndividualHealthReport.blood_parameters_verified_at,
+            canonical_ihr.c.blood_parameters_full_report,
+            canonical_ihr.c.blood_parameters_verified_at,
         )
         .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
         .outerjoin(
@@ -545,9 +548,8 @@ async def _get_eligible_participants(
         )
         .join(AssessmentPackage, AssessmentPackage.package_id == AssessmentInstance.package_id)
         .outerjoin(
-            IndividualHealthReport,
-            IndividualHealthReport.assessment_instance_id
-            == AssessmentInstance.assessment_instance_id,
+            canonical_ihr,
+            canonical_ihr.c.assessment_instance_id == AssessmentInstance.assessment_instance_id,
         )
         .outerjoin(
             en_sub,
@@ -585,21 +587,23 @@ async def _get_or_create_ihr(
     engagement_id: int,
     instance_id: int,
 ) -> IndividualHealthReport:
-    ihr = None
+    from modules.reports.repository import ReportsRepository
+
+    repo = ReportsRepository()
     if ihr_id:
         ihr_result = await db.execute(
             select(IndividualHealthReport).where(IndividualHealthReport.report_id == ihr_id)
         )
         ihr = ihr_result.scalar_one_or_none()
+        if ihr is not None:
+            return ihr
 
-    if ihr is None:
-        ihr = IndividualHealthReport(
-            user_id=user_id,
-            engagement_id=engagement_id,
-            assessment_instance_id=instance_id,
-        )
-        db.add(ihr)
-    return ihr
+    return await repo.get_or_create_individual_report_by_assessment(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+        assessment_instance_id=instance_id,
+    )
 
 
 async def _send_report_notifications(

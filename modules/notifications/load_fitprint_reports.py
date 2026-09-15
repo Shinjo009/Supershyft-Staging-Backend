@@ -27,7 +27,8 @@ from modules.notifications.load_bioai_reports import (
     _extract_report_file_url,
     _report_data_complete,
 )
-from modules.reports.models import IndividualHealthReport
+from modules.notifications.load_blood_reports import _get_or_create_ihr
+from modules.reports.repository import ReportsRepository
 
 logger = logging.getLogger(__name__)
 
@@ -46,15 +47,16 @@ async def _get_eligible_participants(
     *,
     all_engagements: bool = False,
 ) -> list[tuple]:
+    canonical_ihr = ReportsRepository.canonical_individual_health_report_subquery()
     query = (
         select(
             EngagementParticipant.user_id,
             Engagement.engagement_id,
             AssessmentInstance.metsights_record_id,
             AssessmentPackage.assessment_type_code,
-            IndividualHealthReport.reports,
-            IndividualHealthReport.report_url,
-            IndividualHealthReport.report_id,
+            canonical_ihr.c.reports,
+            canonical_ihr.c.report_url,
+            canonical_ihr.c.report_id,
             AssessmentInstance.assessment_instance_id,
         )
         .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
@@ -65,9 +67,8 @@ async def _get_eligible_participants(
         )
         .join(AssessmentPackage, AssessmentPackage.package_id == AssessmentInstance.package_id)
         .outerjoin(
-            IndividualHealthReport,
-            IndividualHealthReport.assessment_instance_id
-            == AssessmentInstance.assessment_instance_id,
+            canonical_ihr,
+            canonical_ihr.c.assessment_instance_id == AssessmentInstance.assessment_instance_id,
         )
         .where(AssessmentInstance.status == "completed")
         .where(EngagementParticipant.engagement_date <= today)
@@ -200,22 +201,13 @@ async def load_fitprint_reports(
                     })
                     continue
 
-                ihr = None
-                if ihr_id:
-                    ihr_result = await db.execute(
-                        select(IndividualHealthReport).where(
-                            IndividualHealthReport.report_id == ihr_id
-                        )
-                    )
-                    ihr = ihr_result.scalar_one_or_none()
-
-                if ihr is None:
-                    ihr = IndividualHealthReport(
-                        user_id=user_id,
-                        engagement_id=engagement_id,
-                        assessment_instance_id=instance_id,
-                    )
-                    db.add(ihr)
+                ihr = await _get_or_create_ihr(
+                    db,
+                    ihr_id=ihr_id,
+                    user_id=user_id,
+                    engagement_id=engagement_id,
+                    instance_id=instance_id,
+                )
 
                 if fetched_reports is not None:
                     ihr.reports = fetched_reports

@@ -42,6 +42,7 @@ from modules.notifications.load_bioai_reports import (
 )
 from modules.questionnaire.repository import QuestionnaireRepository
 from modules.reports.models import IndividualHealthReport
+from modules.reports.repository import ReportsRepository
 from modules.users.models import User
 
 if TYPE_CHECKING:
@@ -69,6 +70,7 @@ async def _get_regenerate_candidates(
     engagement_id: int | None = None,
 ) -> list[tuple]:
     """Female booked participants on primary assessment with an existing report_url."""
+    canonical_ihr = ReportsRepository.canonical_individual_health_report_subquery()
     query = (
         select(
             EngagementParticipant.user_id,
@@ -77,9 +79,9 @@ async def _get_regenerate_candidates(
             AssessmentInstance.package_id,
             AssessmentInstance.metsights_record_id,
             AssessmentPackage.assessment_type_code,
-            IndividualHealthReport.report_id,
-            IndividualHealthReport.reports,
-            IndividualHealthReport.report_url,
+            canonical_ihr.c.report_id,
+            canonical_ihr.c.reports,
+            canonical_ihr.c.report_url,
         )
         .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
         .join(User, User.user_id == EngagementParticipant.user_id)
@@ -91,9 +93,8 @@ async def _get_regenerate_candidates(
         )
         .join(AssessmentPackage, AssessmentPackage.package_id == AssessmentInstance.package_id)
         .join(
-            IndividualHealthReport,
-            IndividualHealthReport.assessment_instance_id
-            == AssessmentInstance.assessment_instance_id,
+            canonical_ihr,
+            canonical_ihr.c.assessment_instance_id == AssessmentInstance.assessment_instance_id,
         )
         .where(EngagementParticipant.engagement_date <= today)
         .where(Engagement.assessment_package_id.isnot(None))
@@ -102,8 +103,8 @@ async def _get_regenerate_candidates(
         .where(func.lower(func.trim(User.gender)).in_(_FEMALE_GENDERS))
         .where(AssessmentInstance.metsights_record_id.isnot(None))
         .where(AssessmentInstance.metsights_record_id != "")
-        .where(IndividualHealthReport.report_url.isnot(None))
-        .where(IndividualHealthReport.report_url != "")
+        .where(canonical_ihr.c.report_url.isnot(None))
+        .where(canonical_ihr.c.report_url != "")
     )
     if engagement_id is not None:
         query = query.where(Engagement.engagement_id == engagement_id)

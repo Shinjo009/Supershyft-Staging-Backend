@@ -290,15 +290,18 @@ async def resolve_blood_report_url(
 
     target = storage_report
     if target is None:
-        target = IndividualHealthReport(
+        target = await repo.get_or_create_individual_report_by_assessment(
+            db,
             user_id=user_id,
             engagement_id=engagement_id,
             assessment_instance_id=storage_assessment_id,
-            diagnostic_report_url=url_to_store,
-            blood_parameters_full_report=full_report,
-            blood_parameters_verified_at=verified_at,
         )
-        await repo.create_individual_report(db, target)
+        target.diagnostic_report_url = url_to_store
+        if full_report is not None:
+            target.blood_parameters_full_report = full_report
+        if verified_at is not None:
+            target.blood_parameters_verified_at = verified_at
+        await repo.update_individual_report(db, target)
     else:
         target.diagnostic_report_url = url_to_store
         if full_report is not None:

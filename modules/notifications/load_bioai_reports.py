@@ -31,7 +31,8 @@ from modules.engagement_notifications.service_config import (
 from modules.notifications.dedup import should_skip_notification
 from modules.notifications.schemas import DispatchRequest
 from modules.notifications.service import NotificationsService
-from modules.reports.models import IndividualHealthReport
+from modules.notifications.load_blood_reports import _get_or_create_ihr
+from modules.reports.repository import ReportsRepository
 
 if TYPE_CHECKING:
     from modules.assessments.service import AssessmentsService
@@ -190,16 +191,17 @@ async def _get_eligible_participants(
         .subquery("en_bioai")
     )
 
+    canonical_ihr = ReportsRepository.canonical_individual_health_report_subquery()
     query = (
         select(
             EngagementParticipant.user_id,
             Engagement.engagement_id,
             AssessmentInstance.metsights_record_id,
             AssessmentPackage.assessment_type_code,
-            IndividualHealthReport.reports,
-            IndividualHealthReport.report_url,
+            canonical_ihr.c.reports,
+            canonical_ihr.c.report_url,
             en_sub.c.notification_services.label("bioai_report_services"),
-            IndividualHealthReport.report_id,
+            canonical_ihr.c.report_id,
             AssessmentInstance.assessment_instance_id,
         )
         .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
@@ -210,9 +212,8 @@ async def _get_eligible_participants(
         )
         .join(AssessmentPackage, AssessmentPackage.package_id == AssessmentInstance.package_id)
         .outerjoin(
-            IndividualHealthReport,
-            IndividualHealthReport.assessment_instance_id
-            == AssessmentInstance.assessment_instance_id,
+            canonical_ihr,
+            canonical_ihr.c.assessment_instance_id == AssessmentInstance.assessment_instance_id,
         )
         .outerjoin(
             en_sub,
@@ -482,22 +483,13 @@ async def load_bioai_reports(
                         })
                         continue
 
-                    ihr = None
-                    if ihr_id:
-                        ihr_result = await db.execute(
-                            select(IndividualHealthReport).where(
-                                IndividualHealthReport.report_id == ihr_id
-                            )
-                        )
-                        ihr = ihr_result.scalar_one_or_none()
-
-                    if ihr is None:
-                        ihr = IndividualHealthReport(
-                            user_id=user_id,
-                            engagement_id=engagement_id,
-                            assessment_instance_id=instance_id,
-                        )
-                        db.add(ihr)
+                    ihr = await _get_or_create_ihr(
+                        db,
+                        ihr_id=ihr_id,
+                        user_id=user_id,
+                        engagement_id=engagement_id,
+                        instance_id=instance_id,
+                    )
 
                     if fetched_reports is not None:
                         ihr.reports = fetched_reports

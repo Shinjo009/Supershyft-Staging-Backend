@@ -14,16 +14,17 @@ from db.base import Base
 class IndividualHealthReport(Base):
     """SQLAlchemy model for `individual_health_report` table.
 
-    Multiple rows per engagement are allowed (typically one per assessment).
-    Blood fields may live on any row for the engagement.
+    One row per assessment instance when ``assessment_instance_id`` is set.
+    Rows with null ``assessment_instance_id`` are allowed (e.g. blood retention).
     """
 
     __tablename__ = "individual_health_report"
     __table_args__ = (
         Index("ix_ihr_user_engagement", "user_id", "engagement_id"),
         Index(
-            "ix_ihr_assessment_instance_id",
+            "uq_ihr_assessment_instance_id",
             "assessment_instance_id",
+            unique=True,
             postgresql_where=text("assessment_instance_id IS NOT NULL"),
         ),
     )

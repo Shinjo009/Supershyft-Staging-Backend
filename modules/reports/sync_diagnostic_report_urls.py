@@ -141,21 +141,32 @@ async def _get_or_create_ihr(
     engagement_id: int,
     instance_id: int | None,
 ) -> IndividualHealthReport:
+    if instance_id is not None:
+        assessment_ihr = await repo.get_individual_report_by_assessment(
+            db,
+            assessment_instance_id=instance_id,
+        )
+        if assessment_ihr is not None:
+            return assessment_ihr
+        return await repo.get_or_create_individual_report_by_assessment(
+            db,
+            user_id=user_id,
+            engagement_id=engagement_id,
+            assessment_instance_id=instance_id,
+        )
+
     ihr = await repo.get_individual_report_by_engagement(
         db,
         user_id=user_id,
         engagement_id=engagement_id,
     )
-
     if ihr is None:
         ihr = IndividualHealthReport(
             user_id=user_id,
             engagement_id=engagement_id,
-            assessment_instance_id=instance_id,
+            assessment_instance_id=None,
         )
         db.add(ihr)
-    elif ihr.assessment_instance_id is None and instance_id is not None:
-        ihr.assessment_instance_id = instance_id
     return ihr
 
 
