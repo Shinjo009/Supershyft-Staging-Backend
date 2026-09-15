@@ -1939,6 +1939,43 @@ class ReportsService:
         return WaistMeasurement(value=waist_value, unit=normalized_unit)
 
     @staticmethod
+    def _map_ideal_waist(
+        raw: Any,
+        *,
+        preferred_unit: Literal["in", "cm"] | None,
+    ) -> IdealRangeDetail | None:
+        """Map nutrition ideal_waist into the same unit as the measured waist.
+
+        Nutrition returns canonical cm top-level fields plus nested ``cm`` / ``in``
+        ranges. Health-span-index must surface the range that matches the user's
+        questionnaire waist unit.
+        """
+        if not isinstance(raw, dict):
+            return None
+
+        unit = preferred_unit or ReportsService._normalize_waist_unit(
+            raw.get("input_unit") if isinstance(raw.get("input_unit"), str) else None
+        )
+        if unit in {"in", "cm"}:
+            nested = raw.get(unit)
+            if isinstance(nested, dict) and (
+                nested.get("low") is not None or nested.get("high") is not None
+            ):
+                return IdealRangeDetail(
+                    low=nested.get("low"),
+                    high=nested.get("high"),
+                    unit=unit,
+                )
+
+        if raw.get("low") is None and raw.get("high") is None:
+            return None
+        return IdealRangeDetail(
+            low=raw.get("low"),
+            high=raw.get("high"),
+            unit=raw.get("unit"),
+        )
+
+    @staticmethod
     def _normalize_choice_label(value: str) -> str:
         text = (value or "").strip().lower()
         text = text.replace("–", "-").replace("—", "-")
@@ -2077,6 +2114,13 @@ class ReportsService:
         normalized_height_unit = self._normalize_height_unit(height_unit)
         if normalized_height_unit is not None:
             payload["height_unit"] = normalized_height_unit
+
+        waist_value, waist_unit = self._extract_scale_answer(lookup.get("waist_circumference"))
+        if waist_value is not None:
+            payload["waist_circumference"] = waist_value
+        normalized_waist_unit = self._normalize_waist_unit(waist_unit)
+        if normalized_waist_unit is not None:
+            payload["waist_unit"] = normalized_waist_unit
 
         resolved_age = self._resolve_nutrition_age(
             user_age=user_age,
@@ -2322,7 +2366,10 @@ class ReportsService:
             basal_metabolic_rate=bmr_param,
             waist=waist,
             estimated_body_fat=body_fat_param,
-            ideal_waist=_ideal_range("ideal_waist"),
+            ideal_waist=self._map_ideal_waist(
+                nutrition_response.get("ideal_waist"),
+                preferred_unit=waist.unit if waist is not None else None,
+            ),
             ideal_bmr=_ideal_range("ideal_bmr"),
             ideal_body_fat=_ideal_range("ideal_body_fat"),
         )
