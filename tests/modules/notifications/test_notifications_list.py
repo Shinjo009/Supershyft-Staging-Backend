@@ -116,6 +116,82 @@ async def test_list_notifications_enriched_fields(async_client, test_db_session)
 
 
 @pytest.mark.asyncio
+async def test_list_notifications_enriches_contact_recipients(async_client, test_db_session):
+    await _seed_employee(test_db_session, user_id=9610, employee_id=9610)
+    await _seed_service(
+        test_db_session,
+        service_key="booking-alert-contacts-test",
+        display_name="Booking Alert Contacts",
+    )
+
+    from modules.partners.models import Partner
+
+    test_db_session.add(
+        Partner(
+            partner_id=9611,
+            name="Priya Assistant",
+            phone="9611000000",
+            email="priya@example.com",
+            role="phlebo",
+            status="active",
+        )
+    )
+    test_db_session.add(
+        Notification(
+            service_key="booking-alert-contacts-test",
+            status="sent",
+            channel="whatsapp",
+            user={"contacts": [{"phone": "9611000000", "email": "priya@example.com"}]},
+            engagement_id=None,
+            message="ok",
+            dispatched_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(timezone.utc),
+        )
+    )
+    test_db_session.add(
+        Notification(
+            service_key="booking-alert-contacts-test",
+            status="sent",
+            channel="whatsapp",
+            user={
+                "contacts": [
+                    {
+                        "first_name": "Sunil",
+                        "last_name": "OA",
+                        "phone": "8424029541",
+                        "email": "sunil@example.com",
+                    }
+                ]
+            },
+            engagement_id=None,
+            message="named",
+            dispatched_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(timezone.utc),
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        "/notifications?service_key=booking-alert-contacts-test&limit=50",
+        headers=_auth_header(9610),
+    )
+    assert response.status_code == 200
+    rows = response.json()["data"]
+    by_message = {r["message"]: r for r in rows}
+
+    legacy = by_message["ok"]
+    assert len(legacy["recipients"]) == 1
+    assert legacy["recipients"][0]["user_id"] is None
+    assert legacy["recipients"][0]["first_name"] == "Priya"
+    assert legacy["recipients"][0]["last_name"] == "Assistant"
+
+    named = by_message["named"]
+    assert len(named["recipients"]) == 1
+    assert named["recipients"][0]["first_name"] == "Sunil"
+    assert named["recipients"][0]["last_name"] == "OA"
+
+
+@pytest.mark.asyncio
 async def test_list_notifications_multi_status_filter(async_client, test_db_session):
     await _seed_employee(test_db_session, user_id=9604, employee_id=9604)
     await _seed_service(test_db_session, service_key="multi-status-svc", display_name="Multi")

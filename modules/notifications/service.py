@@ -36,6 +36,54 @@ from modules.reports.blood_report_resolver import resolve_blood_report_url
 logger = logging.getLogger(__name__)
 
 _VALID_NOTIFICATION_STATUSES = frozenset({"pending", "sent", "failed"})
+_VALID_NOTIFICATION_CHANNELS = frozenset({"email", "whatsapp"})
+
+
+def _split_contact_name(name: object | None) -> tuple[str | None, str | None]:
+    text = str(name or "").strip()
+    if not text:
+        return None, None
+    parts = text.split(None, 1)
+    first = parts[0] if parts else None
+    last = parts[1] if len(parts) > 1 else None
+    return first, last
+
+
+def _contact_recipient_from_stored(
+    contact: dict,
+    *,
+    partner_by_phone: dict[str, object],
+    employee_by_phone: dict[str, object],
+) -> dict:
+    """Build a list-row recipient from a dispatch_to_contacts contact payload."""
+    first_name = str(contact.get("first_name") or "").strip() or None
+    last_name = str(contact.get("last_name") or "").strip() or None
+    if not first_name and not last_name:
+        first_name, last_name = _split_contact_name(contact.get("name"))
+
+    phone = str(contact.get("phone") or "").strip() or None
+    email = str(contact.get("email") or "").strip() or None
+
+    if not first_name and not last_name and phone:
+        partner = partner_by_phone.get(phone)
+        if partner is not None:
+            first_name, last_name = _split_contact_name(getattr(partner, "name", None))
+        else:
+            employee = employee_by_phone.get(phone)
+            if employee is not None:
+                first_name, last_name = _split_contact_name(getattr(employee, "name", None))
+
+    if not first_name and not last_name:
+        # Last-resort label so admin never shows a bare hyphen for real contacts.
+        first_name = phone or email
+
+    return {
+        "user_id": None,
+        "first_name": first_name,
+        "last_name": last_name,
+        "phone": phone,
+        "email": email,
+    }
 
 
 def _resolve_session_details_for_user(
@@ -49,7 +97,6 @@ def _resolve_session_details_for_user(
     if payload.session_details is not None:
         return payload.session_details
     return None
-_VALID_NOTIFICATION_CHANNELS = frozenset({"email", "whatsapp"})
 
 
 def _parse_status_filter(status: str | None) -> list[str] | None:
@@ -445,6 +492,7 @@ class NotificationsService:
             )
 
         members: list[dict] = []
+        stored_contacts: list[dict] = []
         for contact in contacts:
             member: dict = {
                 "first_name": str(contact.get("first_name") or ""),
@@ -458,11 +506,28 @@ class NotificationsService:
                 member["session_details"] = session_details.model_dump(mode="json", exclude_none=True)
             members.append(member)
 
+            stored: dict = {
+                "first_name": member["first_name"] or None,
+                "last_name": member["last_name"] or None,
+                "phone": member["phone"] or None,
+                "email": member["email"] or None,
+            }
+            name = str(contact.get("name") or "").strip()
+            if name:
+                stored["name"] = name
+            partner_id = contact.get("partner_id")
+            if isinstance(partner_id, int):
+                stored["partner_id"] = partner_id
+            employee_id = contact.get("employee_id")
+            if isinstance(employee_id, int):
+                stored["employee_id"] = employee_id
+            stored_contacts.append(stored)
+
         notification = Notification(
             service_key=svc.service_key,
             status="pending",
             channel=svc.channel,
-            user={"contacts": [{"phone": m.get("phone"), "email": m.get("email")} for m in members]},
+            user={"contacts": stored_contacts},
             engagement_id=engagement_id,
             assessment_instance_id=None,
             message="Notification dispatch initiated",
@@ -591,6 +656,7 @@ class NotificationsService:
         service_keys: set[str] = set()
         engagement_ids: set[int] = set()
         user_ids: set[int] = set()
+        contact_phones: set[str] = set()
 
         for n in items:
             service_keys.add(n.service_key)
@@ -602,6 +668,17 @@ class NotificationsService:
             for uid in raw_user.get("user_ids") or []:
                 if isinstance(uid, int):
                     user_ids.add(uid)
+            for contact in raw_user.get("contacts") or []:
+                if not isinstance(contact, dict):
+                    continue
+                phone = str(contact.get("phone") or "").strip()
+                has_name = bool(
+                    str(contact.get("first_name") or "").strip()
+                    or str(contact.get("last_name") or "").strip()
+                    or str(contact.get("name") or "").strip()
+                )
+                if phone and not has_name:
+                    contact_phones.add(phone)
 
         services = await self._repo.get_services_by_keys(db, service_keys=list(service_keys))
         service_by_key = {s.service_key: s for s in services}
@@ -613,6 +690,15 @@ class NotificationsService:
 
         users = await self._repo.get_users_by_ids(db, user_ids=list(user_ids))
         user_by_id = {u.user_id: u for u in users}
+
+        partners = await self._repo.get_partners_by_phones(db, phones=list(contact_phones))
+        partner_by_phone = {
+            str(p.phone).strip(): p for p in partners if getattr(p, "phone", None)
+        }
+        employees = await self._repo.get_employees_by_phones(db, phones=list(contact_phones))
+        employee_by_phone = {
+            str(e.phone).strip(): e for e in employees if getattr(e, "phone", None)
+        }
 
         enriched: list[dict] = []
         for n in items:
@@ -633,6 +719,16 @@ class NotificationsService:
                         "first_name": u.first_name if u else None,
                         "last_name": u.last_name if u else None,
                     }
+                )
+            for contact in raw_user.get("contacts") or []:
+                if not isinstance(contact, dict):
+                    continue
+                recipients.append(
+                    _contact_recipient_from_stored(
+                        contact,
+                        partner_by_phone=partner_by_phone,
+                        employee_by_phone=employee_by_phone,
+                    )
                 )
             row["recipients"] = recipients
 

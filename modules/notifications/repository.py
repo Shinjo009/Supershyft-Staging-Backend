@@ -12,8 +12,10 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.assessments.models import AssessmentInstance, AssessmentPackage
+from modules.employee.models import Employee
 from modules.engagements.models import Engagement
 from modules.notifications.models import Notification, NotificationService
+from modules.partners.models import Partner
 from modules.reports.models import IndividualHealthReport
 from modules.users.models import User
 
@@ -308,6 +310,24 @@ class NotificationsRepository:
         if not user_ids:
             return []
         result = await db.execute(select(User).where(User.user_id.in_(user_ids)))
+        return list(result.scalars().all())
+
+    async def get_partners_by_phones(
+        self, db: AsyncSession, *, phones: list[str]
+    ) -> list[Partner]:
+        cleaned = [p.strip() for p in phones if isinstance(p, str) and p.strip()]
+        if not cleaned:
+            return []
+        result = await db.execute(select(Partner).where(Partner.phone.in_(cleaned)))
+        return list(result.scalars().all())
+
+    async def get_employees_by_phones(
+        self, db: AsyncSession, *, phones: list[str]
+    ) -> list[Employee]:
+        cleaned = [p.strip() for p in phones if isinstance(p, str) and p.strip()]
+        if not cleaned:
+            return []
+        result = await db.execute(select(Employee).where(Employee.phone.in_(cleaned)))
         return list(result.scalars().all())
 
     async def get_health_report_for_instance(
