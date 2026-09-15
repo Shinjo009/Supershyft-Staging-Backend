@@ -90,11 +90,12 @@ python modules/reports/camp_report_intelligence/test_intelligence.py \
 * Input Camp Report `data` is not modified.
 * Existing section names and keys remain unchanged.
 * `section.data`, `section.name`, and `section.description` are preserved.
-* Intelligence is attached onto existing Camp Report sections only.
+* Intelligence is attached onto existing Camp Report sections only, except
+  generated ``leadership_takeaways`` (source ``leadership_cards``).
 * Unmapped sections (`meta`, `kpis`, `blood_and_lab_intelligence`,
   `company_average_scores`, `ranking`, …) are left unchanged.
-* Profile / leadership / executive payloads are not added as new top-level
-  Camp Report sections.
+* Profile / ``leadership_cards`` / executive payloads are not added under those
+  internal names. Leadership is exposed as ``leadership_takeaways``.
 * Missing or optional sections continue to be skipped; the engine does not
   create them.
 * The engine is generic and data-driven. It must work with future Camp Reports,

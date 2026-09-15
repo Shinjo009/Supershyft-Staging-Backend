@@ -6,6 +6,7 @@ readable multi-file source that engine is flattened from.
 
 from .camp_intelligence_engine import (
     INTELLIGENCE_CAMP_SECTIONS,
+    LEADERSHIP_TAKEAWAYS_SECTION,
     enrich_camp_report_with_intelligence,
     generate_report_insights,
 )
@@ -16,6 +17,7 @@ from .intelligence_src.assembly import (
 
 __all__ = [
     "INTELLIGENCE_CAMP_SECTIONS",
+    "LEADERSHIP_TAKEAWAYS_SECTION",
     "enrich_camp_report_with_intelligence",
     "generate_camp_section_intelligence",
     "generate_report_insights",

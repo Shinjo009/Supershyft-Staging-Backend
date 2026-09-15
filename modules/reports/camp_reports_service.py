@@ -77,6 +77,7 @@ from modules.reports.camp_reports_repository import (
 from modules.reports.models import CampReport, IndividualHealthReport
 from modules.reports.service import BLOOD_DATA_UNAVAILABLE_ERROR_CODES, ReportsService
 from modules.reports.camp_report_intelligence import (
+    LEADERSHIP_TAKEAWAYS_SECTION,
     generate_camp_section_intelligence,
     resolve_intelligence_section,
 )
@@ -1095,6 +1096,27 @@ class CampReportsService:
             city=city,
         )
 
+        row = await self._get_camp_report_row(db, camp_no=camp_no, department=department,
+            city=city,
+        )
+        report = row.report or {}
+
+        if normalized_section == LEADERSHIP_TAKEAWAYS_SECTION:
+            stored = report.get(LEADERSHIP_TAKEAWAYS_SECTION)
+            if isinstance(stored, dict) and isinstance(stored.get("data"), list) and stored["data"]:
+                return dict(stored)
+            try:
+                _, cards = generate_camp_section_intelligence(
+                    report, LEADERSHIP_TAKEAWAYS_SECTION
+                )
+            except ValueError:
+                cards = []
+            return {
+                "name": "Leadership Takeaways",
+                "description": "Workforce-level leadership observations and strategic next steps.",
+                "data": cards if isinstance(cards, list) else [],
+            }
+
         section_row = await self._sections_repository.get_by_section_key(
             db,
             section_key=normalized_section,
@@ -1106,10 +1128,6 @@ class CampReportsService:
                 message="Invalid report section",
             )
 
-        row = await self._get_camp_report_row(db, camp_no=camp_no, department=department,
-            city=city,
-        )
-        report = row.report or {}
         if normalized_section not in report:
             raise AppError(
                 status_code=404,
@@ -1162,7 +1180,10 @@ class CampReportsService:
             city=city,
         )
         report = dict(row.report or {})
-        if camp_section_key not in report or not isinstance(report.get(camp_section_key), dict):
+        leadership_section = camp_section_key == LEADERSHIP_TAKEAWAYS_SECTION
+        if not leadership_section and (
+            camp_section_key not in report or not isinstance(report.get(camp_section_key), dict)
+        ):
             raise AppError(
                 status_code=404,
                 error_code="SECTION_NOT_FOUND",
@@ -1187,8 +1208,17 @@ class CampReportsService:
                 message="An unexpected error occurred",
             ) from None
 
-        section_payload = dict(report[camp_section_key])
-        section_payload["intelligence"] = intelligence
+        if leadership_section:
+            section_payload = dict(report.get(camp_section_key) or {})
+            section_payload.setdefault("name", "Leadership Takeaways")
+            section_payload.setdefault(
+                "description",
+                "Workforce-level leadership observations and strategic next steps.",
+            )
+            section_payload["data"] = intelligence if isinstance(intelligence, list) else []
+        else:
+            section_payload = dict(report[camp_section_key])
+            section_payload["intelligence"] = intelligence
         report[camp_section_key] = section_payload
         await self._repository.update_report(db, row, report)
 

@@ -8076,15 +8076,17 @@ _CONCERN_TO_SECTION: Mapping[str, str] = {
 def enrich_camp_report_with_intelligence(report: dict) -> dict:
     """Return a deep copy of ``report`` with section-level ``intelligence`` attached.
 
-    Preserves exact top-level keys and each section's ``data``, ``name``, and
-    ``description``. Does not add new top-level sections. Does not include
-    ``profile`` or ``leadership_cards`` in the camp JSON. Attached
-    ``intelligence`` is the frontend contract only (tone / observation /
-    explanation / recommendation); engine metadata stays on the internal
-    ``generate_report_insights`` payload.
+    Preserves existing section ``data``, ``name``, and ``description``.
+    Does not include ``profile`` or ``leadership_cards`` in the camp JSON.
+    Attached ``intelligence`` is the frontend contract only (tone /
+    observation / explanation / recommendation); engine metadata stays on
+    the internal ``generate_report_insights`` payload.
 
     Unmapped sections (``kpis``, ``blood_and_lab_intelligence``,
     ``company_average_scores``, ``ranking``, ``meta``, …) are left unchanged.
+
+    Adds generated ``leadership_takeaways`` (source engine ``leadership_cards``)
+    as a top-level section. Does not persist engine ``profile`` / ``concerns``.
     """
     if not isinstance(report, dict):
         raise TypeError("report must be a dict")
@@ -8112,6 +8114,7 @@ def enrich_camp_report_with_intelligence(report: dict) -> dict:
     if positives_intel is not None:
         _attach_intelligence(enriched, "positive_wins", positives_intel)
 
+    _attach_leadership_takeaways(enriched, insights)
     return enriched
 
 
@@ -8134,6 +8137,62 @@ def _positives_intelligence(
     if "positives" in insights:
         payload["positives"] = insights["positives"]
     return payload or None
+
+
+LEADERSHIP_TAKEAWAYS_SECTION = "leadership_takeaways"
+
+_PUBLIC_LEADERSHIP_CARD_KEYS: tuple[str, ...] = (
+    "id",
+    "title",
+    "headline",
+    "body",
+    "tone",
+    "observation",
+    "explanation",
+    "recommendation",
+)
+
+
+def _public_leadership_card(card: Mapping[str, Any]) -> Dict[str, Any]:
+    structured = card.get("structured")
+    structured = structured if isinstance(structured, Mapping) else {}
+    values = {
+        "id": card.get("id") or "",
+        "title": card.get("title") or "",
+        "headline": card.get("headline") or structured.get("headline") or "",
+        "body": card.get("body") or "",
+        "tone": structured.get("tone") or card.get("tone") or "",
+        "observation": structured.get("observation") or "",
+        "explanation": structured.get("explanation") or "",
+        "recommendation": structured.get("recommendation") or "",
+    }
+    return {key: values[key] for key in _PUBLIC_LEADERSHIP_CARD_KEYS}
+
+
+def _attach_leadership_takeaways(
+    report: MutableMapping[str, Any],
+    insights: Mapping[str, Any],
+) -> None:
+    """Source ``leadership_cards`` → camp section ``leadership_takeaways``."""
+    raw_cards = insights.get("leadership_cards") or []
+    if not isinstance(raw_cards, list):
+        raw_cards = []
+    cards = [
+        _public_leadership_card(card)
+        for card in raw_cards
+        if isinstance(card, Mapping)
+    ]
+    existing = report.get(LEADERSHIP_TAKEAWAYS_SECTION)
+    section: Dict[str, Any] = (
+        dict(existing) if isinstance(existing, dict) else {}
+    )
+    section.setdefault("name", "Leadership Takeaways")
+    section.setdefault(
+        "description",
+        "Workforce-level leadership observations and strategic next steps.",
+    )
+    section["data"] = cards
+    report[LEADERSHIP_TAKEAWAYS_SECTION] = section
 
 
 # Frontend dashboard contract. Internal engine metadata is calculated and
@@ -8197,6 +8256,7 @@ __all__ = [
     "generate_report_insights",
     "enrich_camp_report_with_intelligence",
     "INTELLIGENCE_CAMP_SECTIONS",
+    "LEADERSHIP_TAKEAWAYS_SECTION",
     "compose_company_profile",
     "generate_insight",
     "generate_structured_insight",

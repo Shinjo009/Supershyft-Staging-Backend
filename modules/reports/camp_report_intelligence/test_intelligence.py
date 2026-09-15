@@ -32,6 +32,7 @@ from camp_intelligence_engine import (  # noqa: E402
 )
 
 FORBIDDEN_TOP_LEVEL = frozenset({"profile", "leadership_cards", "concerns", "positives"})
+GENERATED_TOP_LEVEL = frozenset({"leadership_takeaways"})
 
 
 def _load_report(path: Path) -> dict[str, Any]:
@@ -56,11 +57,14 @@ def validate_enrichment(original: dict[str, Any], enriched: dict[str, Any]) -> l
     """Return a list of validation failure messages (empty = pass)."""
     errors: list[str] = []
 
-    if list(enriched.keys()) != list(original.keys()):
-        errors.append(
-            "top-level keys differ: "
-            f"input={list(original.keys())!r} output={list(enriched.keys())!r}"
-        )
+    original_keys = list(original.keys())
+    extra = [k for k in enriched.keys() if k not in original]
+    missing = [k for k in original_keys if k not in enriched]
+    if missing:
+        errors.append(f"missing top-level keys: {missing!r}")
+    unexpected = [k for k in extra if k not in GENERATED_TOP_LEVEL]
+    if unexpected:
+        errors.append(f"unexpected top-level keys: {unexpected!r}")
 
     for key in FORBIDDEN_TOP_LEVEL:
         if key in enriched:
@@ -86,9 +90,15 @@ def validate_enrichment(original: dict[str, Any], enriched: dict[str, Any]) -> l
         if key in INTELLIGENCE_CAMP_SECTIONS:
             if not has_intel:
                 errors.append(f"{key}: expected intelligence on mapped section")
+        elif key in GENERATED_TOP_LEVEL:
+            continue
         else:
             if has_intel:
                 errors.append(f"{key}: unexpected intelligence on unmapped section")
+
+    takeaways = enriched.get("leadership_takeaways")
+    if not isinstance(takeaways, dict) or not isinstance(takeaways.get("data"), list):
+        errors.append("leadership_takeaways: expected generated section with data list")
 
     return errors
 
