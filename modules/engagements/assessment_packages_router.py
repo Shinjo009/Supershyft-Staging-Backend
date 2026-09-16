@@ -15,7 +15,8 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.responses import success_response
-from core.dependencies import get_current_user
+from core.dependencies import get_optional_user
+from core.exceptions import AppError
 from db.session import get_db
 from modules.employee.dependencies import get_current_employee, get_optional_employee
 from modules.employee.service import EmployeeContext
@@ -46,21 +47,42 @@ def _client_ip(request: Request) -> str:
     return request.client.host
 
 
+def _require_user_or_employee(
+    *,
+    user,
+    employee: EmployeeContext | None,
+) -> tuple[int | None, EmployeeContext | None]:
+    """Accept employee (admin) or user (participant) JWT; reject unauthenticated."""
+
+    if employee is not None:
+        return None, employee
+    if user is not None:
+        return int(user.user_id), None
+    raise AppError(
+        status_code=401,
+        error_code="AUTH_FAILED",
+        message="Authentication failed",
+    )
+
+
 @router.get("/{engagement_id}/assessment-packages")
 async def list_engagement_assessment_packages(
     engagement_id: int,
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(get_optional_user),
     employee: EmployeeContext | None = Depends(get_optional_employee),
     service: EngagementAssessmentPackagesService = Depends(
         get_engagement_assessment_packages_service
     ),
 ):
+    current_user_id, resolved_employee = _require_user_or_employee(
+        user=user, employee=employee
+    )
     data = await service.list_packages_for_engagement(
         db,
         engagement_id=engagement_id,
-        current_user_id=user.user_id,
-        employee=employee,
+        current_user_id=current_user_id,
+        employee=resolved_employee,
     )
     return success_response(data)
 
@@ -71,18 +93,21 @@ async def add_engagement_assessment_package(
     payload: EngagementAssessmentPackageAddRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(get_optional_user),
     employee: EmployeeContext | None = Depends(get_optional_employee),
     service: EngagementAssessmentPackagesService = Depends(
         get_engagement_assessment_packages_service
     ),
 ):
+    current_user_id, resolved_employee = _require_user_or_employee(
+        user=user, employee=employee
+    )
     data = await service.add_package_to_engagement(
         db,
         engagement_id=engagement_id,
         package_code=payload.package_code,
-        current_user_id=user.user_id,
-        employee=employee,
+        current_user_id=current_user_id,
+        employee=resolved_employee,
         ip_address=_client_ip(request),
         user_agent=request.headers.get("User-Agent", "unknown"),
         endpoint=str(request.url.path),

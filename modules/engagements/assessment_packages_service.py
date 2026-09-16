@@ -117,11 +117,17 @@ class EngagementAssessmentPackagesService:
         db: AsyncSession,
         *,
         engagement_id: int,
-        user_id: int,
+        user_id: int | None,
         employee: EmployeeContext | None,
     ) -> None:
         if employee is not None:
             return
+        if user_id is None:
+            raise AppError(
+                status_code=401,
+                error_code="AUTH_FAILED",
+                message="Authentication failed",
+            )
         is_participant = await self._engagements.has_participant_for_user_engagement(
             db,
             user_id=user_id,
@@ -139,7 +145,7 @@ class EngagementAssessmentPackagesService:
         db: AsyncSession,
         *,
         engagement_id: int,
-        current_user_id: int,
+        current_user_id: int | None,
         employee: EmployeeContext | None,
     ) -> list[dict[str, Any]]:
         engagement = await self._engagements.get_engagement_by_id(db, engagement_id)
@@ -188,7 +194,7 @@ class EngagementAssessmentPackagesService:
         *,
         engagement_id: int,
         package_code: str,
-        current_user_id: int,
+        current_user_id: int | None,
         employee: EmployeeContext | None,
         ip_address: str,
         user_agent: str,
