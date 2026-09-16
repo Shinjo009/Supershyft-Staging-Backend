@@ -40,6 +40,8 @@ from modules.engagements.slot_availability import find_active_cabin
 from modules.diagnostics.repository import DiagnosticsRepository
 from common.phone import phone_lookup_candidates as _phone_lookup_candidates
 from modules.users.schemas import (
+    B2CCodeOnboardAndBookRequest,
+    B2COnboardAndBookResponse,
     BookBioAiBatchRequest,
     BookBioAiRequest,
     BookBloodTestBatchRequest,
@@ -2631,6 +2633,167 @@ class UsersService:
             assessment_instance_id=int(assessment_instance.assessment_instance_id) if assessment_instance is not None else None,
             metsights_record_id=metsights_record_id or mid,
             preview_available=preview_available,
+        )
+
+    async def onboard_and_book_b2c(
+        self,
+        db: AsyncSession,
+        *,
+        engagement_code: str,
+        payload: B2CCodeOnboardAndBookRequest,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> B2COnboardAndBookResponse:
+        """Public B2C pay-later onboard: create user, enroll, and finalize Healthians booking."""
+
+        from modules.bookings import service as booking_service
+
+        if self._engagements_service is None:
+            raise RuntimeError("Engagements service is required")
+        if self._platform_settings_service is None:
+            raise RuntimeError("Platform settings service is required")
+        if self._assessments_service is None:
+            raise RuntimeError("Assessments service is required")
+
+        code = (engagement_code or "").strip()
+        if not code:
+            raise AppError(status_code=400, error_code="INVALID_INPUT", message="engagement_code is required")
+
+        engagement = await self._engagements_service.get_by_code(db, code)
+        if engagement is None:
+            raise AppError(status_code=404, error_code="ENGAGEMENT_NOT_FOUND", message="Engagement not found")
+        if engagement.organization_id is not None:
+            raise AppError(status_code=422, error_code="INVALID_STATE", message="Engagement is not a public B2C draft")
+        if (engagement.status or "").lower() != "draft":
+            raise AppError(status_code=422, error_code="INVALID_STATE", message="Engagement is not in draft status")
+        if not engagement.draft_slot_id or engagement.draft_slot_date is None or engagement.draft_slot_time is None:
+            raise AppError(status_code=422, error_code="SLOT_NOT_LOCKED", message="Blood collection slot is not locked")
+
+        email = str(payload.email) if payload.email is not None else None
+        patch_data = {
+            "first_name": payload.first_name,
+            "last_name": payload.last_name,
+            "age": payload.age,
+            "email": email,
+            "date_of_birth": payload.dob,
+            "gender": payload.gender,
+            "address": payload.address,
+            "pin_code": payload.pincode,
+            "city": payload.city,
+            "state": payload.state,
+            "country": payload.country,
+        }
+        create_data = {
+            **patch_data,
+            "phone": payload.phone,
+            "referred_by": code,
+            "is_participant": True,
+            "status": "active",
+        }
+
+        user, created = await self._get_or_create_user_for_onboarding(
+            db,
+            phone=str(payload.phone),
+            email=email,
+            patch_data={**patch_data, "is_participant": True, "referred_by": code},
+            create_data=create_data,
+        )
+
+        engagement_type_code = "bio_ai"
+        await _require_active_engagement_type_code(db, engagement_type_code)
+        onboarding_defaults = await self._platform_settings_service.resolve_b2c_onboarding_defaults(
+            db, engagement_type_code
+        )
+        if not engagement.assessment_package_id:
+            engagement.assessment_package_id = onboarding_defaults.assessment_package_id
+        if not engagement.engagement_type:
+            resolved_type_id, resolved_consultations = await _resolve_consultation_from_pkg(
+                db,
+                engagement.diagnostic_package_id,
+                engagement_type_code,
+            )
+            engagement.engagement_type = resolved_type_id
+            if engagement.consultations is None:
+                engagement.consultations = resolved_consultations
+        if not engagement.create_profile_on_metsights:
+            engagement.create_profile_on_metsights = onboarding_defaults.create_profile_on_metsights
+        if not engagement.enroll_for_fitprint_full:
+            engagement.enroll_for_fitprint_full = onboarding_defaults.enroll_for_fitprint_full
+
+        consultations = _validate_requested_consultations(
+            payload.consultations,
+            engagement.consultations,
+        )
+
+        participant = await self._engagements_service.enroll_user_in_engagement(
+            db,
+            engagement=engagement,
+            user_id=user.user_id,
+            engagement_date=engagement.draft_slot_date,
+            slot_start_time=engagement.draft_slot_time,
+            consultations=consultations,
+            booked_by_user_id=user.user_id,
+        )
+        participant.blood_collection_time_slot_id = engagement.draft_slot_id
+        await db.flush()
+
+        vendor_billing_user_id = engagement.engagement_code
+        booking_results = await booking_service.create_healthians_booking_after_payment(
+            db,
+            members=[{"user_id": user.user_id, "engagement_id": engagement.engagement_id}],
+            caller_user_id=user.user_id,
+            engagement_type_code=engagement_type_code,
+            engagements_service=self._engagements_service,
+            vendor_billing_user_id_override=vendor_billing_user_id,
+        )
+        booking_result = booking_results[0] if booking_results else {}
+        if booking_result.get("status") != "success":
+            raise AppError(
+                status_code=422,
+                error_code="BOOKING_FAILED",
+                message=booking_result.get("message", "Healthians booking failed"),
+            )
+
+        engagement.draft_slot_id = None
+        engagement.draft_slot_date = None
+        engagement.draft_slot_time = None
+        await db.flush()
+
+        assessment_instance = await self._assessments_service.ensure_instance_assigned(
+            db,
+            user_id=user.user_id,
+            engagement_id=engagement.engagement_id,
+            package_id=engagement.assessment_package_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            endpoint=endpoint,
+        )
+
+        if self._audit_service is None:
+            raise RuntimeError("Audit service is required")
+        await self._audit_service.log_event(
+            db,
+            action="USER_PUBLIC_ONBOARD_BOOK",
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=user.user_id,
+            session_id=None,
+        )
+
+        return B2COnboardAndBookResponse(
+            user_id=user.user_id,
+            created=created,
+            engagement_id=int(engagement.engagement_id),
+            engagement_code=engagement.engagement_code,
+            engagement_participant_id=participant.engagement_participant_id,
+            booking_id=str(booking_result.get("booking_id") or ""),
+            status="scheduled",
+            assessment_instance_id=int(assessment_instance.assessment_instance_id)
+            if assessment_instance is not None
+            else None,
+            tokens={},
         )
 
     def _split_csv_name(self, raw_name: str) -> tuple[str | None, str | None]:

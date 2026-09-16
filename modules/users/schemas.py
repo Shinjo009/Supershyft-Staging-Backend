@@ -434,6 +434,54 @@ class UserOnboardResponse(BaseModel):
     preview_available: bool = False
 
 
+class B2CCodeOnboardAndBookRequest(BaseModel):
+    """Payload for public B2C onboard+book when engagement_code is in the path."""
+
+    age: int
+    first_name: OptionalPersonName = None
+    last_name: OptionalPersonName = None
+    email: Optional[EmailStr] = None
+    phone: PhoneStr
+    gender: OptionalSafeDisplayName = None
+    dob: Optional[date] = None
+    address: OptionalAddressText = None
+    pincode: OptionalPinCode = None
+    city: OptionalCityStateCountry = None
+    state: OptionalCityStateCountry = None
+    country: OptionalCityStateCountry = None
+    consultations: Optional[dict[str, Any]] = None
+
+    @model_validator(mode="after")
+    def sanitize_consultations(self):
+        if self.consultations is not None:
+            validate_nested_strings(self.consultations)
+        return self
+
+    @validator("age")
+    def age_must_be_valid(cls, v):
+        if v < 1 or v > 120:
+            raise ValueError("Age must be between 1 and 120")
+        return v
+
+
+class B2CPublicOnboardAndBookRequest(B2CCodeOnboardAndBookRequest):
+    """Payload for public B2C onboard+book when engagement_code is in the body."""
+
+    engagement_code: str = Field(min_length=1, max_length=20)
+
+
+class B2COnboardAndBookResponse(BaseModel):
+    user_id: int
+    created: bool
+    engagement_id: int
+    engagement_code: str
+    engagement_participant_id: Optional[int] = None
+    booking_id: str
+    status: str
+    assessment_instance_id: Optional[int] = None
+    tokens: dict[str, str]
+
+
 class VifcQuickStartRequest(BaseModel):
     """Public VIFC quick-start: onboard with engagement_type=vifc then start face scan.
 

@@ -15,6 +15,9 @@ from modules.bookings.schemas import (
     CancelBookingRequest,
     CheckServiceabilityRequest,
     LockSlotRequest,
+    PublicAvailableSlotsRequest,
+    PublicCheckServiceabilityRequest,
+    PublicLockSlotRequest,
     VerifyAndBookRequest,
 )
 from modules.bookings import service as booking_service
@@ -219,3 +222,56 @@ async def lock_slots(
     result = await booking_service.lock_slots(db, members=members)
     await db.commit()
     return success_response({"members": result})
+
+
+@router.post("/public/check-service-availability")
+@limiter.limit("5/minute")
+async def public_check_service_availability(
+    payload: PublicCheckServiceabilityRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await booking_service.public_check_service_availability(
+        db,
+        address_line=payload.address_line,
+        landmark=payload.landmark,
+        city=payload.city,
+        pincode=payload.pincode,
+        diagnostic_package_id=payload.diagnostic_package_id,
+    )
+    await db.commit()
+    return success_response(result)
+
+
+@router.post("/public/available-slots")
+@limiter.limit("10/minute")
+async def public_get_available_slots(
+    payload: PublicAvailableSlotsRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await booking_service.public_get_available_slots(
+        db,
+        engagement_code=payload.engagement_code,
+        blood_collection_date=payload.blood_collection_date,
+    )
+    await db.commit()
+    return success_response(result)
+
+
+@router.post("/public/lock")
+@limiter.limit("5/minute")
+async def public_lock_slot(
+    payload: PublicLockSlotRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await booking_service.public_lock_slot(
+        db,
+        engagement_code=payload.engagement_code,
+        blood_collection_date=payload.blood_collection_date,
+        blood_collection_time_slot_id=payload.blood_collection_time_slot_id,
+        blood_collection_time_slot=payload.blood_collection_time_slot,
+    )
+    await db.commit()
+    return success_response(result)

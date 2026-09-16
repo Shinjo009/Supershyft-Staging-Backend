@@ -113,3 +113,29 @@ class CancelBookingRequest(BaseModel):
         if len(ids) != len(set(ids)):
             raise ValueError("Duplicate user_id in members")
         return self
+
+
+class PublicCheckServiceabilityRequest(BaseModel):
+    """Flat payload for public B2C pay-later serviceability check."""
+
+    address_line: AddressText
+    landmark: OptionalLandmarkText = None
+    city: CityStateCountry
+    pincode: PinCode
+    diagnostic_package_id: PositiveIntId
+
+
+class PublicAvailableSlotsRequest(BaseModel):
+    """Flat payload for public B2C available slots."""
+
+    engagement_code: str = Field(min_length=1, max_length=20)
+    blood_collection_date: date
+
+
+class PublicLockSlotRequest(BaseModel):
+    """Flat payload for public B2C slot lock."""
+
+    engagement_code: str = Field(min_length=1, max_length=20)
+    blood_collection_date: date
+    blood_collection_time_slot_id: str = Field(min_length=1, max_length=50)
+    blood_collection_time_slot: ShortSafeText

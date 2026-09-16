@@ -507,6 +507,339 @@ async def lock_slots(
     return results
 
 
+async def _allocate_unique_engagement_code(db: AsyncSession) -> str:
+    for _ in range(20):
+        code = _generate_engagement_code()
+        existing = await db.execute(
+            select(Engagement.engagement_id).where(Engagement.engagement_code == code).limit(1)
+        )
+        if existing.scalar_one_or_none() is None:
+            return code
+    raise AppError(status_code=500, error_code="INTERNAL_ERROR", message="Could not allocate engagement code")
+
+
+async def _get_public_draft_engagement_by_code(
+    db: AsyncSession,
+    engagement_code: str,
+) -> Engagement:
+    code = (engagement_code or "").strip()
+    if not code:
+        raise AppError(status_code=400, error_code="INVALID_INPUT", message="engagement_code is required")
+
+    result = await db.execute(
+        select(Engagement).where(Engagement.engagement_code == code).limit(1)
+    )
+    engagement = result.scalar_one_or_none()
+    if engagement is None:
+        raise AppError(status_code=404, error_code="ENGAGEMENT_NOT_FOUND", message="Engagement not found")
+    if engagement.organization_id is not None:
+        raise AppError(status_code=422, error_code="INVALID_STATE", message="Engagement is not a public B2C draft")
+    if (engagement.status or "").lower() != "draft":
+        raise AppError(status_code=422, error_code="INVALID_STATE", message="Engagement is not in draft status")
+    return engagement
+
+
+async def public_check_service_availability(
+    db: AsyncSession,
+    *,
+    address_line: str,
+    landmark: str | None,
+    city: str,
+    pincode: str,
+    diagnostic_package_id: int,
+) -> dict[str, Any]:
+    """Public B2C serviceability check — creates a draft engagement without a user."""
+    pkg = await _get_diagnostic_package(db, diagnostic_package_id)
+    if not _is_healthians(pkg):
+        return {"status": "error", "message": "Diagnostic provider is not Healthians"}
+
+    geocoded = await _geocode_for_booking(f"{city.strip()} {pincode.strip()}")
+    latitude = geocoded.get("latitude")
+    longitude = geocoded.get("longitude")
+    if latitude is None or longitude is None:
+        return {"status": "error", "message": "Could not geocode address"}
+
+    engagement_code = await _allocate_unique_engagement_code(db)
+    address = address_line.strip()
+
+    engagement = Engagement(
+        engagement_name="public-draft",
+        metsights_engagement_id=None,
+        organization_id=None,
+        camp_no=None,
+        engagement_code=engagement_code,
+        engagement_type=None,
+        assessment_package_id=None,
+        diagnostic_package_id=diagnostic_package_id,
+        city=city,
+        address=address,
+        sub_locality=address,
+        landmark=landmark,
+        pincode=pincode,
+        state=geocoded.get("state"),
+        country=geocoded.get("country"),
+        latitude=latitude,
+        longitude=longitude,
+        slot_duration=20,
+        start_date=None,
+        end_date=None,
+        status="draft",
+        healthians_zone_id=None,
+        blood_collection_type=BloodCollectionType.home_collection,
+        create_profile_on_metsights=False,
+        enroll_for_fitprint_full=False,
+    )
+    db.add(engagement)
+    await db.flush()
+
+    lat = str(latitude)
+    lng = str(longitude)
+    zipcode = pincode
+    access_token = await _get_healthians_token()
+
+    try:
+        resp = await healthians_client.check_serviceability_by_location_v2(
+            access_token,
+            lat=lat,
+            long=lng,
+            zipcode=zipcode,
+            is_ppmc_booking=0,
+        )
+    except Exception as exc:
+        logger.exception("Healthians serviceability check failed for public draft %s", engagement_code)
+        await log_healthians_call(
+            db,
+            engagement_id=engagement.engagement_id,
+            user_id=None,
+            provider="healthians",
+            api_url=f"{settings.HEALTHIANS_BASE_URL}/toast4health/checkServiceabilityByLocation_v2",
+            request_payload={"lat": lat, "long": lng, "zipcode": zipcode, "is_ppmc_booking": 0},
+            status="failed",
+            error_message=str(exc),
+        )
+        return {"engagement_code": engagement_code, "status": "error", "message": str(exc)}
+
+    await log_healthians_call(
+        db,
+        engagement_id=engagement.engagement_id,
+        user_id=None,
+        provider="healthians",
+        api_url=f"{settings.HEALTHIANS_BASE_URL}/toast4health/checkServiceabilityByLocation_v2",
+        request_payload={"lat": lat, "long": lng, "zipcode": zipcode, "is_ppmc_booking": 0},
+        response_payload=resp,
+        status="success" if resp.get("status") else "failed",
+    )
+
+    if not resp.get("status"):
+        engagement.status = "cancelled"
+        await db.flush()
+        return {
+            "engagement_code": engagement_code,
+            "status": "not_serviceable",
+            "message": resp.get("message", "This location is not serviceable."),
+        }
+
+    zone_id = resp.get("data", {}).get("zone_id") if resp.get("data") else None
+    engagement.healthians_zone_id = str(zone_id) if zone_id else None
+    await db.flush()
+
+    return {
+        "engagement_code": engagement_code,
+        "status": "serviceable",
+        "message": resp.get("message", "Serviceable"),
+        "zone_id": zone_id,
+    }
+
+
+async def public_get_available_slots(
+    db: AsyncSession,
+    *,
+    engagement_code: str,
+    blood_collection_date: date,
+) -> dict[str, Any]:
+    """Public B2C available slots for a draft engagement."""
+    engagement = await _get_public_draft_engagement_by_code(db, engagement_code)
+
+    if not engagement.diagnostic_package_id:
+        return {
+            "engagement_code": engagement.engagement_code,
+            "status": "error",
+            "message": "No diagnostic package",
+        }
+
+    pkg = await _get_diagnostic_package(db, engagement.diagnostic_package_id)
+    if not _is_healthians(pkg):
+        return {
+            "engagement_code": engagement.engagement_code,
+            "status": "error",
+            "message": "Not a Healthians package",
+        }
+
+    amount = float(pkg.original_price) if pkg.original_price else 0
+    external_package_id = pkg.external_package_id or 0
+    payload = {
+        "slot_date": blood_collection_date.isoformat(),
+        "zone_id": str(engagement.healthians_zone_id or ""),
+        "lat": str(engagement.latitude or ""),
+        "long": str(engagement.longitude or ""),
+        "zipcode": engagement.pincode or "",
+        "get_ppmc_slots": 0,
+        "has_female_patient": 0,
+        "amount": amount,
+        "package": [{"deal_id": [f"package_{external_package_id}"]}],
+    }
+
+    access_token = await _get_healthians_token()
+    await release_request_transaction(db)
+
+    try:
+        resp = await healthians_client.get_slots_by_location(access_token, payload)
+    except Exception as exc:
+        logger.exception("Healthians getSlotsByLocation failed for public draft %s", engagement_code)
+        await log_healthians_call(
+            db,
+            engagement_id=engagement.engagement_id,
+            user_id=None,
+            provider="healthians",
+            api_url=f"{settings.HEALTHIANS_BASE_URL}/toast4health/getSlotsByLocation",
+            request_payload=payload,
+            status="failed",
+            error_message=str(exc),
+        )
+        return {
+            "engagement_code": engagement.engagement_code,
+            "status": "error",
+            "message": str(exc),
+        }
+
+    await log_healthians_call(
+        db,
+        engagement_id=engagement.engagement_id,
+        user_id=None,
+        provider="healthians",
+        api_url=f"{settings.HEALTHIANS_BASE_URL}/toast4health/getSlotsByLocation",
+        request_payload=payload,
+        response_payload=resp,
+        status="success" if resp.get("status") else "failed",
+    )
+
+    if not resp.get("status"):
+        return {
+            "engagement_code": engagement.engagement_code,
+            "status": "error",
+            "message": resp.get("message", "Failed to fetch slots"),
+        }
+
+    raw_slots = resp.get("data", []) or []
+    slim_slots = [_slim_healthians_slot(slot) for slot in raw_slots if isinstance(slot, dict)]
+    return {
+        "engagement_code": engagement.engagement_code,
+        "status": "success",
+        "slots": slim_slots,
+    }
+
+
+async def public_lock_slot(
+    db: AsyncSession,
+    *,
+    engagement_code: str,
+    blood_collection_date: date,
+    blood_collection_time_slot_id: str,
+    blood_collection_time_slot: str,
+) -> dict[str, Any]:
+    """Public B2C slot lock — stores draft slot fields on the engagement."""
+    engagement = await _get_public_draft_engagement_by_code(db, engagement_code)
+
+    if not engagement.diagnostic_package_id:
+        return {
+            "engagement_code": engagement.engagement_code,
+            "status": "error",
+            "message": "No diagnostic package",
+        }
+
+    pkg = await _get_diagnostic_package(db, engagement.diagnostic_package_id)
+    if not _is_healthians(pkg):
+        return {
+            "engagement_code": engagement.engagement_code,
+            "status": "error",
+            "message": "Not a Healthians package",
+        }
+
+    vendor_billing_user_id = engagement.engagement_code
+    access_token = await _get_healthians_token()
+    await release_request_transaction(db)
+
+    try:
+        resp = await healthians_client.freeze_slot_v1(
+            access_token,
+            slot_id=blood_collection_time_slot_id,
+            vendor_billing_user_id=vendor_billing_user_id,
+        )
+    except Exception as exc:
+        logger.exception("Healthians freezeSlot_v1 failed for public draft %s", engagement_code)
+        await log_healthians_call(
+            db,
+            engagement_id=engagement.engagement_id,
+            user_id=None,
+            provider="healthians",
+            api_url=f"{settings.HEALTHIANS_BASE_URL}/toast4health/freezeSlot_v1",
+            request_payload={
+                "slot_id": blood_collection_time_slot_id,
+                "vendor_billing_user_id": vendor_billing_user_id,
+            },
+            status="failed",
+            error_message=str(exc),
+        )
+        return {
+            "engagement_code": engagement.engagement_code,
+            "status": "error",
+            "message": str(exc),
+        }
+
+    await log_healthians_call(
+        db,
+        engagement_id=engagement.engagement_id,
+        user_id=None,
+        provider="healthians",
+        api_url=f"{settings.HEALTHIANS_BASE_URL}/toast4health/freezeSlot_v1",
+        request_payload={
+            "slot_id": blood_collection_time_slot_id,
+            "vendor_billing_user_id": vendor_billing_user_id,
+        },
+        response_payload=resp,
+        status="success" if resp.get("status") and resp.get("resCode") == "RES0001" else "failed",
+    )
+
+    if not resp.get("status") or resp.get("resCode") != "RES0001":
+        return {
+            "engagement_code": engagement.engagement_code,
+            "status": "error",
+            "message": resp.get("message", "Slot not available"),
+        }
+
+    try:
+        slot_start_time = _parse_slot_time(blood_collection_time_slot)
+    except ValueError as exc:
+        return {
+            "engagement_code": engagement.engagement_code,
+            "status": "error",
+            "message": str(exc),
+        }
+
+    engagement.draft_slot_id = blood_collection_time_slot_id
+    engagement.draft_slot_date = blood_collection_date
+    engagement.draft_slot_time = slot_start_time
+    await db.flush()
+
+    return {
+        "engagement_code": engagement.engagement_code,
+        "status": "success",
+        "message": resp.get("message", "Slot locked"),
+        "slot_id": resp.get("data", {}).get("slot_id") if resp.get("data") else blood_collection_time_slot_id,
+        "freeze_time": resp.get("data", {}).get("freeze_time") if resp.get("data") else None,
+    }
+
+
 async def _validate_locked_draft_for_pay(
     db: AsyncSession,
     *,
@@ -705,6 +1038,7 @@ async def create_healthians_booking_after_payment(
     caller_user_id: int,
     engagement_type_code: str | None = None,
     engagements_service: EngagementsService | None = None,
+    vendor_billing_user_id_override: str | None = None,
 ) -> list[dict[str, Any]]:
     """After payment succeeds, create Healthians booking for each member using their drafted engagement."""
     results: list[dict[str, Any]] = []
@@ -786,7 +1120,7 @@ async def create_healthians_booking_after_payment(
         external_package_id = pkg.external_package_id or 0
         slot_id = participant.blood_collection_time_slot_id or ""
         relation = (user.relationship or "self").strip() or "self"
-        vendor_billing_user_id = str(participant.booked_by_user_id)
+        vendor_billing_user_id = vendor_billing_user_id_override or str(participant.booked_by_user_id)
 
         phone = to_healthians_mobile((user.phone or "").strip())
         if len(phone) != 10:

@@ -24,6 +24,8 @@ from modules.employee.permissions import PermissionAction, context_task_allows, 
 from modules.metsights.dependencies import get_metsights_sync_service
 from modules.metsights.sync_service import MetsightsSyncService
 from modules.users.schemas import (
+    B2CCodeOnboardAndBookRequest,
+    B2CPublicOnboardAndBookRequest,
     BookBioAiRequest,
     EmployeeCreateUserRequest,
     EmployeeUpdateUserRequest,
@@ -67,6 +69,48 @@ async def public_onboard_user(
     return success_response(result.model_dump())
 
 
+@router.post("/public/onboard/book")
+@limiter.limit("3/minute")
+async def public_onboard_and_book_user(
+    payload: B2CPublicOnboardAndBookRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    users_service: UsersService = Depends(get_users_service),
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    ip_address = get_client_ip(request)
+    user_agent = request.headers.get("User-Agent", "unknown")
+    endpoint = str(request.url.path)
+
+    result = await users_service.onboard_and_book_b2c(
+        db,
+        engagement_code=payload.engagement_code,
+        payload=payload,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        endpoint=endpoint,
+    )
+    tokens = await auth_service.issue_tokens_for_user(
+        db,
+        user_id=result.user_id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        endpoint=endpoint,
+    )
+    await db.commit()
+
+    return success_response(
+        {
+            **result.model_dump(exclude={"tokens"}),
+            "tokens": {
+                "access_token": tokens.access_token,
+                "refresh_token": tokens.refresh_token,
+                "token_type": "bearer",
+            },
+        }
+    )
+
+
 @router.post("/public/vifc/quick-start")
 @limiter.limit("3/minute")
 async def public_vifc_quick_start(
@@ -107,6 +151,49 @@ async def onboard_user_for_engagement(
     await db.commit()
 
     return success_response(result.model_dump())
+
+
+@router.post("/code/{engagement_code}/onboard/book")
+@limiter.limit("3/minute")
+async def onboard_and_book_user_for_engagement(
+    engagement_code: str,
+    payload: B2CCodeOnboardAndBookRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    users_service: UsersService = Depends(get_users_service),
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    ip_address = get_client_ip(request)
+    user_agent = request.headers.get("User-Agent", "unknown")
+    endpoint = str(request.url.path)
+
+    result = await users_service.onboard_and_book_b2c(
+        db,
+        engagement_code=engagement_code,
+        payload=payload,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        endpoint=endpoint,
+    )
+    tokens = await auth_service.issue_tokens_for_user(
+        db,
+        user_id=result.user_id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        endpoint=endpoint,
+    )
+    await db.commit()
+
+    return success_response(
+        {
+            **result.model_dump(exclude={"tokens"}),
+            "tokens": {
+                "access_token": tokens.access_token,
+                "refresh_token": tokens.refresh_token,
+                "token_type": "bearer",
+            },
+        }
+    )
 
 
 @router.post("/code/{engagement_code}/onboard/me")

@@ -96,6 +96,9 @@ class Engagement(Base):
         SAEnum(ConsultationMode, name="consultation_mode_enum", values_callable=lambda obj: [e.value for e in obj], create_type=False),
         nullable=True,
     )
+    draft_slot_id = Column(String, nullable=True)
+    draft_slot_date = Column(Date, nullable=True)
+    draft_slot_time = Column(Time, nullable=True)
 
 
 class OnboardingAssistantAssignment(Base):
