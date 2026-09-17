@@ -78,7 +78,10 @@ async def dispatch_notification(
     svc: NotificationsService = Depends(get_notifications_service),
     auth=Depends(authenticate_notification_endpoint),
 ):
-    triggered_by = auth.user_id if auth is not None else None
+    # Employee JWT auth returns EmployeeContext (employee_id only). API-key auth
+    # returns None. triggered_by_user_id is a FK to users.user_id, so leave unset
+    # for admin/API-key sends unless a future auth principal exposes user_id.
+    triggered_by = getattr(auth, "user_id", None) if auth is not None else None
     result = await svc.dispatch(db, payload=payload, triggered_by_user_id=triggered_by)
     await db.commit()
     return success_response(result)
