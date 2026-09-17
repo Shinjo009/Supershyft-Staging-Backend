@@ -252,6 +252,74 @@ async def test_public_available_slots(async_client, test_db_session):
 
 
 @pytest.mark.asyncio
+async def test_code_available_slots_uses_engagement_package(async_client, test_db_session):
+    await _seed_healthians_diagnostic_package(test_db_session, package_id=2)
+    await test_db_session.execute(
+        text(
+            "INSERT INTO diagnostic_package "
+            "(diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, price, external_package_id) "
+            "VALUES (2, 'REF-H2', 'Healthians Package 2', 'healthians', 'active', 500, 102) "
+            "ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
+            "diagnostic_provider = EXCLUDED.diagnostic_provider, external_package_id = EXCLUDED.external_package_id"
+        )
+    )
+    await test_db_session.commit()
+
+    engagement = Engagement(
+        engagement_id=950151,
+        engagement_name="camp-engagement",
+        organization_id=None,
+        engagement_code="CAMP950151",
+        diagnostic_package_id=2,
+        city="Mumbai",
+        address="Flat 1",
+        sub_locality="Flat 1",
+        pincode="400001",
+        latitude=19.0760,
+        longitude=72.8777,
+        healthians_zone_id="441",
+        slot_duration=20,
+        status="scheduled",
+        blood_collection_type=BloodCollectionType.home_collection,
+    )
+    test_db_session.add(engagement)
+    await test_db_session.commit()
+
+    healthians_slots = {
+        "status": True,
+        "data": [
+            {
+                "end_time": "08:00:00",
+                "slot_date": "2026-07-16",
+                "slot_time": "07:00:00",
+                "stm_id": "45418465",
+            }
+        ],
+    }
+
+    with (
+        patch("modules.bookings.service.healthians_client.get_access_token", new_callable=AsyncMock, return_value="tok"),
+        patch(
+            "modules.bookings.service.healthians_client.get_slots_by_location",
+            new_callable=AsyncMock,
+            return_value=healthians_slots,
+        ) as mock_slots,
+    ):
+        response = await async_client.post(
+            "/book/code/CAMP950151/available-slots",
+            json={"blood_collection_date": "2026-07-16"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["status"] == "success"
+    assert data["engagement_code"] == "CAMP950151"
+    assert len(data["slots"]) == 1
+    mock_slots.assert_awaited_once()
+    assert mock_slots.await_args.args[1]["package"] == [{"deal_id": ["package_102"]}]
+
+
+@pytest.mark.asyncio
 async def test_public_lock_stores_draft_slot_fields(async_client, test_db_session):
     await _seed_healthians_diagnostic_package(test_db_session)
     await _seed_public_draft_engagement(

@@ -131,6 +131,12 @@ class PublicAvailableSlotsRequest(BaseModel):
     blood_collection_date: date
 
 
+class CodeAvailableSlotsRequest(BaseModel):
+    """Payload for available slots when engagement_code is in the path."""
+
+    blood_collection_date: date
+
+
 class PublicLockSlotRequest(BaseModel):
     """Flat payload for public B2C slot lock."""
 

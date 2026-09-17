@@ -15,6 +15,7 @@ from modules.bookings.schemas import (
     CancelBookingRequest,
     CheckServiceabilityRequest,
     LockSlotRequest,
+    CodeAvailableSlotsRequest,
     PublicAvailableSlotsRequest,
     PublicCheckServiceabilityRequest,
     PublicLockSlotRequest,
@@ -276,6 +277,23 @@ async def public_get_available_slots(
     result = await booking_service.public_get_available_slots(
         db,
         engagement_code=payload.engagement_code,
+        blood_collection_date=payload.blood_collection_date,
+    )
+    await db.commit()
+    return success_response(result)
+
+
+@router.post("/code/{engagement_code}/available-slots")
+@limiter.limit("10/minute")
+async def code_get_available_slots(
+    engagement_code: str,
+    payload: CodeAvailableSlotsRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await booking_service.code_get_available_slots(
+        db,
+        engagement_code=engagement_code,
         blood_collection_date=payload.blood_collection_date,
     )
     await db.commit()

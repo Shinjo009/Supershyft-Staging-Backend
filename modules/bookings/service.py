@@ -779,18 +779,17 @@ async def code_check_service_availability(
     )
 
 
-async def public_get_available_slots(
+async def _fetch_available_slots_for_engagement(
     db: AsyncSession,
     *,
-    engagement_code: str,
+    engagement: Engagement,
     blood_collection_date: date,
 ) -> dict[str, Any]:
-    """Public B2C available slots for a draft engagement."""
-    engagement = await _get_public_draft_engagement_by_code(db, engagement_code)
+    engagement_code = engagement.engagement_code
 
     if not engagement.diagnostic_package_id:
         return {
-            "engagement_code": engagement.engagement_code,
+            "engagement_code": engagement_code,
             "status": "error",
             "message": "No diagnostic package",
         }
@@ -798,7 +797,7 @@ async def public_get_available_slots(
     pkg = await _get_diagnostic_package(db, engagement.diagnostic_package_id)
     if not _is_healthians(pkg):
         return {
-            "engagement_code": engagement.engagement_code,
+            "engagement_code": engagement_code,
             "status": "error",
             "message": "Not a Healthians package",
         }
@@ -823,7 +822,7 @@ async def public_get_available_slots(
     try:
         resp = await healthians_client.get_slots_by_location(access_token, payload)
     except Exception as exc:
-        logger.exception("Healthians getSlotsByLocation failed for public draft %s", engagement_code)
+        logger.exception("Healthians getSlotsByLocation failed for engagement %s", engagement_code)
         await log_healthians_call(
             db,
             engagement_id=engagement.engagement_id,
@@ -835,7 +834,7 @@ async def public_get_available_slots(
             error_message=str(exc),
         )
         return {
-            "engagement_code": engagement.engagement_code,
+            "engagement_code": engagement_code,
             "status": "error",
             "message": str(exc),
         }
@@ -853,7 +852,7 @@ async def public_get_available_slots(
 
     if not resp.get("status"):
         return {
-            "engagement_code": engagement.engagement_code,
+            "engagement_code": engagement_code,
             "status": "error",
             "message": resp.get("message", "Failed to fetch slots"),
         }
@@ -861,10 +860,40 @@ async def public_get_available_slots(
     raw_slots = resp.get("data", []) or []
     slim_slots = [_slim_healthians_slot(slot) for slot in raw_slots if isinstance(slot, dict)]
     return {
-        "engagement_code": engagement.engagement_code,
+        "engagement_code": engagement_code,
         "status": "success",
         "slots": slim_slots,
     }
+
+
+async def public_get_available_slots(
+    db: AsyncSession,
+    *,
+    engagement_code: str,
+    blood_collection_date: date,
+) -> dict[str, Any]:
+    """Public B2C available slots for a draft engagement."""
+    engagement = await _get_public_draft_engagement_by_code(db, engagement_code)
+    return await _fetch_available_slots_for_engagement(
+        db,
+        engagement=engagement,
+        blood_collection_date=blood_collection_date,
+    )
+
+
+async def code_get_available_slots(
+    db: AsyncSession,
+    *,
+    engagement_code: str,
+    blood_collection_date: date,
+) -> dict[str, Any]:
+    """Available slots for an existing engagement using its diagnostic package."""
+    engagement = await _get_engagement_by_code_for_serviceability(db, engagement_code)
+    return await _fetch_available_slots_for_engagement(
+        db,
+        engagement=engagement,
+        blood_collection_date=blood_collection_date,
+    )
 
 
 async def public_lock_slot(
