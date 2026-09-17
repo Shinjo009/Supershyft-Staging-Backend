@@ -613,7 +613,7 @@ async def employee_create_user(
     db: AsyncSession = Depends(get_db),
     users_service: UsersService = Depends(get_users_service),
 ):
-    user = await users_service.create_user_by_employee(
+    user, created = await users_service.create_user_by_employee(
         db,
         payload=payload,
         ip_address=get_client_ip(request),
@@ -622,7 +622,7 @@ async def employee_create_user(
     )
     await db.commit()
 
-    return success_response({"user_id": user.user_id})
+    return success_response({"user_id": user.user_id, "created": created})
 
 
 @router.post("/import-metsights-profiles")

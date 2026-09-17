@@ -435,28 +435,10 @@ class UserOnboardResponse(BaseModel):
     preview_available: bool = False
 
 
-class B2CCodeOnboardAndBookRequest(BaseModel):
-    """Payload for onboard+book when engagement_code is in the path.
+class B2COnboardAndBookRequest(BaseModel):
+    """Onboard+book using an existing user profile (no PII in the request body)."""
 
-    Slot fields are optional when the engagement already has draft_slot_* from a prior lock step.
-    """
-
-    age: int
-    first_name: OptionalPersonName = None
-    last_name: OptionalPersonName = None
-    email: Optional[EmailStr] = None
-    phone: PhoneStr
-    gender: OptionalSafeDisplayName = None
-    dob: Optional[date] = None
-    address: OptionalAddressText = None
-    pincode: OptionalPinCode = None
-    city: OptionalCityStateCountry = None
-    state: OptionalCityStateCountry = None
-    country: OptionalCityStateCountry = None
-    landmark: OptionalLandmarkText = None
-    blood_collection_date: Optional[date] = None
-    blood_collection_time_slot: OptionalShortSafeText = None
-    blood_collection_time_slot_id: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    user_id: PositiveIntId
     consultations: Optional[dict[str, Any]] = None
 
     @model_validator(mode="after")
@@ -465,45 +447,17 @@ class B2CCodeOnboardAndBookRequest(BaseModel):
             validate_nested_strings(self.consultations)
         return self
 
-    @validator("age")
-    def age_must_be_valid(cls, v):
-        if v < 1 or v > 120:
-            raise ValueError("Age must be between 1 and 120")
-        return v
+
+class B2CCodeOnboardAndBookRequest(B2COnboardAndBookRequest):
+    """Onboard+book for an existing engagement — slot comes from prior lock (draft_slot_*)."""
 
 
-class B2CPublicOnboardAndBookRequest(BaseModel):
-    """Payload for public B2C onboard+book — creates a new engagement at this step."""
+class B2CPublicOnboardAndBookRequest(B2COnboardAndBookRequest):
+    """Public B2C onboard+book — creates engagement; slot fields required (not stored at public lock)."""
 
-    age: int
-    first_name: OptionalPersonName = None
-    last_name: OptionalPersonName = None
-    email: Optional[EmailStr] = None
-    phone: PhoneStr
-    gender: OptionalSafeDisplayName = None
-    dob: Optional[date] = None
-    address: AddressText
-    pincode: PinCode
-    city: CityStateCountry
-    landmark: OptionalLandmarkText = None
-    state: OptionalCityStateCountry = None
-    country: OptionalCityStateCountry = None
     blood_collection_date: date
     blood_collection_time_slot: ShortSafeText
     blood_collection_time_slot_id: str = Field(min_length=1, max_length=50)
-    consultations: Optional[dict[str, Any]] = None
-
-    @model_validator(mode="after")
-    def sanitize_consultations(self):
-        if self.consultations is not None:
-            validate_nested_strings(self.consultations)
-        return self
-
-    @validator("age")
-    def age_must_be_valid(cls, v):
-        if v < 1 or v > 120:
-            raise ValueError("Age must be between 1 and 120")
-        return v
 
 
 class B2COnboardAndBookResponse(BaseModel):

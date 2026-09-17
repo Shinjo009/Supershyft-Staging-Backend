@@ -41,6 +41,7 @@ from modules.diagnostics.repository import DiagnosticsRepository
 from common.phone import phone_lookup_candidates as _phone_lookup_candidates
 from modules.users.schemas import (
     B2CCodeOnboardAndBookRequest,
+    B2COnboardAndBookRequest,
     B2COnboardAndBookResponse,
     B2CPublicOnboardAndBookRequest,
     BookBioAiBatchRequest,
@@ -1321,13 +1322,20 @@ class UsersService:
         ip_address: str,
         user_agent: str,
         endpoint: str,
-    ) -> User:
-        if await self._has_phone_conflict(db, phone=payload.phone):
-            raise AppError(status_code=409, error_code="CONFLICT", message="User already exists")
+    ) -> tuple[User, bool]:
+        existing_by_phone = await self.resolve_user_by_phone(db, payload.phone)
+        if existing_by_phone is not None:
+            return existing_by_phone, False
+
         if payload.email is not None:
             existing_email = await self._repository.get_user_by_email(db, str(payload.email))
             if existing_email is not None:
-                raise AppError(status_code=409, error_code="CONFLICT", message="User already exists")
+                raise AppError(
+                    status_code=409,
+                    error_code="CONFLICT",
+                    message="User already exists",
+                    details={"user_id": int(existing_email.user_id)},
+                )
 
         user = User(
             first_name=payload.first_name,
@@ -1366,7 +1374,7 @@ class UsersService:
             session_id=None,
         )
 
-        return created
+        return created, True
 
     async def list_users_for_employee(
         self,
@@ -2636,31 +2644,39 @@ class UsersService:
             preview_available=preview_available,
         )
 
-    def _resolve_onboard_book_slot(
-        self,
-        engagement,
-        payload: B2CCodeOnboardAndBookRequest,
-    ) -> tuple[str, date, time]:
+    async def _load_user_for_onboard_book(self, db: AsyncSession, user_id: int) -> User:
+        user = await self._repository.get_user_by_id(db, int(user_id))
+        if user is None:
+            raise AppError(status_code=404, error_code="USER_NOT_FOUND", message="User not found")
+        if not user.is_participant:
+            user.is_participant = True
+            db.add(user)
+            await db.flush()
+        return user
+
+    def _require_user_location(self, user: User) -> tuple[str, str, str | None]:
+        city = (user.city or "").strip()
+        pincode = (user.pin_code or "").strip()
+        if not city or not pincode:
+            raise AppError(
+                status_code=422,
+                error_code="INVALID_INPUT",
+                message="User profile must have city and pin code for home collection booking",
+            )
+        address = (user.address or "").strip() or None
+        return city, pincode, address
+
+    def _resolve_onboard_book_slot_from_engagement(self, engagement) -> tuple[str, date, time]:
         if engagement.draft_slot_id and engagement.draft_slot_date is not None and engagement.draft_slot_time is not None:
             return (
                 engagement.draft_slot_id,
                 engagement.draft_slot_date,
                 engagement.draft_slot_time,
             )
-        if (
-            not payload.blood_collection_time_slot_id
-            or payload.blood_collection_date is None
-            or not payload.blood_collection_time_slot
-        ):
-            raise AppError(
-                status_code=422,
-                error_code="SLOT_NOT_LOCKED",
-                message="Blood collection slot is required",
-            )
-        return (
-            payload.blood_collection_time_slot_id,
-            payload.blood_collection_date,
-            self._parse_time_slot(payload.blood_collection_time_slot),
+        raise AppError(
+            status_code=422,
+            error_code="SLOT_NOT_LOCKED",
+            message="Blood collection slot is not locked",
         )
 
     async def _finalize_onboard_and_book(
@@ -2771,35 +2787,8 @@ class UsersService:
         if self._platform_settings_service is None:
             raise RuntimeError("Platform settings service is required")
 
-        email = str(payload.email) if payload.email is not None else None
-        patch_data = {
-            "first_name": payload.first_name,
-            "last_name": payload.last_name,
-            "age": payload.age,
-            "email": email,
-            "date_of_birth": payload.dob,
-            "gender": payload.gender,
-            "address": payload.address,
-            "pin_code": payload.pincode,
-            "city": payload.city,
-            "state": payload.state,
-            "country": payload.country,
-        }
-        create_data = {
-            **patch_data,
-            "phone": payload.phone,
-            "referred_by": None,
-            "is_participant": True,
-            "status": "active",
-        }
-
-        user, created = await self._get_or_create_user_for_onboarding(
-            db,
-            phone=str(payload.phone),
-            email=email,
-            patch_data={**patch_data, "is_participant": True},
-            create_data=create_data,
-        )
+        user = await self._load_user_for_onboard_book(db, int(payload.user_id))
+        city, pincode, address = self._require_user_location(user)
 
         engagement_type_code = "bio_ai"
         await _require_active_engagement_type_code(db, engagement_type_code)
@@ -2822,8 +2811,8 @@ class UsersService:
 
         location = await booking_service.resolve_public_location_context(
             db,
-            city=payload.city,
-            pincode=payload.pincode,
+            city=city,
+            pincode=pincode,
         )
         if location.get("status") != "success":
             raise AppError(
@@ -2836,17 +2825,16 @@ class UsersService:
             db,
             user_first_name=user.first_name,
             engagement_date=payload.blood_collection_date,
-            city=payload.city,
+            city=city,
             assessment_package_id=assessment_package_id,
             diagnostic_package_id=diagnostic_package_id,
             engagement_type=resolved_type_id,
             blood_collection_type=onboarding_defaults.blood_collection_type,
             consultations=resolved_consultations,
-            address=payload.address,
-            landmark=payload.landmark,
-            pincode=payload.pincode,
-            state=payload.state or location.get("state"),
-            country=payload.country or location.get("country"),
+            address=address,
+            pincode=pincode,
+            state=user.state or location.get("state"),
+            country=user.country or location.get("country"),
             latitude=location.get("latitude"),
             longitude=location.get("longitude"),
             create_profile_on_metsights=onboarding_defaults.create_profile_on_metsights,
@@ -2878,7 +2866,7 @@ class UsersService:
             db,
             engagement=engagement,
             user=user,
-            created=created,
+            created=False,
             participant=participant,
             collection_date=payload.blood_collection_date,
             collection_time=slot_start,
@@ -2918,37 +2906,10 @@ class UsersService:
         if (engagement.status or "").lower() == "cancelled":
             raise AppError(status_code=422, error_code="INVALID_STATE", message="Engagement is cancelled")
 
-        slot_id, collection_date, slot_time = self._resolve_onboard_book_slot(engagement, payload)
+        slot_id, collection_date, slot_time = self._resolve_onboard_book_slot_from_engagement(engagement)
 
-        email = str(payload.email) if payload.email is not None else None
-        patch_data = {
-            "first_name": payload.first_name,
-            "last_name": payload.last_name,
-            "age": payload.age,
-            "email": email,
-            "date_of_birth": payload.dob,
-            "gender": payload.gender,
-            "address": payload.address,
-            "pin_code": payload.pincode,
-            "city": payload.city,
-            "state": payload.state,
-            "country": payload.country,
-        }
-        create_data = {
-            **patch_data,
-            "phone": payload.phone,
-            "referred_by": code,
-            "is_participant": True,
-            "status": "active",
-        }
-
-        user, created = await self._get_or_create_user_for_onboarding(
-            db,
-            phone=str(payload.phone),
-            email=email,
-            patch_data={**patch_data, "is_participant": True, "referred_by": code},
-            create_data=create_data,
-        )
+        user = await self._load_user_for_onboard_book(db, int(payload.user_id))
+        city, pincode, address = self._require_user_location(user)
 
         engagement_type_code = "bio_ai"
         await _require_active_engagement_type_code(db, engagement_type_code)
@@ -2972,18 +2933,14 @@ class UsersService:
             if not engagement.enroll_for_fitprint_full:
                 engagement.enroll_for_fitprint_full = onboarding_defaults.enroll_for_fitprint_full
 
-        if payload.address:
-            engagement.address = payload.address
-        if payload.landmark:
-            engagement.landmark = payload.landmark
-        if payload.city:
-            engagement.city = payload.city
-        if payload.pincode:
-            engagement.pincode = payload.pincode
-        if payload.state:
-            engagement.state = payload.state
-        if payload.country:
-            engagement.country = payload.country
+        if address:
+            engagement.address = address
+        engagement.city = city
+        engagement.pincode = pincode
+        if user.state:
+            engagement.state = user.state
+        if user.country:
+            engagement.country = user.country
 
         from modules.bookings import service as booking_service
 
@@ -3017,7 +2974,7 @@ class UsersService:
             db,
             engagement=engagement,
             user=user,
-            created=created,
+            created=False,
             participant=participant,
             collection_date=collection_date,
             collection_time=slot_time,

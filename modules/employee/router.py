@@ -295,7 +295,7 @@ async def create_staff_user(
 ):
     """Authenticated dev-admin user creation; public POST /users remains compatible."""
     ensure_admin(employee)
-    user = await users_service.create_user_by_employee(
+    user, created = await users_service.create_user_by_employee(
         db,
         employee=employee,
         payload=payload,
@@ -304,7 +304,7 @@ async def create_staff_user(
         endpoint=str(request.url.path),
     )
     await db.commit()
-    return success_response({"user_id": user.user_id})
+    return success_response({"user_id": user.user_id, "created": created})
 
 
 @router.get("/permission-categories")

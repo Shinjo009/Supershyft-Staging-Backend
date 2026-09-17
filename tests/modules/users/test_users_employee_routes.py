@@ -110,6 +110,24 @@ async def test_employee_create_user_without_age(async_client, test_db_session):
 
 
 @pytest.mark.asyncio
+async def test_create_user_returns_existing_user_id_when_phone_exists(async_client, test_db_session):
+    phone = "5550000777"
+    test_db_session.add(
+        User(age=28, user_id=95077, phone=phone, status="active", first_name="Existing")
+    )
+    await test_db_session.commit()
+
+    response = await async_client.post(
+        "/users",
+        json={"phone": phone, "first_name": "New", "age": 30},
+    )
+    assert response.status_code == 200
+    body = response.json()["data"]
+    assert body["user_id"] == 95077
+    assert body["created"] is False
+
+
+@pytest.mark.asyncio
 async def test_employee_create_user_treats_zero_age_as_missing(async_client, test_db_session):
     test_db_session.add(User(age=30, user_id=9002, phone="9002000000", status="active"))
     await test_db_session.flush()

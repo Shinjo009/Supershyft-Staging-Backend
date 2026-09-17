@@ -69,8 +69,13 @@ async def _seed_user(test_db_session, *, user_id: int, phone: str) -> None:
     test_db_session.add(
         User(
             user_id=user_id,
+            first_name="Test",
+            last_name="User",
             age=30,
             phone=phone,
+            address=_PUBLIC_CHECK_PAYLOAD["address_line"],
+            pin_code=_PUBLIC_CHECK_PAYLOAD["pincode"],
+            city=_PUBLIC_CHECK_PAYLOAD["city"],
             status="active",
             is_participant=True,
         )
@@ -464,17 +469,10 @@ async def test_public_onboard_book_creates_engagement_and_healthians_booking(
     monkeypatch.setattr("core.config.settings.HEALTHIANS_CHECKSUM_KEY", "test-checksum")
     await _seed_healthians_diagnostic_package(test_db_session)
     await _seed_onboard_book_prereqs(test_db_session)
+    await _seed_user(test_db_session, user_id=950103, phone="9501030000")
 
     payload = {
-        "age": 30,
-        "first_name": "Public",
-        "last_name": "Booker",
-        "email": "public.booker@example.com",
-        "phone": "9501030000",
-        "gender": "male",
-        "address": "Flat 12, Green Park",
-        "city": "Mumbai",
-        "pincode": "400001",
+        "user_id": 950103,
         "blood_collection_date": "2026-07-15",
         "blood_collection_time_slot_id": "34235263",
         "blood_collection_time_slot": "06:00:00",
@@ -625,13 +623,7 @@ async def test_public_e2e_check_slots_lock_onboard_book(async_client, test_db_se
         onboard = await async_client.post(
             "/users/public/onboard/book",
             json={
-                "age": 32,
-                "first_name": "Eve",
-                "last_name": "Public",
-                "phone": "9501990000",
-                "address": _PUBLIC_CHECK_PAYLOAD["address_line"],
-                "city": _PUBLIC_CHECK_PAYLOAD["city"],
-                "pincode": _PUBLIC_CHECK_PAYLOAD["pincode"],
+                "user_id": 950199,
                 "blood_collection_date": "2026-07-15",
                 "blood_collection_time_slot_id": "45418464",
                 "blood_collection_time_slot": "06:00:00",
@@ -657,15 +649,9 @@ async def test_code_onboard_book_endpoint(async_client, test_db_session, monkeyp
         engagement_code="PUB950104",
         locked=True,
     )
+    await _seed_user(test_db_session, user_id=950104, phone="9501040000")
 
-    payload = {
-        "age": 28,
-        "first_name": "Code",
-        "last_name": "Booker",
-        "phone": "9501040000",
-        "gender": "female",
-        "city": "Mumbai",
-    }
+    payload = {"user_id": 950104}
 
     with (
         patch(
@@ -799,13 +785,7 @@ async def test_code_e2e_check_slots_lock_onboard_book(async_client, test_db_sess
 
         onboard = await async_client.post(
             "/users/code/CAMP950105/onboard/book",
-            json={
-                "age": 29,
-                "first_name": "Eve",
-                "last_name": "Code",
-                "phone": "9501050000",
-                "city": "Mumbai",
-            },
+            json={"user_id": 950105},
         )
 
     assert onboard.status_code == 200
