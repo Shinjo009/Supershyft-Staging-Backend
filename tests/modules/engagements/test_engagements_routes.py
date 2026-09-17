@@ -2609,7 +2609,9 @@ async def test_get_engagement_by_code_returns_null_slot_detail_when_unset(async_
     assert create.status_code == 201, create.text
     public = await async_client.get("/engagements/code/SLOTNONE")
     assert public.status_code == 200
-    assert public.json()["data"]["slot_detail"] is None
+    data = public.json()["data"]
+    assert data["slot_detail"] is None
+    assert data["diagnostic_package_id"] == 9102
 
 
 @pytest.mark.asyncio
@@ -2661,6 +2663,7 @@ async def test_get_engagement_by_code_includes_consultation_mode(async_client, t
     assert public.status_code == 200, public.text
     data = public.json()["data"]
     assert data["consultation_mode"] == "offline"
+    assert data["diagnostic_package_id"] == 9201
     assert data["slot_detail"]["consultation"]["2026-08-20"]["cabins"][0]["cabin_key"] == "consultation_cabin_1"
 
 

@@ -194,6 +194,7 @@ async def get_engagement_by_code(
         "status": engagement.status,
         "consultations": engagement.consultations,
         "consultation_mode": engagement.consultation_mode.value if engagement.consultation_mode else None,
+        "diagnostic_package_id": engagement.diagnostic_package_id,
         "slot_detail": slot_detail,
     })
 
