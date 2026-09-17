@@ -16,11 +16,13 @@ from common.validation import (
     OptionalLandmarkText,
     OptionalPinCode,
     OptionalSafeDisplayName,
+    OptionalSlugKey,
     PackageCode,
     PhoneStr,
     PinCode,
     PositiveIntId,
     SafeDisplayName,
+    ShortSafeText,
     SlugKey,
     StatusStr,
 )
@@ -442,6 +444,14 @@ class EngagementParticipantUpdateRequest(BaseModel):
     engagement_date: Optional[date] = None
     slot_start_time: Optional[time] = None
     blood_collection_cabin: Optional[str] = Field(default=None, max_length=100)
+
+
+class EngagementRescheduleRequest(BaseModel):
+    """User request to reschedule their blood-collection date/slot (and optional cabin)."""
+
+    blood_collection_date: date
+    blood_collection_time_slot: ShortSafeText
+    blood_collection_cabin: OptionalSlugKey = None
 
 
 class MoveParticipantRequest(BaseModel):

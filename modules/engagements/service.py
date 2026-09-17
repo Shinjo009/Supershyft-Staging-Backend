@@ -58,6 +58,7 @@ from modules.experts.consultations import bookings_to_consultations_map, empty_c
 from modules.engagements.schemas import (
     EngagementCreateRequest,
     EngagementParticipantUpdateRequest,
+    EngagementRescheduleRequest,
     EngagementUpdateRequest,
     ConsultationConsentRequest,
     ResolveHealthiansZoneRequest,
@@ -1660,6 +1661,88 @@ class EngagementsService:
         )
 
         return response
+
+    async def reschedule_blood_collection_for_user(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        engagement_id: int,
+        payload: EngagementRescheduleRequest,
+    ) -> dict[str, Any]:
+        engagement = await self._repository.get_engagement_by_id(db, engagement_id)
+        if engagement is None:
+            raise AppError(status_code=404, error_code="ENGAGEMENT_NOT_FOUND", message="Engagement does not exist")
+
+        participant = await self._repository.get_participant_for_user_engagement(
+            db,
+            user_id=user_id,
+            engagement_id=engagement_id,
+        )
+        if participant is None:
+            raise AppError(
+                status_code=403,
+                error_code="ACCESS_DENIED",
+                message="You are not a participant in this engagement",
+            )
+
+        if _blood_collection_type_value(engagement.blood_collection_type) == BloodCollectionType.home_collection.value:
+            raise AppError(
+                status_code=400,
+                error_code="SCHEDULE_UPDATE_NOT_ALLOWED",
+                message="Schedule fields cannot be updated for home collection engagements",
+            )
+
+        slot_time = coerce_time(payload.blood_collection_time_slot)
+        if slot_time is None:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message="blood_collection_time_slot must be a valid HH:MM time",
+            )
+        normalized_slot = time(slot_time.hour, slot_time.minute)
+        collection_date = payload.blood_collection_date
+        cabin_key = (payload.blood_collection_cabin or "").strip() or None
+
+        if cabin_key is not None:
+            slot_detail = await self.resolve_slot_detail(db, engagement)
+            if slot_detail_is_configured(slot_detail):
+                cabin_key = await self._validate_blood_collection_slot_capacity(
+                    db,
+                    engagement=engagement,
+                    collection_date=collection_date,
+                    cabin_key=cabin_key,
+                    slot_time=normalized_slot,
+                    exclude_engagement_participant_id=int(participant.engagement_participant_id),
+                )
+            participant.engagement_date = collection_date
+            participant.slot_start_time = normalized_slot
+            participant.blood_collection_cabin = cabin_key
+        else:
+            if engagement.start_date is None or engagement.end_date is None:
+                raise AppError(
+                    status_code=400,
+                    error_code="INVALID_INPUT",
+                    message="Engagement start_date and end_date are required for date-only reschedule",
+                )
+            if not (engagement.start_date <= collection_date <= engagement.end_date):
+                raise AppError(
+                    status_code=400,
+                    error_code="INVALID_INPUT",
+                    message="blood_collection_date must be within the engagement start_date and end_date",
+                )
+            participant.engagement_date = collection_date
+            participant.slot_start_time = normalized_slot
+
+        await self._repository.update_participant(db, participant)
+
+        return {
+            "engagement_id": engagement_id,
+            "user_id": user_id,
+            "engagement_date": collection_date.isoformat(),
+            "slot_start_time": normalized_slot.isoformat(),
+            "blood_collection_cabin": participant.blood_collection_cabin,
+        }
 
     async def update_consultation_consent_for_user(
         self,
