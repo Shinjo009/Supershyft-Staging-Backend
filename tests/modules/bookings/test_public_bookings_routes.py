@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import text
 
 from modules.engagements.models import BloodCollectionType, Engagement
+from modules.users.models import User
 from tests.modules.bookings.test_bookings_routes import _seed_healthians_diagnostic_package
 
 
@@ -61,6 +62,19 @@ async def _seed_public_draft_engagement(
         engagement.draft_slot_date = date(2026, 7, 15)
         engagement.draft_slot_time = time(6, 0)
     test_db_session.add(engagement)
+    await test_db_session.commit()
+
+
+async def _seed_user(test_db_session, *, user_id: int, phone: str) -> None:
+    test_db_session.add(
+        User(
+            user_id=user_id,
+            age=30,
+            phone=phone,
+            status="active",
+            is_participant=True,
+        )
+    )
     await test_db_session.commit()
 
 
@@ -328,7 +342,8 @@ async def test_code_available_slots_uses_engagement_package(async_client, test_d
 
 
 @pytest.mark.asyncio
-async def test_public_lock_stateless_uses_phone_vendor(async_client, test_db_session):
+async def test_public_lock_stateless_uses_user_id_vendor(async_client, test_db_session):
+    await _seed_user(test_db_session, user_id=950101, phone="9501010000")
     geocode_result = [{"latitude": 19.0760, "longitude": 72.8777, "state": "Maharashtra", "country": "India"}]
     healthians_check = {"status": True, "data": {"zone_id": "440"}, "message": "Serviceable"}
     freeze_resp = {
@@ -358,7 +373,7 @@ async def test_public_lock_stateless_uses_phone_vendor(async_client, test_db_ses
                 "address_line": _PUBLIC_CHECK_PAYLOAD["address_line"],
                 "city": _PUBLIC_CHECK_PAYLOAD["city"],
                 "pincode": _PUBLIC_CHECK_PAYLOAD["pincode"],
-                "phone": "9501020000",
+                "user_id": 950101,
                 "blood_collection_date": "2026-07-15",
                 "blood_collection_time_slot_id": "34235263",
                 "blood_collection_time_slot": "06:00:00",
@@ -368,15 +383,16 @@ async def test_public_lock_stateless_uses_phone_vendor(async_client, test_db_ses
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["status"] == "success"
-    assert data["vendor_billing_user_id"] == "9501020000"
+    assert data["vendor_billing_user_id"] == "950101"
     assert data["zone_id"] == "440"
     mock_freeze.assert_awaited_once()
-    assert mock_freeze.await_args.kwargs["vendor_billing_user_id"] == "9501020000"
+    assert mock_freeze.await_args.kwargs["vendor_billing_user_id"] == "950101"
 
 
 @pytest.mark.asyncio
 async def test_code_lock_stores_draft_slot_fields(async_client, test_db_session):
     await _seed_healthians_diagnostic_package(test_db_session)
+    await _seed_user(test_db_session, user_id=950102, phone="9501020000")
     await _seed_public_draft_engagement(
         test_db_session,
         engagement_id=950102,
@@ -412,7 +428,7 @@ async def test_code_lock_stores_draft_slot_fields(async_client, test_db_session)
                 "address_line": _PUBLIC_CHECK_PAYLOAD["address_line"],
                 "city": _PUBLIC_CHECK_PAYLOAD["city"],
                 "pincode": _PUBLIC_CHECK_PAYLOAD["pincode"],
-                "phone": "9501020000",
+                "user_id": 950102,
                 "blood_collection_date": "2026-07-15",
                 "blood_collection_time_slot_id": "34235263",
                 "blood_collection_time_slot": "06:00:00",
@@ -423,10 +439,10 @@ async def test_code_lock_stores_draft_slot_fields(async_client, test_db_session)
     data = response.json()["data"]
     assert data["status"] == "success"
     assert data["engagement_code"] == "PUB950102"
-    assert data["vendor_billing_user_id"] == "9501020000"
+    assert data["vendor_billing_user_id"] == "950102"
     assert data["zone_id"] == "440"
     mock_freeze.assert_awaited_once()
-    assert mock_freeze.await_args.kwargs["vendor_billing_user_id"] == "9501020000"
+    assert mock_freeze.await_args.kwargs["vendor_billing_user_id"] == "950102"
 
     eng_row = (
         await test_db_session.execute(
@@ -499,7 +515,7 @@ async def test_public_onboard_book_creates_engagement_and_healthians_booking(
     assert data["tokens"]["access_token"]
     assert data["tokens"]["refresh_token"]
     mock_create.assert_awaited_once()
-    assert mock_create.await_args.args[1]["vendor_billing_user_id"] == "9501030000"
+    assert mock_create.await_args.args[1]["vendor_billing_user_id"] == str(data["user_id"])
     mock_notify.assert_awaited()
 
     participant_row = (
@@ -534,6 +550,7 @@ async def test_public_e2e_check_slots_lock_onboard_book(async_client, test_db_se
     monkeypatch.setattr("core.config.settings.HEALTHIANS_CHECKSUM_KEY", "test-checksum")
     await _seed_healthians_diagnostic_package(test_db_session)
     await _seed_onboard_book_prereqs(test_db_session)
+    await _seed_user(test_db_session, user_id=950199, phone="9501990000")
 
     geocode_result = [{"latitude": 19.0760, "longitude": 72.8777, "state": "Maharashtra", "country": "India"}]
     healthians_check = {"status": True, "data": {"zone_id": "440"}, "message": "Serviceable"}
@@ -597,13 +614,13 @@ async def test_public_e2e_check_slots_lock_onboard_book(async_client, test_db_se
                 "address_line": _PUBLIC_CHECK_PAYLOAD["address_line"],
                 "city": _PUBLIC_CHECK_PAYLOAD["city"],
                 "pincode": _PUBLIC_CHECK_PAYLOAD["pincode"],
-                "phone": "9501990000",
+                "user_id": 950199,
                 "blood_collection_date": "2026-07-15",
                 "blood_collection_time_slot_id": "45418464",
                 "blood_collection_time_slot": "06:00:00",
             },
         )
-        assert lock.json()["data"]["vendor_billing_user_id"] == "9501990000"
+        assert lock.json()["data"]["vendor_billing_user_id"] == "950199"
 
         onboard = await async_client.post(
             "/users/public/onboard/book",
@@ -626,7 +643,7 @@ async def test_public_e2e_check_slots_lock_onboard_book(async_client, test_db_se
     assert onboard.json()["data"]["engagement_id"]
     mock_freeze.assert_awaited_once()
     mock_create.assert_awaited_once()
-    assert mock_create.await_args.args[1]["vendor_billing_user_id"] == "9501990000"
+    assert mock_create.await_args.args[1]["vendor_billing_user_id"] == "950199"
 
 
 @pytest.mark.asyncio
@@ -684,6 +701,7 @@ async def test_code_e2e_check_slots_lock_onboard_book(async_client, test_db_sess
     monkeypatch.setattr("core.config.settings.HEALTHIANS_CHECKSUM_KEY", "test-checksum")
     await _seed_healthians_diagnostic_package(test_db_session)
     await _seed_onboard_book_prereqs(test_db_session)
+    await _seed_user(test_db_session, user_id=950105, phone="9501050000")
 
     engagement = Engagement(
         engagement_id=950105,
@@ -771,7 +789,7 @@ async def test_code_e2e_check_slots_lock_onboard_book(async_client, test_db_sess
                 "address_line": _PUBLIC_CHECK_PAYLOAD["address_line"],
                 "city": _PUBLIC_CHECK_PAYLOAD["city"],
                 "pincode": _PUBLIC_CHECK_PAYLOAD["pincode"],
-                "phone": "9501050000",
+                "user_id": 950105,
                 "blood_collection_date": "2026-07-16",
                 "blood_collection_time_slot_id": "45418465",
                 "blood_collection_time_slot": "07:00:00",
@@ -793,5 +811,5 @@ async def test_code_e2e_check_slots_lock_onboard_book(async_client, test_db_sess
     assert onboard.status_code == 200
     assert onboard.json()["data"]["booking_id"] == "HI-E2E-CODE"
     mock_create.assert_awaited_once()
-    assert mock_create.await_args.args[1]["vendor_billing_user_id"] == "9501050000"
+    assert mock_create.await_args.args[1]["vendor_billing_user_id"] == "950105"
     mock_notify.assert_awaited()

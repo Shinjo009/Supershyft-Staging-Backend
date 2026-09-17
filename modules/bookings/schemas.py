@@ -10,7 +10,6 @@ from common.validation import (
     AddressText,
     CityStateCountry,
     OptionalLandmarkText,
-    PhoneStr,
     PinCode,
     PositiveIntId,
     SafeText,
@@ -146,7 +145,7 @@ class PublicLockSlotRequest(BaseModel):
     landmark: OptionalLandmarkText = None
     city: CityStateCountry
     pincode: PinCode
-    phone: PhoneStr
+    user_id: PositiveIntId
     blood_collection_date: date
     blood_collection_time_slot_id: str = Field(min_length=1, max_length=50)
     blood_collection_time_slot: ShortSafeText

@@ -1039,12 +1039,20 @@ async def _freeze_healthians_slot(
     }
 
 
+async def _resolve_vendor_billing_user_id(db: AsyncSession, user_id: int) -> str:
+    result = await db.execute(select(User).where(User.user_id == user_id).limit(1))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise AppError(status_code=404, error_code="USER_NOT_FOUND", message="User not found")
+    return str(user_id)
+
+
 async def public_lock_slot(
     db: AsyncSession,
     *,
     city: str,
     pincode: str,
-    phone: str,
+    user_id: int,
     blood_collection_date: date,
     blood_collection_time_slot_id: str,
     blood_collection_time_slot: str,
@@ -1054,7 +1062,7 @@ async def public_lock_slot(
     if location.get("status") != "success":
         return location
 
-    vendor_billing_user_id = str(phone).strip()
+    vendor_billing_user_id = await _resolve_vendor_billing_user_id(db, user_id)
     freeze_result = await _freeze_healthians_slot(
         db,
         slot_id=blood_collection_time_slot_id,
@@ -1121,7 +1129,7 @@ async def code_lock_slot(
     address_line: str,
     city: str,
     pincode: str,
-    phone: str,
+    user_id: int,
     blood_collection_date: date,
     blood_collection_time_slot_id: str,
     blood_collection_time_slot: str,
@@ -1169,7 +1177,7 @@ async def code_lock_slot(
     if engagement.longitude is None:
         engagement.longitude = location["longitude"]
 
-    vendor_billing_user_id = str(phone).strip()
+    vendor_billing_user_id = await _resolve_vendor_billing_user_id(db, user_id)
     freeze_result = await _freeze_healthians_slot(
         db,
         slot_id=blood_collection_time_slot_id,
