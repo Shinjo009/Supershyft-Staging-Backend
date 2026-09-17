@@ -2683,6 +2683,7 @@ class UsersService:
         endpoint: str,
         audit_action: str,
         is_b2b: bool,
+        preserve_engagement_status: bool = False,
     ) -> B2COnboardAndBookResponse:
         from modules.bookings import service as booking_service
 
@@ -2698,6 +2699,7 @@ class UsersService:
             engagements_service=self._engagements_service,
             vendor_billing_user_id_override=vendor_billing_user_id,
             allow_active_engagement_status=allow_active_engagement_status,
+            preserve_engagement_status=preserve_engagement_status,
         )
         booking_result = booking_results[0] if booking_results else {}
         if booking_result.get("status") != "success":
@@ -2967,6 +2969,7 @@ class UsersService:
             collection_time=slot_time,
             vendor_billing_user_id=str(user.user_id),
             allow_active_engagement_status=is_b2b or (engagement.status or "").lower() != "draft",
+            preserve_engagement_status=True,
             ip_address=ip_address,
             user_agent=user_agent,
             endpoint=endpoint,

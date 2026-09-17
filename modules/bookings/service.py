@@ -1412,6 +1412,7 @@ async def create_healthians_booking_after_payment(
     engagements_service: EngagementsService | None = None,
     vendor_billing_user_id_override: str | None = None,
     allow_active_engagement_status: bool = False,
+    preserve_engagement_status: bool = False,
 ) -> list[dict[str, Any]]:
     """After payment succeeds, create Healthians booking for each member using their drafted engagement."""
     results: list[dict[str, Any]] = []
@@ -1586,7 +1587,8 @@ async def create_healthians_booking_after_payment(
         participant.barcode = str(booking_id)
         base_type_id = await _resolve_engagement_type_id(db, engagement_type_code) if engagement_type_code else None
         await _apply_complementary_consultation(db, engagement, pkg, base_type_id)
-        engagement.status = "scheduled"
+        if not preserve_engagement_status:
+            engagement.status = "scheduled"
 
         if engagements_service is not None and engagement.organization_id is None:
             await engagements_service.apply_b2c_defaults_and_notify_after_booking(

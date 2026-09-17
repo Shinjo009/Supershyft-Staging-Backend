@@ -683,6 +683,12 @@ async def test_code_onboard_book_endpoint(async_client, test_db_session, monkeyp
     assert data["booking_id"] == "HI950104"
     assert data["engagement_code"] == "PUB950104"
     assert "tokens" not in data
+    eng_status = (
+        await test_db_session.execute(
+            text("SELECT status FROM engagements WHERE engagement_code = 'PUB950104'")
+        )
+    ).scalar_one()
+    assert eng_status == "draft"
     mock_notify.assert_awaited()
 
 
@@ -799,6 +805,12 @@ async def test_code_e2e_check_slots_lock_onboard_book(async_client, test_db_sess
 
     assert onboard.status_code == 200
     assert onboard.json()["data"]["booking_id"] == "HI-E2E-CODE"
+    eng_status = (
+        await test_db_session.execute(
+            text("SELECT status FROM engagements WHERE engagement_code = 'CAMP950105'")
+        )
+    ).scalar_one()
+    assert eng_status == "scheduled"
     mock_create.assert_awaited_once()
     assert mock_create.await_args.args[1]["vendor_billing_user_id"] == "950105"
     mock_notify.assert_awaited()
