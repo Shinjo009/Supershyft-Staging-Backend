@@ -87,6 +87,11 @@ from modules.reports.camp_reports_repository import (
 )
 from modules.reports.models import CampReport, IndividualHealthReport
 from modules.reports.service import BLOOD_DATA_UNAVAILABLE_ERROR_CODES, ReportsService
+from modules.reports.camp_report_intelligence import (
+    LEADERSHIP_TAKEAWAYS_SECTION,
+    generate_camp_section_intelligence,
+    resolve_intelligence_section,
+)
 from db.session import AsyncSessionLocal
 
 # (base_seconds, per_unit_seconds, unit_kind)
@@ -1152,6 +1157,34 @@ class CampReportsService:
             city=city,
         )
 
+        row = await self._get_camp_report_row(
+            db,
+            camp_no=camp_no,
+            department=department,
+            city=city,
+        )
+        report = row.report or {}
+
+        if normalized_section == LEADERSHIP_TAKEAWAYS_SECTION:
+            stored = report.get(LEADERSHIP_TAKEAWAYS_SECTION)
+            if isinstance(stored, dict) and stored.get("intelligence"):
+                return dict(stored)
+            try:
+                _, intelligence = generate_camp_section_intelligence(
+                    report,
+                    LEADERSHIP_TAKEAWAYS_SECTION,
+                )
+            except ValueError:
+                intelligence = {}
+            return {
+                "name": "Leadership Takeaways",
+                "description": (
+                    "Workforce-level leadership observations and strategic next steps."
+                ),
+                "data": stored.get("data") if isinstance(stored, dict) else {},
+                "intelligence": intelligence,
+            }
+
         section_row = await self._sections_repository.get_by_section_key(
             db,
             section_key=normalized_section,
@@ -1163,10 +1196,6 @@ class CampReportsService:
                 message="Invalid report section",
             )
 
-        row = await self._get_camp_report_row(db, camp_no=camp_no, department=department,
-            city=city,
-        )
-        report = row.report or {}
         if normalized_section not in report:
             raise AppError(
                 status_code=404,
@@ -1174,6 +1203,155 @@ class CampReportsService:
                 message="Report section has not been refreshed",
             )
         return dict(report[normalized_section])
+
+    async def enrich_camp_report_section(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        camp_no: int,
+        section: str,
+        department: str | None = None,
+        city: str | None = None,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> dict:
+        """Generate concern/intelligence copy for one HR dashboard section."""
+        normalized_section = section.strip()
+        if not normalized_section:
+            raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+
+        try:
+            camp_section_key = resolve_intelligence_section(normalized_section)
+        except ValueError:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_SECTION",
+                message="Invalid report section",
+            ) from None
+
+        context = await self._resolve_camp_context(db, camp_no=camp_no)
+        department, city = await self._normalize_and_ensure_report_access(
+            db,
+            employee=employee,
+            camp_no=camp_no,
+            organization_id=context["organization_id"],
+            department=department,
+            city=city,
+        )
+
+        row = await self._get_camp_report_row(
+            db,
+            camp_no=camp_no,
+            department=department,
+            city=city,
+        )
+        report = dict(row.report or {})
+        try:
+            report, section_payload, intelligence = self._apply_intelligence_to_section(
+                report,
+                normalized_section=normalized_section,
+                camp_section_key=camp_section_key,
+            )
+        except ValueError:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_SECTION",
+                message="Invalid report section",
+            ) from None
+        except AppError:
+            raise
+        except Exception:
+            logger.exception("Camp report intelligence engine failed")
+            raise AppError(
+                status_code=500,
+                error_code="INTERNAL_ERROR",
+                message="An unexpected error occurred",
+            ) from None
+
+        await self._repository.update_report(db, row, report)
+
+        await self._audit_service.log_event(
+            db,
+            action=self._enrich_section_audit_action(department=department, city=city),
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=employee.user_id,
+            session_id=None,
+        )
+
+        return {
+            "camp_no": camp_no,
+            "scope": self._enrich_scope(city=city, department=department),
+            "section": normalized_section,
+            "data": intelligence,
+        }
+
+    @staticmethod
+    def _resolve_intelligence_section_key(section: str) -> str | None:
+        try:
+            return resolve_intelligence_section(section.strip())
+        except ValueError:
+            return None
+
+    def _apply_intelligence_to_section(
+        self,
+        report: dict,
+        *,
+        normalized_section: str,
+        camp_section_key: str,
+    ) -> tuple[dict, dict, Any]:
+        leadership_section = camp_section_key == LEADERSHIP_TAKEAWAYS_SECTION
+        if not leadership_section and (
+            camp_section_key not in report or not isinstance(report.get(camp_section_key), dict)
+        ):
+            raise AppError(
+                status_code=404,
+                error_code="SECTION_NOT_FOUND",
+                message="Report section has not been refreshed",
+            )
+
+        _, intelligence = generate_camp_section_intelligence(report, normalized_section)
+
+        if leadership_section:
+            section_payload = dict(report.get(camp_section_key) or {})
+            section_payload.setdefault("name", "Leadership Takeaways")
+            section_payload.setdefault(
+                "description",
+                "Workforce-level leadership observations and strategic next steps.",
+            )
+            section_payload.setdefault("data", {})
+            section_payload["intelligence"] = intelligence
+        else:
+            section_payload = dict(report[camp_section_key])
+            section_payload["intelligence"] = intelligence
+
+        report[camp_section_key] = section_payload
+        return report, section_payload, intelligence
+
+    @staticmethod
+    def _enrich_scope(*, city: str | None, department: str | None) -> dict[str, str | None]:
+        if city is not None and department is not None:
+            scope_type = "city_department"
+        elif city is not None:
+            scope_type = "city"
+        elif department is not None:
+            scope_type = "department"
+        else:
+            scope_type = "camp"
+        return {"type": scope_type, "city": city, "department": department}
+
+    @staticmethod
+    def _enrich_section_audit_action(*, department: str | None, city: str | None) -> str:
+        if city is None and department is None:
+            return "EMPLOYEE_ENRICH_CAMP_REPORT_SECTION"
+        if city is None and department is not None:
+            return "EMPLOYEE_ENRICH_DEPARTMENT_CAMP_REPORT_SECTION"
+        if city is not None and department is None:
+            return "EMPLOYEE_ENRICH_CITY_CAMP_REPORT_SECTION"
+        return "EMPLOYEE_ENRICH_CITY_DEPARTMENT_CAMP_REPORT_SECTION"
 
     async def update_camp_report_section_payload(
         self,
@@ -1356,8 +1534,10 @@ class CampReportsService:
                 message="Invalid report section",
             )
 
+        intelligence_section_key = self._resolve_intelligence_section_key(normalized_section)
         builder = SECTION_BUILDERS.get(normalized_section)
-        if builder is None:
+        enrich_only = builder is None
+        if enrich_only and intelligence_section_key is None:
             raise AppError(
                 status_code=400,
                 error_code="SECTION_NOT_IMPLEMENTED",
@@ -1375,267 +1555,318 @@ class CampReportsService:
         section_description = section_row.description
 
         checked_at = datetime.now(timezone.utc).isoformat()
+        section_payload: dict[str, Any] | None = None
+        report_bts: dict[str, Any] | None = None
         report = dict(row.report or {})
-        previous_section = report.get(normalized_section)
-        previous_data = None
-        if isinstance(previous_section, dict) and isinstance(previous_section.get("data"), dict):
-            previous_data = previous_section.get("data")
 
-        kpi_metrics: dict[str, Any] | None = None
-        age_bts_details: dict[str, Any] | None = None
-        ors_bts_details: dict[str, Any] | None = None
-        oxidative_bts_details: dict[str, Any] | None = None
-        metabolic_gender_bts_details: dict[str, Any] | None = None
-        positive_wins_bts_details: dict[str, Any] | None = None
-        company_average_scores_bts_details: dict[str, Any] | None = None
-        blood_and_lab_intelligence_bts_details: dict[str, Any] | None = None
-        pa_bts_details: dict[str, Any] | None = None
-        sleep_bts_details: dict[str, Any] | None = None
-        pa_bts_meta: dict[str, Any] | None = None
-        sleep_bts_meta: dict[str, Any] | None = None
-        if normalized_section == "kpis":
-            built_payload, kpi_metrics = await self._build_kpis_payload_with_metrics(
-                db,
-                camp_no=camp_no,
-                department=department,
-                city=city,
-                age_reference_date=context["camp_end_date"] or date.today(),
+        if enrich_only:
+            meta = dict(report.get("meta") or {})
+            meta["refreshed_at"] = checked_at
+            meta["summary_available"] = True
+            report["meta"] = meta
+            reload_result = await db.execute(
+                select(CampReport).where(CampReport.report_id == report_id)
             )
-        elif normalized_section == "participation_by_age":
-            built_payload, age_bts_details = await self._build_participation_by_age_with_details(
-                db,
-                camp_no=camp_no,
-                department=department,
-                city=city,
-                camp_start_date=context["camp_start_date"],
-            )
-        elif normalized_section == "overall_risk_score":
-            built_payload, ors_bts_details = await self._build_overall_risk_score_with_details(
-                db,
-                camp_no=camp_no,
-                department=department,
-                city=city,
-            )
-        elif normalized_section == "distribution_by_oxidative_stress":
-            built_payload, oxidative_bts_details = (
-                await self._build_distribution_by_oxidative_stress_with_details(
-                    db,
-                    camp_no=camp_no,
-                    department=department,
-                    city=city,
-                )
-            )
-        elif normalized_section == "distribution_by_gender_by_metabolic_syndrome":
-            built_payload, metabolic_gender_bts_details = (
-                await self._build_distribution_by_gender_by_metabolic_syndrome_with_details(
-                    db,
-                    camp_no=camp_no,
-                    department=department,
-                    city=city,
-                )
-            )
-        elif normalized_section == "positive_wins":
-            built_payload, positive_wins_bts_details = await self._compute_positive_wins_with_details(
-                db,
-                camp_no=camp_no,
-                department=department,
-                city=city,
-            )
-        elif normalized_section == "company_average_scores":
-            built_payload, company_average_scores_bts_details = (
-                await self._compute_company_average_scores_with_details(
-                    db,
-                    camp_no=camp_no,
-                    department=department,
-                    city=city,
-                )
-            )
-        elif normalized_section == "blood_and_lab_intelligence":
-            built_payload, blood_and_lab_intelligence_bts_details = (
-                await self._compute_blood_and_lab_intelligence_with_details(
-                    db,
-                    camp_no=camp_no,
-                    department=department,
-                    city=city,
-                )
-            )
-        elif normalized_section == "distribution_by_physical_activity_frequency":
-            built_payload, pa_bts_details = await self._build_physical_activity_with_details(
-                db,
-                camp_no=camp_no,
-                department=department,
-                city=city,
-            )
-            pa_bts_meta = {
-                "section_title": "Physical activity",
-                "bucket_labels": PHYSICAL_ACTIVITY_BUCKET_LABELS,
-            }
-        elif normalized_section == "distribution_by_sleeping_hours":
-            built_payload, sleep_bts_details = await self._build_sleeping_hours_with_details(
-                db,
-                camp_no=camp_no,
-                department=department,
-                city=city,
-            )
-            sleep_bts_meta = {
-                "section_title": "Sleeping hours",
-                "bucket_labels": SLEEPING_HOURS_BUCKET_LABELS,
-            }
+            row = reload_result.scalar_one()
+            report_bts = dict(row.report_bts or {})
         else:
-            built_payload = await self._build_section_payload(
-                db,
-                section_key=normalized_section,
-                camp_no=camp_no,
-                department=department,
-                city=city,
-                camp_start_date=context["camp_start_date"],
-                camp_end_date=context["camp_end_date"],
-            )
+            previous_section = report.get(normalized_section)
+            previous_data = None
+            if isinstance(previous_section, dict) and isinstance(previous_section.get("data"), dict):
+                previous_data = previous_section.get("data")
 
-        meta = dict(report.get("meta") or {})
-        meta["refreshed_at"] = checked_at
-        meta["summary_available"] = True
-        report["meta"] = meta
+            kpi_metrics: dict[str, Any] | None = None
+            age_bts_details: dict[str, Any] | None = None
+            ors_bts_details: dict[str, Any] | None = None
+            oxidative_bts_details: dict[str, Any] | None = None
+            metabolic_gender_bts_details: dict[str, Any] | None = None
+            positive_wins_bts_details: dict[str, Any] | None = None
+            company_average_scores_bts_details: dict[str, Any] | None = None
+            blood_and_lab_intelligence_bts_details: dict[str, Any] | None = None
+            pa_bts_details: dict[str, Any] | None = None
+            sleep_bts_details: dict[str, Any] | None = None
+            pa_bts_meta: dict[str, Any] | None = None
+            sleep_bts_meta: dict[str, Any] | None = None
+            if normalized_section == "kpis":
+                built_payload, kpi_metrics = await self._build_kpis_payload_with_metrics(
+                    db,
+                    camp_no=camp_no,
+                    department=department,
+                    city=city,
+                    age_reference_date=context["camp_end_date"] or date.today(),
+                )
+            elif normalized_section == "participation_by_age":
+                built_payload, age_bts_details = await self._build_participation_by_age_with_details(
+                    db,
+                    camp_no=camp_no,
+                    department=department,
+                    city=city,
+                    camp_start_date=context["camp_start_date"],
+                )
+            elif normalized_section == "overall_risk_score":
+                built_payload, ors_bts_details = await self._build_overall_risk_score_with_details(
+                    db,
+                    camp_no=camp_no,
+                    department=department,
+                    city=city,
+                )
+            elif normalized_section == "distribution_by_oxidative_stress":
+                built_payload, oxidative_bts_details = (
+                    await self._build_distribution_by_oxidative_stress_with_details(
+                        db,
+                        camp_no=camp_no,
+                        department=department,
+                        city=city,
+                    )
+                )
+            elif normalized_section == "distribution_by_gender_by_metabolic_syndrome":
+                built_payload, metabolic_gender_bts_details = (
+                    await self._build_distribution_by_gender_by_metabolic_syndrome_with_details(
+                        db,
+                        camp_no=camp_no,
+                        department=department,
+                        city=city,
+                    )
+                )
+            elif normalized_section == "positive_wins":
+                built_payload, positive_wins_bts_details = await self._compute_positive_wins_with_details(
+                    db,
+                    camp_no=camp_no,
+                    department=department,
+                    city=city,
+                )
+            elif normalized_section == "company_average_scores":
+                built_payload, company_average_scores_bts_details = (
+                    await self._compute_company_average_scores_with_details(
+                        db,
+                        camp_no=camp_no,
+                        department=department,
+                        city=city,
+                    )
+                )
+            elif normalized_section == "blood_and_lab_intelligence":
+                built_payload, blood_and_lab_intelligence_bts_details = (
+                    await self._compute_blood_and_lab_intelligence_with_details(
+                        db,
+                        camp_no=camp_no,
+                        department=department,
+                        city=city,
+                    )
+                )
+            elif normalized_section == "distribution_by_physical_activity_frequency":
+                built_payload, pa_bts_details = await self._build_physical_activity_with_details(
+                    db,
+                    camp_no=camp_no,
+                    department=department,
+                    city=city,
+                )
+                pa_bts_meta = {
+                    "section_title": "Physical activity",
+                    "bucket_labels": PHYSICAL_ACTIVITY_BUCKET_LABELS,
+                }
+            elif normalized_section == "distribution_by_sleeping_hours":
+                built_payload, sleep_bts_details = await self._build_sleeping_hours_with_details(
+                    db,
+                    camp_no=camp_no,
+                    department=department,
+                    city=city,
+                )
+                sleep_bts_meta = {
+                    "section_title": "Sleeping hours",
+                    "bucket_labels": SLEEPING_HOURS_BUCKET_LABELS,
+                }
+            else:
+                built_payload = await self._build_section_payload(
+                    db,
+                    section_key=normalized_section,
+                    camp_no=camp_no,
+                    department=department,
+                    city=city,
+                    camp_start_date=context["camp_start_date"],
+                    camp_end_date=context["camp_end_date"],
+                )
 
-        section_payload = {
-            **built_payload,
-            "name": section_name,
-            "description": section_description,
-        }
-        report[normalized_section] = section_payload
+            meta = dict(report.get("meta") or {})
+            meta["refreshed_at"] = checked_at
+            meta["summary_available"] = True
+            report["meta"] = meta
 
-        reload_result = await db.execute(
-            select(CampReport).where(CampReport.report_id == report_id)
-        )
-        row = reload_result.scalar_one()
-        report_bts = dict(row.report_bts or {})
-        # Refresh/validate always writes ``section_payload`` first. BTS must validate
-        # that just-written data — not the pre-refresh snapshot. Comparing to
-        # ``previous_data`` made the first refresh look like a mismatch even though
-        # the report was already corrected (same for KPIs, participation_by_age,
-        # and any future section BTS).
-        if normalized_section == "kpis":
-            expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
-            blood_details = dict((kpi_metrics or {}).get("blood_details") or {})
-            kpi_details = dict((kpi_metrics or {}).get("kpi_bts_details") or {})
-            if previous_data is not None:
-                kpi_details["previous"] = previous_data
-            report_bts[normalized_section] = build_kpis_bts(
-                expected_data=expected_data,
-                stored_data=expected_data,
-                blood_details=blood_details,
-                checked_at=checked_at,
-                kpi_details=kpi_details,
-            )
-        elif normalized_section == "participation_by_age":
-            expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
-            age_details = dict(age_bts_details or {})
-            if previous_data is not None:
-                age_details["previous"] = previous_data
-            report_bts[normalized_section] = build_participation_by_age_bts(
-                expected_data=expected_data,
-                stored_data=expected_data,
-                details=age_details,
-                checked_at=checked_at,
-            )
-        elif normalized_section == "overall_risk_score":
-            expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
-            ors_details = dict(ors_bts_details or {})
-            if previous_data is not None:
-                ors_details["previous"] = previous_data
-            report_bts[normalized_section] = build_overall_risk_score_bts(
-                expected_data=expected_data,
-                stored_data=expected_data,
-                details=ors_details,
-                checked_at=checked_at,
-            )
-        elif normalized_section == "distribution_by_oxidative_stress":
-            expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
-            oxidative_details = dict(oxidative_bts_details or {})
-            if previous_data is not None:
-                oxidative_details["previous"] = previous_data
-            report_bts[normalized_section] = build_distribution_by_oxidative_stress_bts(
-                expected_data=expected_data,
-                stored_data=expected_data,
-                details=oxidative_details,
-                checked_at=checked_at,
-            )
-        elif normalized_section == "distribution_by_physical_activity_frequency":
-            expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
-            pa_details = dict(pa_bts_details or {})
-            if previous_data is not None:
-                pa_details["previous"] = previous_data
-            meta = dict(pa_bts_meta or {})
-            report_bts[normalized_section] = build_questionnaire_gender_distribution_bts(
-                expected_data=expected_data,
-                stored_data=expected_data,
-                details=pa_details,
-                checked_at=checked_at,
-                section_title=str(meta.get("section_title") or "Physical activity"),
-                bucket_labels=dict(meta.get("bucket_labels") or PHYSICAL_ACTIVITY_BUCKET_LABELS),
-            )
-        elif normalized_section == "distribution_by_sleeping_hours":
-            expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
-            sleep_details = dict(sleep_bts_details or {})
-            if previous_data is not None:
-                sleep_details["previous"] = previous_data
-            meta = dict(sleep_bts_meta or {})
-            report_bts[normalized_section] = build_questionnaire_gender_distribution_bts(
-                expected_data=expected_data,
-                stored_data=expected_data,
-                details=sleep_details,
-                checked_at=checked_at,
-                section_title=str(meta.get("section_title") or "Sleeping hours"),
-                bucket_labels=dict(meta.get("bucket_labels") or SLEEPING_HOURS_BUCKET_LABELS),
-            )
-        elif normalized_section == "distribution_by_gender_by_metabolic_syndrome":
-            expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
-            metabolic_details = dict(metabolic_gender_bts_details or {})
-            if previous_data is not None:
-                metabolic_details["previous"] = previous_data
-            report_bts[normalized_section] = build_distribution_by_gender_by_metabolic_syndrome_bts(
-                expected_data=expected_data,
-                stored_data=expected_data,
-                details=metabolic_details,
-                checked_at=checked_at,
-            )
-        elif normalized_section == "positive_wins":
-            expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
-            pw_details = dict(positive_wins_bts_details or {})
-            if previous_data is not None:
-                pw_details["previous"] = previous_data
-            report_bts[normalized_section] = build_positive_wins_bts(
-                expected_data=expected_data,
-                stored_data=expected_data,
-                details=pw_details,
-                checked_at=checked_at,
-            )
-        elif normalized_section == "company_average_scores":
-            expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
-            cas_details = dict(company_average_scores_bts_details or {})
-            if previous_data is not None:
-                cas_details["previous"] = previous_data
-            report_bts[normalized_section] = build_company_average_scores_bts(
-                expected_data=expected_data,
-                stored_data=expected_data,
-                details=cas_details,
-                checked_at=checked_at,
-            )
-        elif normalized_section == "blood_and_lab_intelligence":
-            expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
-            bli_details = dict(blood_and_lab_intelligence_bts_details or {})
-            if previous_data is not None:
-                bli_details["previous"] = previous_data
-            report_bts[normalized_section] = build_blood_and_lab_intelligence_bts(
-                expected_data=expected_data,
-                stored_data=expected_data,
-                details=bli_details,
-                checked_at=checked_at,
-            )
-        else:
-            report_bts[normalized_section] = build_not_implemented_bts(checked_at=checked_at)
+            section_payload = {
+                **built_payload,
+                "name": section_name,
+                "description": section_description,
+            }
+            report[normalized_section] = section_payload
 
-        await self._repository.update_report_and_bts(db, row, report, report_bts)
+            reload_result = await db.execute(
+                select(CampReport).where(CampReport.report_id == report_id)
+            )
+            row = reload_result.scalar_one()
+            report_bts = dict(row.report_bts or {})
+            # Refresh/validate always writes ``section_payload`` first. BTS must validate
+            # that just-written data — not the pre-refresh snapshot. Comparing to
+            # ``previous_data`` made the first refresh look like a mismatch even though
+            # the report was already corrected (same for KPIs, participation_by_age,
+            # and any future section BTS).
+            if normalized_section == "kpis":
+                expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
+                blood_details = dict((kpi_metrics or {}).get("blood_details") or {})
+                kpi_details = dict((kpi_metrics or {}).get("kpi_bts_details") or {})
+                if previous_data is not None:
+                    kpi_details["previous"] = previous_data
+                report_bts[normalized_section] = build_kpis_bts(
+                    expected_data=expected_data,
+                    stored_data=expected_data,
+                    blood_details=blood_details,
+                    checked_at=checked_at,
+                    kpi_details=kpi_details,
+                )
+            elif normalized_section == "participation_by_age":
+                expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
+                age_details = dict(age_bts_details or {})
+                if previous_data is not None:
+                    age_details["previous"] = previous_data
+                report_bts[normalized_section] = build_participation_by_age_bts(
+                    expected_data=expected_data,
+                    stored_data=expected_data,
+                    details=age_details,
+                    checked_at=checked_at,
+                )
+            elif normalized_section == "overall_risk_score":
+                expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
+                ors_details = dict(ors_bts_details or {})
+                if previous_data is not None:
+                    ors_details["previous"] = previous_data
+                report_bts[normalized_section] = build_overall_risk_score_bts(
+                    expected_data=expected_data,
+                    stored_data=expected_data,
+                    details=ors_details,
+                    checked_at=checked_at,
+                )
+            elif normalized_section == "distribution_by_oxidative_stress":
+                expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
+                oxidative_details = dict(oxidative_bts_details or {})
+                if previous_data is not None:
+                    oxidative_details["previous"] = previous_data
+                report_bts[normalized_section] = build_distribution_by_oxidative_stress_bts(
+                    expected_data=expected_data,
+                    stored_data=expected_data,
+                    details=oxidative_details,
+                    checked_at=checked_at,
+                )
+            elif normalized_section == "distribution_by_physical_activity_frequency":
+                expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
+                pa_details = dict(pa_bts_details or {})
+                if previous_data is not None:
+                    pa_details["previous"] = previous_data
+                meta = dict(pa_bts_meta or {})
+                report_bts[normalized_section] = build_questionnaire_gender_distribution_bts(
+                    expected_data=expected_data,
+                    stored_data=expected_data,
+                    details=pa_details,
+                    checked_at=checked_at,
+                    section_title=str(meta.get("section_title") or "Physical activity"),
+                    bucket_labels=dict(meta.get("bucket_labels") or PHYSICAL_ACTIVITY_BUCKET_LABELS),
+                )
+            elif normalized_section == "distribution_by_sleeping_hours":
+                expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
+                sleep_details = dict(sleep_bts_details or {})
+                if previous_data is not None:
+                    sleep_details["previous"] = previous_data
+                meta = dict(sleep_bts_meta or {})
+                report_bts[normalized_section] = build_questionnaire_gender_distribution_bts(
+                    expected_data=expected_data,
+                    stored_data=expected_data,
+                    details=sleep_details,
+                    checked_at=checked_at,
+                    section_title=str(meta.get("section_title") or "Sleeping hours"),
+                    bucket_labels=dict(meta.get("bucket_labels") or SLEEPING_HOURS_BUCKET_LABELS),
+                )
+            elif normalized_section == "distribution_by_gender_by_metabolic_syndrome":
+                expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
+                metabolic_details = dict(metabolic_gender_bts_details or {})
+                if previous_data is not None:
+                    metabolic_details["previous"] = previous_data
+                report_bts[normalized_section] = build_distribution_by_gender_by_metabolic_syndrome_bts(
+                    expected_data=expected_data,
+                    stored_data=expected_data,
+                    details=metabolic_details,
+                    checked_at=checked_at,
+                )
+            elif normalized_section == "positive_wins":
+                expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
+                pw_details = dict(positive_wins_bts_details or {})
+                if previous_data is not None:
+                    pw_details["previous"] = previous_data
+                report_bts[normalized_section] = build_positive_wins_bts(
+                    expected_data=expected_data,
+                    stored_data=expected_data,
+                    details=pw_details,
+                    checked_at=checked_at,
+                )
+            elif normalized_section == "company_average_scores":
+                expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
+                cas_details = dict(company_average_scores_bts_details or {})
+                if previous_data is not None:
+                    cas_details["previous"] = previous_data
+                report_bts[normalized_section] = build_company_average_scores_bts(
+                    expected_data=expected_data,
+                    stored_data=expected_data,
+                    details=cas_details,
+                    checked_at=checked_at,
+                )
+            elif normalized_section == "blood_and_lab_intelligence":
+                expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
+                bli_details = dict(blood_and_lab_intelligence_bts_details or {})
+                if previous_data is not None:
+                    bli_details["previous"] = previous_data
+                report_bts[normalized_section] = build_blood_and_lab_intelligence_bts(
+                    expected_data=expected_data,
+                    stored_data=expected_data,
+                    details=bli_details,
+                    checked_at=checked_at,
+                )
+            else:
+                report_bts[normalized_section] = build_not_implemented_bts(checked_at=checked_at)
+
+            await self._repository.update_report_and_bts(db, row, report, report_bts)
+
+        if intelligence_section_key is not None:
+            try:
+                report, section_payload, _ = self._apply_intelligence_to_section(
+                    report,
+                    normalized_section=normalized_section,
+                    camp_section_key=intelligence_section_key,
+                )
+                await self._repository.update_report(db, row, report)
+            except AppError:
+                if enrich_only:
+                    raise
+                logger.exception(
+                    "Camp report intelligence enrichment failed after refresh "
+                    "for section %s",
+                    normalized_section,
+                )
+            except Exception:
+                if enrich_only:
+                    logger.exception("Camp report intelligence engine failed")
+                    raise AppError(
+                        status_code=500,
+                        error_code="INTERNAL_ERROR",
+                        message="An unexpected error occurred",
+                    ) from None
+                logger.exception(
+                    "Camp report intelligence enrichment failed after refresh "
+                    "for section %s",
+                    normalized_section,
+                )
+
+        if section_payload is None:
+            raise AppError(
+                status_code=500,
+                error_code="INTERNAL_ERROR",
+                message="An unexpected error occurred",
+            )
 
         await self._audit_service.log_event(
             db,
@@ -1650,7 +1881,7 @@ class CampReportsService:
         return {
             "report_id": report_id,
             "section": section_payload,
-            "report_bts": report_bts.get(normalized_section),
+            "report_bts": (report_bts or {}).get(normalized_section),
         }
 
     @staticmethod
