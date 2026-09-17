@@ -10,6 +10,7 @@ from common.validation import (
     AddressText,
     CityStateCountry,
     OptionalLandmarkText,
+    PhoneStr,
     PinCode,
     PositiveIntId,
     SafeText,
@@ -125,22 +126,35 @@ class PublicCheckServiceabilityRequest(BaseModel):
 
 
 class PublicAvailableSlotsRequest(BaseModel):
-    """Flat payload for public B2C available slots."""
+    """Stateless public B2C available slots (no engagement required)."""
 
-    engagement_code: str = Field(min_length=1, max_length=20)
+    address_line: AddressText
+    landmark: OptionalLandmarkText = None
+    city: CityStateCountry
+    pincode: PinCode
     blood_collection_date: date
 
 
-class CodeAvailableSlotsRequest(BaseModel):
-    """Payload for available slots when engagement_code is in the path."""
-
-    blood_collection_date: date
+class CodeAvailableSlotsRequest(PublicAvailableSlotsRequest):
+    """Same address payload as public; diagnostic package comes from the engagement."""
 
 
 class PublicLockSlotRequest(BaseModel):
-    """Flat payload for public B2C slot lock."""
+    """Stateless public B2C slot lock (no engagement required)."""
 
-    engagement_code: str = Field(min_length=1, max_length=20)
+    address_line: AddressText
+    landmark: OptionalLandmarkText = None
+    city: CityStateCountry
+    pincode: PinCode
+    phone: PhoneStr
+    blood_collection_date: date
+    blood_collection_time_slot_id: str = Field(min_length=1, max_length=50)
+    blood_collection_time_slot: ShortSafeText
+
+
+class CodeLockSlotRequest(BaseModel):
+    """Slot lock for an existing engagement (engagement_code in path)."""
+
     blood_collection_date: date
     blood_collection_time_slot_id: str = Field(min_length=1, max_length=50)
     blood_collection_time_slot: ShortSafeText

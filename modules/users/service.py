@@ -42,6 +42,7 @@ from common.phone import phone_lookup_candidates as _phone_lookup_candidates
 from modules.users.schemas import (
     B2CCodeOnboardAndBookRequest,
     B2COnboardAndBookResponse,
+    B2CPublicOnboardAndBookRequest,
     BookBioAiBatchRequest,
     BookBioAiRequest,
     BookBloodTestBatchRequest,
@@ -2635,7 +2636,262 @@ class UsersService:
             preview_available=preview_available,
         )
 
-    async def onboard_and_book_b2c(
+    def _resolve_onboard_book_slot(
+        self,
+        engagement,
+        payload: B2CCodeOnboardAndBookRequest,
+    ) -> tuple[str, date, time]:
+        if engagement.draft_slot_id and engagement.draft_slot_date is not None and engagement.draft_slot_time is not None:
+            return (
+                engagement.draft_slot_id,
+                engagement.draft_slot_date,
+                engagement.draft_slot_time,
+            )
+        if (
+            not payload.blood_collection_time_slot_id
+            or payload.blood_collection_date is None
+            or not payload.blood_collection_time_slot
+        ):
+            raise AppError(
+                status_code=422,
+                error_code="SLOT_NOT_LOCKED",
+                message="Blood collection slot is required",
+            )
+        return (
+            payload.blood_collection_time_slot_id,
+            payload.blood_collection_date,
+            self._parse_time_slot(payload.blood_collection_time_slot),
+        )
+
+    async def _finalize_onboard_and_book(
+        self,
+        db: AsyncSession,
+        *,
+        engagement,
+        user: User,
+        created: bool,
+        participant,
+        collection_date: date,
+        collection_time: time,
+        vendor_billing_user_id: str,
+        allow_active_engagement_status: bool,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+        audit_action: str,
+        is_b2b: bool,
+    ) -> B2COnboardAndBookResponse:
+        from modules.bookings import service as booking_service
+
+        if self._assessments_service is None:
+            raise RuntimeError("Assessments service is required")
+
+        engagement_type_code = "bio_ai"
+        booking_results = await booking_service.create_healthians_booking_after_payment(
+            db,
+            members=[{"user_id": user.user_id, "engagement_id": engagement.engagement_id}],
+            caller_user_id=user.user_id,
+            engagement_type_code=engagement_type_code,
+            engagements_service=self._engagements_service,
+            vendor_billing_user_id_override=vendor_billing_user_id,
+            allow_active_engagement_status=allow_active_engagement_status,
+        )
+        booking_result = booking_results[0] if booking_results else {}
+        if booking_result.get("status") != "success":
+            raise AppError(
+                status_code=422,
+                error_code="BOOKING_FAILED",
+                message=booking_result.get("message", "Healthians booking failed"),
+            )
+
+        engagement.draft_slot_id = None
+        engagement.draft_slot_date = None
+        engagement.draft_slot_time = None
+        await db.flush()
+
+        assessment_instance = await self._assessments_service.ensure_instance_assigned(
+            db,
+            user_id=user.user_id,
+            engagement_id=engagement.engagement_id,
+            package_id=engagement.assessment_package_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            endpoint=endpoint,
+        )
+
+        if is_b2b:
+            await self._notify_onboarding_assistants_for_user(
+                db,
+                engagement=engagement,
+                user=user,
+                source=engagement.engagement_code or "onboard-book",
+                collection_date=str(collection_date),
+                collection_time=str(collection_time),
+            )
+
+        if self._audit_service is None:
+            raise RuntimeError("Audit service is required")
+        await self._audit_service.log_event(
+            db,
+            action=audit_action,
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=user.user_id,
+            session_id=None,
+        )
+
+        return B2COnboardAndBookResponse(
+            user_id=user.user_id,
+            created=created,
+            engagement_id=int(engagement.engagement_id),
+            engagement_code=engagement.engagement_code,
+            engagement_participant_id=participant.engagement_participant_id,
+            booking_id=str(booking_result.get("booking_id") or ""),
+            status="scheduled",
+            assessment_instance_id=int(assessment_instance.assessment_instance_id)
+            if assessment_instance is not None
+            else None,
+            tokens={},
+        )
+
+    async def public_onboard_and_book_b2c(
+        self,
+        db: AsyncSession,
+        *,
+        payload: B2CPublicOnboardAndBookRequest,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> B2COnboardAndBookResponse:
+        """Public B2C pay-later onboard: create engagement, user, enroll, and Healthians booking."""
+
+        if self._engagements_service is None:
+            raise RuntimeError("Engagements service is required")
+        if self._platform_settings_service is None:
+            raise RuntimeError("Platform settings service is required")
+
+        email = str(payload.email) if payload.email is not None else None
+        patch_data = {
+            "first_name": payload.first_name,
+            "last_name": payload.last_name,
+            "age": payload.age,
+            "email": email,
+            "date_of_birth": payload.dob,
+            "gender": payload.gender,
+            "address": payload.address,
+            "pin_code": payload.pincode,
+            "city": payload.city,
+            "state": payload.state,
+            "country": payload.country,
+        }
+        create_data = {
+            **patch_data,
+            "phone": payload.phone,
+            "referred_by": None,
+            "is_participant": True,
+            "status": "active",
+        }
+
+        user, created = await self._get_or_create_user_for_onboarding(
+            db,
+            phone=str(payload.phone),
+            email=email,
+            patch_data={**patch_data, "is_participant": True},
+            create_data=create_data,
+        )
+
+        engagement_type_code = "bio_ai"
+        await _require_active_engagement_type_code(db, engagement_type_code)
+        onboarding_defaults = await self._platform_settings_service.resolve_b2c_onboarding_defaults(
+            db, engagement_type_code
+        )
+        assessment_package_id = onboarding_defaults.assessment_package_id
+        diagnostic_package_id = onboarding_defaults.diagnostic_package_id
+        await self._platform_settings_service.ensure_active_b2c_packages(
+            db, assessment_package_id, diagnostic_package_id
+        )
+
+        resolved_type_id, resolved_consultations = await _resolve_consultation_from_pkg(
+            db,
+            diagnostic_package_id,
+            engagement_type_code,
+        )
+
+        from modules.bookings import service as booking_service
+
+        location = await booking_service.resolve_public_location_context(
+            db,
+            city=payload.city,
+            pincode=payload.pincode,
+        )
+        if location.get("status") != "success":
+            raise AppError(
+                status_code=422,
+                error_code="NOT_SERVICEABLE",
+                message=location.get("message", "This location is not serviceable."),
+            )
+
+        engagement = await self._engagements_service.create_b2c_engagement(
+            db,
+            user_first_name=user.first_name,
+            engagement_date=payload.blood_collection_date,
+            city=payload.city,
+            assessment_package_id=assessment_package_id,
+            diagnostic_package_id=diagnostic_package_id,
+            engagement_type=resolved_type_id,
+            blood_collection_type=onboarding_defaults.blood_collection_type,
+            consultations=resolved_consultations,
+            address=payload.address,
+            landmark=payload.landmark,
+            pincode=payload.pincode,
+            state=payload.state or location.get("state"),
+            country=payload.country or location.get("country"),
+            latitude=location.get("latitude"),
+            longitude=location.get("longitude"),
+            create_profile_on_metsights=onboarding_defaults.create_profile_on_metsights,
+            enroll_for_fitprint_full=onboarding_defaults.enroll_for_fitprint_full,
+        )
+        engagement.healthians_zone_id = location["zone_id"]
+        engagement.status = "draft"
+        await db.flush()
+
+        consultations = _validate_requested_consultations(
+            payload.consultations,
+            engagement.consultations,
+        )
+
+        slot_start = self._parse_time_slot(payload.blood_collection_time_slot)
+        participant = await self._engagements_service.enroll_user_in_engagement(
+            db,
+            engagement=engagement,
+            user_id=user.user_id,
+            engagement_date=payload.blood_collection_date,
+            slot_start_time=slot_start,
+            consultations=consultations,
+            booked_by_user_id=user.user_id,
+        )
+        participant.blood_collection_time_slot_id = payload.blood_collection_time_slot_id
+        await db.flush()
+
+        return await self._finalize_onboard_and_book(
+            db,
+            engagement=engagement,
+            user=user,
+            created=created,
+            participant=participant,
+            collection_date=payload.blood_collection_date,
+            collection_time=slot_start,
+            vendor_billing_user_id=str(payload.phone).strip(),
+            allow_active_engagement_status=False,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            endpoint=endpoint,
+            audit_action="USER_PUBLIC_ONBOARD_BOOK",
+            is_b2b=False,
+        )
+
+    async def code_onboard_and_book_b2c(
         self,
         db: AsyncSession,
         *,
@@ -2645,16 +2901,12 @@ class UsersService:
         user_agent: str,
         endpoint: str,
     ) -> B2COnboardAndBookResponse:
-        """Public B2C pay-later onboard: create user, enroll, and finalize Healthians booking."""
-
-        from modules.bookings import service as booking_service
+        """Onboard into an existing engagement and finalize Healthians booking."""
 
         if self._engagements_service is None:
             raise RuntimeError("Engagements service is required")
         if self._platform_settings_service is None:
             raise RuntimeError("Platform settings service is required")
-        if self._assessments_service is None:
-            raise RuntimeError("Assessments service is required")
 
         code = (engagement_code or "").strip()
         if not code:
@@ -2663,12 +2915,10 @@ class UsersService:
         engagement = await self._engagements_service.get_by_code(db, code)
         if engagement is None:
             raise AppError(status_code=404, error_code="ENGAGEMENT_NOT_FOUND", message="Engagement not found")
-        if engagement.organization_id is not None:
-            raise AppError(status_code=422, error_code="INVALID_STATE", message="Engagement is not a public B2C draft")
-        if (engagement.status or "").lower() != "draft":
-            raise AppError(status_code=422, error_code="INVALID_STATE", message="Engagement is not in draft status")
-        if not engagement.draft_slot_id or engagement.draft_slot_date is None or engagement.draft_slot_time is None:
-            raise AppError(status_code=422, error_code="SLOT_NOT_LOCKED", message="Blood collection slot is not locked")
+        if (engagement.status or "").lower() == "cancelled":
+            raise AppError(status_code=422, error_code="INVALID_STATE", message="Engagement is cancelled")
+
+        slot_id, collection_date, slot_time = self._resolve_onboard_book_slot(engagement, payload)
 
         email = str(payload.email) if payload.email is not None else None
         patch_data = {
@@ -2716,10 +2966,34 @@ class UsersService:
             engagement.engagement_type = resolved_type_id
             if engagement.consultations is None:
                 engagement.consultations = resolved_consultations
-        if not engagement.create_profile_on_metsights:
-            engagement.create_profile_on_metsights = onboarding_defaults.create_profile_on_metsights
-        if not engagement.enroll_for_fitprint_full:
-            engagement.enroll_for_fitprint_full = onboarding_defaults.enroll_for_fitprint_full
+        if engagement.organization_id is None:
+            if not engagement.create_profile_on_metsights:
+                engagement.create_profile_on_metsights = onboarding_defaults.create_profile_on_metsights
+            if not engagement.enroll_for_fitprint_full:
+                engagement.enroll_for_fitprint_full = onboarding_defaults.enroll_for_fitprint_full
+
+        if payload.address:
+            engagement.address = payload.address
+        if payload.landmark:
+            engagement.landmark = payload.landmark
+        if payload.city:
+            engagement.city = payload.city
+        if payload.pincode:
+            engagement.pincode = payload.pincode
+        if payload.state:
+            engagement.state = payload.state
+        if payload.country:
+            engagement.country = payload.country
+
+        from modules.bookings import service as booking_service
+
+        zone_error = await booking_service.ensure_engagement_zone_from_location(db, engagement)
+        if zone_error is not None:
+            raise AppError(
+                status_code=422,
+                error_code="NOT_SERVICEABLE",
+                message=zone_error.get("message", "This location is not serviceable."),
+            )
 
         consultations = _validate_requested_consultations(
             payload.consultations,
@@ -2730,70 +3004,30 @@ class UsersService:
             db,
             engagement=engagement,
             user_id=user.user_id,
-            engagement_date=engagement.draft_slot_date,
-            slot_start_time=engagement.draft_slot_time,
+            engagement_date=collection_date,
+            slot_start_time=slot_time,
             consultations=consultations,
             booked_by_user_id=user.user_id,
         )
-        participant.blood_collection_time_slot_id = engagement.draft_slot_id
+        participant.blood_collection_time_slot_id = slot_id
         await db.flush()
 
-        vendor_billing_user_id = engagement.engagement_code
-        booking_results = await booking_service.create_healthians_booking_after_payment(
+        is_b2b = engagement.organization_id is not None
+        return await self._finalize_onboard_and_book(
             db,
-            members=[{"user_id": user.user_id, "engagement_id": engagement.engagement_id}],
-            caller_user_id=user.user_id,
-            engagement_type_code=engagement_type_code,
-            engagements_service=self._engagements_service,
-            vendor_billing_user_id_override=vendor_billing_user_id,
-        )
-        booking_result = booking_results[0] if booking_results else {}
-        if booking_result.get("status") != "success":
-            raise AppError(
-                status_code=422,
-                error_code="BOOKING_FAILED",
-                message=booking_result.get("message", "Healthians booking failed"),
-            )
-
-        engagement.draft_slot_id = None
-        engagement.draft_slot_date = None
-        engagement.draft_slot_time = None
-        await db.flush()
-
-        assessment_instance = await self._assessments_service.ensure_instance_assigned(
-            db,
-            user_id=user.user_id,
-            engagement_id=engagement.engagement_id,
-            package_id=engagement.assessment_package_id,
-            ip_address=ip_address,
-            user_agent=user_agent,
-            endpoint=endpoint,
-        )
-
-        if self._audit_service is None:
-            raise RuntimeError("Audit service is required")
-        await self._audit_service.log_event(
-            db,
-            action="USER_PUBLIC_ONBOARD_BOOK",
-            endpoint=endpoint,
-            ip_address=ip_address,
-            user_agent=user_agent,
-            user_id=user.user_id,
-            session_id=None,
-        )
-
-        return B2COnboardAndBookResponse(
-            user_id=user.user_id,
+            engagement=engagement,
+            user=user,
             created=created,
-            engagement_id=int(engagement.engagement_id),
-            engagement_code=engagement.engagement_code,
-            engagement_participant_id=participant.engagement_participant_id,
-            booking_id=str(booking_result.get("booking_id") or ""),
-            status="scheduled",
-            assessment_instance_id=int(assessment_instance.assessment_instance_id)
-            if assessment_instance is not None
-            else None,
-            tokens={},
+            participant=participant,
+            collection_date=collection_date,
+            collection_time=slot_time,
+            vendor_billing_user_id=engagement.engagement_code,
+            allow_active_engagement_status=is_b2b or (engagement.status or "").lower() != "draft",
+            ip_address=ip_address,
+            user_agent=user_agent,
+            endpoint=endpoint,
+            audit_action="USER_CODE_ONBOARD_BOOK",
+            is_b2b=is_b2b,
         )
 
     def _split_csv_name(self, raw_name: str) -> tuple[str | None, str | None]:

@@ -113,30 +113,15 @@ async def test_public_check_service_availability_no_auth(async_client, test_db_s
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["status"] == "serviceable"
-    assert data["engagement_code"]
     assert data["zone_id"] == "440"
+    assert "engagement_code" not in data
 
-    part_count = (
+    eng_count = (
         await test_db_session.execute(
-            text(
-                "SELECT COUNT(*) FROM engagement_participants ep "
-                "JOIN engagements e ON e.engagement_id = ep.engagement_id "
-                "WHERE e.engagement_code = :code"
-            ),
-            {"code": data["engagement_code"]},
+            text("SELECT COUNT(*) FROM engagements WHERE engagement_name = 'public-draft'")
         )
     ).scalar_one()
-    assert part_count == 0
-
-    eng_row = (
-        await test_db_session.execute(
-            text(
-                "SELECT diagnostic_package_id FROM engagements WHERE engagement_code = :code"
-            ),
-            {"code": data["engagement_code"]},
-        )
-    ).one()
-    assert eng_row.diagnostic_package_id == 1
+    assert eng_count == 0
 
 
 @pytest.mark.asyncio
@@ -202,20 +187,17 @@ async def test_code_check_service_availability_uses_engagement_package(async_cli
         )
     ).one()
     assert eng_row.diagnostic_package_id == 2
-    assert eng_row.address == "Flat 12, Green Park"
-    assert eng_row.healthians_zone_id == "441"
+    assert eng_row.address == "Old address"
+    assert eng_row.healthians_zone_id is None
     assert eng_row.status == "scheduled"
 
 
 @pytest.mark.asyncio
-async def test_public_available_slots(async_client, test_db_session):
+async def test_public_available_slots_stateless(async_client, test_db_session):
     await _seed_healthians_diagnostic_package(test_db_session)
-    await _seed_public_draft_engagement(
-        test_db_session,
-        engagement_id=950101,
-        engagement_code="PUB950101",
-    )
+    await _seed_platform_default_diagnostic_package(test_db_session)
 
+    geocode_result = [{"latitude": 19.0760, "longitude": 72.8777, "state": "Maharashtra", "country": "India"}]
     healthians_slots = {
         "status": True,
         "data": [
@@ -228,18 +210,28 @@ async def test_public_available_slots(async_client, test_db_session):
         ],
     }
 
+    healthians_check = {"status": True, "data": {"zone_id": "440"}, "message": "Serviceable"}
+
     with (
+        patch("modules.bookings.service.search_places", new_callable=AsyncMock, return_value=geocode_result),
         patch("modules.bookings.service.healthians_client.get_access_token", new_callable=AsyncMock, return_value="tok"),
+        patch(
+            "modules.bookings.service.healthians_client.check_serviceability_by_location_v2",
+            new_callable=AsyncMock,
+            return_value=healthians_check,
+        ),
         patch(
             "modules.bookings.service.healthians_client.get_slots_by_location",
             new_callable=AsyncMock,
             return_value=healthians_slots,
-        ),
+        ) as mock_slots,
     ):
         response = await async_client.post(
             "/book/public/available-slots",
             json={
-                "engagement_code": "PUB950101",
+                "address_line": _PUBLIC_CHECK_PAYLOAD["address_line"],
+                "city": _PUBLIC_CHECK_PAYLOAD["city"],
+                "pincode": _PUBLIC_CHECK_PAYLOAD["pincode"],
                 "blood_collection_date": "2026-07-15",
             },
         )
@@ -247,8 +239,10 @@ async def test_public_available_slots(async_client, test_db_session):
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["status"] == "success"
-    assert data["engagement_code"] == "PUB950101"
+    assert "engagement_code" not in data
     assert len(data["slots"]) == 1
+    mock_slots.assert_awaited_once()
+    assert mock_slots.await_args.args[1]["zone_id"] == "440"
 
 
 @pytest.mark.asyncio
@@ -285,6 +279,8 @@ async def test_code_available_slots_uses_engagement_package(async_client, test_d
     test_db_session.add(engagement)
     await test_db_session.commit()
 
+    geocode_result = [{"latitude": 19.0760, "longitude": 72.8777, "state": "Maharashtra", "country": "India"}]
+    healthians_check = {"status": True, "data": {"zone_id": "441"}, "message": "Serviceable"}
     healthians_slots = {
         "status": True,
         "data": [
@@ -298,7 +294,13 @@ async def test_code_available_slots_uses_engagement_package(async_client, test_d
     }
 
     with (
+        patch("modules.bookings.service.search_places", new_callable=AsyncMock, return_value=geocode_result),
         patch("modules.bookings.service.healthians_client.get_access_token", new_callable=AsyncMock, return_value="tok"),
+        patch(
+            "modules.bookings.service.healthians_client.check_serviceability_by_location_v2",
+            new_callable=AsyncMock,
+            return_value=healthians_check,
+        ),
         patch(
             "modules.bookings.service.healthians_client.get_slots_by_location",
             new_callable=AsyncMock,
@@ -307,7 +309,12 @@ async def test_code_available_slots_uses_engagement_package(async_client, test_d
     ):
         response = await async_client.post(
             "/book/code/CAMP950151/available-slots",
-            json={"blood_collection_date": "2026-07-16"},
+            json={
+                "address_line": _PUBLIC_CHECK_PAYLOAD["address_line"],
+                "city": _PUBLIC_CHECK_PAYLOAD["city"],
+                "pincode": _PUBLIC_CHECK_PAYLOAD["pincode"],
+                "blood_collection_date": "2026-07-16",
+            },
         )
 
     assert response.status_code == 200
@@ -317,10 +324,58 @@ async def test_code_available_slots_uses_engagement_package(async_client, test_d
     assert len(data["slots"]) == 1
     mock_slots.assert_awaited_once()
     assert mock_slots.await_args.args[1]["package"] == [{"deal_id": ["package_102"]}]
+    assert mock_slots.await_args.args[1]["zone_id"] == "441"
 
 
 @pytest.mark.asyncio
-async def test_public_lock_stores_draft_slot_fields(async_client, test_db_session):
+async def test_public_lock_stateless_uses_phone_vendor(async_client, test_db_session):
+    geocode_result = [{"latitude": 19.0760, "longitude": 72.8777, "state": "Maharashtra", "country": "India"}]
+    healthians_check = {"status": True, "data": {"zone_id": "440"}, "message": "Serviceable"}
+    freeze_resp = {
+        "status": True,
+        "resCode": "RES0001",
+        "message": "Slot locked",
+        "data": {"slot_id": "34235263", "freeze_time": "30"},
+    }
+
+    with (
+        patch("modules.bookings.service.search_places", new_callable=AsyncMock, return_value=geocode_result),
+        patch("modules.bookings.service.healthians_client.get_access_token", new_callable=AsyncMock, return_value="tok"),
+        patch(
+            "modules.bookings.service.healthians_client.check_serviceability_by_location_v2",
+            new_callable=AsyncMock,
+            return_value=healthians_check,
+        ),
+        patch(
+            "modules.bookings.service.healthians_client.freeze_slot_v1",
+            new_callable=AsyncMock,
+            return_value=freeze_resp,
+        ) as mock_freeze,
+    ):
+        response = await async_client.post(
+            "/book/public/lock",
+            json={
+                "address_line": _PUBLIC_CHECK_PAYLOAD["address_line"],
+                "city": _PUBLIC_CHECK_PAYLOAD["city"],
+                "pincode": _PUBLIC_CHECK_PAYLOAD["pincode"],
+                "phone": "9501020000",
+                "blood_collection_date": "2026-07-15",
+                "blood_collection_time_slot_id": "34235263",
+                "blood_collection_time_slot": "06:00:00",
+            },
+        )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["status"] == "success"
+    assert data["vendor_billing_user_id"] == "9501020000"
+    assert data["zone_id"] == "440"
+    mock_freeze.assert_awaited_once()
+    assert mock_freeze.await_args.kwargs["vendor_billing_user_id"] == "9501020000"
+
+
+@pytest.mark.asyncio
+async def test_code_lock_stores_draft_slot_fields(async_client, test_db_session):
     await _seed_healthians_diagnostic_package(test_db_session)
     await _seed_public_draft_engagement(
         test_db_session,
@@ -344,9 +399,8 @@ async def test_public_lock_stores_draft_slot_fields(async_client, test_db_sessio
         ) as mock_freeze,
     ):
         response = await async_client.post(
-            "/book/public/lock",
+            "/book/code/PUB950102/lock",
             json={
-                "engagement_code": "PUB950102",
                 "blood_collection_date": "2026-07-15",
                 "blood_collection_time_slot_id": "34235263",
                 "blood_collection_time_slot": "06:00:00",
@@ -374,16 +428,12 @@ async def test_public_lock_stores_draft_slot_fields(async_client, test_db_sessio
 
 
 @pytest.mark.asyncio
-async def test_public_onboard_book_creates_healthians_booking(async_client, test_db_session, monkeypatch):
+async def test_public_onboard_book_creates_engagement_and_healthians_booking(
+    async_client, test_db_session, monkeypatch
+):
     monkeypatch.setattr("core.config.settings.HEALTHIANS_CHECKSUM_KEY", "test-checksum")
     await _seed_healthians_diagnostic_package(test_db_session)
     await _seed_onboard_book_prereqs(test_db_session)
-    await _seed_public_draft_engagement(
-        test_db_session,
-        engagement_id=950103,
-        engagement_code="PUB950103",
-        locked=True,
-    )
 
     payload = {
         "age": 30,
@@ -392,15 +442,28 @@ async def test_public_onboard_book_creates_healthians_booking(async_client, test
         "email": "public.booker@example.com",
         "phone": "9501030000",
         "gender": "male",
+        "address": "Flat 12, Green Park",
         "city": "Mumbai",
         "pincode": "400001",
+        "blood_collection_date": "2026-07-15",
+        "blood_collection_time_slot_id": "34235263",
+        "blood_collection_time_slot": "06:00:00",
     }
 
+    geocode_result = [{"latitude": 19.0760, "longitude": 72.8777, "state": "Maharashtra", "country": "India"}]
+    healthians_check = {"status": True, "data": {"zone_id": "440"}, "message": "Serviceable"}
+
     with (
+        patch("modules.bookings.service.search_places", new_callable=AsyncMock, return_value=geocode_result),
         patch(
             "modules.bookings.service.healthians_client.get_access_token",
             new_callable=AsyncMock,
             return_value="tok",
+        ),
+        patch(
+            "modules.bookings.service.healthians_client.check_serviceability_by_location_v2",
+            new_callable=AsyncMock,
+            return_value=healthians_check,
         ),
         patch(
             "modules.bookings.service.healthians_client.create_booking_v3",
@@ -410,46 +473,146 @@ async def test_public_onboard_book_creates_healthians_booking(async_client, test
         patch(
             "modules.engagements.service.EngagementsService.notify_onboarding_assistants_after_enrollment",
             new_callable=AsyncMock,
-        ),
+        ) as mock_notify,
     ):
-        response = await async_client.post(
-            "/users/public/onboard/book",
-            json={"engagement_code": "PUB950103", **payload},
-        )
+        response = await async_client.post("/users/public/onboard/book", json=payload)
 
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["booking_id"] == "HI950103"
     assert data["status"] == "scheduled"
-    assert data["engagement_code"] == "PUB950103"
+    assert data["engagement_code"]
     assert data["tokens"]["access_token"]
     assert data["tokens"]["refresh_token"]
     mock_create.assert_awaited_once()
-    assert mock_create.await_args.args[1]["vendor_billing_user_id"] == "PUB950103"
+    assert mock_create.await_args.args[1]["vendor_billing_user_id"] == "9501030000"
+    mock_notify.assert_awaited()
 
     participant_row = (
         await test_db_session.execute(
             text(
                 "SELECT booking_id, blood_collection_time_slot_id "
-                "FROM engagement_participants WHERE engagement_id = 950103"
-            )
+                "FROM engagement_participants WHERE engagement_id = :engagement_id"
+            ),
+            {"engagement_id": data["engagement_id"]},
         )
     ).one()
     assert participant_row.booking_id == "HI950103"
-    assert participant_row.blood_collection_time_slot_id == "slot-123"
+    assert participant_row.blood_collection_time_slot_id == "34235263"
 
     eng_row = (
         await test_db_session.execute(
             text(
-                "SELECT status, draft_slot_id, draft_slot_date, draft_slot_time "
-                "FROM engagements WHERE engagement_id = 950103"
-            )
+                "SELECT status, organization_id, healthians_zone_id, draft_slot_id "
+                "FROM engagements WHERE engagement_id = :engagement_id"
+            ),
+            {"engagement_id": data["engagement_id"]},
         )
     ).one()
     assert eng_row.status == "scheduled"
+    assert eng_row.organization_id is None
+    assert eng_row.healthians_zone_id == "440"
     assert eng_row.draft_slot_id is None
-    assert eng_row.draft_slot_date is None
-    assert eng_row.draft_slot_time is None
+
+
+@pytest.mark.asyncio
+async def test_public_e2e_check_slots_lock_onboard_book(async_client, test_db_session, monkeypatch):
+    monkeypatch.setattr("core.config.settings.HEALTHIANS_CHECKSUM_KEY", "test-checksum")
+    await _seed_healthians_diagnostic_package(test_db_session)
+    await _seed_onboard_book_prereqs(test_db_session)
+
+    geocode_result = [{"latitude": 19.0760, "longitude": 72.8777, "state": "Maharashtra", "country": "India"}]
+    healthians_check = {"status": True, "data": {"zone_id": "440"}, "message": "Serviceable"}
+    healthians_slots = {
+        "status": True,
+        "data": [{"end_time": "07:00:00", "slot_date": "2026-07-15", "slot_time": "06:00:00", "stm_id": "45418464"}],
+    }
+    freeze_resp = {
+        "status": True,
+        "resCode": "RES0001",
+        "message": "Slot locked",
+        "data": {"slot_id": "45418464", "freeze_time": "30"},
+    }
+    book_resp = {"status": True, "booking_id": "HI-E2E-PUB", "message": "Booking placed"}
+
+    with (
+        patch("modules.bookings.service.search_places", new_callable=AsyncMock, return_value=geocode_result),
+        patch("modules.bookings.service.healthians_client.get_access_token", new_callable=AsyncMock, return_value="tok"),
+        patch(
+            "modules.bookings.service.healthians_client.check_serviceability_by_location_v2",
+            new_callable=AsyncMock,
+            return_value=healthians_check,
+        ),
+        patch(
+            "modules.bookings.service.healthians_client.get_slots_by_location",
+            new_callable=AsyncMock,
+            return_value=healthians_slots,
+        ),
+        patch(
+            "modules.bookings.service.healthians_client.freeze_slot_v1",
+            new_callable=AsyncMock,
+            return_value=freeze_resp,
+        ) as mock_freeze,
+        patch(
+            "modules.bookings.service.healthians_client.create_booking_v3",
+            new_callable=AsyncMock,
+            return_value=book_resp,
+        ) as mock_create,
+        patch(
+            "modules.engagements.service.EngagementsService.notify_onboarding_assistants_after_enrollment",
+            new_callable=AsyncMock,
+        ),
+    ):
+        check = await async_client.post("/book/public/check-service-availability", json=_PUBLIC_CHECK_PAYLOAD)
+        assert check.json()["data"]["zone_id"] == "440"
+
+        slots = await async_client.post(
+            "/book/public/available-slots",
+            json={
+                "address_line": _PUBLIC_CHECK_PAYLOAD["address_line"],
+                "city": _PUBLIC_CHECK_PAYLOAD["city"],
+                "pincode": _PUBLIC_CHECK_PAYLOAD["pincode"],
+                "blood_collection_date": "2026-07-15",
+            },
+        )
+        assert slots.json()["data"]["status"] == "success"
+
+        lock = await async_client.post(
+            "/book/public/lock",
+            json={
+                "address_line": _PUBLIC_CHECK_PAYLOAD["address_line"],
+                "city": _PUBLIC_CHECK_PAYLOAD["city"],
+                "pincode": _PUBLIC_CHECK_PAYLOAD["pincode"],
+                "phone": "9501990000",
+                "blood_collection_date": "2026-07-15",
+                "blood_collection_time_slot_id": "45418464",
+                "blood_collection_time_slot": "06:00:00",
+            },
+        )
+        assert lock.json()["data"]["vendor_billing_user_id"] == "9501990000"
+
+        onboard = await async_client.post(
+            "/users/public/onboard/book",
+            json={
+                "age": 32,
+                "first_name": "Eve",
+                "last_name": "Public",
+                "phone": "9501990000",
+                "address": _PUBLIC_CHECK_PAYLOAD["address_line"],
+                "city": _PUBLIC_CHECK_PAYLOAD["city"],
+                "pincode": _PUBLIC_CHECK_PAYLOAD["pincode"],
+                "blood_collection_date": "2026-07-15",
+                "blood_collection_time_slot_id": "45418464",
+                "blood_collection_time_slot": "06:00:00",
+            },
+        )
+
+    assert onboard.status_code == 200
+    assert onboard.json()["data"]["booking_id"] == "HI-E2E-PUB"
+    assert onboard.json()["data"]["engagement_id"]
+    mock_freeze.assert_awaited_once()
+    mock_create.assert_awaited_once()
+    assert mock_create.await_args.args[1]["vendor_billing_user_id"] == "9501990000"
 
 
 @pytest.mark.asyncio
@@ -487,7 +650,7 @@ async def test_code_onboard_book_endpoint(async_client, test_db_session, monkeyp
         patch(
             "modules.engagements.service.EngagementsService.notify_onboarding_assistants_after_enrollment",
             new_callable=AsyncMock,
-        ),
+        ) as mock_notify,
     ):
         response = await async_client.post(
             "/users/code/PUB950104/onboard/book",
@@ -499,3 +662,118 @@ async def test_code_onboard_book_endpoint(async_client, test_db_session, monkeyp
     assert data["booking_id"] == "HI950104"
     assert data["engagement_code"] == "PUB950104"
     assert data["tokens"]["token_type"] == "bearer"
+    mock_notify.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_code_e2e_check_slots_lock_onboard_book(async_client, test_db_session, monkeypatch):
+    monkeypatch.setattr("core.config.settings.HEALTHIANS_CHECKSUM_KEY", "test-checksum")
+    await _seed_healthians_diagnostic_package(test_db_session)
+    await _seed_onboard_book_prereqs(test_db_session)
+
+    engagement = Engagement(
+        engagement_id=950105,
+        engagement_name="camp-code-e2e",
+        organization_id=None,
+        engagement_code="CAMP950105",
+        diagnostic_package_id=1,
+        assessment_package_id=1,
+        city="Mumbai",
+        address="Flat 1",
+        sub_locality="Flat 1",
+        pincode="400001",
+        latitude=19.0760,
+        longitude=72.8777,
+        healthians_zone_id="440",
+        slot_duration=20,
+        status="scheduled",
+        blood_collection_type=BloodCollectionType.home_collection,
+    )
+    test_db_session.add(engagement)
+    await test_db_session.commit()
+
+    geocode_result = [{"latitude": 19.0760, "longitude": 72.8777, "state": "Maharashtra", "country": "India"}]
+    healthians_check = {"status": True, "data": {"zone_id": "440"}, "message": "Serviceable"}
+    healthians_slots = {
+        "status": True,
+        "data": [{"end_time": "08:00:00", "slot_date": "2026-07-16", "slot_time": "07:00:00", "stm_id": "45418465"}],
+    }
+    freeze_resp = {
+        "status": True,
+        "resCode": "RES0001",
+        "message": "Slot locked",
+        "data": {"slot_id": "45418465", "freeze_time": "30"},
+    }
+    book_resp = {"status": True, "booking_id": "HI-E2E-CODE", "message": "OK"}
+
+    with (
+        patch("modules.bookings.service.search_places", new_callable=AsyncMock, return_value=geocode_result),
+        patch("modules.bookings.service.healthians_client.get_access_token", new_callable=AsyncMock, return_value="tok"),
+        patch(
+            "modules.bookings.service.healthians_client.check_serviceability_by_location_v2",
+            new_callable=AsyncMock,
+            return_value=healthians_check,
+        ),
+        patch(
+            "modules.bookings.service.healthians_client.get_slots_by_location",
+            new_callable=AsyncMock,
+            return_value=healthians_slots,
+        ),
+        patch(
+            "modules.bookings.service.healthians_client.freeze_slot_v1",
+            new_callable=AsyncMock,
+            return_value=freeze_resp,
+        ),
+        patch(
+            "modules.bookings.service.healthians_client.create_booking_v3",
+            new_callable=AsyncMock,
+            return_value=book_resp,
+        ) as mock_create,
+        patch(
+            "modules.engagements.service.EngagementsService.notify_onboarding_assistants_after_enrollment",
+            new_callable=AsyncMock,
+        ) as mock_notify,
+    ):
+        check = await async_client.post(
+            "/book/code/CAMP950105/check-service-availability",
+            json=_PUBLIC_CHECK_PAYLOAD,
+        )
+        assert check.json()["data"]["status"] == "serviceable"
+
+        slots = await async_client.post(
+            "/book/code/CAMP950105/available-slots",
+            json={
+                "address_line": _PUBLIC_CHECK_PAYLOAD["address_line"],
+                "city": _PUBLIC_CHECK_PAYLOAD["city"],
+                "pincode": _PUBLIC_CHECK_PAYLOAD["pincode"],
+                "blood_collection_date": "2026-07-16",
+            },
+        )
+        assert slots.json()["data"]["status"] == "success"
+
+        lock = await async_client.post(
+            "/book/code/CAMP950105/lock",
+            json={
+                "blood_collection_date": "2026-07-16",
+                "blood_collection_time_slot_id": "45418465",
+                "blood_collection_time_slot": "07:00:00",
+            },
+        )
+        assert lock.json()["data"]["status"] == "success"
+
+        onboard = await async_client.post(
+            "/users/code/CAMP950105/onboard/book",
+            json={
+                "age": 29,
+                "first_name": "Eve",
+                "last_name": "Code",
+                "phone": "9501050000",
+                "city": "Mumbai",
+            },
+        )
+
+    assert onboard.status_code == 200
+    assert onboard.json()["data"]["booking_id"] == "HI-E2E-CODE"
+    mock_create.assert_awaited_once()
+    assert mock_create.await_args.args[1]["vendor_billing_user_id"] == "CAMP950105"
+    mock_notify.assert_awaited()

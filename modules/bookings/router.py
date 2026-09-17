@@ -16,6 +16,7 @@ from modules.bookings.schemas import (
     CheckServiceabilityRequest,
     LockSlotRequest,
     CodeAvailableSlotsRequest,
+    CodeLockSlotRequest,
     PublicAvailableSlotsRequest,
     PublicCheckServiceabilityRequest,
     PublicLockSlotRequest,
@@ -273,11 +274,15 @@ async def public_get_available_slots(
     payload: PublicAvailableSlotsRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    platform_settings_service: PlatformSettingsService = Depends(get_platform_settings_service_readonly),
 ):
     result = await booking_service.public_get_available_slots(
         db,
-        engagement_code=payload.engagement_code,
+        address_line=payload.address_line,
+        city=payload.city,
+        pincode=payload.pincode,
         blood_collection_date=payload.blood_collection_date,
+        platform_settings_service=platform_settings_service,
     )
     await db.commit()
     return success_response(result)
@@ -294,6 +299,9 @@ async def code_get_available_slots(
     result = await booking_service.code_get_available_slots(
         db,
         engagement_code=engagement_code,
+        address_line=payload.address_line,
+        city=payload.city,
+        pincode=payload.pincode,
         blood_collection_date=payload.blood_collection_date,
     )
     await db.commit()
@@ -309,7 +317,28 @@ async def public_lock_slot(
 ):
     result = await booking_service.public_lock_slot(
         db,
-        engagement_code=payload.engagement_code,
+        city=payload.city,
+        pincode=payload.pincode,
+        phone=payload.phone,
+        blood_collection_date=payload.blood_collection_date,
+        blood_collection_time_slot_id=payload.blood_collection_time_slot_id,
+        blood_collection_time_slot=payload.blood_collection_time_slot,
+    )
+    await db.commit()
+    return success_response(result)
+
+
+@router.post("/code/{engagement_code}/lock")
+@limiter.limit("5/minute")
+async def code_lock_slot(
+    engagement_code: str,
+    payload: CodeLockSlotRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await booking_service.code_lock_slot(
+        db,
+        engagement_code=engagement_code,
         blood_collection_date=payload.blood_collection_date,
         blood_collection_time_slot_id=payload.blood_collection_time_slot_id,
         blood_collection_time_slot=payload.blood_collection_time_slot,

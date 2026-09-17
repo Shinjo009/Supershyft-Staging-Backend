@@ -82,9 +82,8 @@ async def public_onboard_and_book_user(
     user_agent = request.headers.get("User-Agent", "unknown")
     endpoint = str(request.url.path)
 
-    result = await users_service.onboard_and_book_b2c(
+    result = await users_service.public_onboard_and_book_b2c(
         db,
-        engagement_code=payload.engagement_code,
         payload=payload,
         ip_address=ip_address,
         user_agent=user_agent,
@@ -167,7 +166,7 @@ async def onboard_and_book_user_for_engagement(
     user_agent = request.headers.get("User-Agent", "unknown")
     endpoint = str(request.url.path)
 
-    result = await users_service.onboard_and_book_b2c(
+    result = await users_service.code_onboard_and_book_b2c(
         db,
         engagement_code=engagement_code,
         payload=payload,
