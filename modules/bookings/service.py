@@ -23,6 +23,7 @@ from modules.engagements.service import EngagementsService, _generate_engagement
 from modules.geocoding.client import search_places
 from modules.payments.models import Booking
 from modules.payments.services import PaymentsService
+from modules.platform_settings.service import PlatformSettingsService
 from modules.users.models import User
 
 logger = logging.getLogger(__name__)
@@ -518,6 +519,132 @@ async def _allocate_unique_engagement_code(db: AsyncSession) -> str:
     raise AppError(status_code=500, error_code="INTERNAL_ERROR", message="Could not allocate engagement code")
 
 
+async def _resolve_b2c_default_diagnostic_package_id(
+    db: AsyncSession,
+    platform_settings_service: PlatformSettingsService,
+) -> int:
+    assessment_package_id, diagnostic_package_id = await platform_settings_service.resolve_b2c_default_package_ids(db)
+    await platform_settings_service.ensure_active_b2c_packages(
+        db,
+        assessment_package_id,
+        diagnostic_package_id,
+    )
+    return int(diagnostic_package_id)
+
+
+async def _get_engagement_by_code_for_serviceability(
+    db: AsyncSession,
+    engagement_code: str,
+) -> Engagement:
+    code = (engagement_code or "").strip()
+    if not code:
+        raise AppError(status_code=400, error_code="INVALID_INPUT", message="engagement_code is required")
+
+    result = await db.execute(
+        select(Engagement).where(Engagement.engagement_code == code).limit(1)
+    )
+    engagement = result.scalar_one_or_none()
+    if engagement is None:
+        raise AppError(status_code=404, error_code="ENGAGEMENT_NOT_FOUND", message="Engagement not found")
+    if not engagement.diagnostic_package_id:
+        raise AppError(
+            status_code=422,
+            error_code="INVALID_STATE",
+            message="No diagnostic package on engagement",
+        )
+    return engagement
+
+
+async def _apply_address_to_engagement(
+    engagement: Engagement,
+    *,
+    address_line: str,
+    landmark: str | None,
+    city: str,
+    pincode: str,
+    geocoded: dict[str, Any],
+) -> None:
+    address = address_line.strip()
+    engagement.address = address
+    engagement.sub_locality = address
+    engagement.landmark = landmark
+    engagement.city = city
+    engagement.pincode = pincode
+    engagement.state = geocoded.get("state")
+    engagement.country = geocoded.get("country")
+    engagement.latitude = geocoded.get("latitude")
+    engagement.longitude = geocoded.get("longitude")
+
+
+async def _run_healthians_serviceability_check(
+    db: AsyncSession,
+    *,
+    engagement: Engagement,
+    latitude: float,
+    longitude: float,
+    pincode: str,
+) -> dict[str, Any]:
+    engagement_code = engagement.engagement_code
+    lat = str(latitude)
+    lng = str(longitude)
+    zipcode = pincode
+    access_token = await _get_healthians_token()
+
+    try:
+        resp = await healthians_client.check_serviceability_by_location_v2(
+            access_token,
+            lat=lat,
+            long=lng,
+            zipcode=zipcode,
+            is_ppmc_booking=0,
+        )
+    except Exception as exc:
+        logger.exception("Healthians serviceability check failed for engagement %s", engagement_code)
+        await log_healthians_call(
+            db,
+            engagement_id=engagement.engagement_id,
+            user_id=None,
+            provider="healthians",
+            api_url=f"{settings.HEALTHIANS_BASE_URL}/toast4health/checkServiceabilityByLocation_v2",
+            request_payload={"lat": lat, "long": lng, "zipcode": zipcode, "is_ppmc_booking": 0},
+            status="failed",
+            error_message=str(exc),
+        )
+        return {"engagement_code": engagement_code, "status": "error", "message": str(exc)}
+
+    await log_healthians_call(
+        db,
+        engagement_id=engagement.engagement_id,
+        user_id=None,
+        provider="healthians",
+        api_url=f"{settings.HEALTHIANS_BASE_URL}/toast4health/checkServiceabilityByLocation_v2",
+        request_payload={"lat": lat, "long": lng, "zipcode": zipcode, "is_ppmc_booking": 0},
+        response_payload=resp,
+        status="success" if resp.get("status") else "failed",
+    )
+
+    if not resp.get("status"):
+        if (engagement.status or "").lower() == "draft":
+            engagement.status = "cancelled"
+            await db.flush()
+        return {
+            "engagement_code": engagement_code,
+            "status": "not_serviceable",
+            "message": resp.get("message", "This location is not serviceable."),
+        }
+
+    zone_id = resp.get("data", {}).get("zone_id") if resp.get("data") else None
+    engagement.healthians_zone_id = str(zone_id) if zone_id else None
+    await db.flush()
+
+    return {
+        "engagement_code": engagement_code,
+        "status": "serviceable",
+        "message": resp.get("message", "Serviceable"),
+        "zone_id": zone_id,
+    }
+
+
 async def _get_public_draft_engagement_by_code(
     db: AsyncSession,
     engagement_code: str,
@@ -546,9 +673,10 @@ async def public_check_service_availability(
     landmark: str | None,
     city: str,
     pincode: str,
-    diagnostic_package_id: int,
+    platform_settings_service: PlatformSettingsService,
 ) -> dict[str, Any]:
     """Public B2C serviceability check — creates a draft engagement without a user."""
+    diagnostic_package_id = await _resolve_b2c_default_diagnostic_package_id(db, platform_settings_service)
     pkg = await _get_diagnostic_package(db, diagnostic_package_id)
     if not _is_healthians(pkg):
         return {"status": "error", "message": "Diagnostic provider is not Healthians"}
@@ -592,63 +720,63 @@ async def public_check_service_availability(
     db.add(engagement)
     await db.flush()
 
-    lat = str(latitude)
-    lng = str(longitude)
-    zipcode = pincode
-    access_token = await _get_healthians_token()
-
-    try:
-        resp = await healthians_client.check_serviceability_by_location_v2(
-            access_token,
-            lat=lat,
-            long=lng,
-            zipcode=zipcode,
-            is_ppmc_booking=0,
-        )
-    except Exception as exc:
-        logger.exception("Healthians serviceability check failed for public draft %s", engagement_code)
-        await log_healthians_call(
-            db,
-            engagement_id=engagement.engagement_id,
-            user_id=None,
-            provider="healthians",
-            api_url=f"{settings.HEALTHIANS_BASE_URL}/toast4health/checkServiceabilityByLocation_v2",
-            request_payload={"lat": lat, "long": lng, "zipcode": zipcode, "is_ppmc_booking": 0},
-            status="failed",
-            error_message=str(exc),
-        )
-        return {"engagement_code": engagement_code, "status": "error", "message": str(exc)}
-
-    await log_healthians_call(
+    return await _run_healthians_serviceability_check(
         db,
-        engagement_id=engagement.engagement_id,
-        user_id=None,
-        provider="healthians",
-        api_url=f"{settings.HEALTHIANS_BASE_URL}/toast4health/checkServiceabilityByLocation_v2",
-        request_payload={"lat": lat, "long": lng, "zipcode": zipcode, "is_ppmc_booking": 0},
-        response_payload=resp,
-        status="success" if resp.get("status") else "failed",
+        engagement=engagement,
+        latitude=latitude,
+        longitude=longitude,
+        pincode=pincode,
     )
 
-    if not resp.get("status"):
-        engagement.status = "cancelled"
-        await db.flush()
+
+async def code_check_service_availability(
+    db: AsyncSession,
+    *,
+    engagement_code: str,
+    address_line: str,
+    landmark: str | None,
+    city: str,
+    pincode: str,
+) -> dict[str, Any]:
+    """Serviceability check for an existing engagement using its diagnostic package."""
+    engagement = await _get_engagement_by_code_for_serviceability(db, engagement_code)
+    diagnostic_package_id = int(engagement.diagnostic_package_id)
+
+    pkg = await _get_diagnostic_package(db, diagnostic_package_id)
+    if not _is_healthians(pkg):
         return {
-            "engagement_code": engagement_code,
-            "status": "not_serviceable",
-            "message": resp.get("message", "This location is not serviceable."),
+            "engagement_code": engagement.engagement_code,
+            "status": "error",
+            "message": "Diagnostic provider is not Healthians",
         }
 
-    zone_id = resp.get("data", {}).get("zone_id") if resp.get("data") else None
-    engagement.healthians_zone_id = str(zone_id) if zone_id else None
+    geocoded = await _geocode_for_booking(f"{city.strip()} {pincode.strip()}")
+    latitude = geocoded.get("latitude")
+    longitude = geocoded.get("longitude")
+    if latitude is None or longitude is None:
+        return {
+            "engagement_code": engagement.engagement_code,
+            "status": "error",
+            "message": "Could not geocode address",
+        }
+
+    await _apply_address_to_engagement(
+        engagement,
+        address_line=address_line,
+        landmark=landmark,
+        city=city,
+        pincode=pincode,
+        geocoded=geocoded,
+    )
     await db.flush()
 
-    return {
-        "engagement_code": engagement_code,
-        "status": "serviceable",
-        "message": resp.get("message", "Serviceable"),
-        "zone_id": zone_id,
-    }
+    return await _run_healthians_serviceability_check(
+        db,
+        engagement=engagement,
+        latitude=latitude,
+        longitude=longitude,
+        pincode=pincode,
+    )
 
 
 async def public_get_available_slots(

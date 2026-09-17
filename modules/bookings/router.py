@@ -24,6 +24,8 @@ from modules.bookings import service as booking_service
 from modules.engagements.dependencies import get_engagements_repository, get_engagements_service
 from modules.engagements.repository import EngagementsRepository
 from modules.engagements.service import EngagementsService
+from modules.platform_settings.dependencies import get_platform_settings_service_readonly
+from modules.platform_settings.service import PlatformSettingsService
 
 
 router = APIRouter(prefix="/book", tags=["bookings"])
@@ -230,6 +232,7 @@ async def public_check_service_availability(
     payload: PublicCheckServiceabilityRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    platform_settings_service: PlatformSettingsService = Depends(get_platform_settings_service_readonly),
 ):
     result = await booking_service.public_check_service_availability(
         db,
@@ -237,7 +240,27 @@ async def public_check_service_availability(
         landmark=payload.landmark,
         city=payload.city,
         pincode=payload.pincode,
-        diagnostic_package_id=payload.diagnostic_package_id,
+        platform_settings_service=platform_settings_service,
+    )
+    await db.commit()
+    return success_response(result)
+
+
+@router.post("/code/{engagement_code}/check-service-availability")
+@limiter.limit("5/minute")
+async def code_check_service_availability(
+    engagement_code: str,
+    payload: PublicCheckServiceabilityRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await booking_service.code_check_service_availability(
+        db,
+        engagement_code=engagement_code,
+        address_line=payload.address_line,
+        landmark=payload.landmark,
+        city=payload.city,
+        pincode=payload.pincode,
     )
     await db.commit()
     return success_response(result)

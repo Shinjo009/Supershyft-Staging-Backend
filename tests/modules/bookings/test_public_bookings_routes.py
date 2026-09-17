@@ -17,8 +17,19 @@ _PUBLIC_CHECK_PAYLOAD = {
     "landmark": "Near Mall",
     "city": "Mumbai",
     "pincode": "400001",
-    "diagnostic_package_id": 1,
 }
+
+
+async def _seed_platform_default_diagnostic_package(test_db_session, *, package_id: int = 1) -> None:
+    await test_db_session.execute(text("DELETE FROM platform_settings"))
+    await test_db_session.execute(
+        text(
+            "INSERT INTO platform_settings (settings_id, b2c_default_assessment_package_id, b2c_default_diagnostic_package_id) "
+            "VALUES (1, 1, :package_id)"
+        ),
+        {"package_id": package_id},
+    )
+    await test_db_session.commit()
 
 
 async def _seed_public_draft_engagement(
@@ -80,6 +91,7 @@ async def _seed_onboard_book_prereqs(test_db_session) -> None:
 @pytest.mark.asyncio
 async def test_public_check_service_availability_no_auth(async_client, test_db_session):
     await _seed_healthians_diagnostic_package(test_db_session)
+    await _seed_platform_default_diagnostic_package(test_db_session)
 
     geocode_result = [{"latitude": 19.0760, "longitude": 72.8777, "state": "Maharashtra", "country": "India"}]
     healthians_resp = {"status": True, "data": {"zone_id": "440"}, "message": "Serviceable"}
@@ -115,6 +127,84 @@ async def test_public_check_service_availability_no_auth(async_client, test_db_s
         )
     ).scalar_one()
     assert part_count == 0
+
+    eng_row = (
+        await test_db_session.execute(
+            text(
+                "SELECT diagnostic_package_id FROM engagements WHERE engagement_code = :code"
+            ),
+            {"code": data["engagement_code"]},
+        )
+    ).one()
+    assert eng_row.diagnostic_package_id == 1
+
+
+@pytest.mark.asyncio
+async def test_code_check_service_availability_uses_engagement_package(async_client, test_db_session):
+    await _seed_healthians_diagnostic_package(test_db_session, package_id=2)
+    await test_db_session.execute(
+        text(
+            "INSERT INTO diagnostic_package "
+            "(diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, price, external_package_id) "
+            "VALUES (2, 'REF-H2', 'Healthians Package 2', 'healthians', 'active', 500, 102) "
+            "ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
+            "diagnostic_provider = EXCLUDED.diagnostic_provider, external_package_id = EXCLUDED.external_package_id"
+        )
+    )
+    await test_db_session.commit()
+
+    engagement = Engagement(
+        engagement_id=950150,
+        engagement_name="camp-engagement",
+        organization_id=None,
+        engagement_code="CAMP950150",
+        diagnostic_package_id=2,
+        city="Mumbai",
+        address="Old address",
+        sub_locality="Old address",
+        pincode="400001",
+        slot_duration=20,
+        status="scheduled",
+        blood_collection_type=BloodCollectionType.home_collection,
+    )
+    test_db_session.add(engagement)
+    await test_db_session.commit()
+
+    geocode_result = [{"latitude": 19.0760, "longitude": 72.8777, "state": "Maharashtra", "country": "India"}]
+    healthians_resp = {"status": True, "data": {"zone_id": "441"}, "message": "Serviceable"}
+
+    with (
+        patch("modules.bookings.service.search_places", new_callable=AsyncMock, return_value=geocode_result),
+        patch("modules.bookings.service.healthians_client.get_access_token", new_callable=AsyncMock, return_value="tok"),
+        patch(
+            "modules.bookings.service.healthians_client.check_serviceability_by_location_v2",
+            new_callable=AsyncMock,
+            return_value=healthians_resp,
+        ),
+    ):
+        response = await async_client.post(
+            "/book/code/CAMP950150/check-service-availability",
+            json=_PUBLIC_CHECK_PAYLOAD,
+        )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["status"] == "serviceable"
+    assert data["engagement_code"] == "CAMP950150"
+    assert data["zone_id"] == "441"
+
+    eng_row = (
+        await test_db_session.execute(
+            text(
+                "SELECT diagnostic_package_id, address, healthians_zone_id, status "
+                "FROM engagements WHERE engagement_code = 'CAMP950150'"
+            )
+        )
+    ).one()
+    assert eng_row.diagnostic_package_id == 2
+    assert eng_row.address == "Flat 12, Green Park"
+    assert eng_row.healthians_zone_id == "441"
+    assert eng_row.status == "scheduled"
 
 
 @pytest.mark.asyncio

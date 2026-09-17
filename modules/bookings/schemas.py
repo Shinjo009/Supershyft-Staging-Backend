@@ -122,7 +122,6 @@ class PublicCheckServiceabilityRequest(BaseModel):
     landmark: OptionalLandmarkText = None
     city: CityStateCountry
     pincode: PinCode
-    diagnostic_package_id: PositiveIntId
 
 
 class PublicAvailableSlotsRequest(BaseModel):
