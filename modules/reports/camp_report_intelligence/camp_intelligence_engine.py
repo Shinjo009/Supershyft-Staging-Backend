@@ -6266,10 +6266,10 @@ def _build_explanation(
             knowledge_why = _metric_specific_medical_frame(f"{metric_id}_healthy")
         short_why = (
             knowledge_why
-            or SHORT_WHY.get(f"{frame_id}_healthy")
-            or SHORT_WHY.get(f"{metric_id}_healthy")
-            or (SHORT_WHY.get(frame_id) if str(frame_id).endswith("_healthy") else None)
-            or (SHORT_WHY.get(frame_id) if frame_id in positive_frames else None)
+            or _short_why_choice(f"{frame_id}_healthy", plan, used_why_stems)
+            or _short_why_choice(f"{metric_id}_healthy", plan, used_why_stems)
+            or (_short_why_choice(frame_id, plan, used_why_stems) if str(frame_id).endswith("_healthy") else None)
+            or (_short_why_choice(frame_id, plan, used_why_stems) if frame_id in positive_frames else None)
         )
         if not short_why and is_disease_metric(metric_id):
             metric = human_metric_name(metric_id)
@@ -6287,8 +6287,8 @@ def _build_explanation(
         if not short_why:
             short_why = (
                 _metric_specific_medical_frame("maintain")
-                or SHORT_WHY.get("maintain")
-                or SHORT_WHY.get("positive_wins")
+                or _short_why_choice("maintain", plan, used_why_stems)
+                or _short_why_choice("positive_wins", plan, used_why_stems)
             )
         styled = _restyle_why_opening(_strip_trailing_punct(short_why or ""), plan)
         return _avoid_used_why_stem(styled, plan, used_why_stems)
@@ -6296,7 +6296,9 @@ def _build_explanation(
     knowledge_why = _metric_specific_medical_frame(frame_id) or _metric_specific_medical_frame(
         metric_id
     )
-    short_why = knowledge_why or SHORT_WHY.get(frame_id) or SHORT_WHY.get(metric_id)
+    short_why = knowledge_why or _short_why_choice(frame_id, plan, used_why_stems) or _short_why_choice(
+        metric_id, plan, used_why_stems
+    )
     if short_why:
         effect_clause = EFFECT_CLAUSES.get(effect) if effect else None
         # Never fold programme advice into the explanation.
@@ -6533,6 +6535,22 @@ def _recommendation_variants(
     )
 
     variants: list[str] = []
+    if section == "sleep":
+        variants.extend(
+            [
+                "Promote healthy sleep habits through recovery-focused wellbeing initiatives",
+                "Encourage consistent sleep windows and limit late-night screen load at work events",
+                "Support sleep quality with shift-friendly recovery guidance and quieter rest routines",
+            ]
+        )
+    elif section == "physical_activity":
+        variants.extend(
+            [
+                "Reduce the activity gap through daily movement programmes and active work breaks",
+                "Build walking meetings and brief movement blocks into the working day",
+                "Offer accessible on-site activity options for employees with the lowest movement",
+            ]
+        )
 
     # Disease concern sections only: disease/enriched phrasing first.
     if disease_first:
@@ -6924,6 +6942,52 @@ SHORT_WHY: dict[str, str] = {
     "disease_generic": "This supports preventive care through targeted screening and lifestyle intervention.",
 }
 
+SHORT_WHY_VARIANTS: dict[str, list[str]] = {
+    "sleep": [
+        "Poor or irregular sleep can affect recovery, cognitive performance, hormone balance, and metabolic health",
+        "Short or disrupted sleep reduces next-day alertness and makes metabolic control harder to sustain",
+        "Inadequate rest undermines recovery, mood regulation, and long-term cardiometabolic risk",
+    ],
+    "physical_activity": [
+        "Low movement increases the risk of future metabolic and cardiovascular conditions",
+        "Insufficient daily activity leaves cardiometabolic capacity under-trained across the cohort",
+        "A large inactive share raises the likelihood of weight gain and insulin resistance over time",
+    ],
+    "oxidative_stress": [
+        "This indicates increased cellular stress and slower recovery",
+        "Elevated oxidative load points to incomplete recovery between working days",
+        "High cellular stress markers suggest the workforce is not restoring well after strain",
+    ],
+    "overall_risk": [
+        "This indicates that a meaningful proportion of employees are at elevated overall health risk",
+        "A sizable elevated-risk share signals accumulating workforce health burden",
+        "Overall risk clustering in higher bands points to a prevention gap",
+    ],
+}
+
+
+def _short_why_choice(
+    key: str | None,
+    plan: InsightPlan,
+    used_why_stems: frozenset[str] | None,
+) -> str | None:
+    if not key:
+        return None
+    variants = [SHORT_WHY[key]] if key in SHORT_WHY else []
+    for extra in SHORT_WHY_VARIANTS.get(str(key), []):
+        if extra not in variants:
+            variants.append(extra)
+    if not variants:
+        return None
+    used = used_why_stems or frozenset()
+    for phrase in variants:
+        stem = " ".join(_strip_trailing_punct(phrase).split()[:2]).lower()
+        if stem not in used:
+            return phrase
+    return select_variant(
+        variants, str(key), plan.section_id, plan.severity_band, "why-rotate"
+    )
+
 EFFECT_CLAUSES: dict[str, str] = {
     "recovery_strain": "Sleep quality and recovery require greater attention across the workforce.",
     "cardio_nutrition": "Nutrition should be a key focus for improving cardiovascular health.",
@@ -7263,7 +7327,7 @@ def _card(
     clean_body = limit_words(clean_body, BODY_MAX_WORDS)
 
     observation, explanation, recommendation = _leadership_structured_fields(
-        headline, clean_body
+        id_, headline, clean_body
     )
 
     structured = StructuredInsight(
@@ -7289,53 +7353,74 @@ def _card(
     )
 
 
-def _leadership_structured_fields(headline: str, body: str) -> tuple[str, str, str]:
-    """Split leadership body into distinct Observation / Explanation / Recommendation.
+def _leadership_structured_fields(card_id: str, headline: str, body: str) -> tuple[str, str, str]:
+    """Split leadership body into Observation / Explanation / Recommendation.
 
-    Headline and body for the card UI are unchanged; only structured.* differs.
+    Each card keeps a full three-part statement. Fillers are unique per card id
+    so the same sentence is never reused across takeaways.
     """
     sentences = [
         s.strip()
         for s in re.split(r"(?<=[.!?])\s+", (body or "").strip())
         if s and s.strip()
     ]
+    why, action = _leadership_card_fillers(card_id, headline)
     if not sentences:
         return ensure_structured_field_punctuation(
             f"{headline} requires structured leadership attention",
-            "Workforce health patterns in this area carry organisational implications.",
-            "Align leadership follow-up with the organisation's preventive health priorities.",
+            why,
+            action,
         )
 
     observation = sentences[0]
     if len(sentences) == 1:
-        explanation = (
-            f"{headline} reflects a workforce pattern with material implications "
-            "for preventive planning."
-        )
-        recommendation = (
-            "Translate this priority into a clear ownership plan with measurable follow-up."
-        )
+        explanation = why
+        recommendation = action
     else:
         recommendation = sentences[-1]
-        mid = sentences[1:-1]
-        if mid:
-            explanation = " ".join(mid)
-        else:
-            explanation = (
-                "Early, coordinated preventive action reduces long-term health "
-                "and productivity risk for the workforce."
-            )
-        if _normalize_compare(explanation) == _normalize_compare(recommendation):
-            explanation = (
-                "This pattern benefits from structured preventive investment "
-                "and clear leadership ownership."
-            )
+        explanation = " ".join(sentences[1:-1]).strip() or why
         if _normalize_compare(observation) == _normalize_compare(recommendation):
-            recommendation = (
-                "Convert this finding into a time-bound preventive action owned by HR and leadership."
-            )
+            recommendation = action
+        if _normalize_compare(explanation) in {
+            _normalize_compare(observation),
+            _normalize_compare(recommendation),
+        }:
+            explanation = why
+        if _normalize_compare(explanation) in {
+            _normalize_compare(observation),
+            _normalize_compare(recommendation),
+        }:
+            explanation = ""
 
     return ensure_structured_field_punctuation(observation, explanation, recommendation)
+
+
+def _leadership_card_fillers(card_id: str, headline: str) -> tuple[str, str]:
+    fillers = {
+        "workforce-health": (
+            "This risk-band mix is the organisation's baseline for workforce resilience and future productivity.",
+            "Keep annual assessments and reinforce the habits that protect healthy bands.",
+        ),
+        "lifestyle-priority": (
+            "Daily lifestyle habits are the most modifiable lever available to this organisation.",
+            "Put a named owner on the leading lifestyle gap and review it each quarter.",
+        ),
+        "disease-focus": (
+            "This disease lead shows where screening and clinical follow-up will return the most value.",
+            "Target screening and follow-up on the leading condition rather than a generic programme.",
+        ),
+        "strategic-next-step": (
+            "This next step converts the findings above into an owned, time-bound organisational plan.",
+            "Convert the priority above into a time-bound plan with a named HR and clinical owner.",
+        ),
+    }
+    return fillers.get(
+        card_id,
+        (
+            f"{headline} has distinct implications for this camp's preventive plan.",
+            "Assign ownership and a measurable follow-up for this priority.",
+        ),
+    )
 
 
 def _soften_leadership_body(text: str) -> str:
@@ -7946,23 +8031,35 @@ def _lifestyle_by_gender(
 ) -> Dict[str, Any]:
     """Generate both/male/female narratives using the same engine as the FE toggle.
 
-    Only the ``both`` view registers on the cross-section ledger so male/female
-    toggles can share the section action without exhausting levers for sleep etc.
+    Gender views share a phrase/why ledger so male and female copy does not
+    repeat the same explanation or recommendation. Cross-section lever
+    uniqueness still comes from the ``both`` view on ``ledger``.
     """
     out: Dict[str, Any] = {}
+    gender_ledger = RecommendationLedger()
+    seeded = False
+
+    def _active_ledger(view: str):
+        nonlocal seeded
+        if view == "both":
+            return ledger if ledger is not None else gender_ledger
+        if ledger is not None and not seeded:
+            gender_ledger.used_phrases = list(ledger.used_phrases)
+            gender_ledger.used_why_stems = list(ledger.used_why_stems)
+            seeded = True
+        return gender_ledger
+
     if pair is None:
         for view in _GENDER_VIEWS:
-            active = ledger if view == "both" else None
             out[view] = narrative_to_dict(
-                generate_insight(section_id, None, profile, ledger=active)
+                generate_insight(section_id, None, profile, ledger=_active_ledger(view))
             )
         return out
 
     for view in _GENDER_VIEWS:
         finding: MetricFinding = finder(pair, view, weights)
-        active = ledger if view == "both" else None
         out[view] = narrative_to_dict(
-            generate_insight(section_id, finding, profile, ledger=active)
+            generate_insight(section_id, finding, profile, ledger=_active_ledger(view))
         )
     return out
 
@@ -8110,7 +8207,7 @@ def enrich_camp_report_with_intelligence(report: dict) -> dict:
             metabolic_intel,
         )
 
-    positives_intel = _positives_intelligence(concerns, insights)
+    positives_intel = _positives_intelligence(enriched)
     if positives_intel is not None:
         _attach_intelligence(enriched, "positive_wins", positives_intel)
 
@@ -8127,104 +8224,213 @@ def _metabolic_intelligence(concerns: Mapping[str, Any]) -> Optional[Dict[str, A
     return payload or None
 
 
-def _positives_intelligence(
-    concerns: Mapping[str, Any],
-    insights: Mapping[str, Any],
-) -> Optional[Dict[str, Any]]:
-    payload: Dict[str, Any] = {}
-    if "positive_highlights" in concerns:
-        payload["positive_highlights"] = concerns["positive_highlights"]
-    if "positives" in insights:
-        payload["positives"] = insights["positives"]
-    return payload or None
+def _positives_intelligence(report: Mapping[str, Any] | None) -> Optional[Dict[str, Any]]:
+    """One statement per frontend Positive Wins card. Always returns all three cards."""
+    section = (report or {}).get("positive_wins") if isinstance(report, Mapping) else None
+    data = section.get("data") if isinstance(section, Mapping) else None
+    if not isinstance(data, Mapping):
+        data = {}
+
+    diseases = _positive_win_names(data.get("low_risk"), name_keys=("name", "code", "label"))
+    habits = _positive_win_names(
+        data.get("healthy_habits"),
+        name_keys=("habit_label", "habit_key", "name", "label"),
+    )
+    profiles = _positive_win_names(
+        data.get("healthy_profiles"),
+        name_keys=("name", "profile", "profile_name", "label", "title", "group_name"),
+    )
+
+    return {
+        "low_risk_diseases": _positive_bucket_narrative(
+            "low_risk_diseases",
+            diseases,
+            [
+                "{items} are currently in healthy or low-risk bands for this camp. Keep routine screening in place so these areas stay protected.",
+                "Low-risk disease areas in this workforce include {items}. Continue the prevention work that is holding these conditions in a healthy range.",
+            ],
+            empty="No low-risk diseases were identified in this camp's current dataset. This card will populate when qualifying disease results are available.",
+        ),
+        "healthy_habits": _positive_bucket_narrative(
+            "healthy_habits",
+            habits,
+            [
+                "Healthy habits showing through in this camp include {items}. Reinforce these behaviours in everyday wellbeing programmes.",
+                "This workforce is doing well on {items}. Keep supporting these habits so they remain the default.",
+            ],
+            empty="No healthy habits were identified in this camp's current dataset. This card will populate when qualifying habit results are available.",
+        ),
+        "healthy_blood_profiles": _positive_bucket_narrative(
+            "healthy_blood_profiles",
+            profiles,
+            [
+                "Healthy blood profiles for this camp include {items}. Maintain the testing cadence that is keeping these panels in range.",
+                "In-range lab profiles include {items}. Continue the follow-up that is protecting these blood markers.",
+            ],
+            empty="No healthy blood profiles were identified in this camp's current dataset. This card will populate when qualifying lab results are available.",
+        ),
+    }
+
+
+def _positive_win_names(raw: Any, *, name_keys: tuple[str, ...]) -> list[str]:
+    names: list[str] = []
+    if isinstance(raw, str) and raw.strip():
+        return [raw.strip()]
+    if not isinstance(raw, list):
+        return names
+    for item in raw:
+        if isinstance(item, str) and item.strip():
+            names.append(item.strip())
+            continue
+        if not isinstance(item, Mapping):
+            continue
+        label = ""
+        keys = name_keys or ("name", "label", "title")
+        for key in keys:
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                label = value.strip()
+                break
+        if label:
+            names.append(label)
+    seen: set[str] = set()
+    unique: list[str] = []
+    for name in names:
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(name)
+    return unique
+
+
+def _join_english(items: list[str]) -> str:
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return f"{items[0]} and {items[1]}"
+    return f"{', '.join(items[:-1])}, and {items[-1]}"
+
+
+def _positive_bucket_narrative(
+    bucket_id: str,
+    items: list[str],
+    templates: list[str],
+    empty: str,
+) -> Dict[str, str]:
+    if not items:
+        return {"tone": "neutral", "statement": empty}
+    listed = _join_english(items)
+    index = sum(ord(ch) for ch in f"{bucket_id}|{listed}") % len(templates)
+    statement = templates[index].format(items=listed)
+    return {"tone": "positive", "statement": statement}
 
 
 LEADERSHIP_TAKEAWAYS_SECTION = "leadership_takeaways"
 
-_PUBLIC_LEADERSHIP_CARD_KEYS: tuple[str, ...] = (
-    "id",
-    "title",
-    "headline",
-    "body",
-    "tone",
-    "observation",
-    "explanation",
-    "recommendation",
-)
+def _leadership_intelligence_from_insights(insights: Mapping[str, Any]) -> Dict[str, Any]:
+    raw_cards = insights.get("leadership_cards") or []
+    if not isinstance(raw_cards, list):
+        return {}
+    out: Dict[str, Any] = {}
+    used_sentences: set[str] = set()
+    for card in raw_cards:
+        if not isinstance(card, Mapping):
+            continue
+        key = str(card.get("id") or "").replace("-", "_") or f"card_{len(out) + 1}"
+        narrative = _public_narrative(card)
+        statement = _drop_used_sentences(narrative.get("statement") or "", used_sentences)
+        if not statement:
+            continue
+        out[key] = {"tone": narrative.get("tone") or "", "statement": statement}
+    return out
 
 
-def _public_leadership_card(card: Mapping[str, Any]) -> Dict[str, Any]:
-    structured = card.get("structured")
-    structured = structured if isinstance(structured, Mapping) else {}
-    values = {
-        "id": card.get("id") or "",
-        "title": card.get("title") or "",
-        "headline": card.get("headline") or structured.get("headline") or "",
-        "body": card.get("body") or "",
-        "tone": structured.get("tone") or card.get("tone") or "",
-        "observation": structured.get("observation") or "",
-        "explanation": structured.get("explanation") or "",
-        "recommendation": structured.get("recommendation") or "",
-    }
-    return {key: values[key] for key in _PUBLIC_LEADERSHIP_CARD_KEYS}
+def _drop_used_sentences(text: str, used: set[str]) -> str:
+    kept: list[str] = []
+    for part in re.split(r"(?<=[.!?])\s+", (text or "").strip()):
+        sentence = part.strip()
+        if not sentence:
+            continue
+        key = re.sub(r"[.!,;:]+$", "", " ".join(sentence.lower().split())).strip()
+        if not key or key in used:
+            continue
+        used.add(key)
+        kept.append(sentence)
+    return " ".join(kept)
 
 
 def _attach_leadership_takeaways(
     report: MutableMapping[str, Any],
     insights: Mapping[str, Any],
 ) -> None:
-    """Source ``leadership_cards`` → camp section ``leadership_takeaways``."""
-    raw_cards = insights.get("leadership_cards") or []
-    if not isinstance(raw_cards, list):
-        raw_cards = []
-    cards = [
-        _public_leadership_card(card)
-        for card in raw_cards
-        if isinstance(card, Mapping)
-    ]
+    intelligence = _leadership_intelligence_from_insights(insights)
     existing = report.get(LEADERSHIP_TAKEAWAYS_SECTION)
-    section: Dict[str, Any] = (
-        dict(existing) if isinstance(existing, dict) else {}
-    )
+    section: Dict[str, Any] = dict(existing) if isinstance(existing, dict) else {}
     section.setdefault("name", "Leadership Takeaways")
     section.setdefault(
         "description",
         "Workforce-level leadership observations and strategic next steps.",
     )
-    section["data"] = cards
+    section.setdefault("data", {})
+    section["intelligence"] = intelligence
     report[LEADERSHIP_TAKEAWAYS_SECTION] = section
 
 
 # Frontend dashboard contract. Internal engine metadata is calculated and
 # retained on ``generate_report_insights``; it is stripped only here.
-_PUBLIC_NARRATIVE_KEYS: tuple[str, str, str, str] = (
+_PUBLIC_NARRATIVE_KEYS: tuple[str, str] = (
     "tone",
-    "observation",
-    "explanation",
-    "recommendation",
+    "statement",
 )
 
 
 def _is_engine_narrative(payload: Mapping[str, Any]) -> bool:
-    """True for a serialized ChartNarrative (tone/text/structured/confidence)."""
     if "structured" in payload:
         return True
-    if "tone" in payload and ("text" in payload or "observation" in payload):
+    if "tone" in payload and (
+        "text" in payload or "observation" in payload or "statement" in payload or "body" in payload
+    ):
         return True
     return False
 
 
+def _combine_statement(*parts: str) -> str:
+    seen: set[str] = set()
+    sentences: list[str] = []
+    for part in parts:
+        text = " ".join(str(part or "").split()).strip()
+        if not text:
+            continue
+        if text[-1] not in ".!?":
+            text += "."
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        sentences.append(text)
+    return " ".join(sentences)
+
+
 def _public_narrative(payload: Mapping[str, Any]) -> Dict[str, Any]:
-    """Project one engine narrative onto the frontend intelligence contract."""
     structured = payload.get("structured")
     structured = structured if isinstance(structured, Mapping) else {}
-    values = {
+    observation = structured.get("observation") or payload.get("observation") or ""
+    explanation = structured.get("explanation") or payload.get("explanation") or ""
+    recommendation = structured.get("recommendation") or payload.get("recommendation") or ""
+    body = payload.get("body") or payload.get("text") or ""
+    statement = payload.get("statement") or ""
+    if not statement:
+        if observation or explanation or recommendation:
+            statement = _combine_statement(observation, explanation, recommendation)
+        else:
+            statement = _combine_statement(body)
+    return {
         "tone": payload.get("tone") or structured.get("tone") or "",
-        "observation": structured.get("observation") or payload.get("observation") or "",
-        "explanation": structured.get("explanation") or payload.get("explanation") or "",
-        "recommendation": structured.get("recommendation") or payload.get("recommendation") or "",
+        "statement": statement,
     }
-    return {key: values[key] for key in _PUBLIC_NARRATIVE_KEYS}
 
 
 def _public_intelligence(payload: Any) -> Any:

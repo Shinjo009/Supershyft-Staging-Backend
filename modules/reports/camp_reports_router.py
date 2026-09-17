@@ -245,7 +245,7 @@ async def enrich_camp_report_section(
     return success_response(result)
 
 
-@router.put("/{camp_no}/department/{slug}/enrich")
+@router.put("/{camp_no}/departments/{slug}/enrich")
 async def enrich_department_camp_report_section(
     camp_no: int,
     slug: str,
@@ -293,7 +293,7 @@ async def enrich_city_camp_report_section(
     return success_response(result)
 
 
-@router.put("/{camp_no}/{city}/department/{slug}/enrich")
+@router.put("/{camp_no}/{city}/departments/{slug}/enrich")
 async def enrich_city_department_camp_report_section(
     camp_no: int,
     city: str,

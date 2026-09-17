@@ -1,19 +1,17 @@
 """Camp Report Intelligence Engine — public API.
 
-Production code loads the single-file engine. ``intelligence_src/`` is the
-readable multi-file source that engine is flattened from.
+``intelligence_src/`` is the maintained source. ``camp_intelligence_engine.py``
+is a flattened snapshot and is not imported at runtime.
 """
 
-from .camp_intelligence_engine import (
+from .intelligence_src.assembly import (
     INTELLIGENCE_CAMP_SECTIONS,
     LEADERSHIP_TAKEAWAYS_SECTION,
     enrich_camp_report_with_intelligence,
-    generate_report_insights,
-)
-from .intelligence_src.assembly import (
     generate_camp_section_intelligence,
     resolve_intelligence_section,
 )
+from .intelligence_src.engine import generate_report_insights
 
 __all__ = [
     "INTELLIGENCE_CAMP_SECTIONS",

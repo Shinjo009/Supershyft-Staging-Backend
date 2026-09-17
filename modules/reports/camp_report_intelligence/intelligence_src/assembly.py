@@ -7,6 +7,7 @@ output onto existing camp-report section objects under an ``intelligence`` key.
 from __future__ import annotations
 
 import copy
+import re
 from typing import Any, Dict, Mapping, MutableMapping, Optional
 
 from .engine import generate_report_insights, generate_section_insights
@@ -93,7 +94,7 @@ def enrich_camp_report_with_intelligence(report: dict) -> dict:
             metabolic_intel,
         )
 
-    positives_intel = _positives_intelligence(concerns, insights)
+    positives_intel = _positives_intelligence(enriched)
     if positives_intel is not None:
         _attach_intelligence(enriched, "positive_wins", positives_intel)
 
@@ -115,11 +116,10 @@ def generate_camp_section_intelligence(report: dict, section: str) -> tuple[str,
         }
         intelligence = _metabolic_intelligence(concerns)
     elif camp_key == "positive_wins":
-        insights = generate_section_insights(report, "positive_highlights")
-        intelligence = _positives_intelligence(insights.get("concerns") or {}, insights)
+        intelligence = _positives_intelligence(report)
     elif camp_key == LEADERSHIP_TAKEAWAYS_SECTION:
         insights = generate_report_insights(report)
-        intelligence = _leadership_cards_from_insights(insights)
+        intelligence = _leadership_intelligence_from_insights(insights)
     else:
         concern_key = next(
             (engine_id for engine_id, mapped in _CONCERN_TO_SECTION.items() if mapped == camp_key),
@@ -133,7 +133,7 @@ def generate_camp_section_intelligence(report: dict, section: str) -> tuple[str,
 
     if intelligence is None:
         raise ValueError(f"no intelligence produced for section: {section}")
-    return camp_key, _public_intelligence(intelligence)
+    return camp_key, _unique_nested_statements(_public_intelligence(intelligence))
 
 
 def _metabolic_intelligence(concerns: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
@@ -145,57 +145,168 @@ def _metabolic_intelligence(concerns: Mapping[str, Any]) -> Optional[Dict[str, A
     return payload or None
 
 
-def _positives_intelligence(
-    concerns: Mapping[str, Any],
-    insights: Mapping[str, Any],
-) -> Optional[Dict[str, Any]]:
-    payload: Dict[str, Any] = {}
-    if "positive_highlights" in concerns:
-        payload["positive_highlights"] = concerns["positive_highlights"]
-    if "positives" in insights:
-        payload["positives"] = insights["positives"]
-    return payload or None
+def _positives_intelligence(report: Mapping[str, Any] | None) -> Optional[Dict[str, Any]]:
+    """One statement per frontend Positive Wins card. Always returns all three cards."""
+    section = (report or {}).get("positive_wins") if isinstance(report, Mapping) else None
+    data = section.get("data") if isinstance(section, Mapping) else None
+    if not isinstance(data, Mapping):
+        data = {}
+
+    diseases = _positive_win_names(data.get("low_risk"), name_keys=("name", "code", "label"))
+    habits = _positive_win_names(
+        data.get("healthy_habits"),
+        name_keys=("habit_label", "habit_key", "name", "label"),
+    )
+    profiles = _positive_win_names(
+        data.get("healthy_profiles"),
+        name_keys=("name", "profile", "profile_name", "label", "title", "group_name"),
+    )
+
+    return {
+        "low_risk_diseases": _positive_bucket_narrative(
+            "low_risk_diseases",
+            diseases,
+            [
+                "{items} are currently in healthy or low-risk bands for this camp. Keep routine screening in place so these areas stay protected.",
+                "Low-risk disease areas in this workforce include {items}. Continue the prevention work that is holding these conditions in a healthy range.",
+            ],
+            empty="No low-risk diseases were identified in this camp's current dataset. This card will populate when qualifying disease results are available.",
+        ),
+        "healthy_habits": _positive_bucket_narrative(
+            "healthy_habits",
+            habits,
+            [
+                "Healthy habits showing through in this camp include {items}. Reinforce these behaviours in everyday wellbeing programmes.",
+                "This workforce is doing well on {items}. Keep supporting these habits so they remain the default.",
+            ],
+            empty="No healthy habits were identified in this camp's current dataset. This card will populate when qualifying habit results are available.",
+        ),
+        "healthy_blood_profiles": _positive_bucket_narrative(
+            "healthy_blood_profiles",
+            profiles,
+            [
+                "Healthy blood profiles for this camp include {items}. Maintain the testing cadence that is keeping these panels in range.",
+                "In-range lab profiles include {items}. Continue the follow-up that is protecting these blood markers.",
+            ],
+            empty="No healthy blood profiles were identified in this camp's current dataset. This card will populate when qualifying lab results are available.",
+        ),
+    }
+
+
+def _positive_win_names(raw: Any, *, name_keys: tuple[str, ...]) -> list[str]:
+    names: list[str] = []
+    if isinstance(raw, str) and raw.strip():
+        return [raw.strip()]
+    if not isinstance(raw, list):
+        return names
+    for item in raw:
+        if isinstance(item, str) and item.strip():
+            names.append(item.strip())
+            continue
+        if not isinstance(item, Mapping):
+            continue
+        label = ""
+        keys = name_keys or ("name", "label", "title")
+        for key in keys:
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                label = value.strip()
+                break
+        if label:
+            names.append(label)
+    # Preserve order, drop duplicates.
+    seen: set[str] = set()
+    unique: list[str] = []
+    for name in names:
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(name)
+    return unique
+
+
+def _join_english(items: list[str]) -> str:
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return f"{items[0]} and {items[1]}"
+    return f"{', '.join(items[:-1])}, and {items[-1]}"
+
+
+def _positive_bucket_narrative(
+    bucket_id: str,
+    items: list[str],
+    templates: list[str],
+    empty: str,
+) -> Dict[str, str]:
+    if not items:
+        return {"tone": "neutral", "statement": empty}
+    listed = _join_english(items)
+    index = sum(ord(ch) for ch in f"{bucket_id}|{listed}") % len(templates)
+    statement = templates[index].format(items=listed)
+    return {"tone": "positive", "statement": statement}
 
 
 LEADERSHIP_TAKEAWAYS_SECTION = "leadership_takeaways"
 
 _PUBLIC_LEADERSHIP_CARD_KEYS: tuple[str, ...] = (
-    "id",
-    "title",
-    "headline",
-    "body",
     "tone",
-    "observation",
-    "explanation",
-    "recommendation",
+    "statement",
 )
 
 
-def _public_leadership_card(card: Mapping[str, Any]) -> Dict[str, Any]:
-    structured = card.get("structured")
-    structured = structured if isinstance(structured, Mapping) else {}
-    values = {
-        "id": card.get("id") or "",
-        "title": card.get("title") or "",
-        "headline": card.get("headline") or structured.get("headline") or "",
-        "body": card.get("body") or "",
-        "tone": structured.get("tone") or card.get("tone") or "",
-        "observation": structured.get("observation") or "",
-        "explanation": structured.get("explanation") or "",
-        "recommendation": structured.get("recommendation") or "",
-    }
-    return {key: values[key] for key in _PUBLIC_LEADERSHIP_CARD_KEYS}
-
-
-def _leadership_cards_from_insights(insights: Mapping[str, Any]) -> list[Dict[str, Any]]:
+def _leadership_intelligence_from_insights(insights: Mapping[str, Any]) -> Dict[str, Any]:
     raw_cards = insights.get("leadership_cards") or []
     if not isinstance(raw_cards, list):
-        return []
-    return [
-        _public_leadership_card(card)
-        for card in raw_cards
-        if isinstance(card, Mapping)
-    ]
+        return {}
+    out: Dict[str, Any] = {}
+    used_sentences: set[str] = set()
+    for card in raw_cards:
+        if not isinstance(card, Mapping):
+            continue
+        key = str(card.get("id") or "").replace("-", "_") or f"card_{len(out) + 1}"
+        narrative = _public_narrative(card)
+        statement = _drop_used_sentences(narrative.get("statement") or "", used_sentences)
+        if not statement:
+            continue
+        out[key] = {"tone": narrative.get("tone") or "", "statement": statement}
+    return _unique_nested_statements(out)
+
+
+def _drop_used_sentences(text: str, used: set[str]) -> str:
+    kept: list[str] = []
+    for part in re.split(r"(?<=[.!?])\s+", (text or "").strip()):
+        sentence = part.strip()
+        if not sentence:
+            continue
+        key = re.sub(r"[.!,;:]+$", "", " ".join(sentence.lower().split())).strip()
+        if not key or key in used:
+            continue
+        used.add(key)
+        kept.append(sentence)
+    return " ".join(kept)
+
+
+def _unique_nested_statements(payload: Any) -> Any:
+    """No sentence is reused across sibling narratives in one section payload."""
+    used: set[str] = set()
+
+    def walk(node: Any) -> Any:
+        if isinstance(node, Mapping) and "statement" in node and "tone" in node:
+            statement = _drop_used_sentences(str(node.get("statement") or ""), used)
+            if not statement:
+                return dict(node)
+            out = dict(node)
+            out["statement"] = statement
+            return out
+        if isinstance(node, Mapping):
+            return {str(key): walk(value) for key, value in node.items()}
+        return node
+
+    return walk(payload)
 
 
 def _attach_leadership_takeaways(
@@ -203,7 +314,7 @@ def _attach_leadership_takeaways(
     insights: Mapping[str, Any],
 ) -> None:
     """Source ``leadership_cards`` → camp section ``leadership_takeaways``."""
-    cards = _leadership_cards_from_insights(insights)
+    intelligence = _leadership_intelligence_from_insights(insights)
     existing = report.get(LEADERSHIP_TAKEAWAYS_SECTION)
     section: Dict[str, Any] = dict(existing) if isinstance(existing, dict) else {}
     section.setdefault("name", "Leadership Takeaways")
@@ -211,7 +322,8 @@ def _attach_leadership_takeaways(
         "description",
         "Workforce-level leadership observations and strategic next steps.",
     )
-    section["data"] = cards
+    section.setdefault("data", {})
+    section["intelligence"] = intelligence
     report[LEADERSHIP_TAKEAWAYS_SECTION] = section
 
 
@@ -224,34 +336,58 @@ def build_leadership_takeaways_section(report: dict) -> dict:
 
 # Frontend dashboard contract. Internal engine metadata is calculated and
 # retained on ``generate_report_insights``; it is stripped only here.
-_PUBLIC_NARRATIVE_KEYS: tuple[str, str, str, str] = (
+_PUBLIC_NARRATIVE_KEYS: tuple[str, str] = (
     "tone",
-    "observation",
-    "explanation",
-    "recommendation",
+    "statement",
 )
 
 
 def _is_engine_narrative(payload: Mapping[str, Any]) -> bool:
-    """True for a serialized ChartNarrative (tone/text/structured/confidence)."""
+    """True for a serialized ChartNarrative or leadership card."""
     if "structured" in payload:
         return True
-    if "tone" in payload and ("text" in payload or "observation" in payload):
+    if "tone" in payload and (
+        "text" in payload or "observation" in payload or "statement" in payload or "body" in payload
+    ):
         return True
     return False
 
 
+def _combine_statement(*parts: str) -> str:
+    seen: set[str] = set()
+    sentences: list[str] = []
+    for part in parts:
+        text = " ".join(str(part or "").split()).strip()
+        if not text:
+            continue
+        if text[-1] not in ".!?":
+            text += "."
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        sentences.append(text)
+    return " ".join(sentences)
+
+
 def _public_narrative(payload: Mapping[str, Any]) -> Dict[str, Any]:
-    """Project one engine narrative onto the frontend intelligence contract."""
+    """Frontend contract: tone plus a single combined statement."""
     structured = payload.get("structured")
     structured = structured if isinstance(structured, Mapping) else {}
-    values = {
+    observation = structured.get("observation") or payload.get("observation") or ""
+    explanation = structured.get("explanation") or payload.get("explanation") or ""
+    recommendation = structured.get("recommendation") or payload.get("recommendation") or ""
+    body = payload.get("body") or payload.get("text") or ""
+    statement = payload.get("statement") or ""
+    if not statement:
+        if observation or explanation or recommendation:
+            statement = _combine_statement(observation, explanation, recommendation)
+        else:
+            statement = _combine_statement(body)
+    return {
         "tone": payload.get("tone") or structured.get("tone") or "",
-        "observation": structured.get("observation") or payload.get("observation") or "",
-        "explanation": structured.get("explanation") or payload.get("explanation") or "",
-        "recommendation": structured.get("recommendation") or payload.get("recommendation") or "",
+        "statement": statement,
     }
-    return {key: values[key] for key in _PUBLIC_NARRATIVE_KEYS}
 
 
 def _public_intelligence(payload: Any) -> Any:
@@ -272,4 +408,6 @@ def _attach_intelligence(
     section = report.get(section_key)
     if not isinstance(section, dict):
         return
-    section["intelligence"] = _public_intelligence(intelligence)
+    section["intelligence"] = _unique_nested_statements(
+        _public_intelligence(intelligence)
+    )

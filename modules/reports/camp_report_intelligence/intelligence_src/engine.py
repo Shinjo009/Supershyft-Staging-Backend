@@ -176,23 +176,48 @@ def _lifestyle_by_gender(
 ) -> Dict[str, Any]:
     """Generate both/male/female narratives using the same engine as the FE toggle.
 
-    Only the ``both`` view registers on the cross-section ledger so male/female
-    toggles can share the section action without exhausting levers for sleep etc.
+    Gender views share a phrase/why ledger so male and female copy does not
+    repeat the same explanation or recommendation. Cross-section lever
+    uniqueness still comes from the ``both`` view on ``ledger``.
     """
     out: Dict[str, Any] = {}
+    gender_ledger = RecommendationLedger()
+    seeded = False
+
+    def _active_ledger(view: str):
+        nonlocal seeded
+        if view == "both":
+            return ledger if ledger is not None else gender_ledger
+        if ledger is not None and not seeded:
+            gender_ledger.used_phrases = list(ledger.used_phrases)
+            gender_ledger.used_why_stems = list(ledger.used_why_stems)
+            gender_ledger.used_explanations = list(ledger.used_explanations)
+            seeded = True
+        return gender_ledger
+
     if pair is None:
         for view in _GENDER_VIEWS:
-            active = ledger if view == "both" else None
             out[view] = narrative_to_dict(
-                generate_insight(section_id, None, profile, ledger=active)
+                generate_insight(
+                    section_id,
+                    None,
+                    profile,
+                    {"gender_view": view},
+                    ledger=_active_ledger(view),
+                )
             )
         return out
 
     for view in _GENDER_VIEWS:
         finding: MetricFinding = finder(pair, view, weights)
-        active = ledger if view == "both" else None
         out[view] = narrative_to_dict(
-            generate_insight(section_id, finding, profile, ledger=active)
+            generate_insight(
+                section_id,
+                finding,
+                profile,
+                {"gender_view": view},
+                ledger=_active_ledger(view),
+            )
         )
     return out
 

@@ -337,6 +337,28 @@ def _normalize_compare(text: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
+def _why_stem_key(text: str) -> str:
+    words = _strip_trailing_punct(text or "").split()
+    if len(words) >= 2:
+        return " ".join(words[:2]).lower()
+    return " ".join(words).lower()
+
+
+def _why_already_used(
+    text: str,
+    used_why_stems: frozenset[str] | None = None,
+    used_explanations: frozenset[str] | None = None,
+) -> bool:
+    bare = _strip_trailing_punct(text or "")
+    if not bare:
+        return False
+    full = _normalize_compare(bare)
+    if used_explanations and full in used_explanations:
+        return True
+    stem = _why_stem_key(bare)
+    return bool(stem and used_why_stems and stem in used_why_stems)
+
+
 def _shares_action_theme(explanation: str, recommendation: str) -> bool:
     """True when recommendation restates programme advice already in the explanation."""
     expl = _normalize_compare(explanation)
@@ -499,6 +521,8 @@ def _generate_structured_insight_from_plan(
     *,
     used_phrases: frozenset[str] | None = None,
     used_why_stems: frozenset[str] | None = None,
+    used_explanations: frozenset[str] | None = None,
+    gender_view: str | None = None,
 ) -> StructuredInsight:
     """Plan -> StructuredInsight (Observation / Why / Action)."""
     if _is_insufficient_plan(plan):
@@ -506,7 +530,12 @@ def _generate_structured_insight_from_plan(
 
     observation = sanitize_insight_text(_build_observation(plan))
     explanation = sanitize_insight_text(
-        _build_explanation(plan, used_why_stems=used_why_stems)
+        _build_explanation(
+            plan,
+            used_why_stems=used_why_stems,
+            used_explanations=used_explanations,
+            gender_view=gender_view,
+        )
     )
     render_levers = _select_render_levers(plan)
     recommendation = sanitize_insight_text(
@@ -855,6 +884,8 @@ def _build_explanation(
     plan: InsightPlan,
     *,
     used_why_stems: frozenset[str] | None = None,
+    used_explanations: frozenset[str] | None = None,
+    gender_view: str | None = None,
 ) -> str:
     """Compose the Why sentence — medical significance only, never programme advice."""
     metric_id = plan.observation.metric_id
@@ -874,12 +905,48 @@ def _build_explanation(
             knowledge_why = _metric_specific_medical_frame(frame_id)
         if not knowledge_why:
             knowledge_why = _metric_specific_medical_frame(f"{metric_id}_healthy")
+        if knowledge_why and _why_already_used(
+            knowledge_why, used_why_stems, used_explanations
+        ):
+            knowledge_why = ""
         short_why = (
             knowledge_why
-            or SHORT_WHY.get(f"{frame_id}_healthy")
-            or SHORT_WHY.get(f"{metric_id}_healthy")
-            or (SHORT_WHY.get(frame_id) if str(frame_id).endswith("_healthy") else None)
-            or (SHORT_WHY.get(frame_id) if frame_id in positive_frames else None)
+            or _short_why_choice(
+                f"{frame_id}_healthy",
+                plan,
+                used_why_stems,
+                used_explanations=used_explanations,
+                gender_view=gender_view,
+            )
+            or _short_why_choice(
+                f"{metric_id}_healthy",
+                plan,
+                used_why_stems,
+                used_explanations=used_explanations,
+                gender_view=gender_view,
+            )
+            or (
+                _short_why_choice(
+                    frame_id,
+                    plan,
+                    used_why_stems,
+                    used_explanations=used_explanations,
+                    gender_view=gender_view,
+                )
+                if str(frame_id).endswith("_healthy")
+                else None
+            )
+            or (
+                _short_why_choice(
+                    frame_id,
+                    plan,
+                    used_why_stems,
+                    used_explanations=used_explanations,
+                    gender_view=gender_view,
+                )
+                if frame_id in positive_frames
+                else None
+            )
         )
         if not short_why and is_disease_metric(metric_id):
             metric = human_metric_name(metric_id)
@@ -897,19 +964,52 @@ def _build_explanation(
         if not short_why:
             short_why = (
                 _metric_specific_medical_frame("maintain")
-                or SHORT_WHY.get("maintain")
-                or SHORT_WHY.get("positive_wins")
+                or _short_why_choice(
+                    "maintain",
+                    plan,
+                    used_why_stems,
+                    used_explanations=used_explanations,
+                    gender_view=gender_view,
+                )
+                or _short_why_choice(
+                    "positive_wins",
+                    plan,
+                    used_why_stems,
+                    used_explanations=used_explanations,
+                    gender_view=gender_view,
+                )
             )
         styled = _restyle_why_opening(_strip_trailing_punct(short_why or ""), plan)
-        return _avoid_used_why_stem(styled, plan, used_why_stems)
+        return _avoid_used_why_stem(
+            styled,
+            plan,
+            used_why_stems,
+            used_explanations=used_explanations,
+            gender_view=gender_view,
+        )
 
     knowledge_why = _metric_specific_medical_frame(frame_id) or _metric_specific_medical_frame(
         metric_id
     )
-    short_why = knowledge_why or SHORT_WHY.get(frame_id) or SHORT_WHY.get(metric_id)
+    if knowledge_why and _why_already_used(
+        knowledge_why, used_why_stems, used_explanations
+    ):
+        knowledge_why = ""
+    short_why = knowledge_why or _short_why_choice(
+        frame_id,
+        plan,
+        used_why_stems,
+        used_explanations=used_explanations,
+        gender_view=gender_view,
+    ) or _short_why_choice(
+        metric_id,
+        plan,
+        used_why_stems,
+        used_explanations=used_explanations,
+        gender_view=gender_view,
+    )
     if short_why:
         effect_clause = EFFECT_CLAUSES.get(effect) if effect else None
-        # Never fold programme advice into the explanation.
         extra = None
         if (
             effect_clause
@@ -924,72 +1024,80 @@ def _build_explanation(
         else:
             joined = _strip_trailing_punct(short_why)
         styled = _restyle_why_opening(joined, plan)
-        return _avoid_used_why_stem(styled, plan, used_why_stems)
+        return _avoid_used_why_stem(
+            styled,
+            plan,
+            used_why_stems,
+            used_explanations=used_explanations,
+            gender_view=gender_view,
+        )
 
     styled = _restyle_why_opening(_strip_trailing_punct(medical_frame(frame_id)), plan)
-    return _avoid_used_why_stem(styled, plan, used_why_stems)
+    return _avoid_used_why_stem(
+        styled,
+        plan,
+        used_why_stems,
+        used_explanations=used_explanations,
+        gender_view=gender_view,
+    )
+
+
+def _unused_why_candidate(
+    candidates: list[str],
+    used_why_stems: frozenset[str] | None,
+    used_explanations: frozenset[str] | None,
+) -> str:
+    for phrase in _unique_phrases(candidates):
+        if not _why_already_used(phrase, used_why_stems, used_explanations):
+            return _strip_trailing_punct(phrase)
+    return ""
 
 
 def _avoid_used_why_stem(
     text: str,
     plan: InsightPlan,
     used_why_stems: frozenset[str] | None,
+    *,
+    used_explanations: frozenset[str] | None = None,
+    gender_view: str | None = None,
 ) -> str:
-    """If this report already used the same opener stem, rotate once more."""
+    """If this report already used this why line, rotate to an unused medical phrase."""
     bare = _strip_trailing_punct(text)
-    if not bare or not used_why_stems:
+    if not bare:
         return bare
-    stem = bare.split(" ", 2)
-    key = " ".join(stem[:2]).lower() if len(stem) >= 2 else bare.lower()
-    if key not in used_why_stems:
+    if not _why_already_used(bare, used_why_stems, used_explanations):
         return bare
     retry = _restyle_why_opening(bare, plan)
-    if _normalize_compare(retry) != _normalize_compare(bare):
+    if retry and not _why_already_used(retry, used_why_stems, used_explanations):
         return _strip_trailing_punct(retry)
 
     metric_id = plan.observation.metric_id
     metric = human_metric_name(metric_id)
+    pooled = _why_pool_for_plan(plan, gender_view=gender_view)
     if plan.mode == "positive":
-        knowledge_retry = (
-            _metric_specific_medical_frame(f"{metric_id}_healthy")
-            or _metric_specific_medical_frame("maintain")
-        )
-        if knowledge_retry and _normalize_compare(knowledge_retry) != _normalize_compare(bare):
-            return knowledge_retry
-        return select_variant(
+        pooled.extend(
             [
+                _metric_specific_medical_frame(f"{metric_id}_healthy"),
+                _metric_specific_medical_frame("maintain"),
                 f"A predominantly healthy {metric} profile is a protective feature of the current cohort",
                 f"Favourable {metric} bands reduce near-term clinical escalation risk across the workforce",
                 f"Low elevated {metric} prevalence supports continued preventive momentum",
-            ],
-            metric_id,
-            plan.section_id,
-            "retry-positive",
-            _profile_cluster(plan),
+            ]
         )
-
-    knowledge_retry = (
-        _metric_specific_medical_frame(plan.explanation.medical_frame_id)
-        or _metric_specific_medical_frame(metric_id)
-        or _clinical_focus_why(plan)
-    )
-    if knowledge_retry and _normalize_compare(knowledge_retry) != _normalize_compare(bare):
-        return knowledge_retry
-    interpretation = _select_interpretation_clause(plan)
-    if interpretation:
-        promoted = _promote_clause_to_sentence(interpretation)
-        if promoted and _normalize_compare(promoted) != _normalize_compare(bare):
-            return _strip_trailing_punct(promoted)
-    return select_variant(
-        [
-            f"Clinically, the {metric} pattern warrants preventive attention",
-            f"The {metric} pattern has clear implications for long-term metabolic and cardiovascular health",
-        ],
-        metric_id,
-        plan.section_id,
-        "retry-concern",
-        _profile_cluster(plan),
-    )
+    else:
+        pooled.extend(
+            [
+                _metric_specific_medical_frame(plan.explanation.medical_frame_id),
+                _metric_specific_medical_frame(metric_id),
+                _clinical_focus_why(plan),
+                _promote_clause_to_sentence(_select_interpretation_clause(plan) or ""),
+                f"The {metric} pattern has clear implications for long-term metabolic and cardiovascular health",
+                f"This {metric} finding is clinically relevant because it affects recovery, cardiometabolic regulation, and day-to-day function",
+                f"Left unaddressed, this {metric} pattern can compound fatigue, glucose control, and cardiovascular strain",
+            ]
+        )
+    unused = _unused_why_candidate(pooled, used_why_stems, used_explanations)
+    return unused or bare
 
 
 def _select_render_levers(plan: InsightPlan) -> list[str]:
@@ -1143,6 +1251,22 @@ def _recommendation_variants(
     )
 
     variants: list[str] = []
+    if section == "sleep":
+        variants.extend(
+            [
+                "Promote healthy sleep habits through recovery-focused wellbeing initiatives",
+                "Encourage consistent sleep windows and limit late-night screen load at work events",
+                "Support sleep quality with shift-friendly recovery guidance and quieter rest routines",
+            ]
+        )
+    elif section == "physical_activity":
+        variants.extend(
+            [
+                "Reduce the activity gap through daily movement programmes and active work breaks",
+                "Build walking meetings and brief movement blocks into the working day",
+                "Offer accessible on-site activity options for employees with the lowest movement",
+            ]
+        )
 
     # Disease concern sections only: disease/enriched phrasing first.
     if disease_first:
@@ -1534,6 +1658,94 @@ SHORT_WHY: dict[str, str] = {
     "disease_generic": "This supports preventive care through targeted screening and lifestyle intervention.",
 }
 
+# Extra why sentences so gender views and neighbouring sections do not reuse one stock line.
+SHORT_WHY_VARIANTS: dict[str, list[str]] = {
+    "sleep": [
+        "Poor or irregular sleep can affect recovery, cognitive performance, hormone balance, and metabolic health",
+        "Short or disrupted sleep reduces next-day alertness and makes metabolic control harder to sustain",
+        "Inadequate rest undermines recovery, mood regulation, and long-term cardiometabolic risk",
+        "Sleep restriction is linked to higher appetite signalling, reduced insulin sensitivity, and slower overnight recovery",
+        "Fragmented or short sleep raises sympathetic load and can worsen blood-pressure and glucose control",
+    ],
+    "physical_activity": [
+        "Low movement increases the risk of future metabolic and cardiovascular conditions",
+        "Insufficient daily activity leaves cardiometabolic capacity under-trained across the cohort",
+        "A large inactive share raises the likelihood of weight gain and insulin resistance over time",
+        "Low activity reduces insulin sensitivity and cardiorespiratory reserve, raising long-term disease risk",
+        "Prolonged inactivity is associated with higher adiposity, poorer lipid profiles, and weaker metabolic resilience",
+    ],
+    "oxidative_stress": [
+        "This indicates increased cellular stress and slower recovery",
+        "Elevated oxidative load points to incomplete recovery between working days",
+        "High cellular stress markers suggest the workforce is not restoring well after strain",
+        "Persistent oxidative strain is linked to fatigue, slower tissue repair, and higher chronic-disease risk",
+    ],
+    "overall_risk": [
+        "This indicates that a meaningful proportion of employees are at elevated overall health risk",
+        "A sizable elevated-risk share signals accumulating workforce health burden",
+        "Overall risk clustering in higher bands points to a prevention gap",
+        "Elevated overall-risk bands concentrate future metabolic and cardiovascular events in this cohort",
+    ],
+    "nutrition": [
+        "This influences metabolic health, blood sugar regulation, and heart health",
+        "Dietary patterns here affect lipid control, glycaemic load, and long-term cardiovascular risk",
+        "Nutrition quality is a primary modifiable driver of metabolic and heart-health outcomes",
+    ],
+}
+
+
+def _rotate_for_view(items: list[str], gender_view: str | None) -> list[str]:
+    if not items or gender_view not in {"both", "male", "female"}:
+        return items
+    offset = {"both": 0, "male": 1, "female": 2}[gender_view] % len(items)
+    if offset == 0:
+        return items
+    return items[offset:] + items[:offset]
+
+
+def _why_pool_for_plan(plan: InsightPlan, *, gender_view: str | None = None) -> list[str]:
+    keys = [
+        plan.explanation.medical_frame_id,
+        plan.observation.metric_id,
+    ]
+    if plan.mode == "positive":
+        keys.extend(
+            [
+                f"{plan.observation.metric_id}_healthy",
+                f"{plan.explanation.medical_frame_id}_healthy",
+            ]
+        )
+    pool: list[str] = []
+    for key in keys:
+        if not key:
+            continue
+        if key in SHORT_WHY:
+            pool.append(SHORT_WHY[key])
+        pool.extend(SHORT_WHY_VARIANTS.get(str(key), []))
+    return _rotate_for_view(_unique_phrases(pool), gender_view)
+
+
+def _short_why_choice(
+    key: str | None,
+    plan: InsightPlan,
+    used_why_stems: frozenset[str] | None,
+    *,
+    used_explanations: frozenset[str] | None = None,
+    gender_view: str | None = None,
+) -> str | None:
+    if not key:
+        return None
+    variants = [SHORT_WHY[key]] if key in SHORT_WHY else []
+    for extra in SHORT_WHY_VARIANTS.get(str(key), []):
+        if extra not in variants:
+            variants.append(extra)
+    if not variants:
+        return None
+    for phrase in _rotate_for_view(variants, gender_view):
+        if not _why_already_used(phrase, used_why_stems, used_explanations):
+            return phrase
+    return _unused_why_candidate(variants, used_why_stems, used_explanations) or None
+
 EFFECT_CLAUSES: dict[str, str] = {
     "recovery_strain": "Sleep quality and recovery require greater attention across the workforce.",
     "cardio_nutrition": "Nutrition should be a key focus for improving cardiovascular health.",
@@ -1635,9 +1847,15 @@ def compose_insight(
     *,
     used_phrases: frozenset[str] | None = None,
     used_why_stems: frozenset[str] | None = None,
+    used_explanations: frozenset[str] | None = None,
+    gender_view: str | None = None,
 ) -> StructuredInsight:
     return _generate_structured_insight_from_plan(
-        plan, used_phrases=used_phrases, used_why_stems=used_why_stems
+        plan,
+        used_phrases=used_phrases,
+        used_why_stems=used_why_stems,
+        used_explanations=used_explanations,
+        gender_view=gender_view,
     )
 
 
@@ -1873,7 +2091,7 @@ def _card(
     clean_body = limit_words(clean_body, BODY_MAX_WORDS)
 
     observation, explanation, recommendation = _leadership_structured_fields(
-        headline, clean_body
+        id_, headline, clean_body
     )
 
     structured = StructuredInsight(
@@ -1899,53 +2117,93 @@ def _card(
     )
 
 
-def _leadership_structured_fields(headline: str, body: str) -> tuple[str, str, str]:
-    """Split leadership body into distinct Observation / Explanation / Recommendation.
+def _leadership_structured_fields(card_id: str, headline: str, body: str) -> tuple[str, str, str]:
+    """Split leadership body into Observation / Explanation / Recommendation.
 
-    Headline and body for the card UI are unchanged; only structured.* differs.
+    Each card keeps a full three-part statement. Fillers are unique per card id
+    so the same sentence is never reused across takeaways.
     """
     sentences = [
         s.strip()
         for s in re.split(r"(?<=[.!?])\s+", (body or "").strip())
         if s and s.strip()
     ]
+    why, action = _leadership_card_fillers(card_id, headline)
     if not sentences:
         return ensure_structured_field_punctuation(
             f"{headline} requires structured leadership attention",
-            "Workforce health patterns in this area carry organisational implications.",
-            "Align leadership follow-up with the organisation's preventive health priorities.",
+            why,
+            action,
         )
 
     observation = sentences[0]
     if len(sentences) == 1:
-        explanation = (
-            f"{headline} reflects a workforce pattern with material implications "
-            "for preventive planning."
-        )
-        recommendation = (
-            "Translate this priority into a clear ownership plan with measurable follow-up."
-        )
+        explanation = why
+        recommendation = action
     else:
         recommendation = sentences[-1]
-        mid = sentences[1:-1]
-        if mid:
-            explanation = " ".join(mid)
-        else:
-            explanation = (
-                "Early, coordinated preventive action reduces long-term health "
-                "and productivity risk for the workforce."
-            )
-        if _normalize_compare(explanation) == _normalize_compare(recommendation):
-            explanation = (
-                "This pattern benefits from structured preventive investment "
-                "and clear leadership ownership."
-            )
+        explanation = " ".join(sentences[1:-1]).strip() or why
         if _normalize_compare(observation) == _normalize_compare(recommendation):
-            recommendation = (
-                "Convert this finding into a time-bound preventive action owned by HR and leadership."
-            )
+            recommendation = action
+        if _normalize_compare(explanation) in {
+            _normalize_compare(observation),
+            _normalize_compare(recommendation),
+        }:
+            explanation = why
+        if _normalize_compare(explanation) in {
+            _normalize_compare(observation),
+            _normalize_compare(recommendation),
+        }:
+            explanation = ""
 
     return ensure_structured_field_punctuation(observation, explanation, recommendation)
+
+
+def _leadership_card_fillers(card_id: str, headline: str) -> tuple[str, str]:
+    fillers = {
+        "workforce-health": (
+            "This risk-band mix is the organisation's baseline for workforce resilience and future productivity.",
+            "Keep annual assessments and reinforce the habits that protect healthy bands.",
+        ),
+        "lifestyle-priority": (
+            "Daily lifestyle habits are the most modifiable lever available to this organisation.",
+            "Put a named owner on the leading lifestyle gap and review it each quarter.",
+        ),
+        "disease-focus": (
+            "This disease lead shows where screening and clinical follow-up will return the most value.",
+            "Target screening and follow-up on the leading condition rather than a generic programme.",
+        ),
+        "strategic-next-step": _strategic_next_step_fillers(headline),
+    }
+    if card_id in fillers:
+        return fillers[card_id]
+    return (
+        f"{headline} has distinct implications for this camp's preventive plan.",
+        "Assign ownership and a measurable follow-up for this priority.",
+    )
+
+
+def _strategic_next_step_fillers(headline: str) -> tuple[str, str]:
+    """Why + action for the next-step card — must not restate 'make a plan'."""
+    if headline == "Maintain Momentum":
+        return (
+            "A healthy profile still drifts if screening and recognition fall off the leadership calendar.",
+            "Keep the annual camp on the exec agenda and report healthy-band retention after each cycle.",
+        )
+    if headline == "Target Elevated-Risk Groups":
+        return (
+            "Concentrating on elevated-risk employees prevents the burden from spreading into higher bands.",
+            "Give HR and occupational health a shared owner for the elevated-risk cohort this quarter.",
+        )
+    if headline == "Scale Preventive Care":
+        return (
+            "Company-wide screening and lifestyle support are needed once elevated risk is no longer a small pocket.",
+            "Fund a cross-site preventive programme with a named clinical lead and a 90-day first review.",
+        )
+    return (
+        "A written owner and review date keep this from remaining a report finding only.",
+        "Place this next step on the leadership agenda with an HR owner and a clinical counterpart.",
+    )
 
 
 def _soften_leadership_body(text: str) -> str:
@@ -2058,6 +2316,7 @@ class RecommendationLedger:
     used_levers: list[str] = field(default_factory=list)
     used_phrases: list[str] = field(default_factory=list)
     used_why_stems: list[str] = field(default_factory=list)
+    used_explanations: list[str] = field(default_factory=list)
 
     def note(
         self,
@@ -2069,14 +2328,20 @@ class RecommendationLedger:
         if lever:
             self.used_levers.append(lever)
         if phrase:
-            # Compare bare text so trailing punctuation does not defeat dedupe.
             cleaned = re.sub(r"[.!,;:]+$", "", phrase.strip()).strip()
             if cleaned:
                 self.used_phrases.append(cleaned)
         if explanation:
-            stem = " ".join(_strip_trailing_punct(explanation).split()[:2]).lower()
-            if stem:
-                self.used_why_stems.append(stem)
+            for part in re.split(r"(?<=[.!?])\s+", explanation.strip()):
+                bare = _strip_trailing_punct(part)
+                if not bare:
+                    continue
+                stem = _why_stem_key(bare)
+                if stem:
+                    self.used_why_stems.append(stem)
+                full = _normalize_compare(bare)
+                if full:
+                    self.used_explanations.append(full)
 
 
 def generate_insight(
@@ -2124,14 +2389,18 @@ def generate_insight(
 
     used_phrases = frozenset(ledger.used_phrases) if ledger else None
     used_why = frozenset(ledger.used_why_stems) if ledger else None
+    used_full = frozenset(ledger.used_explanations) if ledger else None
+    gender_view = options.get("gender_view")
+    compose_kwargs = {
+        "used_phrases": used_phrases,
+        "used_why_stems": used_why,
+        "used_explanations": used_full,
+        "gender_view": gender_view,
+    }
     if isinstance(plan, list):
-        structured = compose_insight(
-            plan[0], used_phrases=used_phrases, used_why_stems=used_why
-        )
+        structured = compose_insight(plan[0], **compose_kwargs)
     else:
-        structured = compose_insight(
-            plan, used_phrases=used_phrases, used_why_stems=used_why
-        )
+        structured = compose_insight(plan, **compose_kwargs)
 
     narrative = format_chart_footer(structured)
     if ledger is not None:

@@ -1103,18 +1103,19 @@ class CampReportsService:
 
         if normalized_section == LEADERSHIP_TAKEAWAYS_SECTION:
             stored = report.get(LEADERSHIP_TAKEAWAYS_SECTION)
-            if isinstance(stored, dict) and isinstance(stored.get("data"), list) and stored["data"]:
+            if isinstance(stored, dict) and stored.get("intelligence"):
                 return dict(stored)
             try:
-                _, cards = generate_camp_section_intelligence(
+                _, intelligence = generate_camp_section_intelligence(
                     report, LEADERSHIP_TAKEAWAYS_SECTION
                 )
             except ValueError:
-                cards = []
+                intelligence = {}
             return {
                 "name": "Leadership Takeaways",
                 "description": "Workforce-level leadership observations and strategic next steps.",
-                "data": cards if isinstance(cards, list) else [],
+                "data": stored.get("data") if isinstance(stored, dict) else {},
+                "intelligence": intelligence,
             }
 
         section_row = await self._sections_repository.get_by_section_key(
@@ -1215,7 +1216,8 @@ class CampReportsService:
                 "description",
                 "Workforce-level leadership observations and strategic next steps.",
             )
-            section_payload["data"] = intelligence if isinstance(intelligence, list) else []
+            section_payload.setdefault("data", {})
+            section_payload["intelligence"] = intelligence
         else:
             section_payload = dict(report[camp_section_key])
             section_payload["intelligence"] = intelligence

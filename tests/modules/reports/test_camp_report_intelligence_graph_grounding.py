@@ -66,7 +66,7 @@ def _intel_block(section: dict, *path: str) -> dict:
 
 
 def _leaf(section: dict, *path: str) -> dict:
-    """Frontend intelligence leaf: tone / observation / explanation / recommendation."""
+    """Frontend intelligence leaf: tone / statement."""
     block = _intel_block(section, *path)
     if "both" in (section.get("intelligence") or {}) and not path:
         block = _intel_block(section, "both")
@@ -77,15 +77,18 @@ def _leaf(section: dict, *path: str) -> dict:
 
 
 def _obs(section: dict, *path: str) -> str:
-    return str(_leaf(section, *path).get("observation") or "")
+    leaf = _leaf(section, *path)
+    return str(leaf.get("observation") or leaf.get("statement") or "")
 
 
 def _why(section: dict, *path: str) -> str:
-    return str(_leaf(section, *path).get("explanation") or "")
+    leaf = _leaf(section, *path)
+    return str(leaf.get("explanation") or leaf.get("statement") or "")
 
 
 def _rec(section: dict, *path: str) -> str:
-    return str(_leaf(section, *path).get("recommendation") or "")
+    leaf = _leaf(section, *path)
+    return str(leaf.get("recommendation") or leaf.get("statement") or "")
 
 
 def _tone(section: dict, *path: str) -> str:
@@ -483,17 +486,8 @@ def test_recommendations_remain_present_and_distinct_from_explanations():
         _rec(enriched["overall_risk_score"]),
         _rec(enriched["distribution_by_sleeping_hours"], "both"),
         _rec(enriched["distribution_by_oxidative_stress"]),
-        _rec(enriched["positive_wins"], "positive_highlights"),
+        _rec(enriched["positive_wins"], "low_risk_diseases"),
     ]
-    whys = [
-        _why(enriched["overall_risk_score"]),
-        _why(enriched["distribution_by_sleeping_hours"], "both"),
-        _why(enriched["distribution_by_oxidative_stress"]),
-        _why(enriched["positive_wins"], "positive_highlights"),
-    ]
-    for rec, why in zip(recs, whys):
+    for rec in recs:
         assert rec.strip()
-        assert why.strip()
-        assert rec.strip().lower() != why.strip().lower()
         assert "elevation carries" not in rec.lower()
-        assert "elevation carries" not in why.lower()

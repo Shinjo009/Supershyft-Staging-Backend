@@ -215,14 +215,26 @@ def test_enrich_metabolic_and_positives_structure():
     assert isinstance(metabolic["disease_deep_dive"], dict)
 
     positives = enriched["positive_wins"]["intelligence"]
-    assert isinstance(positives, dict)
-    assert "positive_highlights" in positives
-    assert "positives" in positives
-    highlight = positives["positive_highlights"]
-    assert highlight["tone"]
-    assert highlight["observation"]
-    assert "Hypertension" in highlight["observation"] or "hypertension" in highlight["observation"].lower()
-    assert highlight["recommendation"]
+    assert set(positives) == {"low_risk_diseases", "healthy_habits", "healthy_blood_profiles"}
+    assert positives["low_risk_diseases"]["tone"] == "positive"
+    assert "Hypertension" in positives["low_risk_diseases"]["statement"]
+    assert "Regular exercise" in positives["healthy_habits"]["statement"]
+    assert "Balanced lifestyle" in positives["healthy_blood_profiles"]["statement"]
+
+
+def test_positive_wins_keeps_all_three_frontend_buckets():
+    report = sample_camp_report()
+    report["positive_wins"]["data"] = {
+        "low_risk": [{"code": "thyroid_health", "name": "Thyroid Health"}],
+        "healthy_habits": [],
+        "healthy_profiles": [],
+    }
+    enriched = enrich_camp_report_with_intelligence(report)
+    positives = enriched["positive_wins"]["intelligence"]
+    assert set(positives) == {"low_risk_diseases", "healthy_habits", "healthy_blood_profiles"}
+    assert "Thyroid Health" in positives["low_risk_diseases"]["statement"]
+    assert positives["healthy_habits"]["statement"]
+    assert positives["healthy_blood_profiles"]["statement"]
 
 
 def test_enrich_lifestyle_sections_have_gender_views():
@@ -234,6 +246,7 @@ def test_enrich_lifestyle_sections_have_gender_views():
     ):
         intel = enriched[section_key]["intelligence"]
         assert set(intel.keys()) >= {"both", "male", "female"}
+        assert intel["male"]["statement"] != intel["female"]["statement"]
 
 
 _FORBIDDEN_PUBLIC_INTEL_KEYS = frozenset(
@@ -271,16 +284,13 @@ def test_enrich_public_intelligence_is_frontend_contract_only():
 
     enriched = enrich_camp_report_with_intelligence(original)
     overall = enriched["overall_risk_score"]["intelligence"]
-    assert set(overall.keys()) == {"tone", "observation", "explanation", "recommendation"}
+    assert set(overall.keys()) == {"tone", "statement"}
     assert overall["tone"]
-    assert overall["observation"]
-    assert overall["explanation"]
-    assert overall["recommendation"]
+    assert overall["statement"]
 
     structured = (overall_raw.get("structured") or {})
-    assert overall["observation"] == structured.get("observation")
-    assert overall["explanation"] == structured.get("explanation")
-    assert overall["recommendation"] == structured.get("recommendation")
+    assert structured.get("observation")
+    assert structured.get("observation") in overall["statement"]
     assert overall["tone"] == overall_raw.get("tone") or structured.get("tone")
 
     for section_key in INTELLIGENCE_CAMP_SECTIONS:
@@ -315,18 +325,19 @@ def test_enrich_skips_missing_sections_without_creating_them():
     assert "participation_by_age" not in enriched
     assert "positive_wins" not in enriched
     takeaways = enriched[LEADERSHIP_TAKEAWAYS_SECTION]
-    assert isinstance(takeaways["data"], list)
-    assert takeaways["data"]  # overall risk present → coverage → cards
-    workforce = next(card for card in takeaways["data"] if card["id"] == "workforce-health")
-    assert "20.0%" in workforce["body"] or "30.0%" in workforce["body"] or "elevated" in workforce["body"].lower()
-    strategic = next(card for card in takeaways["data"] if card["id"] == "strategic-next-step")
-    assert strategic["recommendation"]
-    assert strategic["tone"] in {"positive", "concern"}
+    intel = takeaways["intelligence"]
+    assert isinstance(intel, dict)
+    assert "workforce_health" in intel
+    assert set(intel["workforce_health"].keys()) == {"tone", "statement"}
+    assert intel["workforce_health"]["statement"]
+    assert intel["workforce_health"]["tone"] in {"positive", "concern"}
+    assert "strategic_next_step" in intel
+    assert intel["strategic_next_step"]["statement"]
 
 
 def test_enrich_empty_report_does_not_fabricate_leadership_or_wins():
     enriched = enrich_camp_report_with_intelligence({"meta": {}})
-    assert enriched[LEADERSHIP_TAKEAWAYS_SECTION]["data"] == []
+    assert enriched[LEADERSHIP_TAKEAWAYS_SECTION]["intelligence"] == {}
     assert "positive_wins" not in enriched
 
 
@@ -334,17 +345,55 @@ def test_leadership_takeaways_match_raw_leadership_cards():
     original = sample_camp_report()
     raw = generate_report_insights(original)
     enriched = enrich_camp_report_with_intelligence(original)
-    cards = enriched[LEADERSHIP_TAKEAWAYS_SECTION]["data"]
+    intel = enriched[LEADERSHIP_TAKEAWAYS_SECTION]["intelligence"]
     raw_cards = raw["leadership_cards"]
-    assert len(cards) == len(raw_cards) == 4
-    assert [card["id"] for card in cards] == [card["id"] for card in raw_cards]
-    for public, internal in zip(cards, raw_cards):
+    assert len(intel) == len(raw_cards) == 4
+    for internal in raw_cards:
+        key = str(internal["id"]).replace("-", "_")
+        public = intel[key]
         structured = internal.get("structured") or {}
-        assert public["headline"] == internal["headline"]
-        assert public["body"] == internal["body"]
+        assert set(public.keys()) == {"tone", "statement"}
         assert public["tone"] == structured.get("tone")
-        assert public["observation"] == structured.get("observation")
-        assert public["explanation"] == structured.get("explanation")
-        assert public["recommendation"] == structured.get("recommendation")
+        assert structured.get("observation") in public["statement"]
         assert "confidence" not in public
         assert "structured" not in public
+
+
+def test_leadership_takeaways_do_not_repeat_sentences():
+    enriched = enrich_camp_report_with_intelligence(sample_camp_report())
+    intel = enriched[LEADERSHIP_TAKEAWAYS_SECTION]["intelligence"]
+    sentences: list[str] = []
+    for block in intel.values():
+        for part in (block["statement"] or "").split(". "):
+            key = part.strip().rstrip(".").lower()
+            if key:
+                sentences.append(key)
+    assert len(sentences) == len(set(sentences))
+    blob = " ".join(sentences)
+    assert "early, coordinated preventive action" not in blob
+
+
+def _statement_sentences(intel: dict) -> list[str]:
+    sentences: list[str] = []
+    for block in intel.values():
+        if not isinstance(block, dict):
+            continue
+        statement = block.get("statement")
+        if not isinstance(statement, str):
+            continue
+        for part in statement.split(". "):
+            key = part.strip().rstrip(".").lower()
+            if key:
+                sentences.append(key)
+    return sentences
+
+
+def test_lifestyle_gender_views_do_not_repeat_sentences():
+    enriched = enrich_camp_report_with_intelligence(sample_camp_report())
+    for section_key in (
+        "distribution_by_sleeping_hours",
+        "distribution_by_physical_activity_frequency",
+    ):
+        sentences = _statement_sentences(enriched[section_key]["intelligence"])
+        assert sentences
+        assert len(sentences) == len(set(sentences)), section_key

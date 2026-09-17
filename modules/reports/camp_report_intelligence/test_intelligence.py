@@ -97,8 +97,9 @@ def validate_enrichment(original: dict[str, Any], enriched: dict[str, Any]) -> l
                 errors.append(f"{key}: unexpected intelligence on unmapped section")
 
     takeaways = enriched.get("leadership_takeaways")
-    if not isinstance(takeaways, dict) or not isinstance(takeaways.get("data"), list):
-        errors.append("leadership_takeaways: expected generated section with data list")
+    intel = takeaways.get("intelligence") if isinstance(takeaways, dict) else None
+    if not isinstance(takeaways, dict) or not isinstance(intel, dict):
+        errors.append("leadership_takeaways: expected generated section with intelligence map")
 
     return errors
 
