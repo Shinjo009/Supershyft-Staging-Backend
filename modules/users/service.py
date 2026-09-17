@@ -3021,7 +3021,7 @@ class UsersService:
             participant=participant,
             collection_date=collection_date,
             collection_time=slot_time,
-            vendor_billing_user_id=engagement.engagement_code,
+            vendor_billing_user_id=str(payload.phone).strip(),
             allow_active_engagement_status=is_b2b or (engagement.status or "").lower() != "draft",
             ip_address=ip_address,
             user_agent=user_agent,

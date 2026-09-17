@@ -152,9 +152,5 @@ class PublicLockSlotRequest(BaseModel):
     blood_collection_time_slot: ShortSafeText
 
 
-class CodeLockSlotRequest(BaseModel):
-    """Slot lock for an existing engagement (engagement_code in path)."""
-
-    blood_collection_date: date
-    blood_collection_time_slot_id: str = Field(min_length=1, max_length=50)
-    blood_collection_time_slot: ShortSafeText
+class CodeLockSlotRequest(PublicLockSlotRequest):
+    """Same payload as public lock; stores draft slot on the engagement."""

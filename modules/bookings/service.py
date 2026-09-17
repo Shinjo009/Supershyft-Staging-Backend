@@ -1118,20 +1118,35 @@ async def code_lock_slot(
     db: AsyncSession,
     *,
     engagement_code: str,
+    address_line: str,
+    city: str,
+    pincode: str,
+    phone: str,
     blood_collection_date: date,
     blood_collection_time_slot_id: str,
     blood_collection_time_slot: str,
+    landmark: str | None = None,
 ) -> dict[str, Any]:
-    """Lock a slot for an existing engagement — stores draft slot fields on the engagement."""
+    """Lock a slot for an existing engagement — same address payload as public lock."""
     engagement = await _get_engagement_by_code_for_serviceability(db, engagement_code)
+    engagement_code_value = engagement.engagement_code
 
-    zone_error = await ensure_engagement_zone_from_location(db, engagement)
-    if zone_error is not None:
-        return zone_error
+    location = await resolve_public_location_context(
+        db,
+        city=city,
+        pincode=pincode,
+        engagement_id=int(engagement.engagement_id),
+        engagement_code=engagement_code_value,
+    )
+    if location.get("status") != "success":
+        return {
+            "engagement_code": engagement_code_value,
+            **location,
+        }
 
     if not engagement.diagnostic_package_id:
         return {
-            "engagement_code": engagement.engagement_code,
+            "engagement_code": engagement_code_value,
             "status": "error",
             "message": "No diagnostic package",
         }
@@ -1139,12 +1154,22 @@ async def code_lock_slot(
     pkg = await _get_diagnostic_package(db, engagement.diagnostic_package_id)
     if not _is_healthians(pkg):
         return {
-            "engagement_code": engagement.engagement_code,
+            "engagement_code": engagement_code_value,
             "status": "error",
             "message": "Not a Healthians package",
         }
 
-    vendor_billing_user_id = engagement.engagement_code
+    engagement.address = address_line
+    engagement.landmark = landmark
+    engagement.city = city
+    engagement.pincode = pincode
+    engagement.healthians_zone_id = location["zone_id"]
+    if engagement.latitude is None:
+        engagement.latitude = location["latitude"]
+    if engagement.longitude is None:
+        engagement.longitude = location["longitude"]
+
+    vendor_billing_user_id = str(phone).strip()
     freeze_result = await _freeze_healthians_slot(
         db,
         slot_id=blood_collection_time_slot_id,
@@ -1153,7 +1178,7 @@ async def code_lock_slot(
     )
     if freeze_result.get("status") != "success":
         return {
-            "engagement_code": engagement.engagement_code,
+            "engagement_code": engagement_code_value,
             **freeze_result,
         }
 
@@ -1161,7 +1186,7 @@ async def code_lock_slot(
         slot_start_time = _parse_slot_time(blood_collection_time_slot)
     except ValueError as exc:
         return {
-            "engagement_code": engagement.engagement_code,
+            "engagement_code": engagement_code_value,
             "status": "error",
             "message": str(exc),
         }
@@ -1172,8 +1197,10 @@ async def code_lock_slot(
     await db.flush()
 
     return {
-        "engagement_code": engagement.engagement_code,
+        "engagement_code": engagement_code_value,
         **freeze_result,
+        "vendor_billing_user_id": vendor_billing_user_id,
+        "zone_id": location["zone_id"],
     }
 
 

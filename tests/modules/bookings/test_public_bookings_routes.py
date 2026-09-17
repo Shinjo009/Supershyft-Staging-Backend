@@ -383,6 +383,8 @@ async def test_code_lock_stores_draft_slot_fields(async_client, test_db_session)
         engagement_code="PUB950102",
     )
 
+    geocode_result = [{"latitude": 19.0760, "longitude": 72.8777, "state": "Maharashtra", "country": "India"}]
+    healthians_check = {"status": True, "data": {"zone_id": "440"}, "message": "Serviceable"}
     freeze_resp = {
         "status": True,
         "resCode": "RES0001",
@@ -391,7 +393,13 @@ async def test_code_lock_stores_draft_slot_fields(async_client, test_db_session)
     }
 
     with (
+        patch("modules.bookings.service.search_places", new_callable=AsyncMock, return_value=geocode_result),
         patch("modules.bookings.service.healthians_client.get_access_token", new_callable=AsyncMock, return_value="tok"),
+        patch(
+            "modules.bookings.service.healthians_client.check_serviceability_by_location_v2",
+            new_callable=AsyncMock,
+            return_value=healthians_check,
+        ),
         patch(
             "modules.bookings.service.healthians_client.freeze_slot_v1",
             new_callable=AsyncMock,
@@ -401,6 +409,10 @@ async def test_code_lock_stores_draft_slot_fields(async_client, test_db_session)
         response = await async_client.post(
             "/book/code/PUB950102/lock",
             json={
+                "address_line": _PUBLIC_CHECK_PAYLOAD["address_line"],
+                "city": _PUBLIC_CHECK_PAYLOAD["city"],
+                "pincode": _PUBLIC_CHECK_PAYLOAD["pincode"],
+                "phone": "9501020000",
                 "blood_collection_date": "2026-07-15",
                 "blood_collection_time_slot_id": "34235263",
                 "blood_collection_time_slot": "06:00:00",
@@ -411,8 +423,10 @@ async def test_code_lock_stores_draft_slot_fields(async_client, test_db_session)
     data = response.json()["data"]
     assert data["status"] == "success"
     assert data["engagement_code"] == "PUB950102"
+    assert data["vendor_billing_user_id"] == "9501020000"
+    assert data["zone_id"] == "440"
     mock_freeze.assert_awaited_once()
-    assert mock_freeze.await_args.kwargs["vendor_billing_user_id"] == "PUB950102"
+    assert mock_freeze.await_args.kwargs["vendor_billing_user_id"] == "9501020000"
 
     eng_row = (
         await test_db_session.execute(
@@ -754,6 +768,10 @@ async def test_code_e2e_check_slots_lock_onboard_book(async_client, test_db_sess
         lock = await async_client.post(
             "/book/code/CAMP950105/lock",
             json={
+                "address_line": _PUBLIC_CHECK_PAYLOAD["address_line"],
+                "city": _PUBLIC_CHECK_PAYLOAD["city"],
+                "pincode": _PUBLIC_CHECK_PAYLOAD["pincode"],
+                "phone": "9501050000",
                 "blood_collection_date": "2026-07-16",
                 "blood_collection_time_slot_id": "45418465",
                 "blood_collection_time_slot": "07:00:00",
@@ -775,5 +793,5 @@ async def test_code_e2e_check_slots_lock_onboard_book(async_client, test_db_sess
     assert onboard.status_code == 200
     assert onboard.json()["data"]["booking_id"] == "HI-E2E-CODE"
     mock_create.assert_awaited_once()
-    assert mock_create.await_args.args[1]["vendor_billing_user_id"] == "CAMP950105"
+    assert mock_create.await_args.args[1]["vendor_billing_user_id"] == "9501050000"
     mock_notify.assert_awaited()

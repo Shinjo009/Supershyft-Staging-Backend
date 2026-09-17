@@ -339,6 +339,11 @@ async def code_lock_slot(
     result = await booking_service.code_lock_slot(
         db,
         engagement_code=engagement_code,
+        address_line=payload.address_line,
+        landmark=payload.landmark,
+        city=payload.city,
+        pincode=payload.pincode,
+        phone=payload.phone,
         blood_collection_date=payload.blood_collection_date,
         blood_collection_time_slot_id=payload.blood_collection_time_slot_id,
         blood_collection_time_slot=payload.blood_collection_time_slot,
