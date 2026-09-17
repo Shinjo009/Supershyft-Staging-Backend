@@ -27,6 +27,7 @@ from modules.engagements.schemas import (
     EngagementCreateRequest,
     EngagementNotificationOutput,
     EngagementParticipantUpdateRequest,
+    EngagementRescheduleRequest,
     EngagementStatusUpdateRequest,
     EngagementUpdateRequest,
     LoadBloodReportsForParticipantsRequest,
@@ -384,6 +385,25 @@ async def get_engagement_consultations_for_user(
         user_id=current_user.user_id,
         engagement_id=engagement_id,
     )
+    return success_response(data)
+
+
+@router.patch("/{engagement_id}/reschedule")
+async def reschedule_blood_collection(
+    engagement_id: int,
+    payload: EngagementRescheduleRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+    engagements_service: EngagementsService = Depends(get_engagements_service),
+):
+    """Allow an enrolled user to reschedule their blood-collection date/slot."""
+    data = await engagements_service.reschedule_blood_collection_for_user(
+        db,
+        user_id=current_user.user_id,
+        engagement_id=engagement_id,
+        payload=payload,
+    )
+    await db.commit()
     return success_response(data)
 
 
