@@ -19,7 +19,7 @@ import hmac
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -67,11 +67,39 @@ class TokenPair:
     refresh_token: str
 
 
+OtpChannel = Literal["phone", "email"]
+
+
 @dataclass(frozen=True)
 class OtpDelivery:
     user_id: int
     otp: str
     service_key: str
+    channel: OtpChannel
+    destination: str
+
+
+def _otp_channel_for_service_key(service_key: str) -> OtpChannel:
+    if service_key == settings.OTP_PHONE_SERVICE_KEY:
+        return "phone"
+    if service_key == settings.OTP_EMAIL_SERVICE_KEY:
+        return "email"
+    raise ValueError(f"Unknown OTP service key: {service_key}")
+
+
+def _make_otp_delivery(user: User, otp: str, service_key: str) -> OtpDelivery:
+    channel = _otp_channel_for_service_key(service_key)
+    if channel == "phone":
+        destination = user.phone or ""
+    else:
+        destination = user.email or ""
+    return OtpDelivery(
+        user_id=user.user_id,
+        otp=otp,
+        service_key=service_key,
+        channel=channel,
+        destination=destination,
+    )
 
 
 class AuthService:
@@ -226,7 +254,7 @@ class AuthService:
 
         delivery: OtpDelivery | None = None
         if not skip_send and service_key:
-            delivery = OtpDelivery(user_id=user.user_id, otp=otp, service_key=service_key)
+            delivery = _make_otp_delivery(user, otp, service_key)
 
         await self._audit_service.log_event(
             db,
@@ -283,7 +311,7 @@ class AuthService:
         email_service_key = settings.OTP_EMAIL_SERVICE_KEY
 
         if via == "whatsapp":
-            return [OtpDelivery(user_id=user.user_id, otp=otp, service_key=phone_service_key)]
+            return [_make_otp_delivery(user, otp, phone_service_key)]
 
         if via == "email":
             if not (user.email and user.email.strip()):
@@ -292,13 +320,11 @@ class AuthService:
                     error_code="INVALID_INPUT",
                     message="User does not have an email on file",
                 )
-            return [OtpDelivery(user_id=user.user_id, otp=otp, service_key=email_service_key)]
+            return [_make_otp_delivery(user, otp, email_service_key)]
 
-        deliveries = [OtpDelivery(user_id=user.user_id, otp=otp, service_key=phone_service_key)]
+        deliveries = [_make_otp_delivery(user, otp, phone_service_key)]
         if user.email and user.email.strip():
-            deliveries.append(
-                OtpDelivery(user_id=user.user_id, otp=otp, service_key=email_service_key)
-            )
+            deliveries.append(_make_otp_delivery(user, otp, email_service_key))
         return deliveries
 
     async def resend_otp(

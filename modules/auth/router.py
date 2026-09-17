@@ -17,6 +17,7 @@ from modules.auth.schemas import (
     ResendOtpRequest,
     SendOtpRequest,
     VerifyOtpRequest,
+    build_otp_delivery_response,
 )
 from modules.auth.service import AuthService
 
@@ -48,7 +49,9 @@ async def send_otp(
         await auth_service.deliver_otp_via_notifications(db, delivery=delivery)
         await db.commit()
 
-    return success_response({"session_id": session_id})
+    return success_response(
+        build_otp_delivery_response(session_id, [delivery] if delivery is not None else [])
+    )
 
 
 @router.post("/resend-otp")
@@ -75,7 +78,7 @@ async def resend_otp(
             await auth_service.deliver_otp_via_notifications(db, delivery=delivery)
         await db.commit()
 
-    return success_response({"session_id": session_id})
+    return success_response(build_otp_delivery_response(session_id, deliveries))
 
 
 @router.post("/verify-otp")

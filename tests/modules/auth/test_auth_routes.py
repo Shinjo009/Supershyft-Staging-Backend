@@ -64,7 +64,11 @@ async def test_send_otp_with_dontsendotp_suffix_skips_dispatch(async_client, tes
     response = await async_client.post("/auth/send-otp", json={"phone": "7000000137dontsendotp"})
 
     assert response.status_code == 200
-    assert isinstance(response.json()["data"]["session_id"], int)
+    data = response.json()["data"]
+    assert isinstance(data["session_id"], int)
+    assert data["channels"] == []
+    assert data["phone"] is None
+    assert data["email"] is None
     assert sender.last_dispatch is None
     assert sender.last_otp is None
 
@@ -371,6 +375,10 @@ async def test_send_otp_dispatches_via_whatapi_service_key(async_client, test_db
 
     response = await async_client.post("/auth/send-otp", json={"phone": "9401000001"})
     assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["channels"] == ["phone"]
+    assert data["phone"] == "9401000001"
+    assert data["email"] is None
     assert capture.last_dispatch is not None
     assert capture.last_dispatch["service_key"] == "whatapi-otp"
     assert capture.last_dispatch["user_ids"] == [9401]
@@ -395,6 +403,10 @@ async def test_send_and_verify_otp_via_email(async_client, test_db_session):
 
     send = await async_client.post("/auth/send-otp", json={"email": "user9402@example.com"})
     assert send.status_code == 200
+    send_data = send.json()["data"]
+    assert send_data["channels"] == ["email"]
+    assert send_data["phone"] is None
+    assert send_data["email"] == "user9402@example.com"
     assert capture.last_dispatch is not None
     assert capture.last_dispatch["service_key"] == "email-otp"
     assert capture.last_dispatch["user_ids"] == [9402]
@@ -453,7 +465,11 @@ async def test_resend_otp_phone_only_dispatches_whatsapp_and_email(async_client,
 
     response = await async_client.post("/auth/resend-otp", json={"phone": "9501000001"})
     assert response.status_code == 200
-    assert isinstance(response.json()["data"]["session_id"], int)
+    data = response.json()["data"]
+    assert isinstance(data["session_id"], int)
+    assert data["channels"] == ["phone", "email"]
+    assert data["phone"] == "9501000001"
+    assert data["email"] == "user9501@example.com"
     assert len(capture.dispatches) == 2
     service_keys = {d["service_key"] for d in capture.dispatches}
     assert service_keys == {"whatapi-otp", "email-otp"}
@@ -491,6 +507,10 @@ async def test_resend_otp_email_only_dispatches_whatsapp_and_email(async_client,
         json={"email": "user9502@example.com"},
     )
     assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["channels"] == ["phone", "email"]
+    assert data["phone"] == "9502000002"
+    assert data["email"] == "user9502@example.com"
     assert len(capture.dispatches) == 2
     service_keys = {d["service_key"] for d in capture.dispatches}
     assert service_keys == {"whatapi-otp", "email-otp"}
@@ -517,6 +537,10 @@ async def test_resend_otp_via_whatsapp_only(async_client, test_db_session):
         json={"phone": "9503000003", "via": "whatsapp"},
     )
     assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["channels"] == ["phone"]
+    assert data["phone"] == "9503000003"
+    assert data["email"] is None
     assert len(capture.dispatches) == 1
     assert capture.last_dispatch["service_key"] == "whatapi-otp"
 
@@ -542,6 +566,10 @@ async def test_resend_otp_via_email_only_from_phone_lookup(async_client, test_db
         json={"phone": "9504000004", "via": "email"},
     )
     assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["channels"] == ["email"]
+    assert data["phone"] is None
+    assert data["email"] == "user9504@example.com"
     assert len(capture.dispatches) == 1
     assert capture.last_dispatch["service_key"] == "email-otp"
 
@@ -581,6 +609,10 @@ async def test_resend_otp_phone_only_without_email_sends_whatsapp_only(async_cli
 
     response = await async_client.post("/auth/resend-otp", json={"phone": "9506000006"})
     assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["channels"] == ["phone"]
+    assert data["phone"] == "9506000006"
+    assert data["email"] is None
     assert len(capture.dispatches) == 1
     assert capture.last_dispatch["service_key"] == "whatapi-otp"
 

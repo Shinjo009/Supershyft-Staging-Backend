@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Sequence
 
 from pydantic import BaseModel, EmailStr, Field, model_validator
 
 from common.validation import OtpCode, OptionalPhoneStr, PhoneStr
+
+
+OtpChannel = Literal["phone", "email"]
 
 
 class SendOtpRequest(BaseModel):
@@ -24,6 +27,9 @@ class SendOtpRequest(BaseModel):
 
 class SendOtpResponse(BaseModel):
     session_id: int
+    channels: list[OtpChannel]
+    phone: str | None = None
+    email: EmailStr | None = None
 
 
 ResendOtpVia = Literal["email", "whatsapp"]
@@ -45,6 +51,34 @@ class ResendOtpRequest(BaseModel):
 
 class ResendOtpResponse(BaseModel):
     session_id: int
+    channels: list[OtpChannel]
+    phone: str | None = None
+    email: EmailStr | None = None
+
+
+def build_otp_delivery_response(
+    session_id: int,
+    deliveries: Sequence[object],
+) -> dict[str, object]:
+    """Build send/resend OTP response payload from dispatched deliveries."""
+    channels: list[OtpChannel] = []
+    phone: str | None = None
+    email: str | None = None
+
+    for delivery in deliveries:
+        channel = delivery.channel
+        channels.append(channel)
+        if channel == "phone":
+            phone = delivery.destination
+        elif channel == "email":
+            email = delivery.destination
+
+    return {
+        "session_id": session_id,
+        "channels": channels,
+        "phone": phone,
+        "email": email,
+    }
 
 
 class VerifyOtpRequest(BaseModel):
