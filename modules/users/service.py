@@ -2666,19 +2666,6 @@ class UsersService:
         address = (user.address or "").strip() or None
         return city, pincode, address
 
-    def _resolve_onboard_book_slot_from_engagement(self, engagement) -> tuple[str, date, time]:
-        if engagement.draft_slot_id and engagement.draft_slot_date is not None and engagement.draft_slot_time is not None:
-            return (
-                engagement.draft_slot_id,
-                engagement.draft_slot_date,
-                engagement.draft_slot_time,
-            )
-        raise AppError(
-            status_code=422,
-            error_code="SLOT_NOT_LOCKED",
-            message="Blood collection slot is not locked",
-        )
-
     async def _finalize_onboard_and_book(
         self,
         db: AsyncSession,
@@ -2768,7 +2755,6 @@ class UsersService:
             assessment_instance_id=int(assessment_instance.assessment_instance_id)
             if assessment_instance is not None
             else None,
-            tokens={},
         )
 
     async def public_onboard_and_book_b2c(
@@ -2906,9 +2892,10 @@ class UsersService:
         if (engagement.status or "").lower() == "cancelled":
             raise AppError(status_code=422, error_code="INVALID_STATE", message="Engagement is cancelled")
 
-        slot_id, collection_date, slot_time = self._resolve_onboard_book_slot_from_engagement(engagement)
-
         user = await self._load_user_for_onboard_book(db, int(payload.user_id))
+        collection_date = payload.blood_collection_date
+        slot_time = self._parse_time_slot(payload.blood_collection_time_slot)
+        slot_id = payload.blood_collection_time_slot_id
         city, pincode, address = self._require_user_location(user)
 
         engagement_type_code = "bio_ai"

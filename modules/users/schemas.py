@@ -448,16 +448,20 @@ class B2COnboardAndBookRequest(BaseModel):
         return self
 
 
-class B2CCodeOnboardAndBookRequest(B2COnboardAndBookRequest):
-    """Onboard+book for an existing engagement — slot comes from prior lock (draft_slot_*)."""
-
-
-class B2CPublicOnboardAndBookRequest(B2COnboardAndBookRequest):
-    """Public B2C onboard+book — creates engagement; slot fields required (not stored at public lock)."""
+class B2COnboardAndBookWithSlotRequest(B2COnboardAndBookRequest):
+    """Slot fields required for Healthians booking."""
 
     blood_collection_date: date
     blood_collection_time_slot: ShortSafeText
     blood_collection_time_slot_id: str = Field(min_length=1, max_length=50)
+
+
+class B2CCodeOnboardAndBookRequest(B2COnboardAndBookWithSlotRequest):
+    """Onboard+book for an existing engagement — profile from user, slot from payload."""
+
+
+class B2CPublicOnboardAndBookRequest(B2COnboardAndBookWithSlotRequest):
+    """Public B2C onboard+book — creates engagement; profile from user, slot from payload."""
 
 
 class B2COnboardAndBookResponse(BaseModel):
@@ -469,7 +473,6 @@ class B2COnboardAndBookResponse(BaseModel):
     booking_id: str
     status: str
     assessment_instance_id: Optional[int] = None
-    tokens: dict[str, str]
 
 
 class VifcQuickStartRequest(BaseModel):

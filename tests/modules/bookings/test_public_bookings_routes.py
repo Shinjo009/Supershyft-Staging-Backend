@@ -510,8 +510,7 @@ async def test_public_onboard_book_creates_engagement_and_healthians_booking(
     assert data["booking_id"] == "HI950103"
     assert data["status"] == "scheduled"
     assert data["engagement_code"]
-    assert data["tokens"]["access_token"]
-    assert data["tokens"]["refresh_token"]
+    assert "tokens" not in data
     mock_create.assert_awaited_once()
     assert mock_create.await_args.args[1]["vendor_billing_user_id"] == str(data["user_id"])
     mock_notify.assert_awaited()
@@ -651,7 +650,12 @@ async def test_code_onboard_book_endpoint(async_client, test_db_session, monkeyp
     )
     await _seed_user(test_db_session, user_id=950104, phone="9501040000")
 
-    payload = {"user_id": 950104}
+    payload = {
+        "user_id": 950104,
+        "blood_collection_date": "2026-07-15",
+        "blood_collection_time_slot_id": "slot-123",
+        "blood_collection_time_slot": "06:00:00",
+    }
 
     with (
         patch(
@@ -678,7 +682,7 @@ async def test_code_onboard_book_endpoint(async_client, test_db_session, monkeyp
     data = response.json()["data"]
     assert data["booking_id"] == "HI950104"
     assert data["engagement_code"] == "PUB950104"
-    assert data["tokens"]["token_type"] == "bearer"
+    assert "tokens" not in data
     mock_notify.assert_awaited()
 
 
@@ -785,7 +789,12 @@ async def test_code_e2e_check_slots_lock_onboard_book(async_client, test_db_sess
 
         onboard = await async_client.post(
             "/users/code/CAMP950105/onboard/book",
-            json={"user_id": 950105},
+            json={
+                "user_id": 950105,
+                "blood_collection_date": "2026-07-16",
+                "blood_collection_time_slot_id": "45418465",
+                "blood_collection_time_slot": "07:00:00",
+            },
         )
 
     assert onboard.status_code == 200

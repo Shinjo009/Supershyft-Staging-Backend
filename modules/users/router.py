@@ -76,7 +76,6 @@ async def public_onboard_and_book_user(
     request: Request,
     db: AsyncSession = Depends(get_db),
     users_service: UsersService = Depends(get_users_service),
-    auth_service: AuthService = Depends(get_auth_service),
 ):
     ip_address = get_client_ip(request)
     user_agent = request.headers.get("User-Agent", "unknown")
@@ -89,25 +88,9 @@ async def public_onboard_and_book_user(
         user_agent=user_agent,
         endpoint=endpoint,
     )
-    tokens = await auth_service.issue_tokens_for_user(
-        db,
-        user_id=result.user_id,
-        ip_address=ip_address,
-        user_agent=user_agent,
-        endpoint=endpoint,
-    )
     await db.commit()
 
-    return success_response(
-        {
-            **result.model_dump(exclude={"tokens"}),
-            "tokens": {
-                "access_token": tokens.access_token,
-                "refresh_token": tokens.refresh_token,
-                "token_type": "bearer",
-            },
-        }
-    )
+    return success_response(result.model_dump())
 
 
 @router.post("/public/vifc/quick-start")
@@ -160,7 +143,6 @@ async def onboard_and_book_user_for_engagement(
     request: Request,
     db: AsyncSession = Depends(get_db),
     users_service: UsersService = Depends(get_users_service),
-    auth_service: AuthService = Depends(get_auth_service),
 ):
     ip_address = get_client_ip(request)
     user_agent = request.headers.get("User-Agent", "unknown")
@@ -174,25 +156,9 @@ async def onboard_and_book_user_for_engagement(
         user_agent=user_agent,
         endpoint=endpoint,
     )
-    tokens = await auth_service.issue_tokens_for_user(
-        db,
-        user_id=result.user_id,
-        ip_address=ip_address,
-        user_agent=user_agent,
-        endpoint=endpoint,
-    )
     await db.commit()
 
-    return success_response(
-        {
-            **result.model_dump(exclude={"tokens"}),
-            "tokens": {
-                "access_token": tokens.access_token,
-                "refresh_token": tokens.refresh_token,
-                "token_type": "bearer",
-            },
-        }
-    )
+    return success_response(result.model_dump())
 
 
 @router.post("/code/{engagement_code}/onboard/me")
