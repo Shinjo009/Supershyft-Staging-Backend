@@ -13,6 +13,8 @@ from .intelligence_src.assembly import (
 )
 from .intelligence_src.engine import generate_report_insights
 
+CAMP_INTELLIGENCE_INTERNAL_ENDPOINT = "internal://camp_report_intelligence/enrich"
+
 __all__ = [
     "INTELLIGENCE_CAMP_SECTIONS",
     "LEADERSHIP_TAKEAWAYS_SECTION",
@@ -20,4 +22,5 @@ __all__ = [
     "generate_camp_section_intelligence",
     "generate_report_insights",
     "resolve_intelligence_section",
+    "CAMP_INTELLIGENCE_INTERNAL_ENDPOINT",
 ]

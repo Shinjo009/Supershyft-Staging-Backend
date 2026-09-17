@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 from collections.abc import Callable
 from datetime import date, datetime, timezone
@@ -16,6 +17,11 @@ from common.masking import mask_email, mask_phone
 from core.config import settings
 from core.exceptions import AppError
 from db.transaction import release_request_transaction
+from modules.audit.cron_sync_logging import (
+    finalize_integration_sync_log_isolated,
+    persist_integration_sync_log_isolated,
+    sanitize_response_payload,
+)
 from modules.audit.service import AuditService
 from modules.employee.access_control import (
     ensure_camp_access,
@@ -88,11 +94,14 @@ from modules.reports.camp_reports_repository import (
 from modules.reports.models import CampReport, IndividualHealthReport
 from modules.reports.service import BLOOD_DATA_UNAVAILABLE_ERROR_CODES, ReportsService
 from modules.reports.camp_report_intelligence import (
+    CAMP_INTELLIGENCE_INTERNAL_ENDPOINT,
     LEADERSHIP_TAKEAWAYS_SECTION,
     generate_camp_section_intelligence,
     resolve_intelligence_section,
 )
 from db.session import AsyncSessionLocal
+
+logger = logging.getLogger(__name__)
 
 # (base_seconds, per_unit_seconds, unit_kind)
 # unit_kind: "participants" | "fitprint" | "health" | "kpi_metsights"
@@ -1249,10 +1258,15 @@ class CampReportsService:
         )
         report = dict(row.report or {})
         try:
-            report, section_payload, intelligence = self._apply_intelligence_to_section(
-                report,
+            report, section_payload, intelligence = await self._apply_intelligence_to_section_with_sync_log(
+                report=report,
                 normalized_section=normalized_section,
                 camp_section_key=camp_section_key,
+                camp_no=camp_no,
+                department=department,
+                city=city,
+                user_id=employee.user_id,
+                source="enrich",
             )
         except ValueError:
             raise AppError(
@@ -1330,6 +1344,51 @@ class CampReportsService:
 
         report[camp_section_key] = section_payload
         return report, section_payload, intelligence
+
+    async def _apply_intelligence_to_section_with_sync_log(
+        self,
+        *,
+        report: dict,
+        normalized_section: str,
+        camp_section_key: str,
+        camp_no: int,
+        department: str | None,
+        city: str | None,
+        user_id: int | None,
+        source: str,
+    ) -> tuple[dict, dict, Any]:
+        request_payload = {
+            "camp_no": camp_no,
+            "section": normalized_section,
+            "camp_section_key": camp_section_key,
+            "scope": self._enrich_scope(city=city, department=department),
+            "source": source,
+        }
+        sync_log_id = await persist_integration_sync_log_isolated(
+            provider="internal",
+            api_url=CAMP_INTELLIGENCE_INTERNAL_ENDPOINT,
+            user_id=user_id,
+            request_payload=request_payload,
+        )
+        try:
+            report, section_payload, intelligence = self._apply_intelligence_to_section(
+                report,
+                normalized_section=normalized_section,
+                camp_section_key=camp_section_key,
+            )
+            await finalize_integration_sync_log_isolated(
+                sync_log_id=sync_log_id,
+                status="success",
+                response_payload=sanitize_response_payload(intelligence),
+            )
+            return report, section_payload, intelligence
+        except Exception as exc:
+            await finalize_integration_sync_log_isolated(
+                sync_log_id=sync_log_id,
+                status="failed",
+                error_message=str(exc)[:2000],
+            )
+            raise
 
     @staticmethod
     def _enrich_scope(*, city: str | None, department: str | None) -> dict[str, str | None]:
@@ -1833,10 +1892,15 @@ class CampReportsService:
 
         if intelligence_section_key is not None:
             try:
-                report, section_payload, _ = self._apply_intelligence_to_section(
-                    report,
+                report, section_payload, _ = await self._apply_intelligence_to_section_with_sync_log(
+                    report=report,
                     normalized_section=normalized_section,
                     camp_section_key=intelligence_section_key,
+                    camp_no=camp_no,
+                    department=department,
+                    city=city,
+                    user_id=user_id,
+                    source="refresh",
                 )
                 await self._repository.update_report(db, row, report)
             except AppError:
