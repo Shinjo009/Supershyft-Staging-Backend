@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import date
 
 from fastapi import APIRouter, Body, Depends, Query, Request
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.responses import success_response
@@ -14,7 +13,6 @@ from core.exceptions import AppError
 from db.session import get_db
 from modules.employee.dependencies import get_current_employee
 from modules.employee.service import EmployeeContext
-from modules.engagements.models import EngagementParticipant
 
 # NOTE: The occupied-slots endpoints are intentionally public (no auth).
 from modules.engagement_notifications.schemas import configs_to_api
@@ -337,39 +335,6 @@ async def list_engagements_data_completeness_summary(
         limit=limit,
     )
     return success_response(data)
-
-
-@router.get("/me/{engagement_id}")
-async def get_engagement_for_user(
-    engagement_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
-    engagements_service: EngagementsService = Depends(get_engagements_service),
-):
-    """Allow a user to view an engagement they are enrolled in."""
-    engagement = await engagements_service.get_by_id(db, engagement_id)
-    if engagement is None:
-        raise AppError(status_code=404, error_code="ENGAGEMENT_NOT_FOUND", message="Engagement does not exist")
-
-    participant_result = await db.execute(
-        select(EngagementParticipant)
-        .where(EngagementParticipant.engagement_id == engagement_id)
-        .where(EngagementParticipant.user_id == current_user.user_id)
-        .limit(1)
-    )
-    if participant_result.scalar_one_or_none() is None:
-        raise AppError(status_code=403, error_code="ACCESS_DENIED", message="You are not a participant in this engagement")
-
-    return success_response(
-        _engagement_to_dict(
-            engagement,
-            participant_count=await engagements_service.count_participants_for_engagement(
-                db,
-                engagement_id=engagement_id,
-            ),
-            slot_detail=await engagements_service.resolve_slot_detail(db, engagement),
-        )
-    )
 
 
 @router.get("/{engagement_id}/consultation")

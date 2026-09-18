@@ -311,8 +311,6 @@ def _excluded(path: str, method: str) -> bool:
         return True
     if path.startswith(("/engagements/public", "/engagements/code/")):
         return True
-    if path == "/engagements/me/{engagement_id}":
-        return True
     if path in {
         "/engagements/{engagement_id}/consultation",
         "/engagements/{engagement_id}/consultation/{consultation_id}/consent",
