@@ -533,8 +533,9 @@ async def get_camp_refresh_job_status(
     actor: OrgScopedActor = Depends(get_org_scoped_actor),
 ):
     job = get_camp_refresh_job(job_id)
+    employee = actor.employee
     if job is None:
-        if employee.role == EmployeeRole.inferior_admin:
+        if employee is not None and employee.role == EmployeeRole.inferior_admin:
             raise AppError(
                 status_code=403,
                 error_code="FORBIDDEN",
@@ -542,7 +543,8 @@ async def get_camp_refresh_job_status(
             )
         raise AppError(status_code=404, error_code="JOB_NOT_FOUND", message="Refresh job not found")
     if (
-        employee.role == EmployeeRole.inferior_admin
+        employee is not None
+        and employee.role == EmployeeRole.inferior_admin
         and job.requested_by_employee_id != employee.employee_id
     ):
         raise AppError(

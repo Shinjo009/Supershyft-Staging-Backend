@@ -18,6 +18,7 @@ from modules.employee.models import EmployeeRole
 from modules.employee.repository import EmployeeRepository
 from modules.employee.permissions import PermissionAction, context_has_capability
 from core.exceptions import AppError
+from modules.partners.models import Partner
 from modules.reports.camp_reports_service import CampReportsService
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,8 @@ async def _run_refresh_job(
     *,
     job_id: str,
     service: CampReportsService,
-    employee: EmployeeContext,
+    employee: EmployeeContext | None,
+    partner: Partner | None = None,
     camp_no: int,
     section: str,
     department: str | None,
@@ -72,7 +74,7 @@ async def _run_refresh_job(
     factory = session_factory or AsyncSessionLocal
     try:
         async with factory() as db:
-            if employee.role == EmployeeRole.inferior_admin:
+            if employee is not None and employee.role == EmployeeRole.inferior_admin:
                 from modules.employee.service import EmployeeService
 
                 employee = await EmployeeService(
@@ -93,6 +95,7 @@ async def _run_refresh_job(
             result = await service.refresh_camp_report_section(
                 db,
                 employee=employee,
+                partner=partner,
                 camp_no=camp_no,
                 section=section,
                 department=department,
@@ -113,7 +116,8 @@ async def _run_refresh_job(
 def enqueue_camp_refresh_job(
     *,
     service: CampReportsService,
-    employee: EmployeeContext,
+    employee: EmployeeContext | None,
+    partner: Partner | None = None,
     camp_no: int,
     section: str,
     department: str | None,
@@ -129,7 +133,7 @@ def enqueue_camp_refresh_job(
         created_at=datetime.now(timezone.utc),
         camp_no=camp_no,
         section=section,
-        requested_by_employee_id=employee.employee_id,
+        requested_by_employee_id=employee.employee_id if employee is not None else 0,
         department=department,
         city=city,
     )
@@ -138,6 +142,7 @@ def enqueue_camp_refresh_job(
             job_id=job_id,
             service=service,
             employee=employee,
+            partner=partner,
             camp_no=camp_no,
             section=section,
             department=department,
