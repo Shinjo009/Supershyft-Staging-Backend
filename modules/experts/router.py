@@ -22,6 +22,7 @@ from modules.experts.schemas import (
     AvailabilityBlockCreate,
     AvailabilityBulkSave,
     ConsultationBookRequest,
+    ConsultationCancelRequest,
     ConsultationConfirmRequest,
     ConsultationDoneRequest,
     ConsultationManageUpdateRequest,
@@ -224,6 +225,18 @@ async def reschedule_consultation_slot(
     availability_service: ExpertAvailabilityService = Depends(get_availability_service),
 ):
     data = await availability_service.reschedule_consultation_slot(db, user_id=user.user_id, payload=payload)
+    await db.commit()
+    return success_response(data)
+
+
+@router.delete("/consultations/cancel")
+async def cancel_consultation(
+    payload: ConsultationCancelRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    availability_service: ExpertAvailabilityService = Depends(get_availability_service),
+):
+    data = await availability_service.cancel_consultation(db, user_id=user.user_id, payload=payload)
     await db.commit()
     return success_response(data)
 

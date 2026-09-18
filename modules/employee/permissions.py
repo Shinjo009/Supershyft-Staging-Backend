@@ -278,6 +278,7 @@ def _excluded(path: str, method: str) -> bool:
         "/experts/consultations/slots",
         "/experts/consultations/book",
         "/experts/consultations/reschedule",
+        "/experts/consultations/cancel",
     } and (method == "GET" or "/consultations/" in path):
         return True
     if path == "/expert-types" and method == "GET":

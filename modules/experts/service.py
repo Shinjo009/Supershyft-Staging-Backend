@@ -21,6 +21,8 @@ from modules.engagements.consultation_booking_validation import (
     validate_consultation_cabin_slot_for_booking,
 )
 from modules.engagements.models import Engagement, EngagementParticipant
+from modules.engagements.slot_availability import slot_detail_is_configured
+from modules.engagements.slot_info_repository import EngagementSlotInfoRepository
 from modules.experts.consultation_bookings_repository import ConsultationBookingsRepository
 from modules.experts.consultations import (
     booking_to_api_preference,
@@ -48,6 +50,7 @@ from modules.experts.schemas import (
     AvailabilityBlockCreate,
     AvailabilityBulkSave,
     ConsultationBookRequest,
+    ConsultationCancelRequest,
     ConsultationConfirmRequest,
     ConsultationDoneRequest,
     ConsultationManageUpdateRequest,
@@ -909,25 +912,17 @@ class ExpertAvailabilityService:
         user_id: int,
         payload: ConsultationRescheduleRequest,
     ) -> dict[str, Any]:
-        if payload.expert_type != "nutritionist":
-            raise AppError(
-                status_code=400,
-                error_code="INVALID_INPUT",
-                message="Reschedule is only available for nutritionist consultations",
-            )
-
         engagement = await db.get(Engagement, payload.engagement_id)
         if engagement is None:
             raise AppError(status_code=404, error_code="NOT_FOUND", message="Engagement not found")
 
-        if effective_consultation_mode(engagement) != ConsultationMode.online:
+        allowed = engagement.consultations if isinstance(engagement.consultations, dict) else {}
+        if not any(bool(v) for v in allowed.values()):
             raise AppError(
                 status_code=400,
                 error_code="INVALID_INPUT",
-                message="Reschedule is only available for online consultations",
+                message="Engagement does not offer any consultation",
             )
-
-        allowed = engagement.consultations if isinstance(engagement.consultations, dict) else {}
         if allowed.get(payload.expert_type) is not True:
             raise AppError(
                 status_code=400,
@@ -964,7 +959,6 @@ class ExpertAvailabilityService:
                 message="Consultation is already completed",
             )
 
-        slot_hhmm = normalize_hhmm(payload.consultation_slot)
         previous_expert_id = booking.expert_id
         previous_date = booking.consultation_date
         previous_slot = normalize_hhmm(booking.consultation_slot) if booking.consultation_slot else None
@@ -977,23 +971,57 @@ class ExpertAvailabilityService:
                 slot_hhmm=previous_slot,
             )
 
-        available = await self._slot_is_available(
-            db,
-            expert_type=payload.expert_type,
-            day=payload.consultation_date,
-            slot_hhmm=slot_hhmm,
-            expert_id=None,
-        )
-        if not available:
-            raise AppError(
-                status_code=400,
-                error_code="INVALID_INPUT",
-                message="Selected slot is not available",
+        slot_detail = None
+        if engagement.slot_detail_id is not None:
+            slot_detail = await EngagementSlotInfoRepository().get_by_id(
+                db,
+                int(engagement.slot_detail_id),
             )
+
+        persisted_cabin: str | None = None
+        if slot_detail_is_configured(slot_detail):
+            cabin_key = (payload.consultation_cabin or "").strip()
+            persisted_cabin, slot_hhmm = await validate_consultation_cabin_slot_for_booking(
+                db,
+                engagement=engagement,
+                expert_type=payload.expert_type,
+                consultation_date=payload.consultation_date,
+                cabin_key=cabin_key,
+                slot_val=payload.consultation_slot,
+                consultation_bookings=self._consultation_bookings,
+                exclude_consultation_id=booking.consultation_id,
+            )
+        else:
+            if engagement.start_date and payload.consultation_date < engagement.start_date:
+                raise AppError(
+                    status_code=400,
+                    error_code="INVALID_INPUT",
+                    message="Consultation date is outside the engagement window",
+                )
+            if engagement.end_date and payload.consultation_date > engagement.end_date:
+                raise AppError(
+                    status_code=400,
+                    error_code="INVALID_INPUT",
+                    message="Consultation date is outside the engagement window",
+                )
+            slot_hhmm = normalize_hhmm(payload.consultation_slot)
+            available = await self._slot_is_available(
+                db,
+                expert_type=payload.expert_type,
+                day=payload.consultation_date,
+                slot_hhmm=slot_hhmm,
+                expert_id=None,
+            )
+            if not available:
+                raise AppError(
+                    status_code=400,
+                    error_code="INVALID_INPUT",
+                    message="Selected slot is not available",
+                )
 
         booking.consultation_date = payload.consultation_date
         booking.consultation_slot = slot_hhmm
-        booking.consultation_cabin = None
+        booking.consultation_cabin = persisted_cabin
         booking.expert_id = None
         booking.meet_link = None
         db.add(booking)
@@ -1023,7 +1051,7 @@ class ExpertAvailabilityService:
                 expert_id=None,
                 consultation_date=payload.consultation_date,
                 consultation_slot=slot_hhmm,
-                consultation_cabin=None,
+                consultation_cabin=persisted_cabin,
             )
 
         return {
@@ -1032,7 +1060,82 @@ class ExpertAvailabilityService:
             "expert_type": payload.expert_type,
             "date": payload.consultation_date.isoformat(),
             "slot": slot_hhmm,
+            "cabin": persisted_cabin,
             "expert_id": None,
+        }
+
+    async def cancel_consultation(
+        self,
+        db,
+        *,
+        user_id: int,
+        payload: ConsultationCancelRequest,
+    ) -> dict[str, Any]:
+        engagement = await db.get(Engagement, payload.engagement_id)
+        if engagement is None:
+            raise AppError(status_code=404, error_code="NOT_FOUND", message="Engagement not found")
+
+        allowed = engagement.consultations if isinstance(engagement.consultations, dict) else {}
+        if not any(bool(v) for v in allowed.values()):
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message="Engagement does not offer any consultation",
+            )
+        if allowed.get(payload.expert_type) is not True:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message=f"Consultation not available for this engagement: {payload.expert_type}",
+            )
+
+        result = await db.execute(
+            select(EngagementParticipant)
+            .where(EngagementParticipant.user_id == user_id)
+            .where(EngagementParticipant.engagement_id == payload.engagement_id)
+            .order_by(EngagementParticipant.engagement_participant_id.desc())
+            .limit(1)
+        )
+        participant = result.scalar_one_or_none()
+        if participant is None:
+            raise AppError(status_code=404, error_code="NOT_FOUND", message="Participant not found")
+
+        booking = await self._consultation_bookings.get_by_participant_and_type(
+            db,
+            participant.engagement_participant_id,
+            payload.expert_type,
+        )
+        if booking is None or not booking.want:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message="Participant did not request consultation",
+            )
+
+        if (
+            booking.expert_id is not None
+            and booking.consultation_date is not None
+            and booking.consultation_slot
+        ):
+            await self._release_booked_override_for_slot(
+                db,
+                expert_id=booking.expert_id,
+                consultation_date=booking.consultation_date,
+                slot_hhmm=normalize_hhmm(booking.consultation_slot),
+            )
+
+        deleted = await self._consultation_bookings.delete_for_participant(
+            db,
+            participant,
+            want_only=True,
+            expert_type=payload.expert_type,
+        )
+
+        return {
+            "message": "Consultation cancelled",
+            "engagement_id": payload.engagement_id,
+            "expert_type": payload.expert_type,
+            "deleted_count": len(deleted),
         }
 
     @staticmethod

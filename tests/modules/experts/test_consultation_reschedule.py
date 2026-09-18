@@ -1,8 +1,8 @@
-"""Tests for POST /experts/consultations/reschedule flow."""
+"""Tests for POST /experts/consultations/reschedule and DELETE /experts/consultations/cancel."""
 
 from __future__ import annotations
 
-from datetime import date, time, timedelta
+from datetime import date, time
 from unittest.mock import AsyncMock
 
 import pytest
@@ -11,17 +11,38 @@ from sqlalchemy import select
 from core.exceptions import AppError
 from modules.diagnostics.models import DiagnosticPackage
 from modules.engagements.enums import ConsultationMode
-from modules.engagements.models import Engagement, EngagementParticipant
+from modules.engagements.models import Engagement, EngagementParticipant, EngagementSlotInfo
+from modules.engagements.slot_availability import SLOT_UNAVAILABLE_CODE, SLOT_UNAVAILABLE_MESSAGE
 from modules.experts.models import ConsultationBooking, Expert, ExpertAvailabilityOverrideModel
 from modules.experts.repository import (
     ExpertAvailabilityOverrideRepository,
     ExpertAvailabilityRepository,
     ExpertsRepository,
 )
-from modules.experts.schemas import ConsultationRescheduleRequest
+from modules.experts.schemas import ConsultationCancelRequest, ConsultationRescheduleRequest
 from modules.experts.service import ExpertAvailabilityService
 from modules.users.models import User
 from tests.helpers.auth import seed_partner
+
+
+def _consultation_slot_detail(*, expert_type: str = "nutritionist", cabin_key: str = "consultation_cabin_1") -> dict:
+    return {
+        "consultation": {
+            "2026-08-20": [
+                {
+                    "cabin_name": "Consultation Cabin 1",
+                    "cabin_key": cabin_key,
+                    "start_time": "09:00",
+                    "end_time": "17:00",
+                    "expert_type": expert_type,
+                    "slot_duration": 30,
+                    "capacity_per_slot": 2,
+                    "breaks": [],
+                    "is_active": True,
+                }
+            ]
+        }
+    }
 
 
 async def _seed_reschedule_fixture(
@@ -36,8 +57,12 @@ async def _seed_reschedule_fixture(
     done: bool = False,
     consultation_date: date | None = None,
     consultation_slot: str | None = "09:00",
+    consultation_cabin: str | None = None,
     expert_id: int | None = None,
     consultations: dict | None = None,
+    slot_detail: dict | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ):
     existing_diag = await test_db_session.get(DiagnosticPackage, 1)
     if existing_diag is None:
@@ -65,6 +90,16 @@ async def _seed_reschedule_fixture(
     )
     await test_db_session.flush()
 
+    slot_detail_id = engagement_id if slot_detail is not None else None
+    if slot_detail is not None:
+        test_db_session.add(
+            EngagementSlotInfo(
+                slot_detail_id=slot_detail_id,
+                slot_detail=slot_detail,
+            )
+        )
+        await test_db_session.flush()
+
     test_db_session.add(
         Engagement(
             engagement_id=engagement_id,
@@ -78,9 +113,10 @@ async def _seed_reschedule_fixture(
             diagnostic_package_id=1,
             city="BLR",
             slot_duration=30,
-            start_date=date(2026, 8, 20),
-            end_date=date(2026, 8, 21),
+            start_date=start_date or date(2026, 8, 20),
+            end_date=end_date or date(2026, 8, 21),
             status="running",
+            slot_detail_id=slot_detail_id,
         )
     )
     await test_db_session.flush()
@@ -103,6 +139,7 @@ async def _seed_reschedule_fixture(
         done=done,
         consultation_date=consultation_date or date(2026, 8, 20),
         consultation_slot=consultation_slot,
+        consultation_cabin=consultation_cabin,
         expert_id=expert_id,
     )
     test_db_session.add(booking)
@@ -122,7 +159,7 @@ def _service() -> ExpertAvailabilityService:
 
 
 @pytest.mark.asyncio
-async def test_reschedule_online_nutritionist_success(test_db_session, monkeypatch):
+async def test_reschedule_non_cabin_success(test_db_session, monkeypatch):
     engagement_id = 78701
     user_id = 78701
     await _seed_reschedule_fixture(
@@ -136,7 +173,7 @@ async def test_reschedule_online_nutritionist_success(test_db_session, monkeypat
     slot_mock = AsyncMock(return_value=True)
     monkeypatch.setattr(service, "_slot_is_available", slot_mock)
 
-    new_date = date.today() + timedelta(days=2)
+    new_date = date(2026, 8, 21)
     result = await service.reschedule_consultation_slot(
         test_db_session,
         user_id=user_id,
@@ -151,6 +188,7 @@ async def test_reschedule_online_nutritionist_success(test_db_session, monkeypat
     assert result["message"] == "Consultation rescheduled"
     assert result["date"] == new_date.isoformat()
     assert result["slot"] == "10:30"
+    assert result["cabin"] is None
     assert result["expert_id"] is None
     slot_mock.assert_awaited_once()
 
@@ -161,11 +199,87 @@ async def test_reschedule_online_nutritionist_success(test_db_session, monkeypat
     ).scalar_one()
     assert booking.consultation_date == new_date
     assert booking.consultation_slot == "10:30"
+    assert booking.consultation_cabin is None
     assert booking.expert_id is None
 
 
 @pytest.mark.asyncio
-async def test_reschedule_rejects_offline_mode(test_db_session, monkeypatch):
+async def test_reschedule_cabin_path_success(test_db_session):
+    engagement_id = 78708
+    user_id = 78708
+    await _seed_reschedule_fixture(
+        test_db_session,
+        engagement_id=engagement_id,
+        participant_user_id=user_id,
+        participant_id=78708,
+        consultation_mode=ConsultationMode.offline,
+        expert_type="doctor",
+        consultations={"doctor": True},
+        consultation_cabin="consultation_cabin_1",
+        consultation_slot="09:00",
+        slot_detail=_consultation_slot_detail(expert_type="doctor"),
+    )
+
+    service = _service()
+    result = await service.reschedule_consultation_slot(
+        test_db_session,
+        user_id=user_id,
+        payload=ConsultationRescheduleRequest(
+            engagement_id=engagement_id,
+            consultation_date=date(2026, 8, 20),
+            consultation_slot="10:00",
+            expert_type="doctor",
+            consultation_cabin="consultation_cabin_1",
+        ),
+    )
+
+    assert result["message"] == "Consultation rescheduled"
+    assert result["slot"] == "10:00"
+    assert result["cabin"] == "consultation_cabin_1"
+    assert result["expert_type"] == "doctor"
+
+    booking = (
+        await test_db_session.execute(
+            select(ConsultationBooking).where(ConsultationBooking.engagement_participant_id == 78708)
+        )
+    ).scalar_one()
+    assert booking.consultation_slot == "10:00"
+    assert booking.consultation_cabin == "consultation_cabin_1"
+
+
+@pytest.mark.asyncio
+async def test_reschedule_cabin_path_rejects_invalid_slot(test_db_session):
+    engagement_id = 78709
+    user_id = 78709
+    await _seed_reschedule_fixture(
+        test_db_session,
+        engagement_id=engagement_id,
+        participant_user_id=user_id,
+        participant_id=78709,
+        consultation_mode=ConsultationMode.offline,
+        consultation_cabin="consultation_cabin_1",
+        slot_detail=_consultation_slot_detail(),
+    )
+
+    service = _service()
+    with pytest.raises(AppError) as exc:
+        await service.reschedule_consultation_slot(
+            test_db_session,
+            user_id=user_id,
+            payload=ConsultationRescheduleRequest(
+                engagement_id=engagement_id,
+                consultation_date=date(2026, 8, 20),
+                consultation_slot="08:00",
+                expert_type="nutritionist",
+                consultation_cabin="consultation_cabin_1",
+            ),
+        )
+    assert exc.value.error_code == SLOT_UNAVAILABLE_CODE
+    assert exc.value.message == SLOT_UNAVAILABLE_MESSAGE
+
+
+@pytest.mark.asyncio
+async def test_reschedule_non_cabin_rejects_date_outside_window(test_db_session, monkeypatch):
     engagement_id = 78702
     user_id = 78702
     await _seed_reschedule_fixture(
@@ -173,7 +287,6 @@ async def test_reschedule_rejects_offline_mode(test_db_session, monkeypatch):
         engagement_id=engagement_id,
         participant_user_id=user_id,
         participant_id=78702,
-        consultation_mode=ConsultationMode.offline,
     )
 
     service = _service()
@@ -185,17 +298,17 @@ async def test_reschedule_rejects_offline_mode(test_db_session, monkeypatch):
             user_id=user_id,
             payload=ConsultationRescheduleRequest(
                 engagement_id=engagement_id,
-                consultation_date=date.today() + timedelta(days=1),
+                consultation_date=date(2026, 9, 1),
                 consultation_slot="10:00",
                 expert_type="nutritionist",
             ),
         )
     assert exc.value.error_code == "INVALID_INPUT"
-    assert "online" in exc.value.message.lower()
+    assert "engagement window" in exc.value.message.lower()
 
 
 @pytest.mark.asyncio
-async def test_reschedule_rejects_non_nutritionist(test_db_session, monkeypatch):
+async def test_reschedule_allows_doctor_when_enabled(test_db_session, monkeypatch):
     engagement_id = 78703
     user_id = 78703
     await _seed_reschedule_fixture(
@@ -210,19 +323,18 @@ async def test_reschedule_rejects_non_nutritionist(test_db_session, monkeypatch)
     service = _service()
     monkeypatch.setattr(service, "_slot_is_available", AsyncMock(return_value=True))
 
-    with pytest.raises(AppError) as exc:
-        await service.reschedule_consultation_slot(
-            test_db_session,
-            user_id=user_id,
-            payload=ConsultationRescheduleRequest(
-                engagement_id=engagement_id,
-                consultation_date=date.today() + timedelta(days=1),
-                consultation_slot="10:00",
-                expert_type="doctor",
-            ),
-        )
-    assert exc.value.error_code == "INVALID_INPUT"
-    assert "nutritionist" in exc.value.message.lower()
+    result = await service.reschedule_consultation_slot(
+        test_db_session,
+        user_id=user_id,
+        payload=ConsultationRescheduleRequest(
+            engagement_id=engagement_id,
+            consultation_date=date(2026, 8, 21),
+            consultation_slot="10:00",
+            expert_type="doctor",
+        ),
+    )
+    assert result["expert_type"] == "doctor"
+    assert result["slot"] == "10:00"
 
 
 @pytest.mark.asyncio
@@ -246,7 +358,7 @@ async def test_reschedule_rejects_want_false(test_db_session, monkeypatch):
             user_id=user_id,
             payload=ConsultationRescheduleRequest(
                 engagement_id=engagement_id,
-                consultation_date=date.today() + timedelta(days=1),
+                consultation_date=date(2026, 8, 21),
                 consultation_slot="10:00",
                 expert_type="nutritionist",
             ),
@@ -275,7 +387,7 @@ async def test_reschedule_rejects_unavailable_slot(test_db_session, monkeypatch)
             user_id=user_id,
             payload=ConsultationRescheduleRequest(
                 engagement_id=engagement_id,
-                consultation_date=date.today() + timedelta(days=1),
+                consultation_date=date(2026, 8, 21),
                 consultation_slot="10:00",
                 expert_type="nutritionist",
             ),
@@ -338,7 +450,7 @@ async def test_reschedule_clears_expert_and_booked_override(test_db_session, mon
     service = _service()
     monkeypatch.setattr(service, "_slot_is_available", AsyncMock(return_value=True))
 
-    new_date = date.today() + timedelta(days=3)
+    new_date = date(2026, 8, 21)
     result = await service.reschedule_consultation_slot(
         test_db_session,
         user_id=user_id,
@@ -385,10 +497,156 @@ async def test_reschedule_rejects_done_consultation(test_db_session, monkeypatch
             user_id=user_id,
             payload=ConsultationRescheduleRequest(
                 engagement_id=engagement_id,
-                consultation_date=date.today() + timedelta(days=1),
+                consultation_date=date(2026, 8, 21),
                 consultation_slot="10:00",
                 expert_type="nutritionist",
             ),
         )
     assert exc.value.error_code == "INVALID_INPUT"
     assert "completed" in exc.value.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_cancel_deletes_only_requested_expert_type(test_db_session):
+    engagement_id = 78710
+    user_id = 78710
+    consultation_id = await _seed_reschedule_fixture(
+        test_db_session,
+        engagement_id=engagement_id,
+        participant_user_id=user_id,
+        participant_id=78710,
+        consultations={"nutritionist": True, "doctor": True},
+    )
+
+    # Second want=true booking for same participant
+    booking2 = ConsultationBooking(
+        engagement_participant_id=78710,
+        expert_type="doctor",
+        want=True,
+        done=False,
+        consultation_date=date(2026, 8, 20),
+        consultation_slot="10:00",
+    )
+    test_db_session.add(booking2)
+    await test_db_session.flush()
+    participant = await test_db_session.get(EngagementParticipant, 78710)
+    assert participant is not None
+    participant.consultation_booking_ids = [consultation_id, booking2.consultation_id]
+    test_db_session.add(participant)
+    await test_db_session.commit()
+
+    service = _service()
+    result = await service.cancel_consultation(
+        test_db_session,
+        user_id=user_id,
+        payload=ConsultationCancelRequest(engagement_id=engagement_id, expert_type="doctor"),
+    )
+    assert result["message"] == "Consultation cancelled"
+    assert result["expert_type"] == "doctor"
+    assert result["deleted_count"] == 1
+
+    remaining = (
+        await test_db_session.execute(
+            select(ConsultationBooking).where(ConsultationBooking.engagement_participant_id == 78710)
+        )
+    ).scalars().all()
+    assert len(remaining) == 1
+    assert remaining[0].expert_type == "nutritionist"
+    assert remaining[0].consultation_id == consultation_id
+
+    participant = await test_db_session.get(EngagementParticipant, 78710)
+    assert participant is not None
+    assert participant.consultation_booking_ids == [consultation_id]
+
+
+@pytest.mark.asyncio
+async def test_cancel_rejects_when_want_false(test_db_session):
+    engagement_id = 78711
+    user_id = 78711
+    await _seed_reschedule_fixture(
+        test_db_session,
+        engagement_id=engagement_id,
+        participant_user_id=user_id,
+        participant_id=78711,
+        want=False,
+    )
+
+    service = _service()
+    with pytest.raises(AppError) as exc:
+        await service.cancel_consultation(
+            test_db_session,
+            user_id=user_id,
+            payload=ConsultationCancelRequest(engagement_id=engagement_id, expert_type="nutritionist"),
+        )
+    assert exc.value.error_code == "INVALID_INPUT"
+    assert "did not request" in exc.value.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_cancel_rejects_when_engagement_offers_no_consultation(test_db_session):
+    engagement_id = 78712
+    user_id = 78712
+    await _seed_reschedule_fixture(
+        test_db_session,
+        engagement_id=engagement_id,
+        participant_user_id=user_id,
+        participant_id=78712,
+        consultations={"doctor": False, "nutritionist": False},
+    )
+
+    service = _service()
+    with pytest.raises(AppError) as exc:
+        await service.cancel_consultation(
+            test_db_session,
+            user_id=user_id,
+            payload=ConsultationCancelRequest(engagement_id=engagement_id, expert_type="nutritionist"),
+        )
+    assert exc.value.error_code == "INVALID_INPUT"
+    assert "does not offer" in exc.value.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_cancel_rejects_when_expert_type_not_offered(test_db_session):
+    engagement_id = 78713
+    user_id = 78713
+    await _seed_reschedule_fixture(
+        test_db_session,
+        engagement_id=engagement_id,
+        participant_user_id=user_id,
+        participant_id=78713,
+        consultations={"nutritionist": True},
+    )
+
+    service = _service()
+    with pytest.raises(AppError) as exc:
+        await service.cancel_consultation(
+            test_db_session,
+            user_id=user_id,
+            payload=ConsultationCancelRequest(engagement_id=engagement_id, expert_type="doctor"),
+        )
+    assert exc.value.error_code == "INVALID_INPUT"
+    assert "not available" in exc.value.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_cancel_rejects_when_expert_type_not_requested(test_db_session):
+    engagement_id = 78714
+    user_id = 78714
+    await _seed_reschedule_fixture(
+        test_db_session,
+        engagement_id=engagement_id,
+        participant_user_id=user_id,
+        participant_id=78714,
+        expert_type="nutritionist",
+        consultations={"nutritionist": True, "doctor": True},
+    )
+
+    service = _service()
+    with pytest.raises(AppError) as exc:
+        await service.cancel_consultation(
+            test_db_session,
+            user_id=user_id,
+            payload=ConsultationCancelRequest(engagement_id=engagement_id, expert_type="doctor"),
+        )
+    assert exc.value.error_code == "INVALID_INPUT"
+    assert "did not request" in exc.value.message.lower()

@@ -188,6 +188,12 @@ class ConsultationRescheduleRequest(BaseModel):
     consultation_date: date
     consultation_slot: str = Field(min_length=1, max_length=20)
     expert_type: str = Field(min_length=1, max_length=100)
+    consultation_cabin: Optional[str] = Field(default=None, max_length=100)
+
+
+class ConsultationCancelRequest(BaseModel):
+    engagement_id: int = Field(gt=0)
+    expert_type: str = Field(min_length=1, max_length=100)
 
 
 class ConsultationConfirmRequest(BaseModel):

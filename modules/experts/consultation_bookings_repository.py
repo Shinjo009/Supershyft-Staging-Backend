@@ -74,15 +74,20 @@ class ConsultationBookingsRepository:
         consultation_date: Any,
         consultation_slot: str,
         slot_detail_id: int | None = None,
+        exclude_consultation_id: int | None = None,
     ) -> int:
-        filtered_bookings = (
+        filtered = (
             select(ConsultationBooking.engagement_participant_id)
             .where(ConsultationBooking.consultation_cabin == consultation_cabin)
             .where(ConsultationBooking.consultation_date == consultation_date)
             .where(ConsultationBooking.consultation_slot == consultation_slot)
             .where(ConsultationBooking.want.is_(True))
-            .subquery()
         )
+        if exclude_consultation_id is not None:
+            filtered = filtered.where(
+                ConsultationBooking.consultation_id != exclude_consultation_id
+            )
+        filtered_bookings = filtered.subquery()
         query = (
             select(func.count())
             .select_from(filtered_bookings)
@@ -251,3 +256,33 @@ class ConsultationBookingsRepository:
             )
             bookings.append(booking)
         return bookings
+
+    async def delete_for_participant(
+        self,
+        db: AsyncSession,
+        participant: EngagementParticipant,
+        *,
+        want_only: bool = True,
+        expert_type: str | None = None,
+    ) -> list[ConsultationBooking]:
+        bookings = await self.get_for_participant(db, participant.engagement_participant_id)
+        if expert_type is not None:
+            bookings = [b for b in bookings if b.expert_type == expert_type]
+        to_delete = [b for b in bookings if b.want] if want_only else list(bookings)
+        if not to_delete:
+            return []
+
+        deleted_ids = {b.consultation_id for b in to_delete}
+        for booking in to_delete:
+            await db.delete(booking)
+        await db.flush()
+
+        remaining = [
+            cid
+            for cid in (participant.consultation_booking_ids or [])
+            if cid not in deleted_ids
+        ]
+        participant.consultation_booking_ids = remaining or None
+        db.add(participant)
+        await db.flush()
+        return to_delete

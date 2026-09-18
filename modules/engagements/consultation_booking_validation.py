@@ -35,6 +35,7 @@ async def validate_consultation_cabin_slot_for_booking(
     cabin_key: str,
     slot_val: str,
     consultation_bookings: ConsultationBookingsRepository,
+    exclude_consultation_id: int | None = None,
 ) -> tuple[str, str]:
     cabin_val = (cabin_key or "").strip() or None
     if not cabin_val or not slot_val:
@@ -66,6 +67,7 @@ async def validate_consultation_cabin_slot_for_booking(
         slot_detail_id=(
             int(engagement.slot_detail_id) if engagement.slot_detail_id is not None else None
         ),
+        exclude_consultation_id=exclude_consultation_id,
     )
     capacity = int(cabin.get("capacity_per_slot") or 0)
     if count >= capacity:
