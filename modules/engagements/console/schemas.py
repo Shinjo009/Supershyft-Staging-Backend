@@ -12,6 +12,7 @@ from common.validation import AddressText, CityStateCountry, OptionalLandmarkTex
 
 class ConsoleParticipantBookRequest(BaseModel):
     barcode: str = Field(min_length=1)
+    sync_collection_to_now: bool = False
 
 
 class HomeCollectionCheckServiceabilityRequest(BaseModel):
@@ -41,3 +42,5 @@ class ConsoleParticipantBookResponse(BaseModel):
     barcode: Optional[str] = None
     engagement_participant_id: Optional[int] = None
     user_id: Optional[int] = None
+    engagement_date: Optional[str] = None
+    slot_start_time: Optional[str] = None

@@ -97,6 +97,7 @@ async def book_console_participant(
         engagement_id=engagement_id,
         user_id=user_id,
         barcode=payload.barcode,
+        sync_collection_to_now=payload.sync_collection_to_now,
     )
     await db.commit()
     return success_response(data)
