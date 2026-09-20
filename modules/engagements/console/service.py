@@ -602,7 +602,15 @@ class ConsoleService:
         engagement_address = (engagement.address or "").strip()
         external_package_id = diagnostic_package.external_package_id
         engagement_participant_id = participant.engagement_participant_id
+        trimmed_barcode = barcode.strip()
 
+        # Persist barcode before Healthians I/O so it survives API outages / booking failures.
+        # release_request_transaction commits this write.
+        await self._repository.update_participant_barcode(
+            db,
+            engagement_participant_id=engagement_participant_id,
+            barcode=trimmed_barcode,
+        )
         await release_request_transaction(db)
 
         access_token = await healthians_client.get_access_token()
@@ -677,7 +685,7 @@ class ConsoleService:
                     "gender": gender,
                     "contact_number": phone,
                     "email": user_email,
-                    "barcode": barcode.strip(),
+                    "barcode": trimmed_barcode,
                 }
             ],
             "camp_id": external_camp_id,
@@ -766,7 +774,7 @@ class ConsoleService:
         await self._repository.update_participant_healthians_booking(
             db,
             engagement_participant_id=engagement_participant_id,
-            barcode=barcode.strip(),
+            barcode=trimmed_barcode,
             booking_id=str(healthians_booking_id),
         )
 
@@ -777,7 +785,7 @@ class ConsoleService:
             "booking_id": str(healthians_booking_id),
             "resCode": booking_response.get("resCode"),
             "tatDetail": booking_response.get("tatDetail"),
-            "barcode": barcode.strip(),
+            "barcode": trimmed_barcode,
             "engagement_participant_id": engagement_participant_id,
             "user_id": user_id,
         }

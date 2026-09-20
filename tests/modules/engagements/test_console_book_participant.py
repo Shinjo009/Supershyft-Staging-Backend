@@ -385,3 +385,137 @@ async def test_console_home_collection_book_flow(async_client, test_db_session, 
     assert participant.booking_id == "1715623000"
     assert participant.healthians_zone_id == "77"
     assert participant.blood_collection_time_slot_id == "STM96002"
+
+
+@pytest.mark.asyncio
+async def test_console_book_persists_barcode_when_healthians_fails(
+    async_client, test_db_session, monkeypatch
+):
+    """Barcode must be saved on the participant even if createBooking_v3 fails."""
+    monkeypatch.setattr(settings, "HEALTHIANS_CHECKSUM_KEY", "test-checksum-key")
+
+    existing_pkg = await test_db_session.get(AssessmentPackage, 1)
+    if existing_pkg is None:
+        test_db_session.add(
+            AssessmentPackage(
+                package_id=1,
+                package_code="PKG001",
+                display_name="Test Package",
+                status="active",
+            )
+        )
+    existing_diag = await test_db_session.get(DiagnosticPackage, 51)
+    if existing_diag is None:
+        test_db_session.add(
+            DiagnosticPackage(
+                diagnostic_package_id=51,
+                reference_id="REF51",
+                package_name="Healthians Camp",
+                diagnostic_provider="healthians",
+                external_package_id=2002,
+                status="active",
+                bookings_count=0,
+            )
+        )
+    else:
+        existing_diag.diagnostic_provider = "healthians"
+        existing_diag.external_package_id = 2002
+
+    await seed_employee(test_db_session, employee_id=621, role="admin", commit=False)
+
+    existing_eng = await test_db_session.get(Engagement, 7103)
+    if existing_eng is None:
+        test_db_session.add(
+            Engagement(
+                engagement_id=7103,
+                engagement_name="Camp Eng Book Fail",
+                engagement_code="CAMP7103",
+                engagement_type=None,
+                assessment_package_id=1,
+                diagnostic_package_id=51,
+                external_camp_id=3004,
+                status="running",
+                start_date=date.today(),
+                end_date=date.today(),
+                city="Delhi",
+                latitude=28.6,
+                longitude=77.2,
+                pincode="110001",
+                address="Camp Address",
+            )
+        )
+    else:
+        existing_eng.diagnostic_package_id = 51
+        existing_eng.external_camp_id = 3004
+        existing_eng.status = "running"
+        existing_eng.latitude = 28.6
+        existing_eng.longitude = 77.2
+        existing_eng.pincode = "110001"
+        existing_eng.address = "Camp Address"
+
+    test_db_session.add(
+        User(
+            user_id=93103,
+            age=35,
+            phone="9310300000",
+            email="fail.participant@example.com",
+            status="active",
+            first_name="Fail",
+            last_name="Participant",
+            gender="male",
+            relationship="self",
+        )
+    )
+    await test_db_session.flush()
+
+    existing_participant = await test_db_session.get(EngagementParticipant, 96003)
+    if existing_participant is None:
+        test_db_session.add(
+            EngagementParticipant(
+                engagement_participant_id=96003,
+                engagement_id=7103,
+                user_id=93103,
+                booked_by_user_id=93103,
+                engagement_date=date.today(),
+                slot_start_time=time(10, 0),
+            )
+        )
+    else:
+        existing_participant.booking_id = None
+        existing_participant.barcode = None
+        existing_participant.booked_by_user_id = 93103
+    await test_db_session.commit()
+
+    mock_serviceability = AsyncMock(
+        return_value={"status": True, "data": {"zone_id": 42}, "message": "ok"}
+    )
+    mock_create_booking = AsyncMock(
+        return_value={"status": False, "message": "Healthians API unavailable"}
+    )
+
+    with patch(
+        "modules.engagements.console.service.healthians_client.check_serviceability_by_location_v2",
+        mock_serviceability,
+    ):
+        with patch(
+            "modules.engagements.console.service.healthians_client.create_booking_v3",
+            mock_create_booking,
+        ):
+            with patch(
+                "modules.engagements.console.service.healthians_client.get_access_token",
+                AsyncMock(return_value="token"),
+            ):
+                response = await async_client.post(
+                    "/engagements/7103/console/participants/93103/book",
+                    json={"barcode": "BC96003-KEEP"},
+                    headers=_auth_header(621),
+                )
+
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "HEALTHIANS_BOOKING_FAILED"
+
+    # Expire cached identity so we see the early commit from book_participant.
+    test_db_session.expire_all()
+    participant = await test_db_session.get(EngagementParticipant, 96003)
+    assert participant.booking_id is None
+    assert participant.barcode == "BC96003-KEEP"

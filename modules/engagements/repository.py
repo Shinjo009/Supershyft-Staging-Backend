@@ -471,6 +471,30 @@ class EngagementsRepository:
         )
         return result.scalar_one_or_none()
 
+    async def update_participant_barcode(
+        self,
+        db: AsyncSession,
+        *,
+        engagement_participant_id: int,
+        barcode: str,
+    ) -> None:
+        """Persist tube barcode without requiring a Healthians booking_id.
+
+        Used so camp console can keep the scanned/entered barcode when the
+        external booking call fails (API down, not serviceable, etc.).
+        """
+        result = await db.execute(
+            select(EngagementParticipant).where(
+                EngagementParticipant.engagement_participant_id == engagement_participant_id
+            )
+        )
+        participant = result.scalar_one_or_none()
+        if participant is None:
+            return
+        participant.barcode = barcode
+        db.add(participant)
+        await db.flush()
+
     async def update_participant_healthians_booking(
         self,
         db: AsyncSession,
