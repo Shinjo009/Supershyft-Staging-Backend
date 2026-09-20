@@ -27,7 +27,7 @@ async def dispatch_consultation_notifications(
     as_of: date | None = None,
     dry_run: bool = False,
 ) -> dict[str, int | str | bool | list[dict[str, Any]]]:
-    """Notify participants whose BioAI or blood report is ready for consultation booking."""
+    """Notify participants whose blood test report is ready for consultation booking."""
     participants = await engagements_repository.list_participants_for_consultation_notification(db)
 
     matched = len(participants)

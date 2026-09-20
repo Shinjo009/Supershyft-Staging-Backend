@@ -1735,7 +1735,7 @@ class EngagementsRepository:
         """Return (user_id, engagement_id, service_configs) for eligible participants.
 
         Eligible when engagement is scheduled/running, has consultation_ready
-        notification configured, the matching report is ready on any
+        notification configured, the blood test report is ready on any
         individual_health_report row for that participant, and at least one
         offered consultation type is still unscheduled: no booking row, want=false,
         or want=true with consultation_date, consultation_slot, and
@@ -1764,15 +1764,9 @@ class EngagementsRepository:
             WHERE lower(trim(e.status)) IN ('scheduled', 'running')
               AND ane.event_code = 'consultation_ready'
               AND et.code IN ('bio_ai_with_consultation', 'blood_test_with_consultation')
-              AND (
-                    (et.code = 'bio_ai_with_consultation'
-                     AND ihr.reports IS NOT NULL
-                     AND ihr.report_url IS NOT NULL)
-                 OR (et.code = 'blood_test_with_consultation'
-                     AND ihr.blood_report_raw IS NOT NULL
-                     AND ihr.diagnostic_report_url IS NOT NULL
-                     AND ihr.diagnostic_report_url ~ :blood_url_pattern)
-              )
+              AND ihr.blood_report_raw IS NOT NULL
+              AND ihr.diagnostic_report_url IS NOT NULL
+              AND ihr.diagnostic_report_url ~ :blood_url_pattern
               AND e.consultations IS NOT NULL
               AND jsonb_typeof(e.consultations::jsonb) = 'object'
               AND EXISTS (
