@@ -153,4 +153,18 @@ DEFAULT_NOTIFICATION_SERVICES: tuple[SeedNotificationService, ...] = (
         require_participant_detail=True,
         require_session_details=True,
     ),
+    SeedNotificationService(
+        service_key="booking-confirmation-whatsapp",
+        display_name="Booking Confirmation WhatsApp",
+        channel="whatsapp",
+        webhook_path="/booking-confirmation-whatsapp-v1",
+        require_session_details=True,
+    ),
+    SeedNotificationService(
+        service_key="booking-confirmation-email",
+        display_name="Booking Confirmation Email",
+        channel="email",
+        webhook_path="/booking-confirmation-email-v1",
+        require_session_details=True,
+    ),
 )

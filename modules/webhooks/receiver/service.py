@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date, time
 from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +26,8 @@ from modules.engagement_notifications.repository import EngagementNotificationsR
 from modules.engagements.models import EngagementParticipant
 from modules.engagements.repository import EngagementsRepository
 from modules.notifications.dedup import should_skip_notification
-from modules.notifications.schemas import DispatchRequest
+from modules.notifications.pretest_reminders import format_blood_collection_slot
+from modules.notifications.schemas import DispatchRequest, SessionDetails
 from modules.notifications.service import NotificationsService
 from modules.reports.models import IndividualHealthReport
 from modules.reports.repository import ReportsRepository
@@ -36,7 +38,66 @@ logger = logging.getLogger(__name__)
 
 _PROVIDER_AURAE = "aurae"
 _VIFC = "vifc"
+_HEALTHIANS_NEW_BOOKING_STATUS = "BS005"
+_BOOKING_CONFIRMATION_SERVICE_KEYS: tuple[str, ...] = (
+    "booking-confirmation-whatsapp",
+    "booking-confirmation-email",
+)
 AuraeEvent = Literal["results", "report"]
+
+
+def _is_healthians_new_booking_webhook(payload: dict) -> bool:
+    """True for status_updated with booking_status/customer_status BS005."""
+    if str(payload.get("type") or "").strip() != "status_updated":
+        return False
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return False
+    status = str(
+        data.get("booking_status") or data.get("customer_status") or ""
+    ).strip().upper()
+    return status == _HEALTHIANS_NEW_BOOKING_STATUS
+
+
+def _parse_healthians_collection_date(raw: object) -> date | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def session_details_for_healthians_booking(
+    *,
+    payload_data: dict,
+    engagement_date: date | None,
+    slot_start_time: time | None,
+    cabin: str | None,
+) -> SessionDetails | None:
+    """Build session_details from Healthians BS005 payload, falling back to participant."""
+    collection_date = _parse_healthians_collection_date(
+        payload_data.get("sample_collection_date")
+    )
+    if collection_date is None:
+        collection_date = engagement_date
+
+    slot = str(payload_data.get("start_time") or "").strip()
+    if not slot:
+        slot = format_blood_collection_slot(slot_start_time)
+
+    if collection_date is None or not slot:
+        return None
+
+    cabin_value = (cabin or "").strip() or None
+    return SessionDetails(
+        want=True,
+        date=collection_date,
+        slot=slot,
+        expert_type="blood_collection",
+        cabin=cabin_value,
+    )
 
 
 class WebhooksReceiverService:
@@ -87,6 +148,80 @@ class WebhooksReceiverService:
 
         return None
 
+    async def _dispatch_booking_confirmation_notifications(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        engagement_id: int,
+        session_details: SessionDetails,
+    ) -> list[dict[str, Any]]:
+        """Dispatch booking confirmation services for a Healthians BS005 webhook."""
+        if self._notifications_service is None:
+            return []
+
+        dispatched: list[dict[str, Any]] = []
+        for service_key in _BOOKING_CONFIRMATION_SERVICE_KEYS:
+            try:
+                skip_reason = await should_skip_notification(
+                    db,
+                    service_key=service_key,
+                    user_id=user_id,
+                    engagement_id=engagement_id,
+                )
+                if skip_reason:
+                    logger.info(
+                        "Healthians booking confirmation skipped: service_key=%s user=%s "
+                        "engagement=%s reason=%s",
+                        service_key,
+                        user_id,
+                        engagement_id,
+                        skip_reason,
+                    )
+                    dispatched.append(
+                        {
+                            "service_key": service_key,
+                            "action": "skipped",
+                            "reason": skip_reason,
+                        }
+                    )
+                    continue
+
+                result = await self._notifications_service.dispatch(
+                    db,
+                    payload=DispatchRequest(
+                        service_key=service_key,
+                        user_ids=[user_id],
+                        engagement_id=engagement_id,
+                        session_details=session_details,
+                    ),
+                    triggered_by_user_id=None,
+                )
+                dispatched.append(
+                    {
+                        "service_key": service_key,
+                        "action": "dispatched",
+                        "notification_id": result.get("notification_id"),
+                    }
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Healthians booking confirmation failed: service_key=%s user=%s "
+                    "engagement=%s: %s",
+                    service_key,
+                    user_id,
+                    engagement_id,
+                    exc,
+                )
+                dispatched.append(
+                    {
+                        "service_key": service_key,
+                        "action": "failed",
+                        "reason": str(exc)[:200],
+                    }
+                )
+        return dispatched
+
     async def handle_healthians_webhook(
         self,
         db: AsyncSession,
@@ -99,6 +234,14 @@ class WebhooksReceiverService:
         participant = await self._resolve_participant(db, payload_dict)
         engagement_id = participant.engagement_id if participant else None
         user_id = participant.user_id if participant else None
+        # Snapshot before release_request_transaction expires ORM attrs.
+        participant_engagement_date = participant.engagement_date if participant else None
+        participant_slot_start_time = participant.slot_start_time if participant else None
+        participant_cabin = (
+            (participant.blood_collection_cabin or "").strip() or None
+            if participant is not None
+            else None
+        )
 
         await release_request_transaction(db)
 
@@ -118,11 +261,48 @@ class WebhooksReceiverService:
             user_id=user_id,
         )
 
+        notifications_dispatched: list[dict[str, Any]] = []
+        if (
+            engagement_id is not None
+            and user_id is not None
+            and _is_healthians_new_booking_webhook(payload_dict)
+        ):
+            data = payload_dict.get("data") if isinstance(payload_dict.get("data"), dict) else {}
+            session_details = session_details_for_healthians_booking(
+                payload_data=data,
+                engagement_date=participant_engagement_date,
+                slot_start_time=participant_slot_start_time,
+                cabin=participant_cabin,
+            )
+            if session_details is None:
+                logger.info(
+                    "Healthians booking confirmation skipped: missing session_details "
+                    "for user=%s engagement=%s booking_id=%s",
+                    user_id,
+                    engagement_id,
+                    payload_dict.get("booking_id"),
+                )
+                notifications_dispatched.append(
+                    {
+                        "action": "skipped",
+                        "reason": "missing session_details (date/slot)",
+                    }
+                )
+            else:
+                notifications_dispatched = await self._dispatch_booking_confirmation_notifications(
+                    db,
+                    user_id=user_id,
+                    engagement_id=engagement_id,
+                    session_details=session_details,
+                )
+
         response_data = {
             "received": True,
             "sync_log_id": sync_log_id,
             "forwards": forwards,
         }
+        if notifications_dispatched:
+            response_data["notifications"] = notifications_dispatched
 
         await finalize_healthians_sync_log_isolated(
             sync_log_id=sync_log_id,
