@@ -2267,6 +2267,227 @@ async def test_get_overview_missing_metsights_record_returns_422(
     fastapi_app.dependency_overrides.pop(get_reports_service, None)
 
 
+def _reports_service_with_nutrition_mock(
+    fake_metsights: _FakeMetsightsService,
+    *,
+    nutrition_score: float = 68.0,
+) -> ReportsService:
+    reports_service = ReportsService(
+        repository=ReportsRepository(),
+        assessments_repository=AssessmentsRepository(),
+        metsights_service=fake_metsights,
+        diagnostics_service=_FakeDiagnosticsService(),
+        audit_service=AuditService(AuditRepository()),
+        healthy_habits_service=HealthyHabitsService(QuestionnaireRepository()),
+        questionnaire_repository=QuestionnaireRepository(),
+    )
+
+    async def _mock_call_nutrition_api(db, payload, **kwargs):
+        return {"nutrition_score": nutrition_score}
+
+    reports_service._call_nutrition_api = _mock_call_nutrition_api
+    return reports_service
+
+
+@pytest.mark.asyncio
+async def test_get_home_summary_includes_overview_and_health_span_scores(
+    async_client,
+    fastapi_app,
+    test_db_session,
+):
+    pro_id = 99301
+    fitprint_id = 99302
+    user_id = 39301
+    engagement_id = 59301
+
+    await _seed_assessment(
+        test_db_session,
+        assessment_id=pro_id,
+        user_id=user_id,
+        engagement_id=engagement_id,
+        record_id="REC_PRO_99301",
+        package_code="MET_PRO",
+        assessment_type_code="2",
+    )
+    await _add_assessment_instance(
+        test_db_session,
+        assessment_id=fitprint_id,
+        user_id=user_id,
+        engagement_id=engagement_id,
+        record_id="REC_FIT_99302",
+        package_code="MY_FITNESS_PRINT",
+        assessment_type_code="7",
+    )
+    test_db_session.add(
+        IndividualHealthReport(
+            report_id=79301,
+            user_id=user_id,
+            engagement_id=engagement_id,
+            assessment_instance_id=pro_id,
+            reports={
+                "metabolic_age": 43.0,
+                "diseases": [
+                    {
+                        "code": "A",
+                        "name": "A",
+                        "risk_status": "Healthy",
+                        "risk_score_scaled": 12,
+                        "healthy_percentile": 88,
+                    },
+                    {
+                        "code": "B",
+                        "name": "B",
+                        "risk_status": "Increased",
+                        "risk_score_scaled": 58,
+                        "healthy_percentile": 35,
+                    },
+                ],
+            },
+        )
+    )
+    test_db_session.add(
+        IndividualHealthReport(
+            report_id=79302,
+            user_id=user_id,
+            engagement_id=engagement_id,
+            assessment_instance_id=fitprint_id,
+            reports={
+                "fitness_specification": {"score": 72.5},
+                "activity_specification": {"score": 81.0},
+            },
+        )
+    )
+    await test_db_session.commit()
+
+    fake_metsights = _FakeMetsightsService(payload={}, should_fail=True)
+    reports_service = _reports_service_with_nutrition_mock(fake_metsights, nutrition_score=68.0)
+    fastapi_app.dependency_overrides[get_reports_service] = lambda: reports_service
+
+    response = await async_client.get(f"/reports/{pro_id}/home-summary", headers=_auth_header(user_id))
+    assert response.status_code == 200
+    body = response.json()["data"]
+    assert body["assessment_id"] == pro_id
+    assert body["metabolic_age"] == 43.0
+    assert len(body["positive_wins"]["low_risk"]) == 1
+    assert body["positive_wins"]["low_risk"][0]["code"] == "A"
+    assert [x["code"] for x in body["risk_analysis"]] == ["B", "A"]
+    assert body["health_span_index"] == {
+        "lifestyle_score": 72.5,
+        "nutrition_score": 68.0,
+        "fitness_score": 81.0,
+    }
+    assert fake_metsights.report_calls == 0
+    fastapi_app.dependency_overrides.pop(get_reports_service, None)
+
+
+@pytest.mark.asyncio
+async def test_get_home_summary_without_fitprint_returns_null_health_span_index(
+    async_client,
+    fastapi_app,
+    test_db_session,
+):
+    pro_id = 99311
+    user_id = 39311
+    engagement_id = 59311
+
+    await _seed_assessment(
+        test_db_session,
+        assessment_id=pro_id,
+        user_id=user_id,
+        engagement_id=engagement_id,
+        record_id="REC_PRO_99311",
+        package_code="MET_PRO",
+        assessment_type_code="2",
+    )
+    test_db_session.add(
+        IndividualHealthReport(
+            report_id=79311,
+            user_id=user_id,
+            engagement_id=engagement_id,
+            assessment_instance_id=pro_id,
+            reports={
+                "metabolic_age": 40.0,
+                "diseases": [
+                    {
+                        "code": "A",
+                        "name": "A",
+                        "risk_status": "Healthy",
+                        "risk_score_scaled": 10,
+                        "healthy_percentile": 90,
+                    },
+                ],
+            },
+        )
+    )
+    await test_db_session.commit()
+
+    fake_metsights = _FakeMetsightsService(payload={}, should_fail=True)
+    reports_service = _reports_service_with_nutrition_mock(fake_metsights)
+    fastapi_app.dependency_overrides[get_reports_service] = lambda: reports_service
+
+    response = await async_client.get(f"/reports/{pro_id}/home-summary", headers=_auth_header(user_id))
+    assert response.status_code == 200
+    body = response.json()["data"]
+    assert body["metabolic_age"] == 40.0
+    assert body["health_span_index"] is None
+    fastapi_app.dependency_overrides.pop(get_reports_service, None)
+
+
+@pytest.mark.asyncio
+async def test_get_home_summary_fitprint_not_allowed(
+    async_client,
+    fastapi_app,
+    test_db_session,
+):
+    await _seed_assessment(
+        test_db_session,
+        assessment_id=99312,
+        user_id=39312,
+        engagement_id=59312,
+        record_id="REC99312",
+        package_code="MY_FITNESS_PRINT",
+        assessment_type_code="7",
+    )
+    fake_metsights = _FakeMetsightsService(payload={}, should_fail=True)
+    reports_service = _reports_service_with_nutrition_mock(fake_metsights)
+    fastapi_app.dependency_overrides[get_reports_service] = lambda: reports_service
+
+    response = await async_client.get("/reports/99312/home-summary", headers=_auth_header(39312))
+    assert response.status_code == 403
+    assert response.json() == {
+        "error_code": "FORBIDDEN",
+        "message": "FitPrint report overview is not allowed",
+    }
+    fastapi_app.dependency_overrides.pop(get_reports_service, None)
+
+
+@pytest.mark.asyncio
+async def test_get_home_summary_wrong_user_returns_404(
+    async_client,
+    fastapi_app,
+    test_db_session,
+):
+    await _seed_assessment(
+        test_db_session,
+        assessment_id=99313,
+        user_id=39313,
+        engagement_id=59313,
+        record_id="REC99313",
+        package_code="MET_PRO",
+        assessment_type_code="2",
+    )
+    test_db_session.add(User(user_id=39314, phone="39314000000", age=30, gender="male", status="active"))
+    await test_db_session.commit()
+    fake_metsights = _FakeMetsightsService(payload={}, report_payload={})
+    reports_service = _reports_service_with_nutrition_mock(fake_metsights)
+    fastapi_app.dependency_overrides[get_reports_service] = lambda: reports_service
+
+    response = await async_client.get("/reports/99313/home-summary", headers=_auth_header(39314))
+    assert response.status_code == 404
+    assert response.json()["error_code"] == "ASSESSMENT_NOT_FOUND"
+    fastapi_app.dependency_overrides.pop(get_reports_service, None)
+
+
 @pytest.mark.asyncio
 async def test_get_risk_analysis_cached_skips_metsights(
     async_client,
