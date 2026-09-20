@@ -19,6 +19,7 @@ def _sample_payload(
     ref_booking_id: str | None = None,
     sample_collection_date: str | None = "2026-05-01",
     start_time: str | None = "10:00 AM",
+    end_time: str | None = "11:00 AM",
 ) -> dict:
     data: dict = {
         "booking_status": booking_status,
@@ -28,6 +29,8 @@ def _sample_payload(
         data["sample_collection_date"] = sample_collection_date
     if start_time is not None:
         data["start_time"] = start_time
+    if end_time is not None:
+        data["end_time"] = end_time
     if ref_booking_id is not None:
         data["ref_booking_id"] = ref_booking_id
     return {
@@ -437,6 +440,7 @@ async def test_bs005_dispatches_booking_confirmation_notifications(
             booking_id="1387716659801",
             sample_collection_date="2026-05-01",
             start_time="10:00 AM",
+            end_time="11:00 AM",
         ),
     )
     assert response.status_code == 200, response.text
@@ -454,7 +458,7 @@ async def test_bs005_dispatches_booking_confirmation_notifications(
     for call in webhook_calls:
         member = call["json"]["members"][0]
         assert member["session_details"]["date"] == "2026-05-01"
-        assert member["session_details"]["slot"] == "10:00 AM"
+        assert member["session_details"]["slot"] == "10:00 AM to 11:00 AM"
         assert member["session_details"]["expert_type"] == "blood_collection"
 
 

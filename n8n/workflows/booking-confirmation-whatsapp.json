@@ -2,7 +2,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Booking Confirmation WhatsApp (camp17)\nSends blood-collection booking confirmation WhatsApp when Healthians status_updated / BS005 (new booking) is received and SuperShyft dispatches this service.\n\nRequired payload:\n{\n  notification_id: number,\n  members: [{\n    first_name, last_name, email, phone,\n    session_details: { want, date, slot, expert_type, cabin? }\n  }],\n  engagement_id?: number\n}\n\nNotification service must have require_session_details enabled.\nMaps: date → Collection_Date, slot → Collection_Time, cabin → Cabin_Name.",
+        "content": "## Booking Confirmation WhatsApp (camp17)\nSends blood-collection booking confirmation WhatsApp when Healthians status_updated / BS005 (new booking) is received and SuperShyft dispatches this service.\n\nRequired payload:\n{\n  notification_id: number,\n  members: [{\n    first_name, last_name, email, phone,\n    session_details: { want, date, slot, expert_type, cabin? }\n  }],\n  engagement_id?: number\n}\n\nNotification service must have require_session_details enabled.\nMaps: date → Collection_Date, slot → Collection_Time (range e.g. \"10:00 AM to 11:00 AM\"), cabin → Cabin_Name (omit when empty).",
         "height": 640,
         "width": 2336
       },
@@ -130,7 +130,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const member = $input.item.json;\nconst name = (member.first_name || 'Participant').trim();\nconst collectionDate = (member.session_details?.date || '').trim();\nconst collectionTime = (member.session_details?.slot || '').trim();\nconst cabinName = (member.session_details?.cabin || '').trim();\n\nlet phone = String(member.phone || '').replace(/\\D/g, '');\nif (phone.length === 10) phone = '91' + phone;\n\nconst cabinPart = cabinName ? `,Cabin: ${cabinName}` : '';\nconst message = `camp17,${name},Your blood collection booking has been successfully confirmed.,Date: ${collectionDate},Time: ${collectionTime}${cabinPart},We look forward to supporting you on your preventive health journey.,Please visit: app.supershyft.com`;\n\nreturn {\n  json: {\n    notification_id: member.notification_id,\n    phone,\n    message\n  }\n};"
+        "jsCode": "const member = $input.item.json;\nconst name = (member.first_name || 'Participant').trim();\nconst collectionDate = (member.session_details?.date || '').trim();\nconst collectionTime = (member.session_details?.slot || '').trim();\nconst cabinRaw = member.session_details?.cabin;\nconst cabinName = (cabinRaw == null || cabinRaw === undefined ? '' : String(cabinRaw)).trim();\n\nlet phone = String(member.phone || '').replace(/\\D/g, '');\nif (phone.length === 10) phone = '91' + phone;\n\n// Always pass cabin as empty string (never undefined) so camp17 does not print \"undefined\".\nconst message = `camp17,${name},Your blood collection booking has been successfully confirmed.,Date: ${collectionDate},Time: ${collectionTime},We look forward to supporting you on your preventive health journey.,Please visit: app.supershyft.com,You can check the details below for your convenience.,${cabinName},Thanks for taking a moment to read this message.`;\n\nreturn {\n  json: {\n    notification_id: member.notification_id,\n    phone,\n    message\n  }\n};"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,

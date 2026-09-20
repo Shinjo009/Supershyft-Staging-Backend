@@ -69,6 +69,15 @@ def _parse_healthians_collection_date(raw: object) -> date | None:
         return None
 
 
+def _format_collection_slot_range(*, start: str, end: str = "") -> str:
+    """Format collection window as ``10:00 AM to 11:00 AM`` when both ends exist."""
+    start_text = (start or "").strip()
+    end_text = (end or "").strip()
+    if start_text and end_text:
+        return f"{start_text} to {end_text}"
+    return start_text or end_text
+
+
 def session_details_for_healthians_booking(
     *,
     payload_data: dict,
@@ -76,16 +85,23 @@ def session_details_for_healthians_booking(
     slot_start_time: time | None,
     cabin: str | None,
 ) -> SessionDetails | None:
-    """Build session_details from Healthians BS005 payload, falling back to participant."""
+    """Build session_details from Healthians BS005 payload, falling back to participant.
+
+    ``slot`` is a time window (``start to end``) when Healthians provides both
+    ``start_time`` and ``end_time``; otherwise a single start time.
+    """
     collection_date = _parse_healthians_collection_date(
         payload_data.get("sample_collection_date")
     )
     if collection_date is None:
         collection_date = engagement_date
 
-    slot = str(payload_data.get("start_time") or "").strip()
-    if not slot:
-        slot = format_blood_collection_slot(slot_start_time)
+    start = str(payload_data.get("start_time") or "").strip()
+    end = str(payload_data.get("end_time") or "").strip()
+    if not start:
+        start = format_blood_collection_slot(slot_start_time)
+
+    slot = _format_collection_slot_range(start=start, end=end)
 
     if collection_date is None or not slot:
         return None
