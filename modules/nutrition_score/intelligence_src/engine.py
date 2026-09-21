@@ -175,23 +175,16 @@ def _whole_number(value: float | int | None) -> int | None:
     return int(round(float(value)))
 
 
-def _one_decimal(value: float | int | None) -> float | None:
-    """Keep water as a single decimal (2.05 → 2.0), never collapse 2.0 to 2."""
-    if value is None:
-        return None
-    return round(float(value), 1)
-
-
 def _nutrient_percent(
     estimated: EstimatedMacroPercent | None,
     ideal: TargetRange | None,
 ) -> dict[str, Any] | None:
     if estimated is None and ideal is None:
         return None
-    estimated_low = float(estimated.lower) if estimated is not None else None
-    estimated_high = float(estimated.upper) if estimated is not None else None
-    ideal_low = float(ideal.low) if ideal is not None and ideal.low is not None else None
-    ideal_high = float(ideal.high) if ideal is not None and ideal.high is not None else None
+    estimated_low = _whole_number(estimated.lower if estimated is not None else None)
+    estimated_high = _whole_number(estimated.upper if estimated is not None else None)
+    ideal_low = _whole_number(ideal.low if ideal is not None else None)
+    ideal_high = _whole_number(ideal.high if ideal is not None else None)
     return {
         "estimated_low": estimated_low,
         "estimated_high": estimated_high,
@@ -239,13 +232,13 @@ def _water_detail(
         midpoint = low
     elif high is not None:
         midpoint = high
-    midpoint = _one_decimal(midpoint)
-    ideal_low = _one_decimal(
+    midpoint = _whole_number(midpoint)
+    ideal_low = (
         float(ideal_water.low)
         if ideal_water is not None and ideal_water.low is not None
         else None
     )
-    ideal_high = _one_decimal(
+    ideal_high = (
         float(ideal_water.high)
         if ideal_water is not None and ideal_water.high is not None
         else None
