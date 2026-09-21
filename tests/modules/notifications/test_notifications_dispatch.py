@@ -1219,7 +1219,132 @@ async def test_dispatch_report_service_without_scope_returns_400(
         json={"service_key": service_key, "user_ids": [9741]},
     )
     assert response.status_code == 400
-    assert "assessment_instance_id" in response.json()["message"].lower() or "engagement_id" in response.json()["message"].lower()
+    assert "no assessment instance found" in response.json()["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_report_service_auto_picks_latest_instance(
+    async_client, test_db_session, monkeypatch
+):
+    """Blood dispatch without scope should use the user's latest Metsights instance."""
+    monkeypatch.setattr(settings, "NOTIFICATION_API_KEY", TEST_NOTIFICATION_API_KEY)
+    await _seed_metsights_basic_package(test_db_session)
+    await _seed_diagnostic_package(test_db_session)
+    await test_db_session.execute(
+        text(
+            "INSERT INTO engagement_types (code, display_name, is_active) "
+            "VALUES ('bio_ai', 'BioAI', true) "
+            "ON CONFLICT (code) DO UPDATE SET is_active = true"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO engagements "
+            "(engagement_id, engagement_name, engagement_code, engagement_type, assessment_package_id, "
+            "diagnostic_package_id, city, slot_duration, start_date, end_date, status) "
+            "VALUES (:eid, 'Camp', :code, "
+            "(SELECT id FROM engagement_types WHERE code = 'bio_ai'), 1, 1, 'BLR', 20, "
+            "'2026-05-01', '2026-05-01', 'active') "
+            "ON CONFLICT (engagement_id) DO NOTHING"
+        ),
+        {"eid": 9742, "code": "ENG-NOTIF-9742"},
+    )
+
+    test_db_session.add(
+        User(
+            user_id=9743,
+            age=30,
+            phone="9743000000",
+            status="active",
+            first_name="Auto",
+            last_name="Pick",
+        )
+    )
+    await test_db_session.flush()
+
+    from modules.assessments.models import AssessmentInstance
+
+    test_db_session.add(
+        AssessmentInstance(
+            assessment_instance_id=9744,
+            user_id=9743,
+            package_id=1,
+            engagement_id=9742,
+            status="completed",
+            metsights_record_id="AUTO-PICK-BLOOD",
+        )
+    )
+    archived_url = "https://supershyft.com/reports/AbCdEfGhIjKlMnOp.pdf"
+    test_db_session.add(
+        IndividualHealthReport(
+            report_id=9744,
+            user_id=9743,
+            engagement_id=9742,
+            assessment_instance_id=9744,
+            diagnostic_report_url=archived_url,
+        )
+    )
+    service_key = "blood_report_auto_pick_test"
+    await test_db_session.execute(
+        text(
+            "INSERT INTO notification_services "
+            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "VALUES (:sk, 'Blood Report Auto Pick', 'email', 'blood-report-auto-pick', true, true, false, false, false) "
+            "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_blood_report_url = true"
+        ),
+        {"sk": service_key},
+    )
+    await test_db_session.commit()
+
+    webhook_calls: list[dict] = []
+
+    class _FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"message": "ok"}
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, json=None):
+            webhook_calls.append({"url": url, "json": json})
+            return _FakeResponse()
+
+    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+
+    response = await async_client.post(
+        "/notifications/dispatch",
+        headers=_api_key_header(),
+        json={"service_key": service_key, "user_ids": [9743]},
+    )
+    assert response.status_code == 201, response.text
+    assert webhook_calls
+    webhook_payload = webhook_calls[0]["json"]
+    assert webhook_payload["engagement_id"] == 9742
+    member = webhook_payload["members"][0]
+    assert member["blood_report_url"] == archived_url
+
+    notification_id = response.json()["data"]["notification_id"]
+    row = (
+        await test_db_session.execute(
+            text(
+                "SELECT engagement_id, assessment_instance_id FROM notifications "
+                "WHERE notification_id = :nid"
+            ),
+            {"nid": notification_id},
+        )
+    ).mappings().one()
+    assert row["engagement_id"] == 9742
+    assert row["assessment_instance_id"] == 9744
 
 
 @pytest.mark.asyncio
