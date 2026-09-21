@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import itertools
 import json
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -725,18 +724,19 @@ class CampReportsRepository:
             rows.append((int(user_id), booking_user_id is not None, record_id))
         return rows
 
-    async def compute_consultation_counts(
+    async def _compute_expert_type_counts(
         self,
         db: AsyncSession,
         *,
         camp_no: int,
         department: str | None = None,
         city: str | None = None,
+        done: bool = False,
     ) -> dict[str, int]:
-        """Count distinct users wanting each expert type and every combination (size >= 2).
+        """Count distinct users per expert ``type_key`` for camp consultation bookings.
 
-        Keys are expert ``type_key`` values (and sorted ``_``-joined combinations).
-        A user counts for a combination when they have ``want=True`` for every type in it.
+        When ``done`` is false, counts bookings with ``want=True``.
+        When ``done`` is true, counts bookings with ``done=True``.
         """
         expert_types_result = await db.execute(
             select(ExpertTypeModel.type_key).order_by(ExpertTypeModel.type_key.asc())
@@ -745,14 +745,13 @@ class CampReportsRepository:
         type_keys = [key for key in type_keys if key]
 
         counts: dict[str, int] = {key: 0 for key in type_keys}
-        for size in range(2, len(type_keys) + 1):
-            for combo in itertools.combinations(type_keys, size):
-                counts["_".join(combo)] = 0
-
         if not type_keys:
             return counts
 
-        want_query = (
+        flag_column = (
+            ConsultationBooking.done if done else ConsultationBooking.want
+        )
+        booking_query = (
             select(
                 EngagementParticipant.user_id,
                 ConsultationBooking.expert_type,
@@ -769,22 +768,22 @@ class CampReportsRepository:
             )
             .where(
                 Engagement.camp_no == camp_no,
-                ConsultationBooking.want.is_(True),
+                flag_column.is_(True),
             )
         )
         if department is not None:
-            want_query = want_query.where(
+            booking_query = booking_query.where(
                 EngagementParticipant.participant_department == department
             )
         if city is not None:
-            want_query = want_query.where(
+            booking_query = booking_query.where(
                 func.lower(func.trim(Engagement.city)) == city.lower()
             )
 
-        want_result = await db.execute(want_query)
+        booking_result = await db.execute(booking_query)
         user_types: dict[int, set[str]] = {}
         known_types = set(type_keys)
-        for user_id, expert_type in want_result.all():
+        for user_id, expert_type in booking_result.all():
             if expert_type is None:
                 continue
             key = str(expert_type).strip()
@@ -796,12 +795,42 @@ class CampReportsRepository:
             for key in type_keys:
                 if key in types:
                     counts[key] += 1
-            for size in range(2, len(type_keys) + 1):
-                for combo in itertools.combinations(type_keys, size):
-                    if set(combo).issubset(types):
-                        counts["_".join(combo)] += 1
 
         return counts
+
+    async def compute_consultation_counts(
+        self,
+        db: AsyncSession,
+        *,
+        camp_no: int,
+        department: str | None = None,
+        city: str | None = None,
+    ) -> dict[str, int]:
+        """Count distinct users wanting each expert type (``want=True``)."""
+        return await self._compute_expert_type_counts(
+            db,
+            camp_no=camp_no,
+            department=department,
+            city=city,
+            done=False,
+        )
+
+    async def compute_consultation_done_counts(
+        self,
+        db: AsyncSession,
+        *,
+        camp_no: int,
+        department: str | None = None,
+        city: str | None = None,
+    ) -> dict[str, int]:
+        """Count distinct users with each expert type consultation completed (``done=True``)."""
+        return await self._compute_expert_type_counts(
+            db,
+            camp_no=camp_no,
+            department=department,
+            city=city,
+            done=True,
+        )
 
     async def compute_kpi_metrics(
         self,
@@ -817,7 +846,7 @@ class CampReportsRepository:
         """Aggregate KPI counts for a camp (optionally scoped to a department).
 
         Blood totals come from the service (booking_id + Metsights collection checks).
-        Consultation counts include all expert types and combinations.
+        Consultation counts include all expert types (want and done).
         """
         enrolled = self._enrolled_users_ranked_subquery(
             camp_no=camp_no, department=department, city=city
@@ -846,11 +875,14 @@ class CampReportsRepository:
             department=department,
             city=city,
         )
+        consultation_done = await self.compute_consultation_done_counts(
+            db,
+            camp_no=camp_no,
+            department=department,
+            city=city,
+        )
         doctor_consultation = int(consultations.get("doctor", 0))
         nutritionist_consultation = int(consultations.get("nutritionist", 0))
-        doctor_and_nutritionist_consultation = int(
-            consultations.get("doctor_nutritionist", 0)
-        )
 
         ranked_reports = (
             select(
@@ -1092,9 +1124,9 @@ class CampReportsRepository:
             "female_enrolled": female_enrolled,
             "total_blood_test": len(blood_tested_user_ids),
             "consultations": consultations,
+            "consultation_done": consultation_done,
             "doctor_consultation": doctor_consultation,
             "nutritionist_consultation": nutritionist_consultation,
-            "doctor_and_nutritionist_consultation": doctor_and_nutritionist_consultation,
             "questionnaire_completed": questionnaire_completed,
             "bio_ai_report_generated": bio_ai_report_generated,
             "high_risk_group": high_risk_group,

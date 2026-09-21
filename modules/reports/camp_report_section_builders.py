@@ -236,6 +236,7 @@ def build_kpis(metrics: dict) -> dict:
     enrolled = int(metrics["employees_enrolled"])
     blood = int(metrics["total_blood_test"])
     consultations = metrics.get("consultations") or {}
+    consultation_done = metrics.get("consultation_done") or {}
     return {
         "data": {
             "employees_enrolled": enrolled,
@@ -244,11 +245,11 @@ def build_kpis(metrics: dict) -> dict:
             "total_blood_test": blood,
             "blood_test_percent": round(blood / enrolled * 100) if enrolled else 0,
             "consultations": {str(k): int(v) for k, v in dict(consultations).items()},
+            "consultation_done": {
+                str(k): int(v) for k, v in dict(consultation_done).items()
+            },
             "doctor_consultation": int(metrics["doctor_consultation"]),
             "nutritionist_consultation": int(metrics["nutritionist_consultation"]),
-            "doctor_and_nutritionist_consultation": int(
-                metrics["doctor_and_nutritionist_consultation"]
-            ),
             "questionnaire_completed": int(metrics.get("questionnaire_completed") or 0),
             "bio_ai_report_generated": int(metrics.get("bio_ai_report_generated") or 0),
             "high_risk_group": int(metrics["high_risk_group"]),

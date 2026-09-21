@@ -83,11 +83,13 @@ def test_build_kpis_percent():
             "consultations": {
                 "doctor": 2,
                 "nutritionist": 1,
-                "doctor_nutritionist": 1,
+            },
+            "consultation_done": {
+                "doctor": 1,
+                "nutritionist": 0,
             },
             "doctor_consultation": 2,
             "nutritionist_consultation": 1,
-            "doctor_and_nutritionist_consultation": 1,
             "questionnaire_completed": 3,
             "bio_ai_report_generated": 3,
             "high_risk_group": 1,
@@ -97,7 +99,7 @@ def test_build_kpis_percent():
     )
     assert payload["data"]["blood_test_percent"] == 75
     assert payload["data"]["consultations"]["doctor"] == 2
-    assert payload["data"]["consultations"]["doctor_nutritionist"] == 1
+    assert payload["data"]["consultation_done"]["doctor"] == 1
     assert payload["data"]["questionnaire_completed"] == 3
     assert payload["data"]["bio_ai_report_generated"] == 3
     assert payload["data"]["caution_risk_group"] == 1
@@ -112,9 +114,9 @@ def test_build_kpis_percent_zero_enrolled():
             "female_enrolled": 0,
             "total_blood_test": 0,
             "consultations": {},
+            "consultation_done": {},
             "doctor_consultation": 0,
             "nutritionist_consultation": 0,
-            "doctor_and_nutritionist_consultation": 0,
             "questionnaire_completed": 0,
             "bio_ai_report_generated": 0,
             "high_risk_group": 0,
