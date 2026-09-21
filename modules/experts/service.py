@@ -1849,17 +1849,13 @@ class ExpertAvailabilityService:
         slot_val = pref.get("slot")
         within_engagement_window = self._within_engagement_window(engagement)
 
-        is_camp_consultation = booking.expert_id is None and self._is_offline_b2b_engagement(engagement)
-        email_out = mask_email(user.email) if is_camp_consultation else user.email
-        phone_out = mask_phone(user.phone) if is_camp_consultation else user.phone
-
         return {
             "consultation_id": booking.consultation_id,
             "user_id": user.user_id,
             "first_name": user.first_name,
             "last_name": user.last_name,
-            "email": email_out,
-            "phone": phone_out,
+            "email": mask_email(user.email),
+            "phone": mask_phone(user.phone),
             "engagement_id": engagement.engagement_id,
             "engagement_code": engagement.engagement_code,
             "start_date": engagement.start_date.isoformat() if engagement.start_date else None,

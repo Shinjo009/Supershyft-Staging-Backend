@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 
+def looks_masked(value: str | None) -> bool:
+    """True when a contact string already contains redaction asterisks."""
+    if value is None:
+        return False
+    return "*" in str(value)
+
+
 def mask_phone(phone: str | None) -> str | None:
     """Mask a phone number, keeping the last 4 characters visible.
 
@@ -19,9 +26,12 @@ def mask_phone(phone: str | None) -> str | None:
 
 
 def mask_email(email: str | None) -> str | None:
-    """Mask the local-part of an email, keeping the last 4 chars and full domain.
+    """Mask the local-part of an email for admin display.
 
-    Example: ``pratheek.fitnastic@gmail.com`` → ``*************stic@gmail.com``.
+    Keeps the first character and last 3 characters of the local-part, plus the
+    full domain.
+
+    Example: ``sandeeprairai199@gmail.com`` → ``s***********199@gmail.com``.
     Null/empty or emails without ``@`` are handled safely.
     """
     if email is None:
@@ -38,4 +48,4 @@ def mask_email(email: str | None) -> str | None:
     domain = value[at:]  # includes '@'
     if len(local) <= 4:
         return ("*" * len(local)) + domain
-    return ("*" * (len(local) - 4)) + local[-4:] + domain
+    return local[0] + ("*" * (len(local) - 4)) + local[-3:] + domain

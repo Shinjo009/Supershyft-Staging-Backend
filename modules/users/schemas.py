@@ -7,6 +7,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field, model_validator, validator
 
+from common.masking import looks_masked
 from common.validation import (
     AddressText,
     CityStateCountry,
@@ -27,8 +28,10 @@ from common.validation import (
     PositiveIntId,
     SafeDisplayName,
     ShortSafeText,
-    SlugKey,
     StatusStr,
+    SlugKey,
+    ValidationError,
+    _validate_phone,
     validate_nested_strings,
 )
 from modules.questionnaire.schemas import ResponseItem
@@ -591,8 +594,8 @@ class EmployeeUpdateUserRequest(BaseModel):
     age: Optional[int] = None
     first_name: OptionalPersonName = None
     last_name: OptionalPersonName = None
-    phone: PhoneStr
-    email: Optional[EmailStr] = None
+    phone: str
+    email: Optional[str] = None
     profile_photo: Optional[str] = Field(default=None, max_length=500)
     date_of_birth: Optional[date] = None
     gender: OptionalSafeDisplayName = None
@@ -604,6 +607,32 @@ class EmployeeUpdateUserRequest(BaseModel):
     referred_by: OptionalEngagementCode = None
     is_participant: Optional[bool] = None
     status: StatusStr = "active"
+
+    @validator("phone")
+    def phone_must_be_valid_or_masked(cls, v):
+        if v is None or not str(v).strip():
+            raise ValueError("Phone is required")
+        cleaned = str(v).strip()
+        if looks_masked(cleaned):
+            return cleaned
+        try:
+            return _validate_phone(cleaned)
+        except ValidationError as exc:
+            raise ValueError(str(exc)) from exc
+
+    @validator("email")
+    def email_must_be_valid_or_masked(cls, v):
+        if v is None or v == "":
+            return None
+        cleaned = str(v).strip()
+        if looks_masked(cleaned):
+            return cleaned
+        from pydantic import TypeAdapter
+
+        try:
+            return TypeAdapter(EmailStr).validate_python(cleaned)
+        except Exception as exc:
+            raise ValueError("Invalid email") from exc
 
     @validator("age", pre=True)
     def normalize_optional_age(cls, v):

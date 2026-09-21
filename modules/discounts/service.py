@@ -92,7 +92,9 @@ class DiscountService:
         if existing:
             return {"_error": (409, "Discount code already exists")}
         row = await self.repository.create(db, payload, actor_id=actor_id)
-        await db.refresh(row, attribute_names=["scopes", "packages", "cities"])
+        await db.flush()
+        row = await self.repository.get_by_id(db, row.discount_code_id)
+        assert row is not None
         return serialize_code(row)
 
     async def update_code(
@@ -133,6 +135,10 @@ class DiscountService:
             db, discount_code_id, actor_id, "status", {"from": old, "to": new_status, "action": action}
         )
         await db.flush()
+        # Reload: flush expires server-onupdate fields (e.g. updated_at); lazy refresh
+        # in serialize_code causes MissingGreenlet under async SQLAlchemy.
+        row = await self.repository.get_by_id(db, discount_code_id)
+        assert row is not None
         return serialize_code(row)
 
     async def list_codes(

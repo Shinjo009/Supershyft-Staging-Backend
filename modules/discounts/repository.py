@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import secrets
 import string
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Any, Optional
 
 from sqlalchemy import delete, func, select
@@ -22,6 +23,19 @@ from modules.discounts.models import (
     DiscountUsage,
 )
 from modules.discounts.schemas import DiscountCodeCreate, DiscountCodeUpdate, normalize_code
+
+
+def _json_safe(value: Any) -> Any:
+    """Make values safe for PostgreSQL JSON / stdlib json.dumps."""
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return value
 
 
 class DiscountRepository:
@@ -215,7 +229,7 @@ class DiscountRepository:
                 discount_code_id=discount_code_id,
                 actor_employee_id=actor_id,
                 action=action,
-                diff=diff,
+                diff=_json_safe(diff) if diff is not None else None,
             )
         )
 

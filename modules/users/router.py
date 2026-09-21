@@ -6,6 +6,7 @@ from fastapi import APIRouter, Body, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.listing import sanitize_list_search
+from common.masking import mask_email, mask_phone
 from common.responses import success_response
 from common.validation import ValidationError
 from core.dependencies import get_current_user
@@ -641,8 +642,8 @@ async def employee_list_duplicate_users(
                         "user_id": user.user_id,
                         "first_name": user.first_name,
                         "last_name": user.last_name,
-                        "phone": user.phone,
-                        "email": user.email,
+                        "phone": mask_phone(user.phone),
+                        "email": mask_email(user.email),
                         "status": user.status,
                     }
                     for user in group
@@ -699,8 +700,8 @@ async def employee_list_users(
                 "first_name": user.first_name,
                 "last_name": user.last_name,
                 "age": user.age,
-                "phone": user.phone,
-                "email": user.email,
+                "phone": mask_phone(user.phone),
+                "email": mask_email(user.email),
                 "profile_photo": user.profile_photo,
                 "date_of_birth": user.date_of_birth,
                 "city": user.city,
@@ -808,8 +809,8 @@ async def employee_get_user(
             "first_name": user.first_name,
             "last_name": user.last_name,
             "age": user.age,
-            "phone": user.phone,
-            "email": user.email,
+            "phone": mask_phone(user.phone),
+            "email": mask_email(user.email),
             "profile_photo": user.profile_photo,
             "date_of_birth": user.date_of_birth,
             "gender": user.gender,

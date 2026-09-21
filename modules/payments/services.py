@@ -426,12 +426,14 @@ class PaymentsService:
             except Exception as exc:
                 logger.exception("Razorpay order creation failed: %s", exc)
                 await db.rollback()
-                return {"_error": (502, "Payment service unavailable")}
+                detail = str(exc).strip() or type(exc).__name__
+                # Unique prefix so Postman can confirm this code path is hit.
+                return {"_error": (502, f"Razorpay error: {detail}")}
 
             razorpay_order_id = rz_order.get("id")
             if not razorpay_order_id:
                 await db.rollback()
-                return {"_error": (502, "Payment service unavailable")}
+                return {"_error": (502, "Razorpay error: missing order id")}
 
             order_row = Order(
                 booking_id=anchor_booking_id,

@@ -213,7 +213,7 @@ async def test_camp_consultation_participants_filter_by_expert_type_and_mask_pii
     assert item["consultation_id"] == 886301
     assert item["phone"] == "********0002"
     assert item["email"].endswith("@example.com")
-    assert item["email"].startswith("*")
+    assert "*" in item["email"]
     assert item["cabin"] == "C1"
 
 
@@ -244,7 +244,7 @@ async def test_camp_consultation_manage_without_expert_id(async_client, test_db_
     assert body["consultation_id"] == consultation_id
     assert body["cabin"] == "C1"
     assert body["phone"] == "********0002"
-    assert body["email"].startswith("*")
+    assert "*" in body["email"]
     assert body["within_engagement_window"] is True
 
     patch = await async_client.patch(
