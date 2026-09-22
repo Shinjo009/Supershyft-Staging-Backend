@@ -76,7 +76,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Ensure users exist and are enrolled, then INSERT/UPDATE "
-            "notifications.status=sent for report channels on engagements 16/72/73. "
+            "notifications.status=sent only for Excel-ticked report channels "
+            "on engagements 16/72/73 (blank cells ignored). "
             "Uses embedded registration data (no Excel). Never sends notifications."
         )
     )

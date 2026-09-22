@@ -5,9 +5,10 @@ Cohorts (embedded data, no Excel at runtime):
 - engagement_id 72 — Celebal Technologies Male
 - engagement_id 73 — Celebal Technologies Female
 
-Rule: for each Excel user row, resolve/create user by phone, then for all
-four report channels (tick OR blank) set notifications.status=sent
-(INSERT if missing, UPDATE if present). Never dispatches / n8n / email / WhatsApp.
+Rule: for each row, resolve/create user by phone and enroll in engagement_id.
+Only channels with an Excel tick (embedded True) get notifications.status=sent
+(INSERT if missing, UPDATE if present non-sent, skip if already sent).
+Blank / False channels are ignored. Never dispatches / n8n / email / WhatsApp.
 """
 
 from __future__ import annotations
@@ -151,10 +152,11 @@ def _rows_from_cohort(cohort: dict) -> list[SourceRow]:
     for i, raw in enumerate(cohort.get("rows") or [], start=1):
         channels: dict[str, bool] = {}
         for flag, service_key in CHANNEL_FLAG_TO_SERVICE_KEY.items():
-            # Tick or blank/non-tick both mean mark sent → embedded flags are True
-            # Embedded flags True for tick OR blank (option B)
-            if bool(raw.get(flag, True)):
+            # Tick only (True). Blank / False / missing = ignore that channel.
+            if raw.get(flag) is True:
                 channels[service_key] = True
+        if not channels:
+            continue
         rows.append(
             SourceRow(
                 row_number=i,
