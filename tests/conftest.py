@@ -439,6 +439,7 @@ async def _cleanup_auth_test_rows(test_db_session: AsyncSession):
         _non_seed_users = "user_id >= 1001 AND user_id < 10000"
     await test_db_session.execute(text(f"DELETE FROM data_audit_logs WHERE {_non_seed_users}"))
     await test_db_session.execute(text("DELETE FROM export_logs"))
+    await test_db_session.execute(text("DELETE FROM server_health_host_state"))
     await test_db_session.execute(text("DELETE FROM integration_sync_logs"))
     await test_db_session.execute(text(f"DELETE FROM auth_otp_sessions WHERE {_non_seed_users}"))
     await test_db_session.execute(text(f"DELETE FROM auth_tokens WHERE {_non_seed_users}"))

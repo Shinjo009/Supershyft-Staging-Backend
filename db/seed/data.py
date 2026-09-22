@@ -227,4 +227,10 @@ DEFAULT_NOTIFICATION_SERVICES: tuple[SeedNotificationService, ...] = (
         webhook_path="/phlebo-delay-email-v1",
         require_participant_detail=True,
     ),
+    SeedNotificationService(
+        service_key="cpu_above_threshold",
+        display_name="CPU Overload Email",
+        channel="email",
+        webhook_path="/cpu_above_threshold",
+    ),
 )

@@ -6,6 +6,7 @@ other nullable columns). These schemas coerce nulls so the API never 500s.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -107,6 +108,43 @@ class HealthChecksByCategory(BaseModel):
     checks: list[HealthCheckRead] = Field(default_factory=list)
 
 
+class ServerHealthLatestMetricsRead(BaseModel):
+    hostname: str
+    cpu_usage: float
+    memory_usage: float
+    storage_usage: float
+    load_1m: float
+    cores: int
+    timestamp: str
+
+
+class ServerHealthCpuAlertRead(BaseModel):
+    is_alerting: bool
+    threshold_pct: float
+    hostname: str | None = None
+    last_alerted_at: str | None = None
+    last_recovered_at: str | None = None
+
+
 class ServerHealthCurrentRead(BaseModel):
     run: HealthRunRead
     checks_by_category: list[HealthChecksByCategory] = Field(default_factory=list)
+    latest_metrics: ServerHealthLatestMetricsRead | None = None
+    cpu_alert: ServerHealthCpuAlertRead | None = None
+
+
+class ServerHealthMetricsIn(BaseModel):
+    hostname: str = Field(..., min_length=1, max_length=255)
+    cpu_usage: float = Field(..., ge=0, le=100)
+    memory_usage: float = Field(..., ge=0, le=100)
+    storage_usage: float = Field(..., ge=0, le=100)
+    load_1m: float = Field(..., ge=0)
+    cores: int = Field(..., ge=1)
+    timestamp: datetime
+
+    @field_validator("hostname", mode="before")
+    @classmethod
+    def _strip_hostname(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip()
+        return value

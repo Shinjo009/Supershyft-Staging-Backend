@@ -648,6 +648,8 @@ async def authorize_inferior_admin_request(
         token = (request.query_params.get("access_token") or "").strip()
     if not token:
         return
+    if request.url.path == "/server-health/metrics":
+        return
     if request.headers.get("x-api-key") and request.url.path.startswith("/notifications"):
         return
     try:

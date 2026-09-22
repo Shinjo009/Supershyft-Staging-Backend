@@ -35,3 +35,4 @@ from modules.notifications import models as _notifications_models  # noqa: F401,
 from modules.partners import models as _partners_models  # noqa: F401, E402
 from modules.discounts import models as _discounts_models  # noqa: F401, E402
 from modules.export_logs import models as _export_logs_models  # noqa: F401, E402
+from modules.server_health import models as _server_health_models  # noqa: F401, E402

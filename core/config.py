@@ -87,6 +87,11 @@ class Settings:
         "HEALTH_CHECK_DB_PATH",
         "/var/www/health-check-db/health.db" if _IS_PRODUCTION else "./health.db",
     )
+    # Bearer token for POST /server-health/metrics (health_check.sh).
+    HEALTH_API_TOKEN: str = os.getenv("HEALTH_API_TOKEN", "")
+    CPU_ALERT_THRESHOLD_PCT: float = float(os.getenv("CPU_ALERT_THRESHOLD_PCT", "75"))
+    CPU_ALERT_SERVICE_KEY: str = os.getenv("CPU_ALERT_SERVICE_KEY", "cpu_above_threshold")
+    CPU_ALERT_USER_IDS: str = os.getenv("CPU_ALERT_USER_IDS", "5,6,7")
 
     # Media upload settings
     MEDIA_ROOT: str = os.getenv(
