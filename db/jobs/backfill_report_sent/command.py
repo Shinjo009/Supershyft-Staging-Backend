@@ -1,4 +1,4 @@
-"""Backfill report notifications as sent for CBTW + Celebal (DB-only, embedded data).
+"""Backfill report notifications as sent (DB-only, embedded data).
 
 No Excel file is required at runtime. Data is embedded in
 ``modules.notifications.report_sent_backfill_data``.
@@ -7,6 +7,8 @@ Cohorts:
   engagement_id 16 — CBTW Pvt ltd
   engagement_id 72 — Celebal Technologies Male
   engagement_id 73 — Celebal Technologies Female
+
+INSERT if missing; skip if a notification already exists (never UPDATE).
 
 ::
 
@@ -23,6 +25,7 @@ import json
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -75,9 +78,9 @@ async def run_backfill(
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Ensure users exist and are enrolled, then INSERT/UPDATE "
+            "Ensure users exist and are enrolled, then INSERT "
             "notifications.status=sent only for Excel-ticked report channels "
-            "on engagements 16/72/73 (blank cells ignored). "
+            "on engagements 16/72/73 when missing (skip if present; never UPDATE). "
             "Uses embedded registration data (no Excel). Never sends notifications."
         )
     )
@@ -98,6 +101,44 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Write JSON report to this path.",
     )
     return parser
+
+
+def _format_name(action: dict[str, Any]) -> str:
+    first = (action.get("first_name") or "").strip()
+    last = (action.get("last_name") or "").strip()
+    return f"{first} {last}".strip() or "-"
+
+
+def _print_user_action(action: dict[str, Any]) -> None:
+    name = _format_name(action)
+    user_id = action.get("user_id")
+    user_bit = f"user_id={user_id}" if user_id is not None else f"user={action.get('user', '-')}"
+    print(
+        f"      {user_bit} "
+        f"name={name!r} "
+        f"phone={action.get('phone')!r} "
+        f"email={action.get('email')!r}"
+    )
+    if action.get("enroll") == "would_enroll":
+        print("        enroll=would_enroll")
+    elif action.get("enrolled") is True:
+        print("        enroll=created")
+    notifications = action.get("notifications")
+    if notifications == "would_insert_after_create":
+        channels = action.get("channels") or []
+        print(f"        notifications=would_insert_after_create channels={channels}")
+        return
+    if isinstance(notifications, list):
+        for ch in notifications:
+            if ch.get("error"):
+                print(f"        {ch.get('service_key')}: error={ch.get('error')}")
+            else:
+                extra = ""
+                if ch.get("notification_id") is not None:
+                    extra += f" notification_id={ch.get('notification_id')}"
+                if ch.get("status") is not None:
+                    extra += f" status={ch.get('status')!r}"
+                print(f"        {ch.get('service_key')}: {ch.get('action')}{extra}")
 
 
 def _print_summary(result: dict) -> None:
@@ -126,6 +167,8 @@ def _print_summary(result: dict) -> None:
             f"skip={cohort.get('notifications_skipped')} "
             f"errors={len(cohort.get('errors') or [])}"
         )
+        for action in cohort.get("actions") or []:
+            _print_user_action(action)
         for err in (cohort.get("errors") or [])[:10]:
             print(f"      error: {err}")
     print()

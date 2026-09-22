@@ -7,10 +7,9 @@ Cohorts (embedded data, no Excel at runtime):
 
 Rule: for each row, resolve/create user by phone and enroll in engagement_id.
 Only channels with an Excel tick (embedded True) get notifications.status=sent
-(INSERT if missing, UPDATE if present non-sent, skip if already sent).
+(INSERT if missing; skip if any notification already exists — never UPDATE).
 Blank / False channels are ignored. Never dispatches / n8n / email / WhatsApp.
 """
-
 from __future__ import annotations
 
 import logging
@@ -320,6 +319,8 @@ async def _backfill_cohort(
         action: dict[str, Any] = {
             "engagement_id": engagement_id,
             "row": row.row_number,
+            "first_name": row.first_name,
+            "last_name": row.last_name,
             "phone": row.phone,
             "email": row.email,
         }
@@ -480,46 +481,23 @@ async def _backfill_cohort(
                             "notification_id": int(notification.notification_id),
                         }
                     )
-            elif (existing.status or "").lower() == "sent":
+            else:
+                # Insert-only: never UPDATE existing rows (sent or otherwise).
                 result.notifications_skipped += 1
+                existing_status = (existing.status or "").lower()
+                skip_action = (
+                    "skipped_already_sent"
+                    if existing_status == "sent"
+                    else "skipped_already_exists"
+                )
                 channel_actions.append(
                     {
                         "service_key": service_key,
-                        "action": "skipped_already_sent",
+                        "action": skip_action,
+                        "status": existing.status,
                         "notification_id": int(existing.notification_id),
                     }
                 )
-            else:
-                if dry_run:
-                    result.notifications_updated += 1
-                    channel_actions.append(
-                        {
-                            "service_key": service_key,
-                            "action": "would_update",
-                            "from_status": existing.status,
-                            "notification_id": int(existing.notification_id),
-                        }
-                    )
-                else:
-                    await notifications_repo.update_notification(
-                        db,
-                        notification_id=int(existing.notification_id),
-                        values={
-                            "status": "sent",
-                            "message": BACKFILL_MESSAGE,
-                            "completed_at": now,
-                            "dispatched_at": existing.dispatched_at or now,
-                        },
-                    )
-                    result.notifications_updated += 1
-                    channel_actions.append(
-                        {
-                            "service_key": service_key,
-                            "action": "updated",
-                            "from_status": existing.status,
-                            "notification_id": int(existing.notification_id),
-                        }
-                    )
 
         action["notifications"] = channel_actions
         action["created_user"] = created_user
@@ -558,21 +536,3 @@ async def backfill_report_sent(
             )
 
     return result
-
-
-# Back-compat alias used by older CBTW job shim
-async def backfill_cbtw_report_sent(
-    db: AsyncSession,
-    *,
-    engagement_id: int = 16,
-    dry_run: bool = True,
-    excel_path=None,  # ignored — embedded data only
-) -> dict[str, Any]:
-    result = await backfill_report_sent(
-        db,
-        engagement_ids=[engagement_id],
-        dry_run=dry_run,
-    )
-    if result.cohorts:
-        return result.cohorts[0].to_dict()
-    return BackfillResult(dry_run=dry_run).to_dict()
