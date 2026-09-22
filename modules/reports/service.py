@@ -72,6 +72,7 @@ from modules.reports.schemas import (
     FitPrintParameterRange,
     HealthSpanFitnessDetail,
     HealthSpanIndexResponse,
+    HomeSummaryReportResponse,
     WaistMeasurement,
     HealthSpanLifestyleDetail,
     HealthSpanNutritionDetail,
@@ -1460,6 +1461,66 @@ class ReportsService:
                 healthy_profiles=healthy_profiles,
             ),
             risk_analysis=risk_analysis_list,
+        )
+
+    async def get_home_summary_for_user(
+        self,
+        db: AsyncSession,
+        *,
+        assessment_instance_id: int,
+        user_id: int,
+        user_gender: str | None,
+        user_age: int | None,
+        user_date_of_birth: date | None,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> HomeSummaryReportResponse:
+        overview = await self.get_overview_for_user(
+            db,
+            assessment_id=assessment_instance_id,
+            user_id=user_id,
+            user_gender=user_gender,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            endpoint=endpoint,
+        )
+
+        row = await self._assessments_repository.get_instance_for_user_with_engagement(
+            db,
+            assessment_instance_id=assessment_instance_id,
+            user_id=user_id,
+        )
+        if row is None:
+            raise AppError(status_code=404, error_code="ASSESSMENT_NOT_FOUND", message="Assessment does not exist")
+
+        assessment_instance, _package, _engagement = row
+        fitprint_instance = await self._assessments_repository.get_fitprint_instance_for_user_engagement(
+            db,
+            user_id=user_id,
+            engagement_id=int(assessment_instance.engagement_id),
+        )
+
+        health_span_index: HealthSpanIndexResponse | None = None
+        if fitprint_instance is not None:
+            fitprint_id = int(fitprint_instance.assessment_instance_id)
+            health_span_index = await self.get_health_span_index(
+                db,
+                assessment_instance_id=fitprint_id,
+                user_id=user_id,
+                user_gender=user_gender,
+                user_age=user_age,
+                user_date_of_birth=user_date_of_birth,
+                source_assessment_instance_ids=[fitprint_id, assessment_instance_id],
+                include_details=False,
+            )
+
+        return HomeSummaryReportResponse(
+            assessment_id=overview.assessment_id,
+            metabolic_age=overview.metabolic_age,
+            positive_wins=overview.positive_wins,
+            risk_analysis=overview.risk_analysis,
+            health_span_index=health_span_index,
         )
 
     async def _get_or_fetch_report(

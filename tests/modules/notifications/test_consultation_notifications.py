@@ -286,7 +286,7 @@ def _services():
 
 
 @pytest.mark.asyncio
-async def test_consultation_notifications_bioai_ready_with_no_bookings(test_db_session, monkeypatch):
+async def test_consultation_notifications_blood_ready_with_no_bookings(test_db_session, monkeypatch):
     await _seed_dependencies(test_db_session)
     await _insert_engagement(
         test_db_session,
@@ -297,7 +297,7 @@ async def test_consultation_notifications_bioai_ready_with_no_bookings(test_db_s
         consultations={"doctor": True, "nutritionist": True},
     )
     await _insert_participant(test_db_session, engagement_id=9701, user_id=97011)
-    await _insert_bioai_ihr(
+    await _insert_blood_ihr(
         test_db_session, report_id=9701, user_id=97011, engagement_id=9701, ready=True
     )
     await test_db_session.commit()
@@ -393,7 +393,7 @@ async def test_consultation_notifications_skips_when_all_offered_types_are_booke
         consultation_slot="11:00:00",
         consultation_cabin="cabin-b",
     )
-    await _insert_bioai_ihr(
+    await _insert_blood_ihr(
         test_db_session, report_id=9703, user_id=97031, engagement_id=9703, ready=True
     )
     await test_db_session.commit()
@@ -444,7 +444,7 @@ async def test_consultation_notifications_sends_when_want_true_but_slot_cabin_da
         expert_type="nutritionist",
         want=True,
     )
-    await _insert_bioai_ihr(
+    await _insert_blood_ihr(
         test_db_session, report_id=9710, user_id=97101, engagement_id=9710, ready=True
     )
     await test_db_session.commit()
@@ -501,7 +501,7 @@ async def test_consultation_notifications_sends_when_one_offered_type_is_still_u
         expert_type="nutritionist",
         want=True,
     )
-    await _insert_bioai_ihr(
+    await _insert_blood_ihr(
         test_db_session, report_id=9711, user_id=97111, engagement_id=9711, ready=True
     )
     await test_db_session.commit()
@@ -551,7 +551,7 @@ async def test_consultation_notifications_sends_when_any_offered_type_has_want_f
         expert_type="nutritionist",
         want=False,
     )
-    await _insert_bioai_ihr(
+    await _insert_blood_ihr(
         test_db_session, report_id=9704, user_id=97041, engagement_id=9704, ready=True
     )
     await test_db_session.commit()
@@ -604,7 +604,7 @@ async def test_consultation_notifications_ignores_non_offered_false_booking(test
         expert_type="nutritionist",
         want=False,
     )
-    await _insert_bioai_ihr(
+    await _insert_blood_ihr(
         test_db_session, report_id=9705, user_id=97051, engagement_id=9705, ready=True
     )
     await test_db_session.commit()
@@ -639,7 +639,7 @@ async def test_consultation_notifications_skips_when_report_not_ready(test_db_se
         consultations={"doctor": True},
     )
     await _insert_participant(test_db_session, engagement_id=9706, user_id=97061)
-    await _insert_bioai_ihr(
+    await _insert_blood_ihr(
         test_db_session, report_id=9706, user_id=97061, engagement_id=9706, ready=False
     )
     await test_db_session.commit()
@@ -674,7 +674,7 @@ async def test_consultation_notifications_dry_run_does_not_dispatch(test_db_sess
         consultations={"doctor": True},
     )
     await _insert_participant(test_db_session, engagement_id=9707, user_id=97071)
-    await _insert_bioai_ihr(
+    await _insert_blood_ihr(
         test_db_session, report_id=9707, user_id=97071, engagement_id=9707, ready=True
     )
     await test_db_session.commit()
@@ -712,7 +712,7 @@ async def test_consultation_notifications_skips_already_sent(test_db_session, mo
         service_keys=CONSULT_WHATSAPP_KEY,
     )
     await _insert_participant(test_db_session, engagement_id=9708, user_id=97081)
-    await _insert_bioai_ihr(
+    await _insert_blood_ihr(
         test_db_session, report_id=9708, user_id=97081, engagement_id=9708, ready=True
     )
     await test_db_session.commit()
@@ -766,8 +766,85 @@ async def test_consultation_notifications_skips_wrong_engagement_type(test_db_se
         consultations={"doctor": True},
     )
     await _insert_participant(test_db_session, engagement_id=9709, user_id=97091)
-    await _insert_bioai_ihr(
+    await _insert_blood_ihr(
         test_db_session, report_id=9709, user_id=97091, engagement_id=9709, ready=True
+    )
+    await test_db_session.commit()
+
+    webhook_calls: list[dict] = []
+    monkeypatch.setattr(
+        "modules.notifications.service.httpx.AsyncClient",
+        _fake_httpx_client(webhook_calls),
+    )
+
+    notifications_service, engagements_repository = _services()
+    result = await dispatch_consultation_notifications(
+        test_db_session,
+        notifications_service=notifications_service,
+        engagements_repository=engagements_repository,
+        dry_run=False,
+    )
+    await test_db_session.commit()
+
+    assert result["matched"] == 0
+    assert len(webhook_calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_consultation_notifications_sends_when_blood_ready_but_bioai_not_ready(
+    test_db_session, monkeypatch
+):
+    await _seed_dependencies(test_db_session)
+    await _insert_engagement(
+        test_db_session,
+        engagement_id=9712,
+        engagement_code="ENG9712",
+        status="running",
+        engagement_type="bio_ai_with_consultation",
+        consultations={"doctor": True},
+    )
+    await _insert_participant(test_db_session, engagement_id=9712, user_id=97121)
+    await _insert_blood_ihr(
+        test_db_session, report_id=9712, user_id=97121, engagement_id=9712, ready=True
+    )
+    await test_db_session.commit()
+
+    webhook_calls: list[dict] = []
+    monkeypatch.setattr(
+        "modules.notifications.service.httpx.AsyncClient",
+        _fake_httpx_client(webhook_calls),
+    )
+
+    notifications_service, engagements_repository = _services()
+    result = await dispatch_consultation_notifications(
+        test_db_session,
+        notifications_service=notifications_service,
+        engagements_repository=engagements_repository,
+        dry_run=False,
+    )
+    await test_db_session.commit()
+
+    assert result["matched"] == 1
+    assert result["sent"] == 1
+    assert len(webhook_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_consultation_notifications_skips_when_bioai_ready_but_blood_not_ready(
+    test_db_session, monkeypatch
+):
+    await _seed_dependencies(test_db_session)
+    await _insert_engagement(
+        test_db_session,
+        engagement_id=9713,
+        engagement_code="ENG9713",
+        status="running",
+        engagement_type="bio_ai_with_consultation",
+        consultations={"doctor": True},
+    )
+    await _insert_participant(test_db_session, engagement_id=9713, user_id=97131)
+    await _insert_bioai_ihr(
+        test_db_session, report_id=9713, user_id=97131, engagement_id=9713, ready=True
     )
     await test_db_session.commit()
 

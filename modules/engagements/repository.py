@@ -471,6 +471,30 @@ class EngagementsRepository:
         )
         return result.scalar_one_or_none()
 
+    async def update_participant_barcode(
+        self,
+        db: AsyncSession,
+        *,
+        engagement_participant_id: int,
+        barcode: str,
+    ) -> None:
+        """Persist tube barcode without requiring a Healthians booking_id.
+
+        Used so camp console can keep the scanned/entered barcode when the
+        external booking call fails (API down, not serviceable, etc.).
+        """
+        result = await db.execute(
+            select(EngagementParticipant).where(
+                EngagementParticipant.engagement_participant_id == engagement_participant_id
+            )
+        )
+        participant = result.scalar_one_or_none()
+        if participant is None:
+            return
+        participant.barcode = barcode
+        db.add(participant)
+        await db.flush()
+
     async def update_participant_healthians_booking(
         self,
         db: AsyncSession,
@@ -1717,7 +1741,7 @@ class EngagementsRepository:
         """Return (user_id, engagement_id, service_configs) for eligible participants.
 
         Eligible when engagement is scheduled/running, has consultation_ready
-        notification configured, the matching report is ready on any
+        notification configured, the blood test report is ready on any
         individual_health_report row for that participant, and at least one
         offered consultation type is still unscheduled: no booking row, want=false,
         or want=true with consultation_date, consultation_slot, and
@@ -1746,15 +1770,9 @@ class EngagementsRepository:
             WHERE lower(trim(e.status)) IN ('scheduled', 'running')
               AND ane.event_code = 'consultation_ready'
               AND et.code IN ('bio_ai_with_consultation', 'blood_test_with_consultation')
-              AND (
-                    (et.code = 'bio_ai_with_consultation'
-                     AND ihr.reports IS NOT NULL
-                     AND ihr.report_url IS NOT NULL)
-                 OR (et.code = 'blood_test_with_consultation'
-                     AND ihr.blood_report_raw IS NOT NULL
-                     AND ihr.diagnostic_report_url IS NOT NULL
-                     AND ihr.diagnostic_report_url ~ :blood_url_pattern)
-              )
+              AND ihr.blood_report_raw IS NOT NULL
+              AND ihr.diagnostic_report_url IS NOT NULL
+              AND ihr.diagnostic_report_url ~ :blood_url_pattern
               AND e.consultations IS NOT NULL
               AND jsonb_typeof(e.consultations::jsonb) = 'object'
               AND EXISTS (

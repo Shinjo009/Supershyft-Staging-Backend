@@ -50,6 +50,7 @@ from modules.server_health.router import router as server_health_router
 from modules.db_health.router import router as db_health_router
 from modules.employee.permissions import authorize_inferior_admin_request
 from modules.discounts.router import router as discounts_router
+from modules.export_logs.router import router as export_logs_router
 
 
 # Configure logging
@@ -113,6 +114,7 @@ app.include_router(engagements_router)
 app.include_router(engagement_console_router)
 app.include_router(engagement_assessment_packages_router)
 app.include_router(checklists_router)
+app.include_router(export_logs_router)
 app.include_router(employees_router)
 app.include_router(partners_router)
 app.include_router(assessments_router)

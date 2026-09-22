@@ -48,6 +48,32 @@ async def get_overview_report(
     return success_response(response.model_dump())
 
 
+@router.get("/{assessment_instance_id}/home-summary")
+async def get_home_summary_report(
+    assessment_instance_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+    reports_service: ReportsService = Depends(get_reports_service),
+):
+    response = await reports_service.get_home_summary_for_user(
+        db,
+        assessment_instance_id=assessment_instance_id,
+        user_id=user.user_id,
+        user_gender=user.gender,
+        user_age=getattr(user, "age", None),
+        user_date_of_birth=getattr(user, "date_of_birth", None),
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    payload = response.model_dump()
+    if response.health_span_index is not None:
+        payload["health_span_index"] = response.health_span_index.model_dump(exclude_none=True)
+    return success_response(payload)
+
+
 @router.get("/{assessment_id}/risk-analysis")
 async def get_risk_analysis(
     assessment_id: int,

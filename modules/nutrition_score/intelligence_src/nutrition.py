@@ -208,8 +208,12 @@ def _estimate_fibre(
     low = max(plausible[0], low)
     high = min(plausible[1], high)
 
+    # Public fibre range uses whole grams, same display style as macro percents.
+    low = float(int(round(low)))
+    high = float(int(round(high)))
+
     # Collapsed display (e.g. ~1–1) is too precise for this questionnaire.
-    if int(round(low)) == int(round(high)):
+    if low == high:
         return _fibre_unavailable(note)
 
     return FibreEstimate(

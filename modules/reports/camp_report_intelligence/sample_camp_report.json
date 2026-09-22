@@ -14,9 +14,16 @@
       "female_enrolled": 13,
       "total_blood_test": 58,
       "blood_test_percent": 78,
+      "consultations": {
+        "doctor": 0,
+        "nutritionist": 9
+      },
+      "consultation_done": {
+        "doctor": 0,
+        "nutritionist": 0
+      },
       "doctor_consultation": 0,
       "nutritionist_consultation": 9,
-      "doctor_and_nutritionist_consultation": 0,
       "high_risk_group": 10
     },
     "name": "KPIs",

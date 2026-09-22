@@ -401,6 +401,24 @@ class AssessmentsRepository:
         )
         return list(result.scalars().all())
 
+    async def get_fitprint_instance_for_user_engagement(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        engagement_id: int,
+    ) -> AssessmentInstance | None:
+        result = await db.execute(
+            select(AssessmentInstance)
+            .join(AssessmentPackage, AssessmentPackage.package_id == AssessmentInstance.package_id)
+            .where(AssessmentInstance.user_id == user_id)
+            .where(AssessmentInstance.engagement_id == engagement_id)
+            .where(AssessmentPackage.assessment_type_code == "7")
+            .order_by(AssessmentInstance.assessment_instance_id.asc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def count_packages(self, db: AsyncSession, *, status: str | None) -> int:
         query = select(func.count()).select_from(AssessmentPackage)
         if status is not None:

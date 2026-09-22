@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date, time
 from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +26,8 @@ from modules.engagement_notifications.repository import EngagementNotificationsR
 from modules.engagements.models import EngagementParticipant
 from modules.engagements.repository import EngagementsRepository
 from modules.notifications.dedup import should_skip_notification
-from modules.notifications.schemas import DispatchRequest
+from modules.notifications.pretest_reminders import format_blood_collection_slot
+from modules.notifications.schemas import DispatchRequest, SessionDetails
 from modules.notifications.service import NotificationsService
 from modules.reports.models import IndividualHealthReport
 from modules.reports.repository import ReportsRepository
@@ -36,8 +38,152 @@ logger = logging.getLogger(__name__)
 
 _PROVIDER_AURAE = "aurae"
 _VIFC = "vifc"
+_HEALTHIANS_NEW_BOOKING_STATUS = "BS005"
+_BOOKING_CONFIRMATION_SERVICE_KEYS: tuple[str, ...] = (
+    "booking-confirmation-whatsapp",
+    "booking-confirmation-email",
+)
+_PHLEBO_EVENT_SERVICE_KEYS: dict[str, tuple[str, str]] = {
+    "phlebo_assigned": ("phlebo-assigned-whatsapp", "phlebo-assigned-email"),
+    "phlebo_reassigned": ("phlebo-reassigned-whatsapp", "phlebo-reassigned-email"),
+    "phlebo_enroute": ("phlebo-enroute-whatsapp", "phlebo-enroute-email"),
+    "phlebo_delay_notification": ("phlebo-delay-whatsapp", "phlebo-delay-email"),
+}
+_PHLEBO_EVENTS_WITH_SESSION = frozenset({"phlebo_assigned", "phlebo_reassigned"})
 AuraeEvent = Literal["results", "report"]
 
+
+def _is_healthians_new_booking_webhook(payload: dict) -> bool:
+    """True for status_updated with booking_status/customer_status BS005."""
+    if str(payload.get("type") or "").strip() != "status_updated":
+        return False
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return False
+    status = str(
+        data.get("booking_status") or data.get("customer_status") or ""
+    ).strip().upper()
+    return status == _HEALTHIANS_NEW_BOOKING_STATUS
+
+
+def _parse_healthians_collection_date(raw: object) -> date | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def _format_collection_slot_range(*, start: str, end: str = "") -> str:
+    """Format collection window as ``10:00 AM to 11:00 AM`` when both ends exist."""
+    start_text = (start or "").strip()
+    end_text = (end or "").strip()
+    if start_text and end_text:
+        return f"{start_text} to {end_text}"
+    return start_text or end_text
+
+
+def session_details_for_healthians_booking(
+    *,
+    payload_data: dict,
+    engagement_date: date | None,
+    slot_start_time: time | None,
+    cabin: str | None,
+) -> SessionDetails | None:
+    """Build session_details from Healthians BS005 payload, falling back to participant.
+
+    ``slot`` is a time window (``start to end``) when Healthians provides both
+    ``start_time`` and ``end_time``; otherwise a single start time.
+    """
+    collection_date = _parse_healthians_collection_date(
+        payload_data.get("sample_collection_date")
+    )
+    if collection_date is None:
+        collection_date = engagement_date
+
+    start = str(payload_data.get("start_time") or "").strip()
+    end = str(payload_data.get("end_time") or "").strip()
+    if not start:
+        start = format_blood_collection_slot(slot_start_time)
+
+    slot = _format_collection_slot_range(start=start, end=end)
+
+    if collection_date is None or not slot:
+        return None
+
+    cabin_value = (cabin or "").strip() or None
+    return SessionDetails(
+        want=True,
+        date=collection_date,
+        slot=slot,
+        expert_type="blood_collection",
+        cabin=cabin_value,
+    )
+
+
+def _healthians_webhook_type(payload: dict) -> str:
+    return str(payload.get("type") or "").strip()
+
+
+def _build_phlebo_participant_details(event_type: str, data: dict) -> dict[str, Any] | None:
+    if not isinstance(data, dict):
+        return None
+
+    phlebo_name = str(data.get("phlebo_name") or "").strip()
+    if not phlebo_name:
+        return None
+
+    details: dict[str, Any] = {
+        "event_type": event_type,
+        "phlebo_name": phlebo_name,
+    }
+    masked_number = str(data.get("masked_number") or "").strip()
+    if masked_number:
+        details["masked_number"] = masked_number
+
+    if event_type in _PHLEBO_EVENTS_WITH_SESSION:
+        message = str(data.get("message") or "").strip()
+        if message:
+            details["message"] = message
+        tracking_url = str(data.get("url") or "").strip()
+        if tracking_url:
+            details["tracking_url"] = tracking_url
+    elif event_type == "phlebo_enroute":
+        tracking_url = str(data.get("tracking_link") or "").strip()
+        if not tracking_url:
+            return None
+        details["tracking_url"] = tracking_url
+        vendor_booking_id = str(data.get("vendor_booking_id") or "").strip()
+        if vendor_booking_id:
+            details["vendor_booking_id"] = vendor_booking_id
+    elif event_type == "phlebo_delay_notification":
+        eta_raw = data.get("etaInMinutes")
+        if eta_raw is None or str(eta_raw).strip() == "":
+            return None
+        try:
+            details["eta_in_minutes"] = int(eta_raw)
+        except (TypeError, ValueError):
+            return None
+
+    return details
+
+
+def session_details_for_phlebo_assigned(
+    *,
+    payload_data: dict,
+    engagement_date: date | None,
+    slot_start_time: time | None,
+    cabin: str | None,
+) -> SessionDetails | None:
+    """Build session_details for phlebo_assigned / phlebo_reassigned webhooks."""
+    return session_details_for_healthians_booking(
+        payload_data=payload_data,
+        engagement_date=engagement_date,
+        slot_start_time=slot_start_time,
+        cabin=cabin,
+    )
 
 class WebhooksReceiverService:
     """Process inbound provider webhooks."""
@@ -87,6 +233,164 @@ class WebhooksReceiverService:
 
         return None
 
+    async def _dispatch_booking_confirmation_notifications(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        engagement_id: int,
+        session_details: SessionDetails,
+    ) -> list[dict[str, Any]]:
+        """Dispatch booking confirmation services for a Healthians BS005 webhook."""
+        if self._notifications_service is None:
+            return []
+
+        dispatched: list[dict[str, Any]] = []
+        for service_key in _BOOKING_CONFIRMATION_SERVICE_KEYS:
+            try:
+                skip_reason = await should_skip_notification(
+                    db,
+                    service_key=service_key,
+                    user_id=user_id,
+                    engagement_id=engagement_id,
+                )
+                if skip_reason:
+                    logger.info(
+                        "Healthians booking confirmation skipped: service_key=%s user=%s "
+                        "engagement=%s reason=%s",
+                        service_key,
+                        user_id,
+                        engagement_id,
+                        skip_reason,
+                    )
+                    dispatched.append(
+                        {
+                            "service_key": service_key,
+                            "action": "skipped",
+                            "reason": skip_reason,
+                        }
+                    )
+                    continue
+
+                result = await self._notifications_service.dispatch(
+                    db,
+                    payload=DispatchRequest(
+                        service_key=service_key,
+                        user_ids=[user_id],
+                        engagement_id=engagement_id,
+                        session_details=session_details,
+                    ),
+                    triggered_by_user_id=None,
+                )
+                dispatched.append(
+                    {
+                        "service_key": service_key,
+                        "action": "dispatched",
+                        "notification_id": result.get("notification_id"),
+                    }
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Healthians booking confirmation failed: service_key=%s user=%s "
+                    "engagement=%s: %s",
+                    service_key,
+                    user_id,
+                    engagement_id,
+                    exc,
+                )
+                dispatched.append(
+                    {
+                        "service_key": service_key,
+                        "action": "failed",
+                        "reason": str(exc)[:200],
+                    }
+                )
+        return dispatched
+
+    async def _dispatch_phlebo_event_notifications(
+        self,
+        db: AsyncSession,
+        *,
+        event_type: str,
+        user_id: int,
+        engagement_id: int,
+        participant_details: dict[str, Any],
+        session_details: SessionDetails | None = None,
+    ) -> list[dict[str, Any]]:
+        """Dispatch WhatsApp + email for a Healthians phlebo webhook event."""
+        if self._notifications_service is None:
+            return []
+
+        service_keys = _PHLEBO_EVENT_SERVICE_KEYS.get(event_type)
+        if not service_keys:
+            return []
+
+        dispatched: list[dict[str, Any]] = []
+        for service_key in service_keys:
+            try:
+                skip_reason = await should_skip_notification(
+                    db,
+                    service_key=service_key,
+                    user_id=user_id,
+                    engagement_id=engagement_id,
+                )
+                if skip_reason:
+                    logger.info(
+                        "Healthians phlebo notification skipped: event=%s service_key=%s "
+                        "user=%s engagement=%s reason=%s",
+                        event_type,
+                        service_key,
+                        user_id,
+                        engagement_id,
+                        skip_reason,
+                    )
+                    dispatched.append(
+                        {
+                            "service_key": service_key,
+                            "action": "skipped",
+                            "reason": skip_reason,
+                        }
+                    )
+                    continue
+
+                dispatch_payload = DispatchRequest(
+                    service_key=service_key,
+                    user_ids=[user_id],
+                    engagement_id=engagement_id,
+                    participant_details=participant_details,
+                    session_details=session_details,
+                )
+                result = await self._notifications_service.dispatch(
+                    db,
+                    payload=dispatch_payload,
+                    triggered_by_user_id=None,
+                )
+                dispatched.append(
+                    {
+                        "service_key": service_key,
+                        "action": "dispatched",
+                        "notification_id": result.get("notification_id"),
+                    }
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Healthians phlebo notification failed: event=%s service_key=%s "
+                    "user=%s engagement=%s: %s",
+                    event_type,
+                    service_key,
+                    user_id,
+                    engagement_id,
+                    exc,
+                )
+                dispatched.append(
+                    {
+                        "service_key": service_key,
+                        "action": "failed",
+                        "reason": str(exc)[:200],
+                    }
+                )
+        return dispatched
+
     async def handle_healthians_webhook(
         self,
         db: AsyncSession,
@@ -99,6 +403,14 @@ class WebhooksReceiverService:
         participant = await self._resolve_participant(db, payload_dict)
         engagement_id = participant.engagement_id if participant else None
         user_id = participant.user_id if participant else None
+        # Snapshot before release_request_transaction expires ORM attrs.
+        participant_engagement_date = participant.engagement_date if participant else None
+        participant_slot_start_time = participant.slot_start_time if participant else None
+        participant_cabin = (
+            (participant.blood_collection_cabin or "").strip() or None
+            if participant is not None
+            else None
+        )
 
         await release_request_transaction(db)
 
@@ -118,11 +430,117 @@ class WebhooksReceiverService:
             user_id=user_id,
         )
 
+        notifications_dispatched: list[dict[str, Any]] = []
+        if (
+            engagement_id is not None
+            and user_id is not None
+            and _is_healthians_new_booking_webhook(payload_dict)
+        ):
+            data = payload_dict.get("data") if isinstance(payload_dict.get("data"), dict) else {}
+            session_details = session_details_for_healthians_booking(
+                payload_data=data,
+                engagement_date=participant_engagement_date,
+                slot_start_time=participant_slot_start_time,
+                cabin=participant_cabin,
+            )
+            if session_details is None:
+                logger.info(
+                    "Healthians booking confirmation skipped: missing session_details "
+                    "for user=%s engagement=%s booking_id=%s",
+                    user_id,
+                    engagement_id,
+                    payload_dict.get("booking_id"),
+                )
+                notifications_dispatched.append(
+                    {
+                        "action": "skipped",
+                        "reason": "missing session_details (date/slot)",
+                    }
+                )
+            else:
+                notifications_dispatched = await self._dispatch_booking_confirmation_notifications(
+                    db,
+                    user_id=user_id,
+                    engagement_id=engagement_id,
+                    session_details=session_details,
+                )
+        elif engagement_id is not None and user_id is not None:
+            event_type = _healthians_webhook_type(payload_dict)
+            if event_type in _PHLEBO_EVENT_SERVICE_KEYS:
+                data = (
+                    payload_dict.get("data")
+                    if isinstance(payload_dict.get("data"), dict)
+                    else {}
+                )
+                participant_details = _build_phlebo_participant_details(event_type, data)
+                if participant_details is None:
+                    logger.info(
+                        "Healthians phlebo notification skipped: missing participant_details "
+                        "for event=%s user=%s engagement=%s booking_id=%s",
+                        event_type,
+                        user_id,
+                        engagement_id,
+                        payload_dict.get("booking_id"),
+                    )
+                    notifications_dispatched.append(
+                        {
+                            "event_type": event_type,
+                            "action": "skipped",
+                            "reason": "missing required participant_details fields",
+                        }
+                    )
+                else:
+                    session_details: SessionDetails | None = None
+                    if event_type in _PHLEBO_EVENTS_WITH_SESSION:
+                        session_details = session_details_for_phlebo_assigned(
+                            payload_data=data,
+                            engagement_date=participant_engagement_date,
+                            slot_start_time=participant_slot_start_time,
+                            cabin=participant_cabin,
+                        )
+                        if session_details is None:
+                            logger.info(
+                                "Healthians phlebo notification skipped: missing session_details "
+                                "for event=%s user=%s engagement=%s booking_id=%s",
+                                event_type,
+                                user_id,
+                                engagement_id,
+                                payload_dict.get("booking_id"),
+                            )
+                            notifications_dispatched.append(
+                                {
+                                    "event_type": event_type,
+                                    "action": "skipped",
+                                    "reason": "missing session_details (date/slot)",
+                                }
+                            )
+                        else:
+                            notifications_dispatched = (
+                                await self._dispatch_phlebo_event_notifications(
+                                    db,
+                                    event_type=event_type,
+                                    user_id=user_id,
+                                    engagement_id=engagement_id,
+                                    participant_details=participant_details,
+                                    session_details=session_details,
+                                )
+                            )
+                    else:
+                        notifications_dispatched = await self._dispatch_phlebo_event_notifications(
+                            db,
+                            event_type=event_type,
+                            user_id=user_id,
+                            engagement_id=engagement_id,
+                            participant_details=participant_details,
+                        )
+
         response_data = {
             "received": True,
             "sync_log_id": sync_log_id,
             "forwards": forwards,
         }
+        if notifications_dispatched:
+            response_data["notifications"] = notifications_dispatched
 
         await finalize_healthians_sync_log_isolated(
             sync_log_id=sync_log_id,

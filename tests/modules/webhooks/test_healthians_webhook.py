@@ -15,12 +15,22 @@ def _sample_payload(
     *,
     booking_id: str = "1387716654555",
     event_type: str = "status_updated",
+    booking_status: str = "BS005",
     ref_booking_id: str | None = None,
+    sample_collection_date: str | None = "2026-05-01",
+    start_time: str | None = "10:00 AM",
+    end_time: str | None = "11:00 AM",
 ) -> dict:
     data: dict = {
-        "booking_status": "BS005",
-        "customer_status": "BS005",
+        "booking_status": booking_status,
+        "customer_status": booking_status,
     }
+    if sample_collection_date is not None:
+        data["sample_collection_date"] = sample_collection_date
+    if start_time is not None:
+        data["start_time"] = start_time
+    if end_time is not None:
+        data["end_time"] = end_time
     if ref_booking_id is not None:
         data["ref_booking_id"] = ref_booking_id
     return {
@@ -28,6 +38,154 @@ def _sample_payload(
         "booking_id": booking_id,
         "data": data,
     }
+
+
+async def _seed_booking_confirmation_services(test_db_session) -> None:
+    for service_key, channel, webhook_path in (
+        (
+            "booking-confirmation-whatsapp",
+            "whatsapp",
+            "/booking-confirmation-whatsapp-v1",
+        ),
+        (
+            "booking-confirmation-email",
+            "email",
+            "/booking-confirmation-email-v1",
+        ),
+    ):
+        await test_db_session.execute(
+            text(
+                """
+                INSERT INTO notification_services (
+                    service_key, display_name, channel, webhook_path, is_active,
+                    require_blood_report_url, require_bio_ai_report_url,
+                    require_participant_detail, require_otp, require_session_details,
+                    require_external_link
+                ) VALUES (
+                    :service_key, :display_name, :channel, :webhook_path, true,
+                    false, false, false, false, true, false
+                )
+                ON CONFLICT (service_key) DO UPDATE SET
+                    is_active = true,
+                    require_session_details = true,
+                    webhook_path = EXCLUDED.webhook_path
+                """
+            ),
+            {
+                "service_key": service_key,
+                "display_name": service_key,
+                "channel": channel,
+                "webhook_path": webhook_path,
+            },
+        )
+    await test_db_session.commit()
+
+
+async def _seed_phlebo_services(test_db_session) -> None:
+    for service_key, channel, webhook_path, req_session in (
+        ("phlebo-assigned-whatsapp", "whatsapp", "/phlebo-assigned-whatsapp-v1", True),
+        ("phlebo-assigned-email", "email", "/phlebo-assigned-email-v1", True),
+        ("phlebo-reassigned-whatsapp", "whatsapp", "/phlebo-reassigned-whatsapp-v1", True),
+        ("phlebo-reassigned-email", "email", "/phlebo-reassigned-email-v1", True),
+        ("phlebo-enroute-whatsapp", "whatsapp", "/phlebo-enroute-whatsapp-v1", False),
+        ("phlebo-enroute-email", "email", "/phlebo-enroute-email-v1", False),
+        ("phlebo-delay-whatsapp", "whatsapp", "/phlebo-delay-whatsapp-v1", False),
+        ("phlebo-delay-email", "email", "/phlebo-delay-email-v1", False),
+    ):
+        await test_db_session.execute(
+            text(
+                """
+                INSERT INTO notification_services (
+                    service_key, display_name, channel, webhook_path, is_active,
+                    require_blood_report_url, require_bio_ai_report_url,
+                    require_participant_detail, require_otp, require_session_details,
+                    require_external_link
+                ) VALUES (
+                    :service_key, :display_name, :channel, :webhook_path, true,
+                    false, false, true, false, :require_session_details, false
+                )
+                ON CONFLICT (service_key) DO UPDATE SET
+                    is_active = true,
+                    require_participant_detail = true,
+                    require_session_details = EXCLUDED.require_session_details,
+                    webhook_path = EXCLUDED.webhook_path
+                """
+            ),
+            {
+                "service_key": service_key,
+                "display_name": service_key,
+                "channel": channel,
+                "webhook_path": webhook_path,
+                "require_session_details": req_session,
+            },
+        )
+    await test_db_session.commit()
+
+
+def _sample_phlebo_payload(
+    *,
+    event_type: str,
+    booking_id: str = "1387716659901",
+    phlebo_name: str = "Chandrshekar V",
+    masked_number: str = "08047180026",
+    sample_collection_date: str | None = "2026-05-01",
+    start_time: str | None = "09:00 AM",
+    end_time: str | None = "10:00 AM",
+    tracking_url: str | None = "https://www.healthians.com/phlebo-route",
+    tracking_link: str | None = None,
+    eta_in_minutes: int | None = None,
+    message: str | None = "Phlebotomist Arriving",
+) -> dict:
+    data: dict = {"phlebo_name": phlebo_name, "masked_number": masked_number}
+    if event_type in {"phlebo_assigned", "phlebo_reassigned"}:
+        if sample_collection_date is not None:
+            data["sample_collection_date"] = sample_collection_date
+        if start_time is not None:
+            data["start_time"] = start_time
+        if end_time is not None:
+            data["end_time"] = end_time
+        if tracking_url is not None:
+            data["url"] = tracking_url
+        if message is not None:
+            data["message"] = message
+    elif event_type == "phlebo_enroute":
+        data["tracking_link"] = tracking_link or tracking_url or ""
+        data["vendor_booking_id"] = booking_id
+    elif event_type == "phlebo_delay_notification" and eta_in_minutes is not None:
+        data["etaInMinutes"] = eta_in_minutes
+    return {
+        "type": event_type,
+        "booking_id": booking_id,
+        "data": data,
+    }
+
+
+def _fake_notifications_httpx_client(webhook_calls: list[dict]):
+    class _FakeResponse:
+        status_code = 200
+        text = "ok"
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"message": "ok", "accepted": True}
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, json=None):
+            webhook_calls.append({"url": url, "json": json})
+            return _FakeResponse()
+
+    return _FakeClient
 
 
 async def _seed_diagnostic_package(test_db_session, *, diagnostic_package_id: int = 1):
@@ -48,7 +206,7 @@ async def _seed_engagement(test_db_session, *, engagement_id: int, engagement_co
             engagement_id=engagement_id,
             engagement_name="Camp",
             engagement_code=engagement_code,
-            engagement_type="bio_ai",
+            engagement_type=None,
             assessment_package_id=1,
             diagnostic_package_id=1,
             city="BLR",
@@ -335,3 +493,364 @@ async def test_forward_failure_logged(async_client, test_db_session, monkeypatch
     assert row["status"] == "failed"
     assert "webhook failed" in row["error_message"]
     assert row["response_payload"] is None
+
+
+@pytest.mark.asyncio
+async def test_bs005_dispatches_booking_confirmation_notifications(
+    async_client, test_db_session, monkeypatch
+):
+    monkeypatch.setattr(
+        "modules.webhooks.sender.service.settings.HEALTHIANS_WEBHOOK_FORWARD_URL",
+        "",
+    )
+    await _seed_booking_confirmation_services(test_db_session)
+    await _seed_engagement(test_db_session, engagement_id=9801, engagement_code="ENG9801")
+    await _seed_participant(
+        test_db_session,
+        engagement_participant_id=98001,
+        engagement_id=9801,
+        user_id=9801,
+        booking_id="1387716659801",
+    )
+
+    webhook_calls: list[dict] = []
+
+    class _FakeResponse:
+        status_code = 200
+        text = "ok"
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"message": "ok", "accepted": True}
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, json=None):
+            webhook_calls.append({"url": url, "json": json})
+            return _FakeResponse()
+
+    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+
+    response = await async_client.post(
+        "/webhooks/healthians",
+        json=_sample_payload(
+            booking_id="1387716659801",
+            sample_collection_date="2026-05-01",
+            start_time="10:00 AM",
+            end_time="11:00 AM",
+        ),
+    )
+    assert response.status_code == 200, response.text
+
+    body = response.json()["data"]
+    assert "notifications" in body
+    assert len(body["notifications"]) == 2
+    by_key = {item["service_key"]: item for item in body["notifications"]}
+    assert by_key["booking-confirmation-whatsapp"]["action"] == "dispatched"
+    assert by_key["booking-confirmation-email"]["action"] == "dispatched"
+    assert by_key["booking-confirmation-whatsapp"]["notification_id"] is not None
+    assert by_key["booking-confirmation-email"]["notification_id"] is not None
+
+    assert len(webhook_calls) == 2
+    for call in webhook_calls:
+        member = call["json"]["members"][0]
+        assert member["session_details"]["date"] == "2026-05-01"
+        assert member["session_details"]["slot"] == "10:00 AM to 11:00 AM"
+        assert member["session_details"]["expert_type"] == "blood_collection"
+
+
+@pytest.mark.asyncio
+async def test_non_bs005_does_not_dispatch_booking_confirmation(
+    async_client, test_db_session, monkeypatch
+):
+    monkeypatch.setattr(
+        "modules.webhooks.sender.service.settings.HEALTHIANS_WEBHOOK_FORWARD_URL",
+        "",
+    )
+    await _seed_booking_confirmation_services(test_db_session)
+    await _seed_engagement(test_db_session, engagement_id=9802, engagement_code="ENG9802")
+    await _seed_participant(
+        test_db_session,
+        engagement_participant_id=98002,
+        engagement_id=9802,
+        user_id=9802,
+        booking_id="1387716659802",
+    )
+
+    dispatch_calls: list[dict] = []
+
+    async def _fake_dispatch(self, db, *, payload, triggered_by_user_id=None):
+        dispatch_calls.append(payload.model_dump(mode="json"))
+        return {"notification_id": 1}
+
+    monkeypatch.setattr(
+        "modules.notifications.service.NotificationsService.dispatch",
+        _fake_dispatch,
+    )
+
+    response = await async_client.post(
+        "/webhooks/healthians",
+        json=_sample_payload(
+            booking_id="1387716659802",
+            booking_status="BS007",
+        ),
+    )
+    assert response.status_code == 200, response.text
+    assert "notifications" not in response.json()["data"]
+    assert dispatch_calls == []
+
+
+@pytest.mark.asyncio
+async def test_bs005_skips_when_already_sent(async_client, test_db_session, monkeypatch):
+    monkeypatch.setattr(
+        "modules.webhooks.sender.service.settings.HEALTHIANS_WEBHOOK_FORWARD_URL",
+        "",
+    )
+    await _seed_booking_confirmation_services(test_db_session)
+    await _seed_engagement(test_db_session, engagement_id=9803, engagement_code="ENG9803")
+    await _seed_participant(
+        test_db_session,
+        engagement_participant_id=98003,
+        engagement_id=9803,
+        user_id=9803,
+        booking_id="1387716659803",
+    )
+
+    webhook_calls: list[dict] = []
+
+    class _FakeResponse:
+        status_code = 200
+        text = "ok"
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"message": "ok", "accepted": True}
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, json=None):
+            webhook_calls.append({"url": url, "json": json})
+            return _FakeResponse()
+
+    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+
+    payload = _sample_payload(booking_id="1387716659803")
+    first = await async_client.post("/webhooks/healthians", json=payload)
+    assert first.status_code == 200, first.text
+    assert all(n["action"] == "dispatched" for n in first.json()["data"]["notifications"])
+    assert len(webhook_calls) == 2
+
+    second = await async_client.post("/webhooks/healthians", json=payload)
+    assert second.status_code == 200, second.text
+    assert all(n["action"] == "skipped" for n in second.json()["data"]["notifications"])
+    assert all(
+        n["reason"] in {"already sent", "already in flight"}
+        for n in second.json()["data"]["notifications"]
+    )
+    assert len(webhook_calls) == 2
+
+
+@pytest.mark.parametrize(
+    ("event_type", "wa_key", "email_key"),
+    (
+        ("phlebo_assigned", "phlebo-assigned-whatsapp", "phlebo-assigned-email"),
+        ("phlebo_reassigned", "phlebo-reassigned-whatsapp", "phlebo-reassigned-email"),
+        ("phlebo_enroute", "phlebo-enroute-whatsapp", "phlebo-enroute-email"),
+        ("phlebo_delay_notification", "phlebo-delay-whatsapp", "phlebo-delay-email"),
+    ),
+)
+@pytest.mark.asyncio
+async def test_phlebo_event_dispatches_notifications(
+    async_client,
+    test_db_session,
+    monkeypatch,
+    event_type,
+    wa_key,
+    email_key,
+):
+    monkeypatch.setattr(
+        "modules.webhooks.sender.service.settings.HEALTHIANS_WEBHOOK_FORWARD_URL",
+        "",
+    )
+    await _seed_phlebo_services(test_db_session)
+    await _seed_engagement(test_db_session, engagement_id=9901, engagement_code="ENG9901")
+    await _seed_participant(
+        test_db_session,
+        engagement_participant_id=99001,
+        engagement_id=9901,
+        user_id=9901,
+        booking_id="1387716659901",
+    )
+
+    webhook_calls: list[dict] = []
+    monkeypatch.setattr(
+        "modules.notifications.service.httpx.AsyncClient",
+        _fake_notifications_httpx_client(webhook_calls),
+    )
+
+    payload = _sample_phlebo_payload(
+        event_type=event_type,
+        booking_id="1387716659901",
+        eta_in_minutes=15,
+    )
+    response = await async_client.post("/webhooks/healthians", json=payload)
+    assert response.status_code == 200, response.text
+
+    body = response.json()["data"]
+    assert "notifications" in body
+    assert len(body["notifications"]) == 2
+    by_key = {item["service_key"]: item for item in body["notifications"]}
+    assert by_key[wa_key]["action"] == "dispatched"
+    assert by_key[email_key]["action"] == "dispatched"
+
+    assert len(webhook_calls) == 2
+    for call in webhook_calls:
+        pd = call["json"]["participant_details"]
+        assert pd["event_type"] == event_type
+        assert pd["phlebo_name"] == "Chandrshekar V"
+        assert pd["masked_number"] == "08047180026"
+        if event_type in {"phlebo_assigned", "phlebo_reassigned"}:
+            member = call["json"]["members"][0]
+            assert member["session_details"]["date"] == "2026-05-01"
+            assert member["session_details"]["slot"] == "09:00 AM to 10:00 AM"
+            assert member["session_details"]["expert_type"] == "blood_collection"
+            assert pd["tracking_url"] == "https://www.healthians.com/phlebo-route"
+        elif event_type == "phlebo_enroute":
+            assert pd["tracking_url"] == "https://www.healthians.com/phlebo-route"
+        elif event_type == "phlebo_delay_notification":
+            assert pd["eta_in_minutes"] == 15
+
+
+@pytest.mark.asyncio
+async def test_bs005_does_not_dispatch_phlebo_services(
+    async_client, test_db_session, monkeypatch
+):
+    monkeypatch.setattr(
+        "modules.webhooks.sender.service.settings.HEALTHIANS_WEBHOOK_FORWARD_URL",
+        "",
+    )
+    await _seed_booking_confirmation_services(test_db_session)
+    await _seed_phlebo_services(test_db_session)
+    await _seed_engagement(test_db_session, engagement_id=9902, engagement_code="ENG9902")
+    await _seed_participant(
+        test_db_session,
+        engagement_participant_id=99002,
+        engagement_id=9902,
+        user_id=9902,
+        booking_id="1387716659902",
+    )
+
+    webhook_calls: list[dict] = []
+    monkeypatch.setattr(
+        "modules.notifications.service.httpx.AsyncClient",
+        _fake_notifications_httpx_client(webhook_calls),
+    )
+
+    response = await async_client.post(
+        "/webhooks/healthians",
+        json=_sample_payload(booking_id="1387716659902"),
+    )
+    assert response.status_code == 200, response.text
+
+    notifications = response.json()["data"]["notifications"]
+    service_keys = {item["service_key"] for item in notifications}
+    assert "booking-confirmation-whatsapp" in service_keys
+    assert "booking-confirmation-email" in service_keys
+    assert not any(key.startswith("phlebo-") for key in service_keys)
+    assert len(webhook_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_phlebo_unknown_booking_id_does_not_dispatch(
+    async_client, test_db_session, monkeypatch
+):
+    monkeypatch.setattr(
+        "modules.webhooks.sender.service.settings.HEALTHIANS_WEBHOOK_FORWARD_URL",
+        "",
+    )
+    await _seed_phlebo_services(test_db_session)
+
+    dispatch_calls: list[dict] = []
+
+    async def _fake_dispatch(self, db, *, payload, triggered_by_user_id=None):
+        dispatch_calls.append(payload.model_dump(mode="json"))
+        return {"notification_id": 1}
+
+    monkeypatch.setattr(
+        "modules.notifications.service.NotificationsService.dispatch",
+        _fake_dispatch,
+    )
+
+    response = await async_client.post(
+        "/webhooks/healthians",
+        json=_sample_phlebo_payload(
+            event_type="phlebo_assigned",
+            booking_id="unknown-phlebo-booking",
+        ),
+    )
+    assert response.status_code == 200, response.text
+    assert "notifications" not in response.json()["data"]
+    assert dispatch_calls == []
+
+
+@pytest.mark.asyncio
+async def test_phlebo_assigned_skips_when_already_sent(
+    async_client, test_db_session, monkeypatch
+):
+    monkeypatch.setattr(
+        "modules.webhooks.sender.service.settings.HEALTHIANS_WEBHOOK_FORWARD_URL",
+        "",
+    )
+    await _seed_phlebo_services(test_db_session)
+    await _seed_engagement(test_db_session, engagement_id=9903, engagement_code="ENG9903")
+    await _seed_participant(
+        test_db_session,
+        engagement_participant_id=99003,
+        engagement_id=9903,
+        user_id=9903,
+        booking_id="1387716659903",
+    )
+
+    webhook_calls: list[dict] = []
+    monkeypatch.setattr(
+        "modules.notifications.service.httpx.AsyncClient",
+        _fake_notifications_httpx_client(webhook_calls),
+    )
+
+    payload = _sample_phlebo_payload(
+        event_type="phlebo_assigned",
+        booking_id="1387716659903",
+    )
+    first = await async_client.post("/webhooks/healthians", json=payload)
+    assert first.status_code == 200, first.text
+    assert all(n["action"] == "dispatched" for n in first.json()["data"]["notifications"])
+    assert len(webhook_calls) == 2
+
+    second = await async_client.post("/webhooks/healthians", json=payload)
+    assert second.status_code == 200, second.text
+    assert all(n["action"] == "skipped" for n in second.json()["data"]["notifications"])
+    assert all(
+        n["reason"] in {"already sent", "already in flight"}
+        for n in second.json()["data"]["notifications"]
+    )
+    assert len(webhook_calls) == 2

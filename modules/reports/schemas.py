@@ -215,6 +215,14 @@ class HealthSpanIndexResponse(BaseModel):
     lifestyle: HealthSpanLifestyleDetail | None = None
 
 
+class HomeSummaryReportResponse(BaseModel):
+    assessment_id: int
+    metabolic_age: float | None
+    positive_wins: PositiveWins
+    risk_analysis: list[RiskAnalysisItem]
+    health_span_index: HealthSpanIndexResponse | None = None
+
+
 class CampReportSectionCreateRequest(BaseModel):
     section: SafeDisplayName
     section_key: SlugKey

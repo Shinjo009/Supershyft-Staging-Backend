@@ -1342,10 +1342,11 @@ async def test_refresh_camp_report_kpis(async_client, test_db_session):
     assert data["blood_test_percent"] == 75
     assert data["doctor_consultation"] == 2
     assert data["nutritionist_consultation"] == 1
-    assert data["doctor_and_nutritionist_consultation"] == 1
     assert data["consultations"]["doctor"] == 2
     assert data["consultations"]["nutritionist"] == 1
-    assert data["consultations"]["doctor_nutritionist"] == 1
+    assert "doctor_nutritionist" not in data["consultations"]
+    assert data["consultation_done"]["doctor"] == 0
+    assert data["consultation_done"]["nutritionist"] == 0
     assert data["bio_ai_report_generated"] == 3
     assert data["high_risk_group"] == 2
     assert data["caution_risk_group"] == 1
@@ -1399,7 +1400,8 @@ async def test_refresh_department_camp_report_kpis(async_client, test_db_session
     assert data["blood_test_percent"] == 100
     assert data["doctor_consultation"] == 1
     assert data["nutritionist_consultation"] == 0
-    assert data["doctor_and_nutritionist_consultation"] == 0
+    assert data["consultation_done"]["doctor"] == 0
+    assert data["consultation_done"]["nutritionist"] == 0
     assert data["bio_ai_report_generated"] == 2
     assert data["high_risk_group"] == 1
     assert data["caution_risk_group"] == 1

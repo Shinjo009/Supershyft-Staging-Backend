@@ -50,6 +50,7 @@ from modules.audit import models as _audit_models  # noqa: F401
 from modules.auth import models as _auth_models  # noqa: F401
 from modules.users import models as _users_models  # noqa: F401
 from modules.employee import models as _employee_models  # noqa: F401
+from modules.export_logs import models as _export_logs_models  # noqa: F401
 from modules.partners import models as _partners_models  # noqa: F401
 from modules.engagements import models as _engagements_models  # noqa: F401
 from modules.organizations import models as _organizations_models  # noqa: F401
@@ -109,6 +110,7 @@ from modules.experts.router import expert_types_router
 from modules.diagnostics.healthians.router import router as healthians_router
 from modules.integrations.router import router as integrations_router
 from modules.employee.permissions import authorize_inferior_admin_request
+from modules.export_logs.router import router as export_logs_router
 
 
 def _project_root() -> Path:
@@ -367,6 +369,7 @@ async def fastapi_app(
     app.include_router(engagement_console_router)
     app.include_router(engagement_assessment_packages_router)
     app.include_router(checklists_router)
+    app.include_router(export_logs_router)
     app.include_router(employees_router)
     app.include_router(partners_router)
     app.include_router(assessments_router)
@@ -435,6 +438,7 @@ async def _cleanup_auth_test_rows(test_db_session: AsyncSession):
     else:
         _non_seed_users = "user_id >= 1001 AND user_id < 10000"
     await test_db_session.execute(text(f"DELETE FROM data_audit_logs WHERE {_non_seed_users}"))
+    await test_db_session.execute(text("DELETE FROM export_logs"))
     await test_db_session.execute(text("DELETE FROM integration_sync_logs"))
     await test_db_session.execute(text(f"DELETE FROM auth_otp_sessions WHERE {_non_seed_users}"))
     await test_db_session.execute(text(f"DELETE FROM auth_tokens WHERE {_non_seed_users}"))

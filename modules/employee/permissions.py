@@ -148,6 +148,7 @@ TASK_CATALOG: Mapping[str, tuple[tuple[str, str, str], ...]] = MappingProxyType(
             ("directory", "Employee directory", "List and view employees"),
             ("create_update", "Create & update", "Create employees and update employee details"),
             ("status", "Employee status", "Activate or deactivate employees"),
+            ("export_logs", "Export logs", "View staff data-export audit logs"),
         ),
         "partners": (
             ("directory", "Partner directory", "List and view partners"),
@@ -432,6 +433,8 @@ def _task_for_operation(category: str, path: str, method: str) -> str:
             return "packages"
         return "tests_groups"
     if category == "reports":
+        if path == "/export-logs":
+            return "participant_reports"
         if "camp-sections" in path:
             return "report_sections"
         if "/camps" in path:
@@ -490,6 +493,8 @@ def _task_for_operation(category: str, path: str, method: str) -> str:
     if category == "support":
         return "tickets"
     if category == "employees":
+        if "export-logs" in path:
+            return "export_logs"
         if path.endswith("/status"):
             return "status"
         return "directory" if method == "GET" else "create_update"
@@ -540,6 +545,8 @@ def classify_operation(route_template: str, method: str) -> RouteCapability | No
 
     if path == "/employees/database-backup":
         category, action = "system_monitoring", PermissionAction.edit
+    elif path == "/export-logs":
+        category = "reports"
     elif path.startswith("/employees/users"):
         category = "users"
     elif path.startswith("/employees/auth") or path.startswith("/partners/auth"):

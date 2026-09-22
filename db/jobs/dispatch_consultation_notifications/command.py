@@ -1,8 +1,8 @@
 """Dispatch consultation readiness notifications.
 
-Finds participants in scheduled/running home-collection engagements whose type is
-BioAI with consultation or blood test with consultation, where the matching report
-is ready, and dispatches using each engagement's notify_users_for_consultation
+Finds participants in scheduled/running engagements whose type is BioAI with
+consultation or blood test with consultation, where the blood test report is
+ready, and dispatches using each engagement's notify_users_for_consultation
 service keys. Intended to run via an external scheduler.
 
 Production example (Linux cron):
@@ -73,7 +73,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Dispatch consultation readiness notifications for participants in scheduled/running "
-            "home-collection BioAI/blood-with-consultation engagements whose report is ready, "
+            "BioAI/blood-with-consultation engagements whose blood test report is ready, "
             "using each engagement's notify_users_for_consultation service keys."
         )
     )

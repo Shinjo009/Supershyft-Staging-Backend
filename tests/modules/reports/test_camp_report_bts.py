@@ -45,10 +45,10 @@ def test_build_kpis_bts_first_validation_ok():
         "female_enrolled": 4,
         "total_blood_test": 8,
         "blood_test_percent": 80,
-        "consultations": {"doctor": 3, "nutritionist": 2, "doctor_nutritionist": 1},
+        "consultations": {"doctor": 3, "nutritionist": 2},
+        "consultation_done": {"doctor": 2, "nutritionist": 1},
         "doctor_consultation": 3,
         "nutritionist_consultation": 2,
-        "doctor_and_nutritionist_consultation": 1,
         "questionnaire_completed": 7,
         "bio_ai_report_generated": 7,
         "high_risk_group": 1,
@@ -79,9 +79,9 @@ def test_build_kpis_bts_mismatch_reason():
         "total_blood_test": 8,
         "blood_test_percent": 80,
         "consultations": {"doctor": 3},
+        "consultation_done": {"doctor": 1},
         "doctor_consultation": 3,
         "nutritionist_consultation": 0,
-        "doctor_and_nutritionist_consultation": 0,
         "questionnaire_completed": 8,
         "bio_ai_report_generated": 7,
         "high_risk_group": 1,
@@ -140,10 +140,10 @@ def test_build_kpis_bts_consultations_fallback_to_legacy_fields():
         "female_enrolled": 49,
         "total_blood_test": 132,
         "blood_test_percent": 94,
-        "consultations": {"doctor": 86, "nutritionist": 0, "doctor_nutritionist": 0},
+        "consultations": {"doctor": 86, "nutritionist": 0},
+        "consultation_done": {"doctor": 40, "nutritionist": 0},
         "doctor_consultation": 86,
         "nutritionist_consultation": 0,
-        "doctor_and_nutritionist_consultation": 0,
         "questionnaire_completed": 40,
         "bio_ai_report_generated": 81,
         "high_risk_group": 27,
@@ -158,7 +158,6 @@ def test_build_kpis_bts_consultations_fallback_to_legacy_fields():
         "blood_test_percent": 94,
         "doctor_consultation": 86,
         "nutritionist_consultation": 0,
-        "doctor_and_nutritionist_consultation": 0,
         "high_risk_group": 27,
     }
     bts = build_kpis_bts(
@@ -172,7 +171,8 @@ def test_build_kpis_bts_consultations_fallback_to_legacy_fields():
     assert bts["fields"]["consultations.doctor"]["match"] is True
     assert bts["fields"]["consultations.doctor"]["stored"] == 86
     assert bts["fields"]["consultations.nutritionist"]["match"] is True
-    assert bts["fields"]["consultations.doctor_nutritionist"]["match"] is True
+    assert bts["fields"]["consultation_done.doctor"]["match"] is True
+    assert bts["fields"]["consultation_done.doctor"]["stored"] == 40
     # Newly introduced keys are treated as schema upgrade, not mismatches.
     assert bts["fields"]["questionnaire_completed"]["match"] is True
     assert bts["fields"]["questionnaire_completed"]["stored"] == 40
@@ -183,7 +183,6 @@ def test_build_kpis_bts_consultations_fallback_to_legacy_fields():
     # Nested consultations{} already covers these — no duplicate flat rows.
     assert "doctor_consultation" not in bts["fields"]
     assert "nutritionist_consultation" not in bts["fields"]
-    assert "doctor_and_nutritionist_consultation" not in bts["fields"]
 
 
 def test_build_kpis_bts_new_field_wrong_value_still_mismatches():
@@ -194,9 +193,9 @@ def test_build_kpis_bts_new_field_wrong_value_still_mismatches():
         "total_blood_test": 8,
         "blood_test_percent": 80,
         "consultations": {"doctor": 3},
+        "consultation_done": {"doctor": 0},
         "doctor_consultation": 3,
         "nutritionist_consultation": 0,
-        "doctor_and_nutritionist_consultation": 0,
         "questionnaire_completed": 8,
         "bio_ai_report_generated": 7,
         "high_risk_group": 1,
@@ -223,9 +222,9 @@ def test_build_kpis_bts_risk_sum_integrity():
         "total_blood_test": 3,
         "blood_test_percent": 100,
         "consultations": {},
+        "consultation_done": {},
         "doctor_consultation": 0,
         "nutritionist_consultation": 0,
-        "doctor_and_nutritionist_consultation": 0,
         "questionnaire_completed": 3,
         "bio_ai_report_generated": 3,
         "high_risk_group": 1,
@@ -361,10 +360,10 @@ def test_refresh_pattern_bts_ok_when_comparing_just_written_kpi_data():
         "female_enrolled": 49,
         "total_blood_test": 132,
         "blood_test_percent": 94,
-        "consultations": {"doctor": 86, "nutritionist": 0, "doctor_nutritionist": 0},
+        "consultations": {"doctor": 86, "nutritionist": 0},
+        "consultation_done": {"doctor": 40, "nutritionist": 0},
         "doctor_consultation": 86,
         "nutritionist_consultation": 0,
-        "doctor_and_nutritionist_consultation": 0,
         "questionnaire_completed": 61,
         "bio_ai_report_generated": 81,
         "high_risk_group": 27,
@@ -379,7 +378,6 @@ def test_refresh_pattern_bts_ok_when_comparing_just_written_kpi_data():
         "blood_test_percent": 0,
         "doctor_consultation": 0,
         "nutritionist_consultation": 0,
-        "doctor_and_nutritionist_consultation": 0,
         "high_risk_group": 0,
     }
     bts = build_kpis_bts(

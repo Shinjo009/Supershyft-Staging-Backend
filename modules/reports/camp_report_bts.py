@@ -285,13 +285,13 @@ _KPI_SCHEMA_NEW_KEYS = frozenset(
         "good_risk_group",
         "questionnaire_completed",
         "bio_ai_report_generated",
+        "consultation_done",
     }
 )
 
 _LEGACY_CONSULTATION_KEYS = (
     "doctor_consultation",
     "nutritionist_consultation",
-    "doctor_and_nutritionist_consultation",
 )
 
 
@@ -332,6 +332,7 @@ def build_kpis_bts(
     details_out: dict[str, Any] = {
         "blood": details,
         "consultations": {},
+        "consultation_done": {},
         "questionnaire": questionnaire_details,
         "bio_ai_mismatch": bio_ai_mismatch,
         "risk_groups": risk_groups,
@@ -343,7 +344,11 @@ def build_kpis_bts(
         expected_consultations = expected_data.get("consultations") or {}
         if not isinstance(expected_consultations, dict):
             expected_consultations = {}
+        expected_consultation_done = expected_data.get("consultation_done") or {}
+        if not isinstance(expected_consultation_done, dict):
+            expected_consultation_done = {}
         details_out["consultations"] = expected_consultations
+        details_out["consultation_done"] = expected_consultation_done
         return {
             "status": "ok",
             "checked_at": checked_at,
@@ -380,11 +385,6 @@ def build_kpis_bts(
             [
                 ("doctor_consultation", "doctor consultations", None),
                 ("nutritionist_consultation", "nutritionist consultations", None),
-                (
-                    "doctor_and_nutritionist_consultation",
-                    "doctor and nutritionist consultations",
-                    None,
-                ),
             ]
         )
 
@@ -448,9 +448,6 @@ def build_kpis_bts(
     legacy_fallback = {
         "doctor": _int_or_none(stored.get("doctor_consultation")),
         "nutritionist": _int_or_none(stored.get("nutritionist_consultation")),
-        "doctor_nutritionist": _int_or_none(
-            stored.get("doctor_and_nutritionist_consultation")
-        ),
     }
 
     all_consult_keys = sorted(set(expected_consultations) | set(stored_consultations))
@@ -464,6 +461,48 @@ def build_kpis_bts(
         else:
             stored_val = None
         label = f"{_friendly_expert_label(key)} consultations"
+        fields[field_key] = _field_entry(
+            expected=expected if expected is not None else 0,
+            stored=stored_val,
+            reason=_consultation_reason(label, expected or 0, stored_val),
+        )
+
+    expected_consultation_done = expected_data.get("consultation_done") or {}
+    if not isinstance(expected_consultation_done, dict):
+        expected_consultation_done = {}
+    stored_consultation_done = (
+        stored.get("consultation_done")
+        if isinstance(stored.get("consultation_done"), dict)
+        else {}
+    )
+    details_out["consultation_done"] = expected_consultation_done
+
+    consultation_done_is_new = (
+        "consultation_done" not in stored and bool(expected_consultation_done)
+    )
+    if consultation_done_is_new:
+        newly_added_keys.append("consultation_done")
+
+    all_done_keys = sorted(
+        set(expected_consultation_done) | set(stored_consultation_done)
+    )
+    for key in all_done_keys:
+        field_key = f"consultation_done.{key}"
+        expected = _int_or_none(expected_consultation_done.get(key))
+        if consultation_done_is_new:
+            fields[field_key] = {
+                "match": True,
+                "expected": expected,
+                "stored": expected,
+                "reason": None,
+            }
+            continue
+        stored_val = (
+            _int_or_none(stored_consultation_done.get(key))
+            if key in stored_consultation_done
+            else None
+        )
+        label = f"{_friendly_expert_label(key)} consultations done"
         fields[field_key] = _field_entry(
             expected=expected if expected is not None else 0,
             stored=stored_val,

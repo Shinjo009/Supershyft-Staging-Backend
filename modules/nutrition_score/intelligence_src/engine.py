@@ -168,16 +168,23 @@ def _json_number(value: float | int | None) -> float | int | None:
     return int(numeric) if numeric.is_integer() else numeric
 
 
+def _whole_number(value: float | int | None) -> int | None:
+    """Match carb/protein/fat display: whole numbers, no float residue."""
+    if value is None:
+        return None
+    return int(round(float(value)))
+
+
 def _nutrient_percent(
     estimated: EstimatedMacroPercent | None,
     ideal: TargetRange | None,
 ) -> dict[str, Any] | None:
     if estimated is None and ideal is None:
         return None
-    estimated_low = float(estimated.lower) if estimated is not None else None
-    estimated_high = float(estimated.upper) if estimated is not None else None
-    ideal_low = float(ideal.low) if ideal is not None and ideal.low is not None else None
-    ideal_high = float(ideal.high) if ideal is not None and ideal.high is not None else None
+    estimated_low = _whole_number(estimated.lower if estimated is not None else None)
+    estimated_high = _whole_number(estimated.upper if estimated is not None else None)
+    ideal_low = _whole_number(ideal.low if ideal is not None else None)
+    ideal_high = _whole_number(ideal.high if ideal is not None else None)
     return {
         "estimated_low": estimated_low,
         "estimated_high": estimated_high,
@@ -194,10 +201,10 @@ def _nutrient_grams(
 ) -> dict[str, Any] | None:
     if estimated_low is None and estimated_high is None and ideal is None:
         return None
-    current_low = float(estimated_low) if estimated_low is not None else None
-    current_high = float(estimated_high) if estimated_high is not None else None
-    ideal_low = float(ideal.low) if ideal is not None and ideal.low is not None else None
-    ideal_high = float(ideal.high) if ideal is not None and ideal.high is not None else None
+    current_low = _whole_number(estimated_low)
+    current_high = _whole_number(estimated_high)
+    ideal_low = _whole_number(ideal.low if ideal is not None else None)
+    ideal_high = _whole_number(ideal.high if ideal is not None else None)
     return {
         "estimated_low": current_low,
         "estimated_high": current_high,
@@ -225,9 +232,7 @@ def _water_detail(
         midpoint = low
     elif high is not None:
         midpoint = high
-    if midpoint is not None:
-        midpoint = round(midpoint, 2)
-
+    midpoint = _whole_number(midpoint)
     ideal_low = (
         float(ideal_water.low)
         if ideal_water is not None and ideal_water.low is not None
