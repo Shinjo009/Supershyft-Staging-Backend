@@ -1203,6 +1203,303 @@ async def test_get_blood_parameter_trends_ignores_fitprint_for_staleness(
 
 
 @pytest.mark.asyncio
+async def test_get_all_blood_parameter_trends_returns_grouped_by_engagement(
+    async_client,
+    test_db_session,
+):
+    test_db_session.add(User(user_id=3861, phone="3861000000", age=30, status="active"))
+    test_db_session.add(
+        AssessmentPackage(
+            package_id=861,
+            package_code="P861",
+            display_name="Package 861",
+            status="active",
+            assessment_type_code="2",
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        Engagement(
+            engagement_id=4861,
+            engagement_code="ENG4861",
+            assessment_package_id=861,
+            diagnostic_package_id=1,
+        )
+    )
+    test_db_session.add(
+        Engagement(
+            engagement_id=4862,
+            engagement_code="ENG4862",
+            assessment_package_id=861,
+            diagnostic_package_id=1,
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        AssessmentInstance(
+            assessment_instance_id=98061,
+            user_id=3861,
+            package_id=861,
+            engagement_id=4861,
+            status="completed",
+            metsights_record_id="ALLTREND1",
+            assigned_at=datetime.now(timezone.utc),
+            completed_at=datetime(2026, 7, 9, tzinfo=timezone.utc),
+        )
+    )
+    test_db_session.add(
+        AssessmentInstance(
+            assessment_instance_id=98062,
+            user_id=3861,
+            package_id=861,
+            engagement_id=4862,
+            status="completed",
+            metsights_record_id="ALLTREND2",
+            assigned_at=datetime.now(timezone.utc),
+            completed_at=datetime(2026, 7, 10, tzinfo=timezone.utc),
+        )
+    )
+    test_db_session.add(
+        IndividualHealthReport(
+            report_id=70611,
+            user_id=3861,
+            engagement_id=4861,
+            assessment_instance_id=98061,
+            blood_parameters={
+                "ldl/hdl_cholestrol": 2.56,
+                "ldl/hdl_cholestrol_unit": "Ratio",
+                "triglycerides": 58.5,
+                "triglycerides_unit": "mg/dL",
+            },
+        )
+    )
+    test_db_session.add(
+        IndividualHealthReport(
+            report_id=70612,
+            user_id=3861,
+            engagement_id=4862,
+            assessment_instance_id=98062,
+            blood_parameters={
+                "ldl/hdl_cholestrol": 2.41,
+                "ldl/hdl_cholestrol_unit": "Ratio",
+                "triglycerides": 62.3,
+                "triglycerides_unit": "mg/dL",
+            },
+        )
+    )
+    test_db_session.add(
+        ReportsUserSyncState(
+            user_id=3861,
+            last_synced_assessment_instance_id=98062,
+            sync_status="idle",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        "/reports/trends/blood-parameters",
+        headers=_auth_header(3861),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"] == [
+        {
+            "date": "2026-07-09",
+            "engagement_id": 4861,
+            "data_points": [
+                {"parameter": "ldl/hdl_cholestrol", "unit": "Ratio", "value": 2.56},
+                {"parameter": "triglycerides", "unit": "mg/dL", "value": 58.5},
+            ],
+        },
+        {
+            "date": "2026-07-10",
+            "engagement_id": 4862,
+            "data_points": [
+                {"parameter": "ldl/hdl_cholestrol", "unit": "Ratio", "value": 2.41},
+                {"parameter": "triglycerides", "unit": "mg/dL", "value": 62.3},
+            ],
+        },
+    ]
+    assert body["meta"]["is_stale"] is False
+    assert body["meta"]["sync_status"] == "idle"
+    assert body["meta"]["last_synced_assessment_instance_id"] == 98062
+    assert body["meta"]["latest_assessment_instance_id"] == 98062
+
+
+@pytest.mark.asyncio
+async def test_get_all_blood_parameter_trends_dedupes_pro_and_fitprint_per_engagement(
+    async_client,
+    test_db_session,
+):
+    pro_id = 138061
+    fitprint_id = 138062
+    user_id = 138061
+    engagement_id = 148061
+
+    await _seed_assessment(
+        test_db_session,
+        assessment_id=pro_id,
+        user_id=user_id,
+        engagement_id=engagement_id,
+        record_id="ALLTREND_PRO",
+        package_code="MET_PRO",
+        assessment_type_code="2",
+    )
+    await _add_assessment_instance(
+        test_db_session,
+        assessment_id=fitprint_id,
+        user_id=user_id,
+        engagement_id=engagement_id,
+        record_id="ALLTREND_FIT",
+        package_code="MY_FITNESS_PRINT",
+        assessment_type_code="7",
+    )
+
+    completed = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    for aid in (pro_id, fitprint_id):
+        inst = await test_db_session.get(AssessmentInstance, aid)
+        inst.completed_at = completed
+
+    test_db_session.add(
+        IndividualHealthReport(
+            report_id=138561,
+            user_id=user_id,
+            engagement_id=engagement_id,
+            assessment_instance_id=pro_id,
+            blood_parameters={
+                "esr_automated": 23.0,
+                "esr_automated_unit": "mm/1st hour",
+                "albumin": 4.0,
+                "albumin_unit": "g/dL",
+            },
+        )
+    )
+    test_db_session.add(
+        IndividualHealthReport(
+            report_id=138562,
+            user_id=user_id,
+            engagement_id=engagement_id,
+            assessment_instance_id=fitprint_id,
+            blood_parameters={
+                "esr_automated": 99.0,
+                "esr_automated_unit": "mm/1st hour",
+            },
+        )
+    )
+    test_db_session.add(
+        ReportsUserSyncState(
+            user_id=user_id,
+            last_synced_assessment_instance_id=pro_id,
+            sync_status="idle",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        "/reports/trends/blood-parameters",
+        headers=_auth_header(user_id),
+    )
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert len(payload) == 1
+    assert payload[0]["date"] == "2026-09-01"
+    assert payload[0]["engagement_id"] == engagement_id
+    assert payload[0]["data_points"] == [
+        {"parameter": "albumin", "unit": "g/dL", "value": 4.0},
+        {"parameter": "esr_automated", "unit": "mm/1st hour", "value": 23.0},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_get_all_blood_parameter_trends_returns_empty_when_no_points(
+    async_client,
+    test_db_session,
+):
+    await _seed_assessment(
+        test_db_session,
+        assessment_id=98071,
+        user_id=3871,
+        engagement_id=4871,
+        record_id="ALLTREND_EMPTY",
+    )
+    test_db_session.add(
+        IndividualHealthReport(
+            report_id=70711,
+            user_id=3871,
+            engagement_id=4871,
+            assessment_instance_id=98071,
+            blood_parameters=None,
+        )
+    )
+    test_db_session.add(
+        ReportsUserSyncState(
+            user_id=3871,
+            last_synced_assessment_instance_id=98071,
+            sync_status="idle",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        "/reports/trends/blood-parameters",
+        headers=_auth_header(3871),
+    )
+    assert response.status_code == 200
+    assert response.json()["data"] == []
+
+
+@pytest.mark.asyncio
+async def test_get_all_blood_parameter_trends_stale_returns_cached_and_meta(
+    async_client,
+    fastapi_app,
+    test_db_session,
+):
+    await _seed_assessment(
+        test_db_session,
+        assessment_id=98081,
+        user_id=3881,
+        engagement_id=4881,
+        record_id="ALLTREND_STALE",
+    )
+    test_db_session.add(
+        IndividualHealthReport(
+            report_id=70811,
+            user_id=3881,
+            engagement_id=4881,
+            assessment_instance_id=98081,
+            blood_parameters={"albumin": 3.9, "albumin_unit": "g/dL"},
+        )
+    )
+    await test_db_session.commit()
+
+    reports_service = ReportsService(
+        repository=ReportsRepository(),
+        assessments_repository=AssessmentsRepository(),
+        metsights_service=_FakeMetsightsService(payload={"albumin": 3.9, "albumin_unit": "g/dL"}),
+        diagnostics_service=_FakeDiagnosticsService(),
+        audit_service=AuditService(AuditRepository()),
+        healthy_habits_service=HealthyHabitsService(QuestionnaireRepository()),
+    )
+    reports_service.trigger_user_blood_parameters_refresh = lambda *, user_id: None
+    fastapi_app.dependency_overrides[get_reports_service] = lambda: reports_service
+
+    response = await async_client.get(
+        "/reports/trends/blood-parameters",
+        headers=_auth_header(3881),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["data"]) == 1
+    assert body["data"][0]["engagement_id"] == 4881
+    assert body["data"][0]["data_points"] == [
+        {"parameter": "albumin", "unit": "g/dL", "value": 3.9},
+    ]
+    assert body["meta"]["is_stale"] is True
+    assert body["meta"]["sync_status"] == "in_progress"
+    fastapi_app.dependency_overrides.pop(get_reports_service, None)
+
+
+@pytest.mark.asyncio
 async def test_get_disease_trends_returns_ordered_points(async_client, test_db_session):
     test_db_session.add(User(user_id=3911, phone="3911000000", age=30, status="active"))
     test_db_session.add(

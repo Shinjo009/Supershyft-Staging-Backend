@@ -29,7 +29,10 @@ from modules.metsights.service import MetsightsService
 from modules.metsights.sync_service import MetsightsSyncService
 from modules.nutrition_score import NUTRITION_INTERNAL_ENDPOINT, calculate_nutrition
 from modules.reports.blood_parameters_normalizer import build_grouped_from_healthians
-from modules.reports.blood_parameters_read_service import BloodParametersReadService
+from modules.reports.blood_parameters_read_service import (
+    BloodParametersReadService,
+    build_parameter_value_map,
+)
 from modules.reports.blood_parameters_questionnaire_reader import BloodParametersQuestionnaireReader
 from modules.reports.blood_parameters_schemas import has_usable_provider_blood_parameters
 from modules.reports.blood_report_archival import (
@@ -2645,6 +2648,168 @@ class ReportsService:
             "data_points": data_points,
         }
 
+    @staticmethod
+    def _trend_assessment_date_value(assessment: AssessmentInstance) -> str | None:
+        point_date = assessment.completed_at or assessment.assigned_at
+        if point_date is None:
+            return None
+        if isinstance(point_date, date):
+            return point_date.isoformat()[:10]
+        return str(point_date)[:10]
+
+    @staticmethod
+    def _merge_questionnaire_into_value_map(
+        values: dict[str, tuple[float, str | None]],
+        flat: dict[str, Any],
+    ) -> dict[str, tuple[float, str | None]]:
+        """Fill missing keys from questionnaire flat dict; IHR values win."""
+        if not flat:
+            return values
+        questionnaire_map = build_parameter_value_map(flat)
+        for key, pair in questionnaire_map.items():
+            if key not in values:
+                values[key] = pair
+        return values
+
+    async def _build_all_blood_parameter_trends_payload(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+    ) -> list[dict[str, Any]]:
+        rows = await self._repository.list_individual_reports_for_user_with_assessment(
+            db,
+            user_id=user_id,
+        )
+
+        def _trend_type_priority(type_code: str | None) -> int:
+            code = (type_code or "").strip()
+            if code in _METSIGHTS_PRO_BASIC_TYPE_CODES:
+                return 0
+            if code == "7":
+                return 2
+            return 1
+
+        rows_sorted = sorted(
+            rows,
+            key=lambda row: (
+                _trend_type_priority(
+                    row[2].assessment_type_code if row[2] is not None else None
+                ),
+                int(row[1].assessment_instance_id),
+            ),
+        )
+
+        engagements: list[dict[str, Any]] = []
+        seen_assessment_ids: set[int] = set()
+        seen_engagement_ids: set[int] = set()
+
+        for report, assessment, package in rows_sorted:
+            type_code = (package.assessment_type_code if package is not None else "") or ""
+            if type_code == "7":
+                continue
+
+            engagement_id = int(assessment.engagement_id)
+            if engagement_id in seen_engagement_ids:
+                continue
+
+            seen_assessment_ids.add(int(assessment.assessment_instance_id))
+            date_value = self._trend_assessment_date_value(assessment)
+            if date_value is None:
+                continue
+
+            values = build_parameter_value_map(report.blood_parameters)
+            flat = await self._blood_read_service._questionnaire_reader.build_flat_from_questionnaire_responses(
+                db,
+                assessment_instance_id=int(assessment.assessment_instance_id),
+            )
+            values = self._merge_questionnaire_into_value_map(values, flat)
+            if not values:
+                continue
+
+            seen_engagement_ids.add(engagement_id)
+            data_points = [
+                {
+                    "parameter": key,
+                    "unit": unit,
+                    "value": value,
+                }
+                for key, (value, unit) in sorted(values.items())
+            ]
+            engagements.append(
+                {
+                    "date": date_value,
+                    "engagement_id": engagement_id,
+                    "data_points": data_points,
+                }
+            )
+
+        extra_assessments = await self._repository.list_metsights_pro_basic_assessments_for_user(
+            db,
+            user_id=user_id,
+        )
+        for assessment, _package in extra_assessments:
+            aid = int(assessment.assessment_instance_id)
+            engagement_id = int(assessment.engagement_id)
+            if aid in seen_assessment_ids or engagement_id in seen_engagement_ids:
+                continue
+            date_value = self._trend_assessment_date_value(assessment)
+            if date_value is None:
+                continue
+            flat = await self._blood_read_service._questionnaire_reader.build_flat_from_questionnaire_responses(
+                db,
+                assessment_instance_id=aid,
+            )
+            values = self._merge_questionnaire_into_value_map({}, flat)
+            if not values:
+                continue
+            seen_engagement_ids.add(engagement_id)
+            data_points = [
+                {
+                    "parameter": key,
+                    "unit": unit,
+                    "value": value,
+                }
+                for key, (value, unit) in sorted(values.items())
+            ]
+            engagements.append(
+                {
+                    "date": date_value,
+                    "engagement_id": engagement_id,
+                    "data_points": data_points,
+                }
+            )
+
+        engagements.sort(key=lambda item: (item["date"], item["engagement_id"]))
+        return engagements
+
+    async def _blood_parameter_trends_meta_for_user(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+    ) -> tuple[dict[str, Any], bool]:
+        state = await self._get_or_create_sync_state(db, user_id=user_id)
+        latest = await self._repository.get_latest_assessment_with_record_id(db, user_id=user_id)
+        latest_assessment_id = int(latest.assessment_instance_id) if latest is not None else None
+        cursor = int(state.last_synced_assessment_instance_id or 0)
+        stale = latest_assessment_id is not None and cursor < latest_assessment_id
+        should_trigger = False
+        if stale and (state.sync_status or _SYNC_IDLE) != _SYNC_IN_PROGRESS:
+            state.sync_status = _SYNC_IN_PROGRESS
+            state.last_sync_error = None
+            await self._repository.update_user_sync_state(db, state)
+            should_trigger = True
+
+        meta = {
+            "is_stale": stale,
+            "sync_status": state.sync_status,
+            "last_synced_at": state.last_synced_at,
+            "last_synced_assessment_instance_id": state.last_synced_assessment_instance_id,
+            "latest_assessment_instance_id": latest_assessment_id,
+        }
+        return meta, should_trigger
+
     async def _refresh_user_blood_parameters(self, *, user_id: int) -> None:
         """Import Metsights blood questionnaire categories for unsynced assessments."""
         after_id = 0
@@ -2749,25 +2914,26 @@ class ReportsService:
             user_id=user_id,
             parameter_key=parameter_key,
         )
-        state = await self._get_or_create_sync_state(db, user_id=user_id)
-        latest = await self._repository.get_latest_assessment_with_record_id(db, user_id=user_id)
-        latest_assessment_id = int(latest.assessment_instance_id) if latest is not None else None
-        cursor = int(state.last_synced_assessment_instance_id or 0)
-        stale = latest_assessment_id is not None and cursor < latest_assessment_id
-        should_trigger = False
-        if stale and (state.sync_status or _SYNC_IDLE) != _SYNC_IN_PROGRESS:
-            state.sync_status = _SYNC_IN_PROGRESS
-            state.last_sync_error = None
-            await self._repository.update_user_sync_state(db, state)
-            should_trigger = True
+        meta, should_trigger = await self._blood_parameter_trends_meta_for_user(
+            db,
+            user_id=user_id,
+        )
+        return payload, meta, should_trigger
 
-        meta = {
-            "is_stale": stale,
-            "sync_status": state.sync_status,
-            "last_synced_at": state.last_synced_at,
-            "last_synced_assessment_instance_id": state.last_synced_assessment_instance_id,
-            "latest_assessment_instance_id": latest_assessment_id,
-        }
+    async def get_all_blood_parameter_trends_for_user(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], bool]:
+        payload = await self._build_all_blood_parameter_trends_payload(
+            db,
+            user_id=user_id,
+        )
+        meta, should_trigger = await self._blood_parameter_trends_meta_for_user(
+            db,
+            user_id=user_id,
+        )
         return payload, meta, should_trigger
 
     @staticmethod

@@ -48,6 +48,18 @@ class BloodParameterTrendResponse(BaseModel):
     data_points: list[BloodParameterTrendPoint]
 
 
+class AllBloodParameterTrendValue(BaseModel):
+    parameter: str
+    unit: str | None = None
+    value: float
+
+
+class AllBloodParameterTrendEngagement(BaseModel):
+    date: str
+    engagement_id: int
+    data_points: list[AllBloodParameterTrendValue]
+
+
 class DiseaseOverview(BaseModel):
     code: str
     name: str
