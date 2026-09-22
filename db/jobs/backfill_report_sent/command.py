@@ -8,7 +8,7 @@ Cohorts:
   engagement_id 72 — Celebal Technologies Male
   engagement_id 73 — Celebal Technologies Female
 
-INSERT if missing; skip if a notification already exists (never UPDATE).
+INSERT if missing or existing is not sent; skip if already sent (never UPDATE).
 
 ::
 
@@ -79,8 +79,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Ensure users exist and are enrolled, then INSERT "
-            "notifications.status=sent only for Excel-ticked report channels "
-            "on engagements 16/72/73 when missing (skip if present; never UPDATE). "
+            "notifications.status=sent for Excel-ticked report channels "
+            "on engagements 16/72/73 when missing or not already sent "
+            "(never UPDATE existing rows). "
             "Uses embedded registration data (no Excel). Never sends notifications."
         )
     )
@@ -138,6 +139,11 @@ def _print_user_action(action: dict[str, Any]) -> None:
                     extra += f" notification_id={ch.get('notification_id')}"
                 if ch.get("status") is not None:
                     extra += f" status={ch.get('status')!r}"
+                if ch.get("existing_notification_id") is not None:
+                    extra += (
+                        f" existing_notification_id={ch.get('existing_notification_id')}"
+                        f" existing_status={ch.get('existing_status')!r}"
+                    )
                 print(f"        {ch.get('service_key')}: {ch.get('action')}{extra}")
 
 

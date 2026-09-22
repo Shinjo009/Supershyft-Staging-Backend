@@ -7,7 +7,7 @@ Cohorts (embedded data, no Excel at runtime):
 
 Rule: for each row, resolve/create user by phone and enroll in engagement_id.
 Only channels with an Excel tick (embedded True) get notifications.status=sent
-(INSERT if missing; skip if any notification already exists — never UPDATE).
+(INSERT if missing or existing is not sent; skip if already sent — never UPDATE).
 Blank / False channels are ignored. Never dispatches / n8n / email / WhatsApp.
 """
 from __future__ import annotations
@@ -453,49 +453,50 @@ async def _backfill_cohort(
                 engagement_id=int(engagement.engagement_id),
                 user_id=int(user.user_id),
             )
-            if existing is None:
-                if dry_run:
-                    result.notifications_inserted += 1
-                    channel_actions.append(
-                        {"service_key": service_key, "action": "would_insert"}
-                    )
-                else:
-                    notification = Notification(
-                        service_key=service_key,
-                        status="sent",
-                        channel=channel,
-                        user={"user_ids": [int(user.user_id)]},
-                        engagement_id=int(engagement.engagement_id),
-                        assessment_instance_id=None,
-                        message=BACKFILL_MESSAGE,
-                        triggered_by_user_id=None,
-                        dispatched_at=now,
-                        completed_at=now,
-                    )
-                    await notifications_repo.create_notification(db, notification)
-                    result.notifications_inserted += 1
-                    channel_actions.append(
-                        {
-                            "service_key": service_key,
-                            "action": "inserted",
-                            "notification_id": int(notification.notification_id),
-                        }
-                    )
-            else:
-                # Insert-only: never UPDATE existing rows (sent or otherwise).
+            existing_status = (
+                (existing.status or "").lower() if existing is not None else None
+            )
+            if existing is not None and existing_status == "sent":
                 result.notifications_skipped += 1
-                existing_status = (existing.status or "").lower()
-                skip_action = (
-                    "skipped_already_sent"
-                    if existing_status == "sent"
-                    else "skipped_already_exists"
-                )
                 channel_actions.append(
                     {
                         "service_key": service_key,
-                        "action": skip_action,
+                        "action": "skipped_already_sent",
                         "status": existing.status,
                         "notification_id": int(existing.notification_id),
+                    }
+                )
+                continue
+
+            # Missing or not-sent: INSERT a new sent row (never UPDATE).
+            insert_meta: dict[str, Any] = {"service_key": service_key}
+            if existing is not None:
+                insert_meta["existing_notification_id"] = int(existing.notification_id)
+                insert_meta["existing_status"] = existing.status
+
+            if dry_run:
+                result.notifications_inserted += 1
+                channel_actions.append({**insert_meta, "action": "would_insert"})
+            else:
+                notification = Notification(
+                    service_key=service_key,
+                    status="sent",
+                    channel=channel,
+                    user={"user_ids": [int(user.user_id)]},
+                    engagement_id=int(engagement.engagement_id),
+                    assessment_instance_id=None,
+                    message=BACKFILL_MESSAGE,
+                    triggered_by_user_id=None,
+                    dispatched_at=now,
+                    completed_at=now,
+                )
+                await notifications_repo.create_notification(db, notification)
+                result.notifications_inserted += 1
+                channel_actions.append(
+                    {
+                        **insert_meta,
+                        "action": "inserted",
+                        "notification_id": int(notification.notification_id),
                     }
                 )
 
