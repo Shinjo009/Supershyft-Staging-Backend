@@ -164,6 +164,8 @@ async def test_employee_list_users_paginates_and_filters(async_client, test_db_s
 
     for row in body["data"]:
         assert row["status"] == "active"
+        if row.get("phone"):
+            assert "*" in row["phone"] or len(row["phone"]) <= 4
 
 
 @pytest.mark.asyncio
@@ -179,6 +181,7 @@ async def test_employee_get_user_returns_details(async_client, test_db_session):
     assert response.status_code == 200
     assert response.json()["data"]["user_id"] == 9201
     assert response.json()["data"]["first_name"] == "X"
+    assert response.json()["data"]["phone"] == "******0000"
 
 
 @pytest.mark.asyncio
@@ -197,6 +200,50 @@ async def test_employee_update_user_updates_fields(async_client, test_db_session
     updated = await test_db_session.get(User, 9301)
     assert updated is not None
     assert updated.first_name == "New"
+
+
+@pytest.mark.asyncio
+async def test_employee_update_user_ignores_masked_phone_and_email(async_client, test_db_session):
+    test_db_session.add(User(age=30, user_id=9005, phone="9005000000", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=10044,
+            name="Employee 10044",
+            phone="0000010044",
+            email="employee10044@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+
+    test_db_session.add(
+        User(
+            age=30,
+            user_id=9311,
+            phone="9311000000",
+            email="real.user@example.com",
+            status="active",
+            first_name="Keep",
+        )
+    )
+    await test_db_session.commit()
+
+    payload = {
+        "phone": "******0000",
+        "email": "r*******ser@example.com",
+        "first_name": "Kept",
+        "status": "active",
+        "age": 30,
+    }
+    response = await async_client.put("/users/9311", headers=_auth_header(10044), json=payload)
+    assert response.status_code == 200
+
+    updated = await test_db_session.get(User, 9311)
+    assert updated is not None
+    assert updated.first_name == "Kept"
+    assert updated.phone == "9311000000"
+    assert updated.email == "real.user@example.com"
 
 
 @pytest.mark.asyncio

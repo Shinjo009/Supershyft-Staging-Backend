@@ -38,6 +38,7 @@ from modules.engagements.models import BloodCollectionType, EngagementKind
 from modules.engagements.repository import EngagementsRepository
 from modules.engagements.slot_availability import find_active_cabin
 from modules.diagnostics.repository import DiagnosticsRepository
+from common.masking import looks_masked
 from common.phone import phone_lookup_candidates as _phone_lookup_candidates
 from modules.users.schemas import (
     B2CCodeOnboardAndBookRequest,
@@ -1459,17 +1460,25 @@ class UsersService:
             if (payload.status or "").strip().lower() != "active":
                 raise AppError(status_code=400, error_code="INVALID_INPUT", message="User must remain active")
 
-        if (payload.phone or "").strip() != (user.phone or "").strip():
-            if await self._has_phone_conflict(db, phone=payload.phone, exclude_user_id=int(user_id)):
+        phone_in = (payload.phone or "").strip()
+        email_in = str(payload.email).strip() if payload.email is not None else None
+        if looks_masked(phone_in):
+            phone_in = (user.phone or "").strip()
+        if email_in is not None and looks_masked(email_in):
+            email_in = (user.email or "").strip() or None
+
+        if phone_in != (user.phone or "").strip():
+            if await self._has_phone_conflict(db, phone=phone_in, exclude_user_id=int(user_id)):
                 raise AppError(status_code=409, error_code="CONFLICT", message="User already exists")
 
-        if payload.email is not None:
-            existing_email = await self._repository.get_user_by_email(db, str(payload.email))
+        if email_in is not None:
+            existing_email = await self._repository.get_user_by_email(db, email_in)
             if existing_email is not None and existing_email.user_id != user_id:
                 raise AppError(status_code=409, error_code="CONFLICT", message="User already exists")
 
         data = payload.model_dump()
-        data["email"] = str(payload.email) if payload.email is not None else None
+        data["phone"] = phone_in
+        data["email"] = email_in
 
         updated = await self._repository.update_user_full(db, user=user, data=data)
 

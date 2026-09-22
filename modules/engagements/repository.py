@@ -502,6 +502,8 @@ class EngagementsRepository:
         engagement_participant_id: int,
         barcode: str,
         booking_id: str,
+        engagement_date: date | None = None,
+        slot_start_time: time | None = None,
     ) -> None:
         result = await db.execute(
             select(EngagementParticipant).where(
@@ -513,6 +515,10 @@ class EngagementsRepository:
             return
         participant.barcode = barcode
         participant.booking_id = booking_id
+        if engagement_date is not None:
+            participant.engagement_date = engagement_date
+        if slot_start_time is not None:
+            participant.slot_start_time = slot_start_time
         db.add(participant)
         await db.flush()
 

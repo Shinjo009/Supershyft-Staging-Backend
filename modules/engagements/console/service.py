@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, time
+from datetime import date, datetime, time
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,6 +46,8 @@ from modules.users.models import User
 from modules.users.repository import UsersRepository
 
 logger = logging.getLogger(__name__)
+
+_IST = ZoneInfo("Asia/Kolkata")
 
 _CONSOLE_PARTICIPANT_FIELDS = (
     "engagement_participant_id",
@@ -459,6 +462,7 @@ class ConsoleService:
         engagement_id: int,
         user_id: int,
         barcode: str,
+        sync_collection_to_now: bool = False,
     ) -> dict:
         await ensure_console_access(db, engagement_id, repository=self._repository, employee=employee, partner=partner)
 
@@ -771,14 +775,23 @@ class ConsoleService:
                 message=str(exc),
             ) from exc
 
+        synced_engagement_date: date | None = None
+        synced_slot_start_time: time | None = None
+        if sync_collection_to_now:
+            now_ist = datetime.now(_IST)
+            synced_engagement_date = now_ist.date()
+            synced_slot_start_time = time(now_ist.hour, now_ist.minute, now_ist.second)
+
         await self._repository.update_participant_healthians_booking(
             db,
             engagement_participant_id=engagement_participant_id,
             barcode=trimmed_barcode,
             booking_id=str(healthians_booking_id),
+            engagement_date=synced_engagement_date,
+            slot_start_time=synced_slot_start_time,
         )
 
-        return {
+        result = {
             "status": booking_response.get("status"),
             "message": booking_response.get("message"),
             "lead_id": booking_response.get("lead_id"),
@@ -789,6 +802,10 @@ class ConsoleService:
             "engagement_participant_id": engagement_participant_id,
             "user_id": user_id,
         }
+        if synced_engagement_date is not None and synced_slot_start_time is not None:
+            result["engagement_date"] = synced_engagement_date.isoformat()
+            result["slot_start_time"] = synced_slot_start_time.isoformat()
+        return result
 
     async def cancel_participant_booking(
         self,

@@ -2264,7 +2264,7 @@ async def test_list_camp_participants_includes_profile_fields(async_client, test
     assert row["first_name"] == "Jane"
     assert row["last_name"] == "Doe"
     assert row["phone"] == "********0000"
-    assert row["email"] == "****e.doe@example.com"
+    assert row["email"] == "j****doe@example.com"
     assert row["age"] == 30
     assert row["gender"] == "female"
     assert row["participant_blood_group"] == "O+"
@@ -2540,7 +2540,7 @@ async def test_list_camp_participants_enriched_fields(async_client, test_db_sess
 
     assert row["first_name"] == "Kiran"
     assert row["phone"] == "******8059"
-    assert row["email"] == "*************stic@gmail.com"
+    assert row["email"] == "p**************tic@gmail.com"
     assert row["age"] == 32
     assert row["participant_department"] == "hr_admin"
     assert row["questionnaires"] == {

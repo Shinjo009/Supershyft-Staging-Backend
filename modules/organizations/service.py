@@ -12,6 +12,7 @@ Business rules:
 from __future__ import annotations
 
 from core.exceptions import AppError
+from common.masking import mask_email, mask_phone
 from common.slug import slugify_department
 from modules.audit.service import AuditService
 from modules.employee.access_control import (
@@ -695,8 +696,8 @@ class OrganizationsService:
                 "user_id": user_id,
                 "first_name": first_name,
                 "last_name": last_name,
-                "phone": phone,
-                "email": email,
+                "phone": mask_phone(phone),
+                "email": mask_email(email),
                 "address": address,
                 "pin_code": pin_code,
                 "city": city,

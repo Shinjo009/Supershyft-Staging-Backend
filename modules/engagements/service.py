@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.masking import mask_email, mask_phone
 from common.phone import phone_lookup_candidates as _phone_lookup_candidates
 from core.config import settings
 from core.exceptions import AppError
@@ -249,8 +250,8 @@ def _participant_enrollment_to_dict(row: tuple, *, consultations: dict[str, Any]
         "user_id": user_id,
         "first_name": first_name,
         "last_name": last_name,
-        "phone": phone,
-        "email": email,
+        "phone": mask_phone(phone),
+        "email": mask_email(email),
         "age": age,
         "address": address,
         "pin_code": pin_code,
@@ -3145,8 +3146,8 @@ class EngagementsService:
                         "user_id": uid,
                         "first_name": row.first_name,
                         "last_name": row.last_name,
-                        "phone": row.phone,
-                        "email": row.email,
+                        "phone": mask_phone(row.phone),
+                        "email": mask_email(row.email),
                         "has_booking_id": has_booking_id,
                         "has_blood_report": flags["has_blood_report"],
                         "has_blood_values": flags["has_blood_values"],
@@ -3373,8 +3374,8 @@ class EngagementsService:
                     "user_id": uid,
                     "first_name": row.first_name,
                     "last_name": row.last_name,
-                    "phone": row.phone,
-                    "email": row.email,
+                    "phone": mask_phone(row.phone),
+                    "email": mask_email(row.email),
                     "categories": {},
                     "has_any_responses": False,
                     "all_assigned_complete": True,
@@ -3865,6 +3866,10 @@ class EngagementsService:
                 base["reason"] = str(exc)
 
             results.append(base)
+
+        for item in results:
+            item["phone"] = mask_phone(item.get("phone"))
+            item["email"] = mask_email(item.get("email"))
 
         return {"results": results}
 

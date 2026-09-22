@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import date, time
+from datetime import date, datetime, time
 from unittest.mock import AsyncMock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -113,6 +114,8 @@ async def test_console_book_participant_uses_engagement_external_camp_id(async_c
         existing_participant.booking_id = None
         existing_participant.barcode = None
         existing_participant.booked_by_user_id = 93102
+        existing_participant.engagement_date = date.today()
+        existing_participant.slot_start_time = time(10, 0)
     await test_db_session.commit()
 
     mock_serviceability = AsyncMock(
@@ -159,6 +162,164 @@ async def test_console_book_participant_uses_engagement_external_camp_id(async_c
     participant = await test_db_session.get(EngagementParticipant, 96001)
     assert participant.booking_id == "1715622999"
     assert participant.barcode == "BC96001"
+    assert participant.engagement_date == date.today()
+    assert participant.slot_start_time == time(10, 0)
+
+
+@pytest.mark.asyncio
+async def test_console_book_participant_sync_collection_to_now(async_client, test_db_session, monkeypatch):
+    monkeypatch.setattr(settings, "HEALTHIANS_CHECKSUM_KEY", "test-checksum-key")
+
+    existing_pkg = await test_db_session.get(AssessmentPackage, 1)
+    if existing_pkg is None:
+        test_db_session.add(
+            AssessmentPackage(
+                package_id=1,
+                package_code="PKG001",
+                display_name="Test Package",
+                status="active",
+            )
+        )
+    existing_diag = await test_db_session.get(DiagnosticPackage, 51)
+    if existing_diag is None:
+        test_db_session.add(
+            DiagnosticPackage(
+                diagnostic_package_id=51,
+                reference_id="REF51",
+                package_name="Healthians Camp",
+                diagnostic_provider="healthians",
+                external_package_id=2002,
+                status="active",
+                bookings_count=0,
+            )
+        )
+    else:
+        existing_diag.diagnostic_provider = "healthians"
+        existing_diag.external_package_id = 2002
+
+    await seed_employee(test_db_session, employee_id=602, role="admin", commit=False)
+
+    existing_eng = await test_db_session.get(Engagement, 7103)
+    if existing_eng is None:
+        test_db_session.add(
+            Engagement(
+                engagement_id=7103,
+                engagement_name="Camp Eng Sync Now",
+                engagement_code="CAMP7103",
+                engagement_type=None,
+                assessment_package_id=1,
+                diagnostic_package_id=51,
+                external_camp_id=3003,
+                status="running",
+                start_date=date.today(),
+                end_date=date.today(),
+                city="Delhi",
+                latitude=28.6,
+                longitude=77.2,
+                pincode="110001",
+                address="Camp Address",
+            )
+        )
+    else:
+        existing_eng.diagnostic_package_id = 51
+        existing_eng.external_camp_id = 3003
+        existing_eng.status = "running"
+        existing_eng.latitude = 28.6
+        existing_eng.longitude = 77.2
+        existing_eng.pincode = "110001"
+        existing_eng.address = "Camp Address"
+
+    test_db_session.add(
+        User(
+            user_id=93103,
+            age=35,
+            phone="9310300000",
+            email="sync.participant@example.com",
+            status="active",
+            first_name="Sync",
+            last_name="Participant",
+            gender="male",
+            relationship="self",
+        )
+    )
+    await test_db_session.flush()
+
+    original_date = date(2026, 1, 5)
+    original_slot = time(9, 0, 0)
+    existing_participant = await test_db_session.get(EngagementParticipant, 96003)
+    if existing_participant is None:
+        test_db_session.add(
+            EngagementParticipant(
+                engagement_participant_id=96003,
+                engagement_id=7103,
+                user_id=93103,
+                booked_by_user_id=93103,
+                engagement_date=original_date,
+                slot_start_time=original_slot,
+            )
+        )
+    else:
+        existing_participant.booking_id = None
+        existing_participant.barcode = None
+        existing_participant.booked_by_user_id = 93103
+        existing_participant.engagement_date = original_date
+        existing_participant.slot_start_time = original_slot
+    await test_db_session.commit()
+
+    frozen_now = datetime(2026, 9, 19, 14, 37, 0, tzinfo=ZoneInfo("Asia/Kolkata"))
+
+    class _FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return frozen_now.replace(tzinfo=None)
+            return frozen_now.astimezone(tz)
+
+    mock_serviceability = AsyncMock(
+        return_value={"status": True, "data": {"zone_id": 42}, "message": "ok"}
+    )
+    mock_create_booking = AsyncMock(
+        return_value={
+            "status": True,
+            "message": "Booking created",
+            "booking_id": "1715623010",
+            "lead_id": 101,
+        }
+    )
+
+    with patch(
+        "modules.engagements.console.service.datetime",
+        _FrozenDateTime,
+    ):
+        with patch(
+            "modules.engagements.console.service.healthians_client.check_serviceability_by_location_v2",
+            mock_serviceability,
+        ):
+            with patch(
+                "modules.engagements.console.service.healthians_client.create_booking_v3",
+                mock_create_booking,
+            ):
+                with patch(
+                    "modules.engagements.console.service.healthians_client.get_access_token",
+                    AsyncMock(return_value="token"),
+                ):
+                    response = await async_client.post(
+                        "/engagements/7103/console/participants/93103/book",
+                        json={"barcode": "BC96003", "sync_collection_to_now": True},
+                        headers=_auth_header(602),
+                    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["booking_id"] == "1715623010"
+    assert data["engagement_date"] == "2026-09-19"
+    assert data["slot_start_time"] == "14:37:00"
+
+    participant = await test_db_session.get(EngagementParticipant, 96003)
+    assert participant.booking_id == "1715623010"
+    assert participant.barcode == "BC96003"
+    assert participant.engagement_date == date(2026, 9, 19)
+    assert participant.slot_start_time == time(14, 37, 0)
 
 
 @pytest.mark.asyncio
