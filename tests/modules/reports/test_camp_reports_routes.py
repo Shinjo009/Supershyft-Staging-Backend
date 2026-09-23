@@ -3782,7 +3782,7 @@ async def _seed_positive_wins_camp_with_assessments(test_db_session, *, organiza
                     "name": "Low A",
                     "risk_status": "Healthy",
                     "risk_score_scaled": 12,
-                    "healthy_percentile": 50,
+                    "disease_percentile": 50,
                 },
             ]
             if idx == 0:
@@ -3792,7 +3792,7 @@ async def _seed_positive_wins_camp_with_assessments(test_db_session, *, organiza
                         "name": "Low B",
                         "risk_status": "Healthy",
                         "risk_score_scaled": 15,
-                        "healthy_percentile": 50,
+                        "disease_percentile": 50,
                     }
                 )
         else:
@@ -3802,7 +3802,7 @@ async def _seed_positive_wins_camp_with_assessments(test_db_session, *, organiza
                     "name": "Low C",
                     "risk_status": "Healthy",
                     "risk_score_scaled": 10,
-                    "healthy_percentile": 50,
+                    "disease_percentile": 50,
                 },
             ]
         test_db_session.add(

@@ -1412,18 +1412,18 @@ class ReportsService:
                 risk_score_scaled = int(rsc) if rsc is not None else 0
             except (TypeError, ValueError):
                 risk_score_scaled = 0
-            hp = d.get("healthy_percentile")
+            dp = d.get("disease_percentile")
             try:
-                healthy_percentile = int(hp) if hp is not None else 0
+                disease_percentile = int(dp) if dp is not None else 0
             except (TypeError, ValueError):
-                healthy_percentile = 0
+                disease_percentile = 0
             risk_analysis_list.append(
                 RiskAnalysisItem(
                     code=code,
                     name=name,
                     risk_status=risk_status,
                     risk_score_scaled=risk_score_scaled,
-                    healthy_percentile=healthy_percentile,
+                    disease_percentile=disease_percentile,
                 )
             )
 

@@ -72,7 +72,7 @@ class RiskAnalysisItem(BaseModel):
     name: str
     risk_status: str
     risk_score_scaled: int
-    healthy_percentile: int
+    disease_percentile: int
 
 
 class HealthyHabitItem(BaseModel):
