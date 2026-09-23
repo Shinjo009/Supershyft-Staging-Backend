@@ -59,6 +59,8 @@ from modules.reports.camp_report_section_builders import (
     build_positive_wins_details,
     build_questionnaire_gender_distribution_details,
     build_ranking,
+    build_state_disease_benchmark_details,
+    mean_scores_by_category,
     _coerce_reports_dict_for_positive_wins,
     _display_person_name,
     _list_healthy_diseases_from_report,
@@ -81,6 +83,7 @@ from modules.reports.camp_report_bts import (
     build_company_average_scores_bts,
     build_blood_and_lab_intelligence_bts,
     build_questionnaire_gender_distribution_bts,
+    build_state_disease_benchmark_bts,
 )
 from modules.assessments.models import AssessmentInstance, AssessmentPackage
 from modules.assessments.repository import AssessmentsRepository
@@ -116,6 +119,7 @@ _SECTION_ESTIMATE_COSTS: dict[str, tuple[float, float, str]] = {
     "distribution_by_gender_by_metabolic_syndrome": (3.0, 0.02, "participants"),
     "blood_and_lab_intelligence": (5.0, 0.05, "participants"),
     "ranking": (5.0, 0.03, "participants"),
+    "state_disease_benchmark": (5.0, 0.05, "participants"),
     # Loops health assessments (type 1/2); cache-only camp refresh is mostly DB work
     "positive_wins": (5.0, 0.08, "health"),
     "company_average_scores": (5.0, 2.5, "fitprint"),
@@ -1646,6 +1650,7 @@ class CampReportsService:
             sleep_bts_details: dict[str, Any] | None = None
             pa_bts_meta: dict[str, Any] | None = None
             sleep_bts_meta: dict[str, Any] | None = None
+            state_benchmark_bts_details: dict[str, Any] | None = None
             if normalized_section == "kpis":
                 built_payload, kpi_metrics = await self._build_kpis_payload_with_metrics(
                     db,
@@ -1734,6 +1739,15 @@ class CampReportsService:
                     "section_title": "Sleeping hours",
                     "bucket_labels": SLEEPING_HOURS_BUCKET_LABELS,
                 }
+            elif normalized_section == "state_disease_benchmark":
+                built_payload, state_benchmark_bts_details = (
+                    await self._build_state_disease_benchmark_with_details(
+                        db,
+                        camp_no=camp_no,
+                        department=department,
+                        city=city,
+                    )
+                )
             else:
                 built_payload = await self._build_section_payload(
                     db,
@@ -1883,6 +1897,17 @@ class CampReportsService:
                     expected_data=expected_data,
                     stored_data=expected_data,
                     details=bli_details,
+                    checked_at=checked_at,
+                )
+            elif normalized_section == "state_disease_benchmark":
+                expected_data = section_payload.get("data") if isinstance(section_payload.get("data"), dict) else {}
+                benchmark_details = dict(state_benchmark_bts_details or {})
+                if previous_data is not None:
+                    benchmark_details["previous"] = previous_data
+                report_bts[normalized_section] = build_state_disease_benchmark_bts(
+                    expected_data=expected_data,
+                    stored_data=expected_data,
+                    details=benchmark_details,
                     checked_at=checked_at,
                 )
             else:
@@ -3597,10 +3622,70 @@ class CampReportsService:
                 camp_no=camp_no,
             )
 
+        if section_key == "state_disease_benchmark":
+            payload, _details = await self._build_state_disease_benchmark_with_details(
+                db,
+                camp_no=camp_no,
+                department=department,
+                city=city,
+            )
+            return payload
+
         raise AppError(
             status_code=400,
             error_code="SECTION_NOT_IMPLEMENTED",
             message="Report section is not implemented",
+        )
+
+    async def _build_state_disease_benchmark_with_details(
+        self,
+        db: AsyncSession,
+        *,
+        camp_no: int,
+        department: str | None,
+        city: str | None,
+    ) -> tuple[dict, dict]:
+        org_context = await self._repository.get_organization_benchmark_context(
+            db, camp_no=camp_no
+        )
+        if org_context is None:
+            raise AppError(
+                status_code=404,
+                error_code="CAMP_NOT_FOUND",
+                message="Camp does not exist",
+            )
+        organization_id, organization_name, state = org_context
+        state_value = state.strip() if isinstance(state, str) and state.strip() else None
+
+        company_score_maps = await self._repository.list_benchmark_score_maps_for_camp(
+            db,
+            camp_no=camp_no,
+            department=department,
+            city=city,
+        )
+        company_category_averages = mean_scores_by_category(company_score_maps)
+
+        peer_company_category_averages: list[dict[str, float | None]] = []
+        peer_organization_ids: list[int] = []
+        if state_value is not None:
+            peer_by_org = await self._repository.list_benchmark_score_maps_by_org_for_state(
+                db,
+                state=state_value,
+                exclude_organization_id=organization_id,
+            )
+            for peer_org_id in sorted(peer_by_org.keys()):
+                peer_organization_ids.append(peer_org_id)
+                peer_company_category_averages.append(
+                    mean_scores_by_category(peer_by_org[peer_org_id])
+                )
+
+        return build_state_disease_benchmark_details(
+            organization_id=organization_id,
+            company_name=organization_name,
+            state=state_value,
+            company_category_averages=company_category_averages,
+            peer_company_category_averages=peer_company_category_averages,
+            peer_organization_ids=peer_organization_ids,
         )
 
     async def _compute_ranking_payload(self, db: AsyncSession, *, camp_no: int) -> dict:

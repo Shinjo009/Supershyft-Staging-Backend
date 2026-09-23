@@ -2962,6 +2962,143 @@ def build_blood_and_lab_intelligence_details(
     return payload, details
 
 
+# Display order for HR state benchmarking chart (diseases + oxidative stress).
+STATE_BENCHMARK_CATEGORIES: tuple[tuple[str, str], ...] = (
+    ("type_2_diabetes", "Diabetes"),
+    ("hypertension", "Hypertension"),
+    ("obesity", "Obesity"),
+    ("pcos_pcod", "PCOS/PCOD"),
+    ("nafld", "NAFLD"),
+    ("cardiac_health", "Cardiac Health"),
+    ("thyroid_health", "Thyroid"),
+    ("dyslipidemia", "Dyslipidemia"),
+    ("oxidative_stress", "Oxidative Stress"),
+)
+
+
+def extract_benchmark_category_scores(reports: dict) -> dict[str, float]:
+    """Return {category_key: risk_score_scaled} for benchmark categories from one Bio AI report."""
+    scores: dict[str, float] = dict(extract_disease_risk_scores(reports))
+    oxidative = extract_oxidative_stress_score(reports)
+    if oxidative is not None:
+        scores["oxidative_stress"] = float(oxidative)
+    return scores
+
+
+def _mean_or_none(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return round(sum(values) / len(values), 2)
+
+
+def mean_scores_by_category(score_rows: list[dict[str, float]]) -> dict[str, float | None]:
+    """Average each benchmark category across individual score maps."""
+    buckets: dict[str, list[float]] = {key: [] for key, _ in STATE_BENCHMARK_CATEGORIES}
+    for row in score_rows:
+        for key in buckets:
+            value = row.get(key)
+            if isinstance(value, (int, float)):
+                buckets[key].append(float(value))
+    return {key: _mean_or_none(values) for key, values in buckets.items()}
+
+
+def build_state_disease_benchmark(
+    *,
+    organization_id: int,
+    company_name: str,
+    state: str | None,
+    company_category_averages: dict[str, float | None],
+    peer_company_category_averages: list[dict[str, float | None]],
+) -> dict:
+    """Build state_disease_benchmark section payload.
+
+    ``peer_company_category_averages`` is one dict per peer Bio-AI company (equal weight).
+    ``state_average`` for a category is the mean of peer companies that have that category.
+    """
+    companies_count = len(peer_company_category_averages)
+    risk_comparison: list[dict[str, Any]] = []
+    company_overall_values: list[float] = []
+    state_overall_values: list[float] = []
+
+    for category_key, category_label in STATE_BENCHMARK_CATEGORIES:
+        company_average = company_category_averages.get(category_key)
+        if isinstance(company_average, (int, float)):
+            company_average = float(company_average)
+            company_overall_values.append(company_average)
+        else:
+            company_average = None
+
+        peer_values = [
+            float(peer[category_key])
+            for peer in peer_company_category_averages
+            if isinstance(peer.get(category_key), (int, float))
+        ]
+        state_average = _mean_or_none(peer_values)
+        if state_average is not None:
+            state_overall_values.append(state_average)
+
+        risk_comparison.append(
+            {
+                "category_key": category_key,
+                "category": category_label,
+                "company_average": company_average,
+                "state_average": state_average,
+            }
+        )
+
+    return {
+        "data": {
+            "company": {
+                "organization_id": int(organization_id),
+                "name": company_name or "",
+                "state": state,
+            },
+            "benchmark": {
+                "companies_count": companies_count,
+            },
+            "risk_comparison": risk_comparison,
+            "overall": {
+                "company_average": _mean_or_none(company_overall_values),
+                "state_average": _mean_or_none(state_overall_values),
+            },
+        }
+    }
+
+
+def build_state_disease_benchmark_details(
+    *,
+    organization_id: int,
+    company_name: str,
+    state: str | None,
+    company_category_averages: dict[str, float | None],
+    peer_company_category_averages: list[dict[str, float | None]],
+    peer_organization_ids: list[int] | None = None,
+) -> tuple[dict, dict]:
+    """Return section payload plus BTS details for state disease benchmarking."""
+    payload = build_state_disease_benchmark(
+        organization_id=organization_id,
+        company_name=company_name,
+        state=state,
+        company_category_averages=company_category_averages,
+        peer_company_category_averages=peer_company_category_averages,
+    )
+    details = {
+        "method": {
+            "state_source": "organizations.state",
+            "company_average": "Mean of individuals enrolled in this camp with a Bio-AI score for the category",
+            "state_average": (
+                "Mean of peer company averages (equal weight per company); "
+                "selected organization excluded"
+            ),
+            "peer_organization_ids": list(peer_organization_ids or []),
+            "companies_count": len(peer_company_category_averages),
+        },
+        "company_category_averages": dict(company_category_averages),
+        "peer_company_category_averages": list(peer_company_category_averages),
+    }
+    return payload, details
+
+
 SECTION_BUILDERS: dict[str, Callable[..., dict]] = {
     "participation_by_age": build_participation_by_age,
     "kpis": build_kpis,
@@ -2974,6 +3111,7 @@ SECTION_BUILDERS: dict[str, Callable[..., dict]] = {
     "company_average_scores": build_company_average_scores,
     "blood_and_lab_intelligence": build_blood_and_lab_intelligence,
     "ranking": lambda **_: {},  # computed in service via _compute_ranking_payload
+    "state_disease_benchmark": lambda **_: {},  # computed in service via _build_state_disease_benchmark_with_details
 }
 
 
