@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
-from common.validation import AddressText, CityStateCountry, OptionalLandmarkText, PinCode
+from common.validation import AddressText, CityStateCountry, OptionalLandmarkText, PinCode, SafeText
 
 
 class ConsoleParticipantBookRequest(BaseModel):
@@ -20,6 +20,7 @@ class HomeCollectionCheckServiceabilityRequest(BaseModel):
     landmark: OptionalLandmarkText = None
     city: CityStateCountry
     pincode: PinCode
+    for_reschedule: bool = False
 
 
 class HomeCollectionAvailableSlotsRequest(BaseModel):
@@ -30,6 +31,13 @@ class HomeCollectionLockRequest(BaseModel):
     blood_collection_date: date
     blood_collection_time_slot_id: str = Field(min_length=1, max_length=50)
     blood_collection_time_slot: str = Field(min_length=1, max_length=50)
+
+
+class HomeCollectionRescheduleRequest(BaseModel):
+    blood_collection_date: date
+    blood_collection_time_slot_id: str = Field(min_length=1, max_length=50)
+    blood_collection_time_slot: str = Field(min_length=1, max_length=50)
+    reschedule_reason: SafeText
 
 
 class ConsoleParticipantBookResponse(BaseModel):

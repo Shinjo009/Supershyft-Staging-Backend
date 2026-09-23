@@ -115,6 +115,26 @@ class CancelBookingRequest(BaseModel):
         return self
 
 
+class RescheduleBloodTestMember(BaseModel):
+    user_id: PositiveIntId
+    engagement_id: PositiveIntId
+    blood_collection_date: date
+    blood_collection_time_slot_id: str = Field(min_length=1, max_length=50)
+    blood_collection_time_slot: ShortSafeText
+    reschedule_reason: SafeText
+
+
+class RescheduleBloodTestRequest(BaseModel):
+    members: list[RescheduleBloodTestMember] = Field(..., min_length=1, max_length=10)
+
+    @model_validator(mode="after")
+    def unique_member_user_ids(self) -> "RescheduleBloodTestRequest":
+        ids = [m.user_id for m in self.members]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Duplicate user_id in members")
+        return self
+
+
 class PublicCheckServiceabilityRequest(BaseModel):
     """Flat payload for public B2C pay-later serviceability check."""
 

@@ -1725,6 +1725,235 @@ async def cancel_healthians_participant_booking(
     }
 
 
+def _healthians_reschedule_success(resp: dict) -> bool:
+    if resp.get("status") is not True:
+        return False
+    res_code = resp.get("resCode")
+    if res_code is not None and res_code != "RES0001":
+        return False
+    return True
+
+
+async def reschedule_healthians_participant_booking(
+    db: AsyncSession,
+    *,
+    participant: EngagementParticipant,
+    engagement: Engagement,
+    blood_collection_date: date,
+    blood_collection_time_slot_id: str,
+    blood_collection_time_slot: str,
+    reschedule_reason: str,
+) -> dict[str, Any]:
+    """Reschedule a Healthians home-collection booking and update local participant fields."""
+    booking_id = (participant.booking_id or "").strip()
+    if not booking_id:
+        raise AppError(
+            status_code=422,
+            error_code="NO_BOOKING",
+            message="No Healthians booking exists for this participant",
+        )
+
+    slot_id = (blood_collection_time_slot_id or "").strip()
+    if not slot_id:
+        raise AppError(
+            status_code=422,
+            error_code="SLOT_NOT_LOCKED",
+            message="Blood collection slot has not been locked",
+        )
+
+    locked_id = (participant.blood_collection_time_slot_id or "").strip()
+    if not locked_id:
+        raise AppError(
+            status_code=422,
+            error_code="SLOT_NOT_LOCKED",
+            message="Blood collection slot has not been locked",
+        )
+    if locked_id != slot_id:
+        raise AppError(
+            status_code=422,
+            error_code="SLOT_MISMATCH",
+            message="Locked slot does not match the requested slot",
+        )
+
+    if engagement.blood_collection_type != BloodCollectionType.home_collection:
+        raise AppError(
+            status_code=422,
+            error_code="NOT_HOME_COLLECTION",
+            message="Reschedule is only allowed for home collection engagements",
+        )
+
+    await _get_healthians_package_for_engagement(db, engagement)
+
+    try:
+        slot_start_time = _parse_slot_time(blood_collection_time_slot)
+    except ValueError as exc:
+        raise AppError(status_code=422, error_code="INVALID_SLOT_TIME", message=str(exc)) from exc
+
+    access_token = await _get_healthians_token()
+    reschedule_payload = {
+        "booking_id": booking_id,
+        "slot": {"slot_id": slot_id},
+        "customers": [{"vendor_customer_id": str(participant.user_id)}],
+        "reschedule_reason": reschedule_reason.strip(),
+    }
+    api_url = f"{settings.HEALTHIANS_BASE_URL}/toast4health/rescheduleBookingByCustomer_v1"
+
+    await release_request_transaction(db)
+
+    try:
+        resp = await healthians_client.reschedule_booking_by_customer_v1(
+            access_token,
+            reschedule_payload,
+        )
+    except Exception as exc:
+        logger.exception(
+            "Healthians rescheduleBookingByCustomer_v1 failed for participant %s",
+            participant.engagement_participant_id,
+        )
+        await log_healthians_call(
+            db,
+            engagement_id=engagement.engagement_id,
+            user_id=participant.user_id,
+            provider="healthians",
+            api_url=api_url,
+            request_payload=reschedule_payload,
+            status="failed",
+            error_message=str(exc),
+        )
+        raise AppError(
+            status_code=502,
+            error_code="HEALTHIANS_RESCHEDULE_FAILED",
+            message=str(exc),
+        ) from exc
+
+    await log_healthians_call(
+        db,
+        engagement_id=engagement.engagement_id,
+        user_id=participant.user_id,
+        provider="healthians",
+        api_url=api_url,
+        request_payload=reschedule_payload,
+        response_payload=resp,
+        status="success" if _healthians_reschedule_success(resp) else "failed",
+    )
+
+    if not _healthians_reschedule_success(resp):
+        raise AppError(
+            status_code=422,
+            error_code="HEALTHIANS_RESCHEDULE_FAILED",
+            message=resp.get("message", "Booking reschedule failed"),
+        )
+
+    data = resp.get("data") or {}
+    new_booking_id = data.get("new_booking_id")
+    new_booking_id_str = str(new_booking_id).strip() if new_booking_id else booking_id
+    if (participant.barcode or "").strip() == booking_id:
+        participant.barcode = new_booking_id_str
+    participant.booking_id = new_booking_id_str
+    participant.blood_collection_time_slot_id = slot_id
+    participant.engagement_date = blood_collection_date
+    participant.slot_start_time = slot_start_time
+    await db.flush()
+
+    return {
+        "status": True,
+        "message": resp.get("message", "Booking Successfully Rescheduled."),
+        "booking_id": new_booking_id_str,
+        "previous_booking_id": booking_id,
+        "blood_collection_date": blood_collection_date.isoformat(),
+        "blood_collection_time_slot_id": slot_id,
+        "slot_start_time": slot_start_time.isoformat(),
+        "resCode": resp.get("resCode"),
+    }
+
+
+async def reschedule_healthians_bookings_batch(
+    db: AsyncSession,
+    *,
+    members: list[dict[str, Any]],
+    caller_user_id: int,
+) -> list[dict[str, Any]]:
+    """Reschedule Healthians bookings for multiple engagement participants."""
+    results: list[dict[str, Any]] = []
+
+    for member in members:
+        user_id = member["user_id"]
+        engagement_id = member["engagement_id"]
+        blood_collection_date = member["blood_collection_date"]
+        blood_collection_time_slot_id = member["blood_collection_time_slot_id"]
+        blood_collection_time_slot = member["blood_collection_time_slot"]
+        reschedule_reason = member["reschedule_reason"]
+
+        engagement_result = await db.execute(
+            select(Engagement).where(Engagement.engagement_id == engagement_id)
+        )
+        engagement = engagement_result.scalar_one_or_none()
+        if engagement is None:
+            results.append({
+                "user_id": user_id,
+                "engagement_id": engagement_id,
+                "status": "error",
+                "message": "Engagement not found",
+            })
+            continue
+
+        participant_result = await db.execute(
+            select(EngagementParticipant)
+            .where(EngagementParticipant.engagement_id == engagement_id)
+            .where(EngagementParticipant.user_id == user_id)
+            .order_by(EngagementParticipant.engagement_participant_id.desc())
+            .limit(1)
+        )
+        participant = participant_result.scalar_one_or_none()
+        if participant is None:
+            results.append({
+                "user_id": user_id,
+                "engagement_id": engagement_id,
+                "status": "error",
+                "message": "User not enrolled",
+            })
+            continue
+
+        if caller_user_id not in (participant.user_id, participant.booked_by_user_id):
+            results.append({
+                "user_id": user_id,
+                "engagement_id": engagement_id,
+                "status": "error",
+                "message": "Not authorized to reschedule this booking",
+            })
+            continue
+
+        try:
+            reschedule_result = await reschedule_healthians_participant_booking(
+                db,
+                participant=participant,
+                engagement=engagement,
+                blood_collection_date=blood_collection_date,
+                blood_collection_time_slot_id=blood_collection_time_slot_id,
+                blood_collection_time_slot=blood_collection_time_slot,
+                reschedule_reason=reschedule_reason,
+            )
+            results.append({
+                "user_id": user_id,
+                "engagement_id": engagement_id,
+                "status": "success",
+                "message": reschedule_result.get("message"),
+                "booking_id": reschedule_result.get("booking_id"),
+                "blood_collection_date": reschedule_result.get("blood_collection_date"),
+                "blood_collection_time_slot_id": reschedule_result.get("blood_collection_time_slot_id"),
+                "slot_start_time": reschedule_result.get("slot_start_time"),
+            })
+        except AppError as exc:
+            results.append({
+                "user_id": user_id,
+                "engagement_id": engagement_id,
+                "status": "error",
+                "message": exc.message,
+            })
+
+    return results
+
+
 async def cancel_healthians_bookings_batch(
     db: AsyncSession,
     *,

@@ -36,7 +36,7 @@ from modules.organizations.models import Organization
 from modules.assessments.package_questions_service import AssessmentPackageCategoriesService
 from modules.assessments.repository import AssessmentsRepository
 from modules.assessments.service import AssessmentsService
-from modules.engagements.models import Engagement, EngagementParticipant
+from modules.engagements.models import BloodCollectionType, Engagement, EngagementParticipant
 from modules.engagements.repository import EngagementsRepository
 from modules.engagements.service import _participant_enrollment_to_dict
 from db.transaction import release_request_transaction
@@ -45,6 +45,7 @@ from modules.metsights.sync_service import MetsightsSyncService
 from modules.questionnaire.service import QuestionnaireService
 from modules.users.models import User
 from modules.users.repository import UsersRepository
+from modules.bookings import service as booking_service
 
 logger = logging.getLogger(__name__)
 
@@ -1107,6 +1108,15 @@ class ConsoleService:
         return pkg
 
     @staticmethod
+    def _ensure_home_collection_engagement(engagement: Engagement) -> None:
+        if engagement.blood_collection_type != BloodCollectionType.home_collection:
+            raise AppError(
+                status_code=422,
+                error_code="NOT_HOME_COLLECTION",
+                message="This action is only allowed for home collection engagements",
+            )
+
+    @staticmethod
     def _parse_slot_time(slot_str: str) -> time:
         text = (slot_str or "").strip()
         if not text:
@@ -1137,6 +1147,7 @@ class ConsoleService:
         landmark: str | None,
         city: str,
         pincode: str,
+        for_reschedule: bool = False,
     ) -> dict:
         await ensure_console_access(db, engagement_id, repository=self._repository, employee=employee, partner=partner)
 
@@ -1144,13 +1155,21 @@ class ConsoleService:
         if engagement is None:
             raise AppError(status_code=404, error_code="ENGAGEMENT_NOT_FOUND", message="Engagement does not exist")
         ensure_engagement_running(engagement)
+        self._ensure_home_collection_engagement(engagement)
 
         participant = await self._repository.get_participant_for_user_engagement(
             db, user_id=user_id, engagement_id=engagement_id,
         )
         if participant is None:
             raise AppError(status_code=404, error_code="PARTICIPANT_NOT_FOUND", message="Participant is not enrolled in this engagement")
-        if participant.booking_id:
+        if for_reschedule:
+            if not (participant.booking_id or "").strip():
+                raise AppError(
+                    status_code=422,
+                    error_code="NO_BOOKING",
+                    message="No Healthians booking exists for this participant",
+                )
+        elif participant.booking_id:
             raise AppError(status_code=409, error_code="BOOKING_ALREADY_EXISTS", message="A booking already exists for this participant")
 
         pkg = await self._load_healthians_package_for_engagement(db, engagement)
@@ -1242,6 +1261,7 @@ class ConsoleService:
         if engagement is None:
             raise AppError(status_code=404, error_code="ENGAGEMENT_NOT_FOUND", message="Engagement does not exist")
         ensure_engagement_running(engagement)
+        self._ensure_home_collection_engagement(engagement)
 
         participant = await self._repository.get_participant_for_user_engagement(
             db, user_id=user_id, engagement_id=engagement_id,
@@ -1339,6 +1359,7 @@ class ConsoleService:
         if engagement is None:
             raise AppError(status_code=404, error_code="ENGAGEMENT_NOT_FOUND", message="Engagement does not exist")
         ensure_engagement_running(engagement)
+        self._ensure_home_collection_engagement(engagement)
 
         participant = await self._repository.get_participant_for_user_engagement(
             db, user_id=user_id, engagement_id=engagement_id,
@@ -1421,6 +1442,7 @@ class ConsoleService:
         if engagement is None:
             raise AppError(status_code=404, error_code="ENGAGEMENT_NOT_FOUND", message="Engagement does not exist")
         ensure_engagement_running(engagement)
+        self._ensure_home_collection_engagement(engagement)
 
         participant = await self._repository.get_participant_for_user_engagement(
             db, user_id=user_id, engagement_id=engagement_id,
@@ -1579,4 +1601,53 @@ class ConsoleService:
             "engagement_participant_id": engagement_participant_id,
             "user_id": user_id,
             "engagement_id": engagement_id,
+        }
+
+    async def reschedule_home_collection(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        partner=None,
+        engagement_id: int,
+        user_id: int,
+        blood_collection_date: date,
+        blood_collection_time_slot_id: str,
+        blood_collection_time_slot: str,
+        reschedule_reason: str,
+    ) -> dict:
+        await ensure_console_access(db, engagement_id, repository=self._repository, employee=employee, partner=partner)
+
+        engagement = await self._repository.get_engagement_by_id(db, engagement_id)
+        if engagement is None:
+            raise AppError(status_code=404, error_code="ENGAGEMENT_NOT_FOUND", message="Engagement does not exist")
+        ensure_engagement_running(engagement)
+        self._ensure_home_collection_engagement(engagement)
+
+        participant = await self._repository.get_participant_for_user_engagement(
+            db, user_id=user_id, engagement_id=engagement_id,
+        )
+        if participant is None:
+            raise AppError(status_code=404, error_code="PARTICIPANT_NOT_FOUND", message="Participant is not enrolled in this engagement")
+
+        result = await booking_service.reschedule_healthians_participant_booking(
+            db,
+            participant=participant,
+            engagement=engagement,
+            blood_collection_date=blood_collection_date,
+            blood_collection_time_slot_id=blood_collection_time_slot_id,
+            blood_collection_time_slot=blood_collection_time_slot,
+            reschedule_reason=reschedule_reason,
+        )
+
+        return {
+            "status": result.get("status"),
+            "message": result.get("message"),
+            "booking_id": result.get("booking_id"),
+            "resCode": result.get("resCode"),
+            "blood_collection_date": result.get("blood_collection_date"),
+            "blood_collection_time_slot_id": result.get("blood_collection_time_slot_id"),
+            "slot_start_time": result.get("slot_start_time"),
+            "engagement_id": engagement_id,
+            "user_id": user_id,
         }

@@ -15,6 +15,7 @@ from modules.bookings.schemas import (
     CancelBookingRequest,
     CheckServiceabilityRequest,
     LockSlotRequest,
+    RescheduleBloodTestRequest,
     CodeAvailableSlotsRequest,
     CodeLockSlotRequest,
     PublicAvailableSlotsRequest,
@@ -140,6 +141,34 @@ async def cancel_blood_test_bookings(
         members=members,
         caller_user_id=current_user.user_id,
         repository=repository,
+    )
+    await db.commit()
+    return success_response({"members": result})
+
+
+@router.post("/reschedule/blood-test")
+@limiter.limit("5/minute")
+async def reschedule_blood_test_bookings(
+    payload: RescheduleBloodTestRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    members = [
+        {
+            "user_id": m.user_id,
+            "engagement_id": m.engagement_id,
+            "blood_collection_date": m.blood_collection_date,
+            "blood_collection_time_slot_id": m.blood_collection_time_slot_id,
+            "blood_collection_time_slot": m.blood_collection_time_slot,
+            "reschedule_reason": m.reschedule_reason,
+        }
+        for m in payload.members
+    ]
+    result = await booking_service.reschedule_healthians_bookings_batch(
+        db,
+        members=members,
+        caller_user_id=current_user.user_id,
     )
     await db.commit()
     return success_response({"members": result})

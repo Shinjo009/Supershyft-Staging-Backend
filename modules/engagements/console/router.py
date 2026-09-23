@@ -15,6 +15,7 @@ from modules.engagements.console.schemas import (
     HomeCollectionAvailableSlotsRequest,
     HomeCollectionCheckServiceabilityRequest,
     HomeCollectionLockRequest,
+    HomeCollectionRescheduleRequest,
 )
 from modules.engagements.console.service import ConsoleService
 from modules.engagements.dependencies import get_console_service
@@ -265,6 +266,7 @@ async def check_home_collection_service_availability(
         landmark=payload.landmark,
         city=payload.city,
         pincode=payload.pincode,
+        for_reschedule=payload.for_reschedule,
     )
     await db.commit()
     return success_response(data)
@@ -325,6 +327,29 @@ async def book_home_collection(
         employee=actor.employee, partner=actor.partner,
         engagement_id=engagement_id,
         user_id=user_id,
+    )
+    await db.commit()
+    return success_response(data)
+
+
+@router.patch("/{engagement_id}/console/participants/{user_id}/book-home-collection/reschedule")
+async def reschedule_home_collection(
+    engagement_id: int,
+    user_id: int,
+    payload: HomeCollectionRescheduleRequest,
+    db: AsyncSession = Depends(get_db),
+    actor: ConsoleActor = Depends(get_console_actor),
+    console_service: ConsoleService = Depends(get_console_service),
+):
+    data = await console_service.reschedule_home_collection(
+        db,
+        employee=actor.employee, partner=actor.partner,
+        engagement_id=engagement_id,
+        user_id=user_id,
+        blood_collection_date=payload.blood_collection_date,
+        blood_collection_time_slot_id=payload.blood_collection_time_slot_id,
+        blood_collection_time_slot=payload.blood_collection_time_slot,
+        reschedule_reason=payload.reschedule_reason,
     )
     await db.commit()
     return success_response(data)

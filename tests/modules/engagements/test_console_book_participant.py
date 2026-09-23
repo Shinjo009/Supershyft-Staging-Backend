@@ -11,7 +11,7 @@ import pytest
 from core.config import settings
 from modules.assessments.models import AssessmentPackage
 from modules.diagnostics.models import DiagnosticPackage
-from modules.engagements.models import Engagement, EngagementParticipant
+from modules.engagements.models import BloodCollectionType, Engagement, EngagementParticipant
 from modules.users.models import User
 from tests.helpers.auth import employee_auth_header, seed_employee
 
@@ -373,11 +373,13 @@ async def test_console_home_collection_book_flow(async_client, test_db_session, 
                 start_date=date.today(),
                 end_date=date.today(),
                 city="Bangalore",
+                blood_collection_type=BloodCollectionType.home_collection,
             )
         )
     else:
         existing_eng.diagnostic_package_id = 52
         existing_eng.status = "running"
+        existing_eng.blood_collection_type = BloodCollectionType.home_collection
 
     test_db_session.add(
         User(

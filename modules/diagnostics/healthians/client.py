@@ -218,3 +218,19 @@ async def cancel_booking(
         )
         resp.raise_for_status()
         return resp.json()
+
+
+async def reschedule_booking_by_customer_v1(
+    access_token: str,
+    payload: dict,
+) -> dict:
+    """Reschedule a Healthians booking to a new slot (customer-initiated)."""
+    url = f"{settings.HEALTHIANS_BASE_URL}/toast4health/rescheduleBookingByCustomer_v1"
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(
+            url,
+            headers={"Authorization": f"Bearer {access_token}"},
+            json=payload,
+        )
+        resp.raise_for_status()
+        return resp.json()
