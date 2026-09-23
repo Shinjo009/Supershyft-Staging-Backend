@@ -3102,3 +3102,160 @@ class CampReportsRepository:
                 }
             )
         return out
+
+    async def get_organization_benchmark_context(
+        self,
+        db: AsyncSession,
+        *,
+        camp_no: int,
+    ) -> tuple[int, str, str | None] | None:
+        """Return (organization_id, organization_name, state) for a camp."""
+        result = await db.execute(
+            select(
+                Organization.organization_id,
+                Organization.name,
+                Organization.state,
+            )
+            .select_from(Engagement)
+            .join(Organization, Organization.organization_id == Engagement.organization_id)
+            .where(Engagement.camp_no == camp_no)
+            .limit(1)
+        )
+        row = result.one_or_none()
+        if row is None:
+            return None
+        organization_id, name, state = row
+        return int(organization_id), (name or ""), state
+
+    async def list_benchmark_score_maps_for_camp(
+        self,
+        db: AsyncSession,
+        *,
+        camp_no: int,
+        department: str | None = None,
+        city: str | None = None,
+    ) -> list[dict[str, float]]:
+        """Return per-person benchmark category scores for camp enrollees with Bio AI."""
+        from modules.reports.camp_report_section_builders import extract_benchmark_category_scores
+
+        enrolled = self._enrolled_users_ranked_subquery(
+            camp_no=camp_no, department=department, city=city
+        )
+        ranked_reports = (
+            select(
+                enrolled.c.user_id,
+                IndividualHealthReport.reports,
+                func.row_number()
+                .over(
+                    partition_by=enrolled.c.user_id,
+                    order_by=_latest_report_order(),
+                )
+                .label("rn"),
+            )
+            .select_from(enrolled)
+            .join(
+                AssessmentInstance,
+                and_(
+                    AssessmentInstance.engagement_id == enrolled.c.engagement_id,
+                    AssessmentInstance.user_id == enrolled.c.user_id,
+                ),
+            )
+            .join(AssessmentPackage, AssessmentPackage.package_id == AssessmentInstance.package_id)
+            .join(
+                IndividualHealthReport,
+                IndividualHealthReport.assessment_instance_id
+                == AssessmentInstance.assessment_instance_id,
+            )
+            .where(AssessmentPackage.assessment_type_code.in_(("1", "2")))
+        ).subquery()
+
+        reports_result = await db.execute(
+            select(ranked_reports.c.reports).where(ranked_reports.c.rn == 1)
+        )
+        score_maps: list[dict[str, float]] = []
+        for (reports,) in reports_result.all():
+            reports_dict = _coerce_reports_dict(reports)
+            if not reports_dict:
+                continue
+            scores = extract_benchmark_category_scores(reports_dict)
+            if scores:
+                score_maps.append(scores)
+        return score_maps
+
+    async def list_benchmark_score_maps_by_org_for_state(
+        self,
+        db: AsyncSession,
+        *,
+        state: str,
+        exclude_organization_id: int,
+    ) -> dict[int, list[dict[str, float]]]:
+        """Return {organization_id: [score_map, ...]} for peer Bio-AI orgs in ``state``.
+
+        Selected ``exclude_organization_id`` is omitted. Only orgs with at least one
+        usable Bio-AI score map are included.
+        """
+        from modules.reports.camp_report_section_builders import extract_benchmark_category_scores
+
+        state_norm = state.strip().lower()
+        if not state_norm:
+            return {}
+
+        ranked_reports = (
+            select(
+                Organization.organization_id.label("organization_id"),
+                EngagementParticipant.user_id.label("user_id"),
+                IndividualHealthReport.reports,
+                func.row_number()
+                .over(
+                    partition_by=EngagementParticipant.user_id,
+                    order_by=_latest_report_order(),
+                )
+                .label("rn"),
+            )
+            .select_from(Organization)
+            .join(Engagement, Engagement.organization_id == Organization.organization_id)
+            .join(
+                EngagementParticipant,
+                EngagementParticipant.engagement_id == Engagement.engagement_id,
+            )
+            .join(
+                AssessmentInstance,
+                and_(
+                    AssessmentInstance.engagement_id == Engagement.engagement_id,
+                    AssessmentInstance.user_id == EngagementParticipant.user_id,
+                ),
+            )
+            .join(AssessmentPackage, AssessmentPackage.package_id == AssessmentInstance.package_id)
+            .join(
+                IndividualHealthReport,
+                IndividualHealthReport.assessment_instance_id
+                == AssessmentInstance.assessment_instance_id,
+            )
+            .where(
+                Organization.state.isnot(None),
+                func.lower(func.trim(Organization.state)) == state_norm,
+                Organization.organization_id != exclude_organization_id,
+                AssessmentPackage.assessment_type_code.in_(("1", "2")),
+            )
+        ).subquery()
+
+        reports_result = await db.execute(
+            select(
+                ranked_reports.c.organization_id,
+                ranked_reports.c.reports,
+            ).where(ranked_reports.c.rn == 1)
+        )
+
+        by_org: dict[int, list[dict[str, float]]] = {}
+        for organization_id, reports in reports_result.all():
+            if organization_id is None:
+                continue
+            reports_dict = _coerce_reports_dict(reports)
+            if not reports_dict:
+                continue
+            scores = extract_benchmark_category_scores(reports_dict)
+            if not scores:
+                continue
+            org_id = int(organization_id)
+            by_org.setdefault(org_id, []).append(scores)
+        return by_org

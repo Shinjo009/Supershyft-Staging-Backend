@@ -918,3 +918,58 @@ def test_build_combined_in_range_percent_math():
     )
     assert math["rounded_percent"] == 25
     assert any("all of" in step.lower() for step in math["steps"])
+
+
+def test_build_state_disease_benchmark_peer_company_equal_weight():
+    from modules.reports.camp_report_section_builders import (
+        STATE_BENCHMARK_CATEGORIES,
+        build_state_disease_benchmark,
+        mean_scores_by_category,
+    )
+
+    company_avg = mean_scores_by_category(
+        [
+            {"thyroid_health": 40.0, "oxidative_stress": 30.0},
+            {"thyroid_health": 50.0, "oxidative_stress": 40.0},
+        ]
+    )
+    assert company_avg["thyroid_health"] == 45.0
+    assert company_avg["oxidative_stress"] == 35.0
+
+    # Peer companies xyz1 / xyz2: equal weight, not headcount-weighted
+    peer1 = mean_scores_by_category(
+        [
+            {"thyroid_health": 40.0},
+            {"thyroid_health": 40.0},
+            {"thyroid_health": 40.0},
+        ]
+    )
+    peer2 = mean_scores_by_category([{"thyroid_health": 60.0}])
+    payload = build_state_disease_benchmark(
+        organization_id=25,
+        company_name="D Decor",
+        state="Maharashtra",
+        company_category_averages=company_avg,
+        peer_company_category_averages=[peer1, peer2],
+    )
+    data = payload["data"]
+    assert data["company"] == {
+        "organization_id": 25,
+        "name": "D Decor",
+        "state": "Maharashtra",
+    }
+    assert data["benchmark"]["companies_count"] == 2
+    assert len(data["risk_comparison"]) == len(STATE_BENCHMARK_CATEGORIES)
+
+    thyroid = next(r for r in data["risk_comparison"] if r["category_key"] == "thyroid_health")
+    assert thyroid["category"] == "Thyroid"
+    assert thyroid["company_average"] == 45.0
+    assert thyroid["state_average"] == 50.0  # (40 + 60) / 2, not (40*3+60)/4
+
+    oxidative = next(r for r in data["risk_comparison"] if r["category_key"] == "oxidative_stress")
+    assert oxidative["category"] == "Oxidative Stress"
+    assert oxidative["company_average"] == 35.0
+    assert oxidative["state_average"] is None
+
+    assert data["overall"]["company_average"] == 40.0  # mean of 45 and 35
+    assert data["overall"]["state_average"] == 50.0

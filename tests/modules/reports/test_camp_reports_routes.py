@@ -4700,3 +4700,303 @@ async def test_estimate_camp_report_invalid_action(async_client, test_db_session
     assert response.status_code == 400
     assert response.json()["error_code"] == "INVALID_INPUT"
 
+
+async def _seed_state_disease_benchmark_section(test_db_session, *, report_sections: int = 440):
+    existing = (
+        await test_db_session.execute(
+            select(CampReportSection).where(
+                CampReportSection.section_key == "state_disease_benchmark"
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+    row = CampReportSection(
+        report_sections=report_sections,
+        section="State Disease Benchmark",
+        section_key="state_disease_benchmark",
+        description="Company vs state Bio-AI risk comparison",
+    )
+    test_db_session.add(row)
+    await test_db_session.commit()
+    return row
+
+
+async def _seed_state_disease_benchmark_camp_data(test_db_session):
+    """Selected org 9701 (Maharashtra) + peers 9702/9703 with Bio-AI thyroid scores."""
+    from modules.assessments.models import AssessmentInstance, AssessmentPackage
+    from modules.reports.models import IndividualHealthReport
+    from tests.helpers.engagement_types import engagement_type_id
+
+    start = date(2026, 6, 23)
+    end = date(2026, 6, 25)
+    type_id = await engagement_type_id(test_db_session, "bio_ai")
+
+    test_db_session.add_all(
+        [
+            Organization(
+                organization_id=9701,
+                name="D Decor",
+                organization_type="corporate",
+                status="active",
+                state="Maharashtra",
+                departments=[{"department": "Sales", "slug": "sales"}],
+            ),
+            Organization(
+                organization_id=9702,
+                name="XYZ1",
+                organization_type="corporate",
+                status="active",
+                state="Maharashtra",
+                departments=[{"department": "Sales", "slug": "sales"}],
+            ),
+            Organization(
+                organization_id=9703,
+                name="XYZ2",
+                organization_type="corporate",
+                status="active",
+                state="Maharashtra",
+                departments=[{"department": "Sales", "slug": "sales"}],
+            ),
+        ]
+    )
+    await test_db_session.flush()
+
+    camp_no = compute_camp_no(9701, start)
+    peer1_camp = compute_camp_no(9702, start)
+    peer2_camp = compute_camp_no(9703, start)
+
+    test_db_session.add_all(
+        [
+            Engagement(
+                engagement_id=9701,
+                engagement_name="D Decor Camp",
+                organization_id=9701,
+                camp_no=camp_no,
+                engagement_code="SDB9701",
+                engagement_type=type_id,
+                city="Mumbai",
+                slot_duration=20,
+                start_date=start,
+                end_date=end,
+                status="running",
+            ),
+            Engagement(
+                engagement_id=9702,
+                engagement_name="XYZ1 Camp",
+                organization_id=9702,
+                camp_no=peer1_camp,
+                engagement_code="SDB9702",
+                engagement_type=type_id,
+                city="Pune",
+                slot_duration=20,
+                start_date=start,
+                end_date=end,
+                status="running",
+            ),
+            Engagement(
+                engagement_id=9703,
+                engagement_name="XYZ2 Camp",
+                organization_id=9703,
+                camp_no=peer2_camp,
+                engagement_code="SDB9703",
+                engagement_type=type_id,
+                city="Nagpur",
+                slot_duration=20,
+                start_date=start,
+                end_date=end,
+                status="running",
+            ),
+            AssessmentPackage(
+                package_id=9701,
+                package_code="SDBPKG1",
+                display_name="Bio AI Package",
+                assessment_type_code="1",
+                status="active",
+            ),
+        ]
+    )
+    await test_db_session.flush()
+
+    # Company: thyroid 40 + 50 → 45. Peers: xyz1 mean 40, xyz2 mean 60 → state 50
+    test_db_session.add_all(
+        [
+            User(user_id=97001, age=30, phone="970010000000", status="active"),
+            User(user_id=97002, age=32, phone="970020000000", status="active"),
+            User(user_id=97003, age=34, phone="970030000000", status="active"),
+            User(user_id=97004, age=36, phone="970040000000", status="active"),
+        ]
+    )
+    await test_db_session.flush()
+
+    test_db_session.add_all(
+        [
+            EngagementParticipant(
+                engagement_participant_id=97001,
+                engagement_id=9701,
+                user_id=97001,
+                engagement_date=start,
+                slot_start_time=time(10, 0),
+                participant_department="sales",
+            ),
+            EngagementParticipant(
+                engagement_participant_id=97002,
+                engagement_id=9701,
+                user_id=97002,
+                engagement_date=start,
+                slot_start_time=time(10, 20),
+                participant_department="sales",
+            ),
+            EngagementParticipant(
+                engagement_participant_id=97003,
+                engagement_id=9702,
+                user_id=97003,
+                engagement_date=start,
+                slot_start_time=time(10, 0),
+                participant_department="sales",
+            ),
+            EngagementParticipant(
+                engagement_participant_id=97004,
+                engagement_id=9703,
+                user_id=97004,
+                engagement_date=start,
+                slot_start_time=time(10, 0),
+                participant_department="sales",
+            ),
+        ]
+    )
+    await test_db_session.flush()
+
+    test_db_session.add_all(
+        [
+            AssessmentInstance(
+                assessment_instance_id=97001,
+                user_id=97001,
+                engagement_id=9701,
+                package_id=9701,
+                status="completed",
+            ),
+            AssessmentInstance(
+                assessment_instance_id=97002,
+                user_id=97002,
+                engagement_id=9701,
+                package_id=9701,
+                status="completed",
+            ),
+            AssessmentInstance(
+                assessment_instance_id=97003,
+                user_id=97003,
+                engagement_id=9702,
+                package_id=9701,
+                status="completed",
+            ),
+            AssessmentInstance(
+                assessment_instance_id=97004,
+                user_id=97004,
+                engagement_id=9703,
+                package_id=9701,
+                status="completed",
+            ),
+        ]
+    )
+    await test_db_session.flush()
+
+    test_db_session.add_all(
+        [
+            IndividualHealthReport(
+                report_id=97001,
+                assessment_instance_id=97001,
+                engagement_id=9701,
+                user_id=97001,
+                reports={
+                    "diseases": [
+                        {"code": "thyroid_health", "risk_score_scaled": 40},
+                        {"code": "oxidative_stress", "risk_score_scaled": 30},
+                    ]
+                },
+            ),
+            IndividualHealthReport(
+                report_id=97002,
+                assessment_instance_id=97002,
+                engagement_id=9701,
+                user_id=97002,
+                reports={
+                    "diseases": [
+                        {"code": "thyroid_health", "risk_score_scaled": 50},
+                        {"code": "oxidative_stress", "risk_score_scaled": 40},
+                    ]
+                },
+            ),
+            IndividualHealthReport(
+                report_id=97003,
+                assessment_instance_id=97003,
+                engagement_id=9702,
+                user_id=97003,
+                reports={"diseases": [{"code": "thyroid_health", "risk_score_scaled": 40}]},
+            ),
+            IndividualHealthReport(
+                report_id=97004,
+                assessment_instance_id=97004,
+                engagement_id=9703,
+                user_id=97004,
+                reports={"diseases": [{"code": "thyroid_health", "risk_score_scaled": 60}]},
+            ),
+        ]
+    )
+    await test_db_session.commit()
+    return camp_no
+
+
+@pytest.mark.asyncio
+async def test_refresh_and_dashboard_state_disease_benchmark(async_client, test_db_session):
+    await _seed_employee(test_db_session, user_id=7910, employee_id=440)
+    await _seed_state_disease_benchmark_section(test_db_session, report_sections=440)
+    camp_no = await _seed_state_disease_benchmark_camp_data(test_db_session)
+    headers = _auth_header(440)
+
+    init = await async_client.post(f"/reports/camps/{camp_no}/init", headers=headers)
+    assert init.status_code == 201
+    report_id = init.json()["data"]["report_id"]
+
+    response = await async_client.put(
+        f"/reports/camps/{camp_no}/refresh",
+        headers=headers,
+        params={"async": "false"},
+        json={"section": "state_disease_benchmark"},
+    )
+    assert response.status_code == 200
+    section = response.json()["data"]["section"]
+    data = section["data"]
+    assert data["company"]["organization_id"] == 9701
+    assert data["company"]["name"] == "D Decor"
+    assert data["company"]["state"] == "Maharashtra"
+    assert data["benchmark"]["companies_count"] == 2
+
+    thyroid = next(r for r in data["risk_comparison"] if r["category_key"] == "thyroid_health")
+    assert thyroid["category"] == "Thyroid"
+    assert thyroid["company_average"] == 45.0
+    assert thyroid["state_average"] == 50.0
+
+    oxidative = next(r for r in data["risk_comparison"] if r["category_key"] == "oxidative_stress")
+    assert oxidative["company_average"] == 35.0
+    assert oxidative["state_average"] is None
+
+    bts = response.json()["data"]["report_bts"]
+    assert bts["status"] == "ok"
+
+    dashboard = await async_client.get(
+        f"/reports/camps/{camp_no}/dashboard",
+        headers=headers,
+        params={"section": "state_disease_benchmark"},
+    )
+    assert dashboard.status_code == 200
+    dash_data = dashboard.json()["data"]["data"]
+    assert dash_data["benchmark"]["companies_count"] == 2
+    assert dash_data["risk_comparison"][0]["category_key"]
+
+    row = (
+        await test_db_session.execute(select(CampReport).where(CampReport.report_id == report_id))
+    ).scalar_one()
+    assert "state_disease_benchmark" in row.report
+    assert row.report_bts["state_disease_benchmark"]["status"] == "ok"
+

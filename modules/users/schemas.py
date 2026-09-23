@@ -293,6 +293,9 @@ class PublicUserOnboardRequest(BaseModel):
     # Must match an active row in engagement_types.code (validated in service).
     engagement_type: SlugKey = "bio_ai"
 
+    # Optional override of platform B2C onboarding defaults for this engagement type.
+    diagnostic_package_id: PositiveIntId | None = None
+
     # Optional only when engagement_type is "vifc"; required for all other types.
     blood_collection_date: Optional[date] = None
     blood_collection_time_slot: OptionalShortSafeText = None

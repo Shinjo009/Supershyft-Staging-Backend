@@ -2606,3 +2606,103 @@ def build_blood_and_lab_intelligence_bts(
         "details": details_payload,
         "message": message,
     }
+
+
+def build_state_disease_benchmark_bts(
+    *,
+    expected_data: dict[str, Any],
+    stored_data: dict[str, Any],
+    details: dict[str, Any] | None = None,
+    checked_at: str,
+) -> dict[str, Any]:
+    """Compare state_disease_benchmark data to freshly computed expected values."""
+    details_payload = dict(details or {})
+    fields: dict[str, Any] = {}
+
+    expected_company = expected_data.get("company") if isinstance(expected_data.get("company"), dict) else {}
+    stored_company = stored_data.get("company") if isinstance(stored_data.get("company"), dict) else {}
+    for key in ("organization_id", "name", "state"):
+        expected_value = expected_company.get(key)
+        stored_value = stored_company.get(key)
+        fields[f"company.{key}"] = _field_entry(
+            expected=expected_value,
+            stored=stored_value,
+            reason=(
+                f"Company {key} should be {expected_value!r} but the report shows {stored_value!r}."
+            ),
+        )
+
+    expected_benchmark = (
+        expected_data.get("benchmark") if isinstance(expected_data.get("benchmark"), dict) else {}
+    )
+    stored_benchmark = (
+        stored_data.get("benchmark") if isinstance(stored_data.get("benchmark"), dict) else {}
+    )
+    expected_count = _int_or_none(expected_benchmark.get("companies_count"))
+    stored_count = _int_or_none(stored_benchmark.get("companies_count"))
+    fields["benchmark.companies_count"] = _field_entry(
+        expected=expected_count if expected_count is not None else 0,
+        stored=stored_count,
+        reason=(
+            f"Peer Bio-AI company count should be {expected_count} but the report shows {stored_count}."
+        ),
+    )
+
+    expected_rows = expected_data.get("risk_comparison")
+    stored_rows = stored_data.get("risk_comparison")
+    expected_by_key: dict[str, dict[str, Any]] = {}
+    if isinstance(expected_rows, list):
+        for row in expected_rows:
+            if isinstance(row, dict) and isinstance(row.get("category_key"), str):
+                expected_by_key[row["category_key"]] = row
+    stored_by_key: dict[str, dict[str, Any]] = {}
+    if isinstance(stored_rows, list):
+        for row in stored_rows:
+            if isinstance(row, dict) and isinstance(row.get("category_key"), str):
+                stored_by_key[row["category_key"]] = row
+
+    for category_key, expected_row in expected_by_key.items():
+        stored_row = stored_by_key.get(category_key) or {}
+        for field_name in ("company_average", "state_average"):
+            expected_value = _float_or_none(expected_row.get(field_name))
+            stored_value = _float_or_none(stored_row.get(field_name))
+            fields[f"risk_comparison.{category_key}.{field_name}"] = _field_entry(
+                expected=expected_value,
+                stored=stored_value,
+                reason=(
+                    f"For {category_key}, {field_name} should be {expected_value} "
+                    f"but the report shows {stored_value}."
+                ),
+            )
+
+    expected_overall = expected_data.get("overall") if isinstance(expected_data.get("overall"), dict) else {}
+    stored_overall = stored_data.get("overall") if isinstance(stored_data.get("overall"), dict) else {}
+    for field_name in ("company_average", "state_average"):
+        expected_value = _float_or_none(expected_overall.get(field_name))
+        stored_value = _float_or_none(stored_overall.get(field_name))
+        fields[f"overall.{field_name}"] = _field_entry(
+            expected=expected_value,
+            stored=stored_value,
+            reason=(
+                f"Overall {field_name} should be {expected_value} but the report shows {stored_value}."
+            ),
+        )
+
+    all_match = all(bool(entry.get("match")) for entry in fields.values())
+    if all_match:
+        message = "State Disease Benchmark numbers match."
+    else:
+        message = (
+            "Some State Disease Benchmark numbers do not match. "
+            "See the notes below for each one."
+        )
+
+    return {
+        "status": "ok" if all_match else "mismatch",
+        "checked_at": checked_at,
+        "expected": expected_data,
+        "stored": stored_data,
+        "fields": fields,
+        "details": details_payload,
+        "message": message,
+    }
