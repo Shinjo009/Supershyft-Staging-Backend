@@ -1914,7 +1914,11 @@ class UsersService:
             db, engagement_type_code
         )
         assessment_package_id = onboarding_defaults.assessment_package_id
-        diagnostic_package_id = onboarding_defaults.diagnostic_package_id
+        diagnostic_package_id = (
+            payload.diagnostic_package_id
+            if payload.diagnostic_package_id is not None
+            else onboarding_defaults.diagnostic_package_id
+        )
         await self._platform_settings_service.ensure_active_b2c_packages(
             db, assessment_package_id, diagnostic_package_id
         )

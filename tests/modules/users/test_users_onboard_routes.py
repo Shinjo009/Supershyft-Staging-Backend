@@ -1070,6 +1070,205 @@ async def test_public_onboard_uses_engagement_type_and_its_defaults(async_client
 
 
 @pytest.mark.asyncio
+async def test_public_onboard_diagnostic_package_id_overrides_platform_default(async_client, test_db_session):
+    await test_db_session.execute(
+        text(
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
+            "(1, 'PK1', 'Package 1', 'active') "
+            "ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) VALUES "
+            "(1, 'REF1', 'Diag Default', 'active'), (2, 'REF2', 'Diag Override', 'active') "
+            "ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
+            "reference_id = EXCLUDED.reference_id, package_name = EXCLUDED.package_name, status = EXCLUDED.status"
+        )
+    )
+    by_type = {
+        "bio_ai": {
+            "assessment_package_id": 1,
+            "diagnostic_package_id": 1,
+            "blood_collection_type": None,
+            "create_profile_on_metsights": True,
+            "enroll_for_fitprint_full": False,
+        },
+    }
+    await test_db_session.execute(
+        text(
+            "INSERT INTO platform_settings "
+            "(settings_id, b2c_default_assessment_package_id, b2c_default_diagnostic_package_id, "
+            "b2c_default_engagement_type, b2c_default_blood_collection_type, "
+            "b2c_default_create_profile_on_metsights, b2c_default_enroll_for_fitprint_full, "
+            "b2c_onboarding_by_engagement_type) "
+            "VALUES (1, 1, 1, 'bio_ai', NULL, true, false, CAST(:by_type AS jsonb)) "
+            "ON CONFLICT (settings_id) DO UPDATE SET "
+            "b2c_default_assessment_package_id = EXCLUDED.b2c_default_assessment_package_id, "
+            "b2c_default_diagnostic_package_id = EXCLUDED.b2c_default_diagnostic_package_id, "
+            "b2c_onboarding_by_engagement_type = EXCLUDED.b2c_onboarding_by_engagement_type"
+        ),
+        {"by_type": json.dumps(by_type)},
+    )
+    await test_db_session.commit()
+
+    payload = {
+        "age": 30,
+        "first_name": "Override",
+        "phone": "4444444401",
+        "city": "Pune",
+        "engagement_type": "bio_ai",
+        "diagnostic_package_id": 2,
+        "blood_collection_date": "2026-02-01",
+        "blood_collection_time_slot": "10:00",
+    }
+
+    response = await async_client.post("/users/public/onboard", json=payload)
+    assert response.status_code == 200
+    data = response.json()["data"]
+
+    engagement_row = (
+        await test_db_session.execute(
+            text(
+                "SELECT diagnostic_package_id FROM engagements WHERE engagement_id = :eid"
+            ),
+            {"eid": data["engagement_id"]},
+        )
+    ).first()
+    assert engagement_row.diagnostic_package_id == 2
+
+
+@pytest.mark.asyncio
+async def test_public_onboard_omitted_diagnostic_package_id_uses_platform_default(
+    async_client, test_db_session
+):
+    await test_db_session.execute(
+        text(
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
+            "(1, 'PK1', 'Package 1', 'active') "
+            "ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) VALUES "
+            "(1, 'REF1', 'Diag Default', 'active'), (2, 'REF2', 'Diag Other', 'active') "
+            "ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
+            "reference_id = EXCLUDED.reference_id, package_name = EXCLUDED.package_name, status = EXCLUDED.status"
+        )
+    )
+    by_type = {
+        "bio_ai": {
+            "assessment_package_id": 1,
+            "diagnostic_package_id": 1,
+            "blood_collection_type": None,
+            "create_profile_on_metsights": True,
+            "enroll_for_fitprint_full": False,
+        },
+    }
+    await test_db_session.execute(
+        text(
+            "INSERT INTO platform_settings "
+            "(settings_id, b2c_default_assessment_package_id, b2c_default_diagnostic_package_id, "
+            "b2c_default_engagement_type, b2c_default_blood_collection_type, "
+            "b2c_default_create_profile_on_metsights, b2c_default_enroll_for_fitprint_full, "
+            "b2c_onboarding_by_engagement_type) "
+            "VALUES (1, 1, 1, 'bio_ai', NULL, true, false, CAST(:by_type AS jsonb)) "
+            "ON CONFLICT (settings_id) DO UPDATE SET "
+            "b2c_default_assessment_package_id = EXCLUDED.b2c_default_assessment_package_id, "
+            "b2c_default_diagnostic_package_id = EXCLUDED.b2c_default_diagnostic_package_id, "
+            "b2c_onboarding_by_engagement_type = EXCLUDED.b2c_onboarding_by_engagement_type"
+        ),
+        {"by_type": json.dumps(by_type)},
+    )
+    await test_db_session.commit()
+
+    payload = {
+        "age": 30,
+        "first_name": "DefaultPkg",
+        "phone": "4444444402",
+        "city": "Pune",
+        "engagement_type": "bio_ai",
+        "blood_collection_date": "2026-02-01",
+        "blood_collection_time_slot": "10:00",
+    }
+
+    response = await async_client.post("/users/public/onboard", json=payload)
+    assert response.status_code == 200
+    data = response.json()["data"]
+
+    engagement_row = (
+        await test_db_session.execute(
+            text(
+                "SELECT diagnostic_package_id FROM engagements WHERE engagement_id = :eid"
+            ),
+            {"eid": data["engagement_id"]},
+        )
+    ).first()
+    assert engagement_row.diagnostic_package_id == 1
+
+
+@pytest.mark.asyncio
+async def test_public_onboard_rejects_inactive_diagnostic_package_id(async_client, test_db_session):
+    await test_db_session.execute(
+        text(
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
+            "(1, 'PK1', 'Package 1', 'active') "
+            "ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) VALUES "
+            "(1, 'REF1', 'Diag Default', 'active'), (99, 'REF99', 'Diag Inactive', 'inactive') "
+            "ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
+            "reference_id = EXCLUDED.reference_id, package_name = EXCLUDED.package_name, status = EXCLUDED.status"
+        )
+    )
+    by_type = {
+        "bio_ai": {
+            "assessment_package_id": 1,
+            "diagnostic_package_id": 1,
+            "blood_collection_type": None,
+            "create_profile_on_metsights": True,
+            "enroll_for_fitprint_full": False,
+        },
+    }
+    await test_db_session.execute(
+        text(
+            "INSERT INTO platform_settings "
+            "(settings_id, b2c_default_assessment_package_id, b2c_default_diagnostic_package_id, "
+            "b2c_default_engagement_type, b2c_default_blood_collection_type, "
+            "b2c_default_create_profile_on_metsights, b2c_default_enroll_for_fitprint_full, "
+            "b2c_onboarding_by_engagement_type) "
+            "VALUES (1, 1, 1, 'bio_ai', NULL, true, false, CAST(:by_type AS jsonb)) "
+            "ON CONFLICT (settings_id) DO UPDATE SET "
+            "b2c_default_assessment_package_id = EXCLUDED.b2c_default_assessment_package_id, "
+            "b2c_default_diagnostic_package_id = EXCLUDED.b2c_default_diagnostic_package_id, "
+            "b2c_onboarding_by_engagement_type = EXCLUDED.b2c_onboarding_by_engagement_type"
+        ),
+        {"by_type": json.dumps(by_type)},
+    )
+    await test_db_session.commit()
+
+    payload = {
+        "age": 30,
+        "first_name": "BadPkg",
+        "phone": "4444444403",
+        "city": "Pune",
+        "engagement_type": "bio_ai",
+        "diagnostic_package_id": 99,
+        "blood_collection_date": "2026-02-01",
+        "blood_collection_time_slot": "10:00",
+    }
+
+    response = await async_client.post("/users/public/onboard", json=payload)
+    assert response.status_code == 422
+    body = response.json()
+    assert body["error_code"] == "INVALID_B2C_DIAGNOSTIC_PACKAGE"
+
+
+@pytest.mark.asyncio
 async def test_public_onboard_rejects_unknown_engagement_type(async_client, test_db_session):
     await test_db_session.execute(
         text(
