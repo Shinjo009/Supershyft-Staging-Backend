@@ -1402,6 +1402,14 @@ async def verify_and_finalize_draft_bookings(
     }
 
 
+def _booking_location_field(participant: EngagementParticipant, engagement: Engagement, field: str) -> Any:
+    """Prefer participant home-collection location when set; else engagement."""
+    participant_value = getattr(participant, field, None)
+    if participant_value is not None and str(participant_value).strip() != "":
+        return participant_value
+    return getattr(engagement, field, None)
+
+
 async def create_healthians_booking_after_payment(
     db: AsyncSession,
     *,
@@ -1524,17 +1532,19 @@ async def create_healthians_booking_after_payment(
             "gender": gender_code,
             "mobile": phone,
             "email": user.email or "",
-            "sub_locality": engagement.sub_locality or "",
-            "latitude": str(engagement.latitude or ""),
-            "longitude": str(engagement.longitude or ""),
-            "address": engagement.address or "",
-            "zipcode": engagement.pincode or "",
-            "landmark": engagement.landmark or "",
+            "sub_locality": _booking_location_field(participant, engagement, "sub_locality") or "",
+            "latitude": str(_booking_location_field(participant, engagement, "latitude") or ""),
+            "longitude": str(_booking_location_field(participant, engagement, "longitude") or ""),
+            "address": _booking_location_field(participant, engagement, "address") or "",
+            "zipcode": _booking_location_field(participant, engagement, "pincode") or "",
+            "landmark": _booking_location_field(participant, engagement, "landmark") or "",
             "hard_copy": 0,
             "vendor_billing_user_id": vendor_billing_user_id,
             "payment_option": "prepaid",
             "discounted_price": 0,
-            "zone_id": int(engagement.healthians_zone_id) if engagement.healthians_zone_id else 0,
+            "zone_id": int(
+                _booking_location_field(participant, engagement, "healthians_zone_id") or 0
+            ),
             "is_ppmc_booking": 0,
         }
 

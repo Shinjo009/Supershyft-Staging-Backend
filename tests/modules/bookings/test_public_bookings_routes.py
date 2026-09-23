@@ -518,7 +518,8 @@ async def test_public_onboard_book_creates_engagement_and_healthians_booking(
     participant_row = (
         await test_db_session.execute(
             text(
-                "SELECT booking_id, blood_collection_time_slot_id "
+                "SELECT booking_id, blood_collection_time_slot_id, address, city, pincode, "
+                "healthians_zone_id, latitude, longitude "
                 "FROM engagement_participants WHERE engagement_id = :engagement_id"
             ),
             {"engagement_id": data["engagement_id"]},
@@ -526,6 +527,12 @@ async def test_public_onboard_book_creates_engagement_and_healthians_booking(
     ).one()
     assert participant_row.booking_id == "HI950103"
     assert participant_row.blood_collection_time_slot_id == "34235263"
+    assert participant_row.address == _PUBLIC_CHECK_PAYLOAD["address_line"]
+    assert participant_row.city == _PUBLIC_CHECK_PAYLOAD["city"]
+    assert participant_row.pincode == _PUBLIC_CHECK_PAYLOAD["pincode"]
+    assert participant_row.healthians_zone_id == "440"
+    assert float(participant_row.latitude) == 19.0760
+    assert float(participant_row.longitude) == 72.8777
 
     eng_row = (
         await test_db_session.execute(
@@ -657,17 +664,26 @@ async def test_code_onboard_book_endpoint(async_client, test_db_session, monkeyp
         "blood_collection_time_slot": "06:00:00",
     }
 
+    geocode_result = [{"latitude": 19.0760, "longitude": 72.8777, "state": "Maharashtra", "country": "India"}]
+    healthians_check = {"status": True, "data": {"zone_id": "440"}, "message": "Serviceable"}
+
     with (
+        patch("modules.bookings.service.search_places", new_callable=AsyncMock, return_value=geocode_result),
         patch(
             "modules.bookings.service.healthians_client.get_access_token",
             new_callable=AsyncMock,
             return_value="tok",
         ),
         patch(
+            "modules.bookings.service.healthians_client.check_serviceability_by_location_v2",
+            new_callable=AsyncMock,
+            return_value=healthians_check,
+        ),
+        patch(
             "modules.bookings.service.healthians_client.create_booking_v3",
             new_callable=AsyncMock,
             return_value={"status": True, "booking_id": "HI950104", "message": "OK"},
-        ),
+        ) as mock_create,
         patch(
             "modules.engagements.service.EngagementsService.notify_onboarding_assistants_after_enrollment",
             new_callable=AsyncMock,
@@ -683,12 +699,41 @@ async def test_code_onboard_book_endpoint(async_client, test_db_session, monkeyp
     assert data["booking_id"] == "HI950104"
     assert data["engagement_code"] == "PUB950104"
     assert "tokens" not in data
-    eng_status = (
+    mock_create.assert_awaited_once()
+    booking_payload = mock_create.await_args.args[1]
+    assert booking_payload["address"] == _PUBLIC_CHECK_PAYLOAD["address_line"]
+    assert booking_payload["zipcode"] == _PUBLIC_CHECK_PAYLOAD["pincode"]
+    assert booking_payload["zone_id"] == 440
+
+    eng_row = (
         await test_db_session.execute(
-            text("SELECT status FROM engagements WHERE engagement_code = 'PUB950104'")
+            text(
+                "SELECT status, address, city, pincode, healthians_zone_id "
+                "FROM engagements WHERE engagement_code = 'PUB950104'"
+            )
         )
-    ).scalar_one()
-    assert eng_status == "draft"
+    ).one()
+    assert eng_row.status == "draft"
+    assert eng_row.address == "Flat 1, Block A"
+    assert eng_row.city == "Mumbai"
+    assert eng_row.pincode == "400001"
+    assert eng_row.healthians_zone_id == "440"
+
+    participant_row = (
+        await test_db_session.execute(
+            text(
+                "SELECT address, city, pincode, healthians_zone_id, latitude, longitude "
+                "FROM engagement_participants WHERE engagement_id = :engagement_id"
+            ),
+            {"engagement_id": data["engagement_id"]},
+        )
+    ).one()
+    assert participant_row.address == _PUBLIC_CHECK_PAYLOAD["address_line"]
+    assert participant_row.city == _PUBLIC_CHECK_PAYLOAD["city"]
+    assert participant_row.pincode == _PUBLIC_CHECK_PAYLOAD["pincode"]
+    assert participant_row.healthians_zone_id == "440"
+    assert float(participant_row.latitude) == 19.0760
+    assert float(participant_row.longitude) == 72.8777
     mock_notify.assert_awaited()
 
 
@@ -854,11 +899,20 @@ async def test_code_onboard_book_assigns_assessment_even_when_booking_fails(
         "blood_collection_time_slot": "07:00:00",
     }
 
+    geocode_result = [{"latitude": 19.0760, "longitude": 72.8777, "state": "Maharashtra", "country": "India"}]
+    healthians_check = {"status": True, "data": {"zone_id": "440"}, "message": "Serviceable"}
+
     with (
+        patch("modules.bookings.service.search_places", new_callable=AsyncMock, return_value=geocode_result),
         patch(
             "modules.bookings.service.healthians_client.get_access_token",
             new_callable=AsyncMock,
             return_value="tok",
+        ),
+        patch(
+            "modules.bookings.service.healthians_client.check_serviceability_by_location_v2",
+            new_callable=AsyncMock,
+            return_value=healthians_check,
         ),
         patch(
             "modules.bookings.service.healthians_client.create_booking_v3",
@@ -896,10 +950,16 @@ async def test_code_onboard_book_assigns_assessment_even_when_booking_fails(
     assert instances == 1
 
     with (
+        patch("modules.bookings.service.search_places", new_callable=AsyncMock, return_value=geocode_result),
         patch(
             "modules.bookings.service.healthians_client.get_access_token",
             new_callable=AsyncMock,
             return_value="tok",
+        ),
+        patch(
+            "modules.bookings.service.healthians_client.check_serviceability_by_location_v2",
+            new_callable=AsyncMock,
+            return_value=healthians_check,
         ),
         patch(
             "modules.bookings.service.healthians_client.create_booking_v3",

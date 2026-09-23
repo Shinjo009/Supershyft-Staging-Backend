@@ -34,7 +34,7 @@ from modules.metsights.sync_service import (
 from modules.platform_settings.service import PlatformSettingsService
 from modules.users.models import User, UserPreference
 from modules.users.repository import UsersRepository
-from modules.engagements.models import BloodCollectionType, EngagementKind
+from modules.engagements.models import BloodCollectionType, EngagementKind, EngagementParticipant
 from modules.engagements.repository import EngagementsRepository
 from modules.engagements.slot_availability import find_active_cabin
 from modules.diagnostics.repository import DiagnosticsRepository
@@ -2679,6 +2679,52 @@ class UsersService:
         address = (user.address or "").strip() or None
         return city, pincode, address
 
+    @staticmethod
+    def _apply_home_collection_location_to_participant(
+        participant: EngagementParticipant,
+        *,
+        address: str | None,
+        landmark: str | None,
+        city: str,
+        pincode: str,
+        state: str | None,
+        country: str | None,
+        latitude: float | None,
+        longitude: float | None,
+        healthians_zone_id: str | None,
+    ) -> None:
+        address_text = (address or "").strip() or None
+        participant.address = address_text
+        participant.sub_locality = address_text
+        participant.landmark = (landmark or "").strip() or None
+        participant.pincode = pincode
+        participant.city = city
+        participant.state = (state or "").strip() or None
+        participant.country = (country or "").strip() or None
+        participant.latitude = latitude
+        participant.longitude = longitude
+        participant.healthians_zone_id = (
+            str(healthians_zone_id).strip() if healthians_zone_id is not None and str(healthians_zone_id).strip() else None
+        )
+
+    @staticmethod
+    def _copy_engagement_location_to_participant(
+        engagement,
+        participant: EngagementParticipant,
+    ) -> None:
+        UsersService._apply_home_collection_location_to_participant(
+            participant,
+            address=engagement.address,
+            landmark=engagement.landmark,
+            city=(engagement.city or "").strip(),
+            pincode=(engagement.pincode or "").strip(),
+            state=engagement.state,
+            country=engagement.country,
+            latitude=engagement.latitude,
+            longitude=engagement.longitude,
+            healthians_zone_id=engagement.healthians_zone_id,
+        )
+
     async def _finalize_onboard_and_book(
         self,
         db: AsyncSession,
@@ -2877,6 +2923,7 @@ class UsersService:
             booked_by_user_id=user.user_id,
         )
         participant.blood_collection_time_slot_id = payload.blood_collection_time_slot_id
+        self._copy_engagement_location_to_participant(engagement, participant)
         await db.flush()
 
         return await self._finalize_onboard_and_book(
@@ -2951,23 +2998,20 @@ class UsersService:
             if not engagement.enroll_for_fitprint_full:
                 engagement.enroll_for_fitprint_full = onboarding_defaults.enroll_for_fitprint_full
 
-        if address:
-            engagement.address = address
-        engagement.city = city
-        engagement.pincode = pincode
-        if user.state:
-            engagement.state = user.state
-        if user.country:
-            engagement.country = user.country
-
         from modules.bookings import service as booking_service
 
-        zone_error = await booking_service.ensure_engagement_zone_from_location(db, engagement)
-        if zone_error is not None:
+        location = await booking_service.resolve_public_location_context(
+            db,
+            city=city,
+            pincode=pincode,
+            engagement_id=int(engagement.engagement_id),
+            engagement_code=engagement.engagement_code,
+        )
+        if location.get("status") != "success":
             raise AppError(
                 status_code=422,
                 error_code="NOT_SERVICEABLE",
-                message=zone_error.get("message", "This location is not serviceable."),
+                message=location.get("message", "This location is not serviceable."),
             )
 
         consultations = _validate_requested_consultations(
@@ -2999,6 +3043,18 @@ class UsersService:
                 raise
 
         participant.blood_collection_time_slot_id = slot_id
+        self._apply_home_collection_location_to_participant(
+            participant,
+            address=address,
+            landmark=None,
+            city=city,
+            pincode=pincode,
+            state=user.state or location.get("state"),
+            country=user.country or location.get("country"),
+            latitude=location.get("latitude"),
+            longitude=location.get("longitude"),
+            healthians_zone_id=location.get("zone_id"),
+        )
         await db.flush()
 
         # Assign assessments before booking. release_request_transaction inside booking
