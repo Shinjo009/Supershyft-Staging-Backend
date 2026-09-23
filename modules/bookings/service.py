@@ -190,7 +190,6 @@ async def check_service_availability(
             blood_collection_type=BloodCollectionType.home_collection,
             create_profile_on_metsights=False,
             enroll_for_fitprint_full=False,
-            onboarding_notification="booking-alert-whatsapp",
         )
         db.add(engagement)
         await db.flush()
