@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.diagnostics.service import DiagnosticsService
 from db.seed.blood_parameter_key_aliases import resolve_metsights_parameter_key
-from modules.reports.blood_parameters_normalizer import read_canonical_parameters
+from modules.reports.blood_parameters_normalizer import _parse_float, read_canonical_parameters
 from modules.reports.blood_parameters_questionnaire_reader import BloodParametersQuestionnaireReader
 from modules.reports.blood_parameters_schemas import (
     is_canonical_blood_parameters,
@@ -20,15 +20,6 @@ from modules.reports.schemas import (
     BloodParameterGroupInReportResponse,
     BloodParameterTestInReportResponse,
 )
-
-
-def _parse_float(value: Any) -> float | None:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _parameter_type_value(parameter_type: Any) -> str:

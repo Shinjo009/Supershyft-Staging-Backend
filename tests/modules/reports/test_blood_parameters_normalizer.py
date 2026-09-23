@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from modules.reports.blood_parameters_normalizer import build_grouped_from_healthians
+from modules.reports.blood_parameters_normalizer import _parse_float, build_grouped_from_healthians
 from modules.reports.blood_parameters_schemas import (
     has_usable_provider_blood_parameters,
     is_grouped_blood_parameters,
@@ -103,3 +103,56 @@ def test_build_grouped_includes_unmatched_tests_with_null_values():
     assert is_grouped_blood_parameters(grouped)
     assert not has_usable_provider_blood_parameters(grouped)
     assert grouped[0]["tests"][0]["value"] is None
+
+
+def test_parse_float_strips_inequality_prefixes():
+    assert _parse_float("< 1.2") == 1.2
+    assert _parse_float("<0.35") == 0.35
+    assert _parse_float("> 5") == 5.0
+    assert _parse_float("<= 3.5") == 3.5
+    assert _parse_float(">= 10") == 10.0
+    assert _parse_float("13.2") == 13.2
+
+
+def test_parse_float_qualitative_strings_remain_none():
+    assert _parse_float("Negative") is None
+    assert _parse_float("Nil") is None
+    assert _parse_float("Refer To Interpretation") is None
+
+
+def test_build_grouped_from_healthians_parses_inequality_prefixed_value():
+    raw = {
+        "digital_data": [
+            {
+                "parameter_id": "541",
+                "value": "< 1.2",
+                "machine_value": "< 1.2",
+                "unit": "U/mL",
+                "min_range": "1.2",
+                "max_range": "37",
+                "test_name": "CA-19.9",
+            }
+        ],
+    }
+    package_groups = [
+        _GroupRow(
+            group_name="Tumor Markers",
+            tests=[
+                _TestRow(
+                    test_id=99,
+                    parameter_type="test",
+                    test_name="CA-19.9",
+                    parameter_key="ca_19_9",
+                    unit="U/mL",
+                    external_parameter_id=541,
+                )
+            ],
+        )
+    ]
+
+    grouped, _ = build_grouped_from_healthians(raw, package_groups=package_groups)
+
+    test = grouped[0]["tests"][0]
+    assert test["value"] == 1.2
+    assert test["machine_value"] == 1.2
+    assert has_usable_provider_blood_parameters(grouped)

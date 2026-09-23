@@ -26,9 +26,24 @@ class PackageGroupRow(Protocol):
     tests: Sequence[PackageTestRow]
 
 
+_INEQUALITY_PREFIXES = ("<=", ">=", "<", ">")
+
+
 def _parse_float(value: Any) -> float | None:
     if value is None:
         return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        text = value.strip()
+        for prefix in _INEQUALITY_PREFIXES:
+            if text.startswith(prefix):
+                text = text[len(prefix) :].strip()
+                break
+        try:
+            return float(text)
+        except ValueError:
+            return None
     try:
         return float(value)
     except (TypeError, ValueError):
