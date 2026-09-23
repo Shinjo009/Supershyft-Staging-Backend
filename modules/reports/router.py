@@ -11,7 +11,11 @@ from core.dependencies import get_current_user
 from core.exceptions import AppError
 from db.session import get_db
 from modules.reports.dependencies import get_reports_service
-from modules.reports.schemas import BloodParameterTrendResponse, HealthSpanIndexRequest
+from modules.reports.schemas import (
+    AllBloodParameterTrendEngagement,
+    BloodParameterTrendResponse,
+    HealthSpanIndexRequest,
+)
 from modules.reports.service import ReportsService
 
 
@@ -25,6 +29,66 @@ def _client_ip(request: Request) -> str:
     if request.client is None:
         return "unknown"
     return request.client.host
+
+
+@router.get("/trends/blood-parameters")
+async def get_all_blood_parameter_trends(
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+    reports_service: ReportsService = Depends(get_reports_service),
+):
+    payload, meta, should_trigger = await reports_service.get_all_blood_parameter_trends_for_user(
+        db,
+        user_id=user.user_id,
+    )
+    if should_trigger:
+        await db.commit()
+        reports_service.trigger_user_blood_parameters_refresh(user_id=user.user_id)
+    response = [
+        AllBloodParameterTrendEngagement.model_validate(item).model_dump() for item in payload
+    ]
+    return success_response(response, meta=meta)
+
+
+@router.get("/trends")
+async def get_report_trends(
+    blood_parameter: str | None = Query(default=None, max_length=100),
+    diseases: str | None = Query(default=None, max_length=100),
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+    reports_service: ReportsService = Depends(get_reports_service),
+):
+    try:
+        disease_key = (optional_search_query(diseases, max_len=100) or "").lower()
+        parameter_key = (optional_search_query(blood_parameter, max_len=100) or "").lower()
+    except ValidationError as exc:
+        raise AppError(status_code=400, error_code="INVALID_INPUT", message=str(exc)) from exc
+    if bool(disease_key) == bool(parameter_key):
+        raise AppError(
+            status_code=400,
+            error_code="INVALID_INPUT",
+            message="Provide exactly one of blood_parameter or diseases",
+        )
+
+    if disease_key:
+        payload = await reports_service.get_disease_trends_for_user(
+            db,
+            user_id=user.user_id,
+            disease=disease_key,
+        )
+        await db.commit()
+        return success_response(payload)
+
+    payload, meta, should_trigger = await reports_service.get_blood_parameter_trends_for_user(
+        db,
+        user_id=user.user_id,
+        blood_parameter=parameter_key,
+    )
+    if should_trigger:
+        await db.commit()
+        reports_service.trigger_user_blood_parameters_refresh(user_id=user.user_id)
+    response = BloodParameterTrendResponse.model_validate(payload)
+    return success_response(response.model_dump(), meta=meta)
 
 
 @router.get("/{assessment_id}/overview")
@@ -224,44 +288,3 @@ async def get_health_span_index(
     )
     await db.commit()
     return success_response(response.model_dump(exclude_none=not body.include_details))
-
-
-@router.get("/trends")
-async def get_report_trends(
-    blood_parameter: str | None = Query(default=None, max_length=100),
-    diseases: str | None = Query(default=None, max_length=100),
-    db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),
-    reports_service: ReportsService = Depends(get_reports_service),
-):
-    try:
-        disease_key = (optional_search_query(diseases, max_len=100) or "").lower()
-        parameter_key = (optional_search_query(blood_parameter, max_len=100) or "").lower()
-    except ValidationError as exc:
-        raise AppError(status_code=400, error_code="INVALID_INPUT", message=str(exc)) from exc
-    if bool(disease_key) == bool(parameter_key):
-        raise AppError(
-            status_code=400,
-            error_code="INVALID_INPUT",
-            message="Provide exactly one of blood_parameter or diseases",
-        )
-
-    if disease_key:
-        payload = await reports_service.get_disease_trends_for_user(
-            db,
-            user_id=user.user_id,
-            disease=disease_key,
-        )
-        await db.commit()
-        return success_response(payload)
-
-    payload, meta, should_trigger = await reports_service.get_blood_parameter_trends_for_user(
-        db,
-        user_id=user.user_id,
-        blood_parameter=parameter_key,
-    )
-    if should_trigger:
-        await db.commit()
-        reports_service.trigger_user_blood_parameters_refresh(user_id=user.user_id)
-    response = BloodParameterTrendResponse.model_validate(payload)
-    return success_response(response.model_dump(), meta=meta)
