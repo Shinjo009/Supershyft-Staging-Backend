@@ -19,6 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.masking import mask_email, mask_phone
 from common.phone import phone_lookup_candidates as _phone_lookup_candidates
+from common.schedule_cutoff import (
+    MSG_BLOOD_COLLECTION_RESCHEDULE,
+    ensure_schedule_change_allowed,
+)
 from core.config import settings
 from core.exceptions import AppError
 from modules.assessments.repository import AssessmentsRepository
@@ -1759,6 +1763,12 @@ class EngagementsService:
                 error_code="SCHEDULE_UPDATE_NOT_ALLOWED",
                 message="Schedule fields cannot be updated for home collection engagements",
             )
+
+        ensure_schedule_change_allowed(
+            participant.engagement_date,
+            participant.slot_start_time,
+            message=MSG_BLOOD_COLLECTION_RESCHEDULE,
+        )
 
         slot_time = coerce_time(payload.blood_collection_time_slot)
         if slot_time is None:

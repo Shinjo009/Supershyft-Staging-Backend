@@ -25,6 +25,15 @@ from modules.users.models import User
 from tests.helpers.auth import seed_partner
 
 
+@pytest.fixture(autouse=True)
+def _bypass_schedule_cutoff(monkeypatch):
+    """Existing cases use historical fixture dates; cutoff is covered in unit + service tests."""
+    monkeypatch.setattr(
+        "modules.experts.service.ensure_schedule_change_allowed",
+        lambda *args, **kwargs: None,
+    )
+
+
 def _consultation_slot_detail(*, expert_type: str = "nutritionist", cabin_key: str = "consultation_cabin_1") -> dict:
     return {
         "consultation": {

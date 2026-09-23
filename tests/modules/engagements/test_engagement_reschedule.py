@@ -20,6 +20,15 @@ from tests.modules.users.test_users_onboard_slot_routes import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _bypass_schedule_cutoff(monkeypatch):
+    """Existing cases use historical fixture dates; cutoff is covered in unit tests."""
+    monkeypatch.setattr(
+        "modules.engagements.service.ensure_schedule_change_allowed",
+        lambda *args, **kwargs: None,
+    )
+
+
 async def _seed_packages_for_engagement(test_db_session, *, package_id: int):
     await test_db_session.execute(
         text(

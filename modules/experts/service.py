@@ -8,6 +8,11 @@ from decimal import Decimal
 from typing import Any
 
 from common.masking import mask_email, mask_phone
+from common.schedule_cutoff import (
+    MSG_CONSULTATION_CANCEL,
+    MSG_CONSULTATION_RESCHEDULE,
+    ensure_schedule_change_allowed,
+)
 from core.exceptions import AppError
 from modules.audit.service import AuditService
 from modules.employee.access_control import ensure_expert_portal_access, ensure_not_expert_employee, has_route_admin_scope
@@ -959,6 +964,12 @@ class ExpertAvailabilityService:
                 message="Consultation is already completed",
             )
 
+        ensure_schedule_change_allowed(
+            booking.consultation_date,
+            booking.consultation_slot,
+            message=MSG_CONSULTATION_RESCHEDULE,
+        )
+
         previous_expert_id = booking.expert_id
         previous_date = booking.consultation_date
         previous_slot = normalize_hhmm(booking.consultation_slot) if booking.consultation_slot else None
@@ -1111,6 +1122,12 @@ class ExpertAvailabilityService:
                 error_code="INVALID_INPUT",
                 message="Participant did not request consultation",
             )
+
+        ensure_schedule_change_allowed(
+            booking.consultation_date,
+            booking.consultation_slot,
+            message=MSG_CONSULTATION_CANCEL,
+        )
 
         if (
             booking.expert_id is not None
