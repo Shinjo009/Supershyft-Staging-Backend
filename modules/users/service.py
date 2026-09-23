@@ -2432,6 +2432,28 @@ class UsersService:
         if self._assessments_service is None:
             raise RuntimeError("Assessments service is required")
 
+        # Assign local assessment instances before any Metsights I/O that releases the
+        # request transaction. Otherwise a later failure leaves console enrollment without
+        # journey assessments.
+        await self._engagements_service.ensure_assessment_instances_for_participant(
+            db,
+            engagement=engagement,
+            user_id=int(user.user_id),
+            ip_address=ip_address,
+            user_agent=user_agent,
+            endpoint=endpoint,
+        )
+        if engagement.assessment_package_id is not None:
+            assessment_instance = await self._assessments_service.ensure_instance_assigned(
+                db,
+                user_id=user.user_id,
+                engagement_id=engagement.engagement_id,
+                package_id=engagement.assessment_package_id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                endpoint=endpoint,
+            )
+
         metsights_record_id: str | None = None
         sync_context = MetsightsSyncContext(
             db=db,
@@ -2483,24 +2505,6 @@ class UsersService:
         except Exception as exc:
             logger.warning(
                 "Metsights sync failed for user_id=%s engagement_id=%s: %s",
-                user.user_id,
-                engagement.engagement_id,
-                str(exc),
-            )
-
-        try:
-            assessment_instance = await self._assessments_service.ensure_instance_assigned(
-                db,
-                user_id=user.user_id,
-                engagement_id=engagement.engagement_id,
-                package_id=engagement.assessment_package_id,
-                ip_address=ip_address,
-                user_agent=user_agent,
-                endpoint=endpoint,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Assessment assignment failed for user_id=%s engagement_id=%s: %s",
                 user.user_id,
                 engagement.engagement_id,
                 str(exc),
@@ -2698,6 +2702,20 @@ class UsersService:
 
         if self._assessments_service is None:
             raise RuntimeError("Assessments service is required")
+        if self._engagements_service is None:
+            raise RuntimeError("Engagements service is required")
+
+        # Create assessment rows before Healthians I/O. Booking releases/commits the
+        # request transaction; a later booking failure must not leave enrollment without
+        # journey-visible assessment instances.
+        await self._engagements_service.ensure_assessment_instances_for_participant(
+            db,
+            engagement=engagement,
+            user_id=int(user.user_id),
+            ip_address=ip_address,
+            user_agent=user_agent,
+            endpoint=endpoint,
+        )
 
         engagement_type_code = "bio_ai"
         booking_results = await booking_service.create_healthians_booking_after_payment(
@@ -2723,15 +2741,17 @@ class UsersService:
         engagement.draft_slot_time = None
         await db.flush()
 
-        assessment_instance = await self._assessments_service.ensure_instance_assigned(
-            db,
-            user_id=user.user_id,
-            engagement_id=engagement.engagement_id,
-            package_id=engagement.assessment_package_id,
-            ip_address=ip_address,
-            user_agent=user_agent,
-            endpoint=endpoint,
-        )
+        assessment_instance = None
+        if engagement.assessment_package_id is not None:
+            assessment_instance = await self._assessments_service.ensure_instance_assigned(
+                db,
+                user_id=user.user_id,
+                engagement_id=engagement.engagement_id,
+                package_id=engagement.assessment_package_id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                endpoint=endpoint,
+            )
 
         if is_b2b:
             await self._notify_onboarding_assistants_for_user(
@@ -2955,17 +2975,72 @@ class UsersService:
             engagement.consultations,
         )
 
-        participant = await self._engagements_service.enroll_user_in_engagement(
-            db,
-            engagement=engagement,
-            user_id=user.user_id,
-            engagement_date=collection_date,
-            slot_start_time=slot_time,
-            consultations=consultations,
-            booked_by_user_id=user.user_id,
-        )
+        newly_enrolled = True
+        try:
+            participant = await self._engagements_service.enroll_user_in_engagement(
+                db,
+                engagement=engagement,
+                user_id=user.user_id,
+                engagement_date=collection_date,
+                slot_start_time=slot_time,
+                consultations=consultations,
+                booked_by_user_id=user.user_id,
+            )
+        except AppError as exc:
+            if getattr(exc, "error_code", None) != "ALREADY_ENROLLED":
+                raise
+            newly_enrolled = False
+            participant = await self._engagements_service.get_participant_for_user_engagement(
+                db,
+                user_id=int(user.user_id),
+                engagement_id=int(engagement.engagement_id),
+            )
+            if participant is None:
+                raise
+
         participant.blood_collection_time_slot_id = slot_id
         await db.flush()
+
+        # Assign assessments before booking. release_request_transaction inside booking
+        # commits enrollment; if Healthians then fails, retries used to 409 without ever
+        # creating assessment_instances (journey stays empty while console still lists them).
+        assigned = await self._engagements_service.ensure_assessment_instances_for_participant(
+            db,
+            engagement=engagement,
+            user_id=int(user.user_id),
+            ip_address=ip_address,
+            user_agent=user_agent,
+            endpoint=endpoint,
+        )
+
+        if participant.booking_id and not newly_enrolled:
+            if self._audit_service is None:
+                raise RuntimeError("Audit service is required")
+            await self._audit_service.log_event(
+                db,
+                action="USER_CODE_ONBOARD_BOOK",
+                endpoint=endpoint,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                user_id=user.user_id,
+                session_id=None,
+            )
+            primary_instance_id = None
+            if engagement.assessment_package_id is not None:
+                for inst in assigned:
+                    if int(inst.package_id) == int(engagement.assessment_package_id):
+                        primary_instance_id = int(inst.assessment_instance_id)
+                        break
+            return B2COnboardAndBookResponse(
+                user_id=user.user_id,
+                created=False,
+                engagement_id=int(engagement.engagement_id),
+                engagement_code=engagement.engagement_code,
+                engagement_participant_id=participant.engagement_participant_id,
+                booking_id=str(participant.booking_id),
+                status="scheduled",
+                assessment_instance_id=primary_instance_id,
+            )
 
         is_b2b = engagement.organization_id is not None
         return await self._finalize_onboard_and_book(

@@ -1512,6 +1512,72 @@ class EngagementsService:
             await self._consultation_bookings.sync_from_want_map(db, created, consultations)
         return created
 
+    async def get_participant_for_user_engagement(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        engagement_id: int,
+    ) -> EngagementParticipant | None:
+        return await self._repository.get_participant_for_user_engagement(
+            db,
+            user_id=user_id,
+            engagement_id=engagement_id,
+        )
+
+    async def ensure_assessment_instances_for_participant(
+        self,
+        db: AsyncSession,
+        *,
+        engagement: Engagement,
+        user_id: int,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> list[Any]:
+        """Idempotently assign engagement assessment package(s) for a participant.
+
+        Console enrollment / code-onboard can commit the participant row before Healthians
+        booking succeeds. Journey pages read assessment_instances, so assignment must not
+        wait on booking success.
+        """
+        if self._assessments_service is None:
+            raise RuntimeError("Assessments service is required")
+
+        instances: list[Any] = []
+        package_id = engagement.assessment_package_id
+        if package_id is not None:
+            instances.append(
+                await self._assessments_service.ensure_instance_assigned(
+                    db,
+                    user_id=user_id,
+                    engagement_id=int(engagement.engagement_id),
+                    package_id=int(package_id),
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    endpoint=endpoint,
+                )
+            )
+
+        if bool(engagement.enroll_for_fitprint_full):
+            fitprint_package = await self._assessments_service.get_package_by_assessment_type_code(
+                db,
+                assessment_type_code="7",
+            )
+            if fitprint_package is not None:
+                instances.append(
+                    await self._assessments_service.ensure_instance_assigned(
+                        db,
+                        user_id=user_id,
+                        engagement_id=int(engagement.engagement_id),
+                        package_id=int(fitprint_package.package_id),
+                        ip_address=ip_address,
+                        user_agent=user_agent,
+                        endpoint=endpoint,
+                    )
+                )
+        return instances
+
     async def resolve_participant_department_for_engagement(
         self,
         db: AsyncSession,

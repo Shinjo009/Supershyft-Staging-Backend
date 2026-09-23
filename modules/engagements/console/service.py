@@ -35,6 +35,7 @@ from modules.employee.service import EmployeeContext
 from modules.organizations.models import Organization
 from modules.assessments.package_questions_service import AssessmentPackageCategoriesService
 from modules.assessments.repository import AssessmentsRepository
+from modules.assessments.service import AssessmentsService
 from modules.engagements.models import Engagement, EngagementParticipant
 from modules.engagements.repository import EngagementsRepository
 from modules.engagements.service import _participant_enrollment_to_dict
@@ -124,6 +125,7 @@ class ConsoleService:
         repository: EngagementsRepository,
         users_repository: UsersRepository | None = None,
         assessments_repository: AssessmentsRepository | None = None,
+        assessments_service: AssessmentsService | None = None,
         categories_service: AssessmentPackageCategoriesService | None = None,
         questionnaire_service: QuestionnaireService | None = None,
         metsights_sync_service: MetsightsSyncService | None = None,
@@ -131,9 +133,50 @@ class ConsoleService:
         self._repository = repository
         self._users_repository = users_repository or UsersRepository()
         self._assessments_repository = assessments_repository or AssessmentsRepository()
+        self._assessments_service = assessments_service
         self._categories_service = categories_service
         self._questionnaire_service = questionnaire_service
         self._metsights_sync_service = metsights_sync_service
+
+    async def _ensure_assessment_instances_for_participant(
+        self,
+        db: AsyncSession,
+        *,
+        engagement: Engagement,
+        user_id: int,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> None:
+        """Ensure journey-visible assessment rows exist for an enrolled console participant."""
+        if self._assessments_service is None:
+            return
+        package_id = engagement.assessment_package_id
+        if package_id is not None:
+            await self._assessments_service.ensure_instance_assigned(
+                db,
+                user_id=user_id,
+                engagement_id=int(engagement.engagement_id),
+                package_id=int(package_id),
+                ip_address=ip_address,
+                user_agent=user_agent,
+                endpoint=endpoint,
+            )
+        if bool(engagement.enroll_for_fitprint_full):
+            fitprint_package = await self._assessments_service.get_package_by_assessment_type_code(
+                db,
+                assessment_type_code="7",
+            )
+            if fitprint_package is not None:
+                await self._assessments_service.ensure_instance_assigned(
+                    db,
+                    user_id=user_id,
+                    engagement_id=int(engagement.engagement_id),
+                    package_id=int(fitprint_package.package_id),
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    endpoint=endpoint,
+                )
 
     async def _resolve_console_participant_department_slugs(
         self,
@@ -607,6 +650,17 @@ class ConsoleService:
         external_package_id = diagnostic_package.external_package_id
         engagement_participant_id = participant.engagement_participant_id
         trimmed_barcode = barcode.strip()
+
+        # Heal missing journey assessments for late/failed onboard enrollments before we
+        # commit barcode + release the request transaction for Healthians I/O.
+        await self._ensure_assessment_instances_for_participant(
+            db,
+            engagement=engagement,
+            user_id=user_id,
+            ip_address="",
+            user_agent="engagement-console",
+            endpoint=f"/engagements/{engagement_id}/console/participants/{user_id}/book",
+        )
 
         # Persist barcode before Healthians I/O so it survives API outages / booking failures.
         # release_request_transaction commits this write.
@@ -1445,6 +1499,16 @@ class ConsoleService:
             "zone_id": int(participant.healthians_zone_id) if participant.healthians_zone_id else 0,
             "is_ppmc_booking": 0,
         }
+
+        # Heal missing journey assessments (e.g. code-onboard enrolled but booking failed).
+        await self._ensure_assessment_instances_for_participant(
+            db,
+            engagement=engagement,
+            user_id=user_id,
+            ip_address="",
+            user_agent="engagement-console",
+            endpoint=f"/engagements/{engagement_id}/console/participants/{user_id}/book-home-collection/book",
+        )
 
         await release_request_transaction(db)
 

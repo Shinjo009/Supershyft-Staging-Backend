@@ -68,6 +68,7 @@ def get_console_service() -> ConsoleService:
         repository=EngagementsRepository(),
         users_repository=UsersRepository(),
         assessments_repository=AssessmentsRepository(),
+        assessments_service=get_assessments_service(),
         categories_service=get_assessment_package_categories_service(),
         questionnaire_service=get_questionnaire_user_service(),
         metsights_sync_service=get_metsights_sync_service(),

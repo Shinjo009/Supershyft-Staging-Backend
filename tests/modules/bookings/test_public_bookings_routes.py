@@ -814,3 +814,105 @@ async def test_code_e2e_check_slots_lock_onboard_book(async_client, test_db_sess
     mock_create.assert_awaited_once()
     assert mock_create.await_args.args[1]["vendor_billing_user_id"] == "950105"
     mock_notify.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_code_onboard_book_assigns_assessment_even_when_booking_fails(
+    async_client, test_db_session, monkeypatch
+):
+    """Regression: booking failure after enroll must not leave journey with 0 assessments."""
+    monkeypatch.setattr("core.config.settings.HEALTHIANS_CHECKSUM_KEY", "test-checksum")
+    await _seed_healthians_diagnostic_package(test_db_session)
+    await _seed_onboard_book_prereqs(test_db_session)
+    await _seed_user(test_db_session, user_id=950206, phone="9502060000")
+
+    engagement = Engagement(
+        engagement_id=950206,
+        engagement_name="camp-code-assess-heal",
+        organization_id=None,
+        engagement_code="CAMP950206",
+        diagnostic_package_id=1,
+        assessment_package_id=1,
+        city="Mumbai",
+        address="Flat 1",
+        sub_locality="Flat 1",
+        pincode="400001",
+        latitude=19.0760,
+        longitude=72.8777,
+        healthians_zone_id="440",
+        slot_duration=20,
+        status="running",
+        blood_collection_type=BloodCollectionType.home_collection,
+    )
+    test_db_session.add(engagement)
+    await test_db_session.commit()
+
+    payload = {
+        "user_id": 950206,
+        "blood_collection_date": "2026-07-16",
+        "blood_collection_time_slot_id": "slot-fail-1",
+        "blood_collection_time_slot": "07:00:00",
+    }
+
+    with (
+        patch(
+            "modules.bookings.service.healthians_client.get_access_token",
+            new_callable=AsyncMock,
+            return_value="tok",
+        ),
+        patch(
+            "modules.bookings.service.healthians_client.create_booking_v3",
+            new_callable=AsyncMock,
+            return_value={"status": False, "message": "Please enter sub_locality."},
+        ),
+        patch(
+            "modules.engagements.service.EngagementsService.notify_onboarding_assistants_after_enrollment",
+            new_callable=AsyncMock,
+        ),
+    ):
+        first = await async_client.post("/users/code/CAMP950206/onboard/book", json=payload)
+
+    assert first.status_code == 422
+    assert first.json()["error_code"] == "BOOKING_FAILED"
+
+    enrolled = (
+        await test_db_session.execute(
+            text(
+                "SELECT COUNT(*) FROM engagement_participants "
+                "WHERE engagement_id = 950206 AND user_id = 950206"
+            )
+        )
+    ).scalar_one()
+    assert enrolled == 1
+
+    instances = (
+        await test_db_session.execute(
+            text(
+                "SELECT COUNT(*) FROM assessment_instances "
+                "WHERE engagement_id = 950206 AND user_id = 950206 AND package_id = 1"
+            )
+        )
+    ).scalar_one()
+    assert instances == 1
+
+    with (
+        patch(
+            "modules.bookings.service.healthians_client.get_access_token",
+            new_callable=AsyncMock,
+            return_value="tok",
+        ),
+        patch(
+            "modules.bookings.service.healthians_client.create_booking_v3",
+            new_callable=AsyncMock,
+            return_value={"status": True, "booking_id": "HI950206", "message": "OK"},
+        ),
+        patch(
+            "modules.engagements.service.EngagementsService.notify_onboarding_assistants_after_enrollment",
+            new_callable=AsyncMock,
+        ),
+    ):
+        second = await async_client.post("/users/code/CAMP950206/onboard/book", json=payload)
+
+    assert second.status_code == 200
+    assert second.json()["data"]["booking_id"] == "HI950206"
+    assert second.json()["data"]["assessment_instance_id"] is not None
