@@ -6,7 +6,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from modules.assessments.service import AssessmentsService, _should_replace_stale_hormone_placeholder
+from modules.assessments.service import (
+    AssessmentsService,
+    _internal_blood_fallback_entry,
+    _should_replace_stale_hormone_placeholder,
+)
 
 
 @pytest.mark.asyncio
@@ -30,6 +34,21 @@ async def test_redraft_blood_questionnaire_responses_orchestrates_report_then_fa
     assert result["responses_drafted"] == 36
     assert result["responses_drafted_from_report"] == 33
     assert result["responses_drafted_from_fallbacks"] == 3
+
+
+def test_lh_and_fsh_defaults_apply_for_male_participants():
+    lh = _internal_blood_fallback_entry("lh_value", is_pro_female=False)
+    fsh = _internal_blood_fallback_entry("fsh_value", is_pro_female=False)
+    testosterone = _internal_blood_fallback_entry("testosterone", is_pro_female=False)
+
+    assert lh == (5.0, "3")
+    assert fsh == (5.0, "3")
+    assert testosterone is None
+
+
+def test_pro_female_still_receives_testosterone_default():
+    assert _internal_blood_fallback_entry("testosterone", is_pro_female=True) == (0.5, "2")
+    assert _internal_blood_fallback_entry("lh_value", is_pro_female=True) == (5.0, "3")
 
 
 def test_should_replace_legacy_lh_unit_zero():

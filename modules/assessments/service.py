@@ -65,6 +65,25 @@ def _is_female_gender(gender: str | None) -> bool:
     return normalized in {"female", "f", "2", "woman", "women"}
 
 
+def _internal_blood_fallback_entry(
+    question_key: str,
+    *,
+    is_pro_female: bool,
+) -> tuple[float, str] | None:
+    """Return the default value for a missing blood answer, if one is configured.
+
+    Luteinizing hormone and follicle-stimulating hormone use the same defaults
+    for every gender. Those two stay required on the blood categories, so a
+    missing lab value must be filled before the category can be marked complete.
+    Testosterone defaults stay limited to Pro female participants.
+    """
+    if question_key in PRO_FEMALE_HORMONE_PLACEHOLDERS:
+        if question_key in {"lh_value", "fsh_value"} or is_pro_female:
+            return PRO_FEMALE_HORMONE_PLACEHOLDERS[question_key]
+        return None
+    return BLOOD_PARAMETER_INTERNAL_FALLBACKS.get(question_key)
+
+
 def _should_replace_stale_hormone_placeholder(
     question_key: str,
     existing_answer: dict[str, Any],
@@ -775,8 +794,9 @@ class AssessmentsService:
         1. ``draft_blood_parameters_from_report`` — overwrite/create answers from
            ``individual_health_report.blood_parameters`` (Healthians values + mapped units).
         2. ``draft_blood_parameter_internal_fallbacks`` — fill remaining mandatory keys
-           from configured averages / Pro female hormone placeholders (including refresh
-           of legacy wrong hormone unit codes).
+           from configured averages. LH and FSH defaults apply for every gender;
+           testosterone defaults stay Pro-female only (including refresh of legacy
+           wrong hormone unit codes).
         """
         report_result = await self.draft_blood_parameters_from_report(
             db,
@@ -870,14 +890,11 @@ class AssessmentsService:
                 if (question.status or "").strip().lower() != "active":
                     continue
 
-                fallback_entry: tuple[float, str] | None = None
-                if question_key in PRO_FEMALE_HORMONE_PLACEHOLDERS:
-                    if not is_pro_female:
-                        continue
-                    fallback_entry = PRO_FEMALE_HORMONE_PLACEHOLDERS[question_key]
-                elif question_key in BLOOD_PARAMETER_INTERNAL_FALLBACKS:
-                    fallback_entry = BLOOD_PARAMETER_INTERNAL_FALLBACKS[question_key]
-                else:
+                fallback_entry = _internal_blood_fallback_entry(
+                    question_key,
+                    is_pro_female=is_pro_female,
+                )
+                if fallback_entry is None:
                     continue
 
                 existing = await self._questionnaire.get_response_by_instance_and_question_id(
@@ -953,6 +970,7 @@ class AssessmentsService:
             "assessment_instance_id": int(instance.assessment_instance_id),
             "responses_drafted": total_drafted,
             "fallback_keys": drafted_keys,
+            "category_keys": keys,
         }
 
     async def is_vitals_blood_pressure_missing(

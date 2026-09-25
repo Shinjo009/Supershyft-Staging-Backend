@@ -3,6 +3,8 @@
 For participants in running engagements with a MetSights Basic/Pro assessment
 where today >= engagement_date:
 1. Check MetSights blood parameters for is_complete (Pro/Basic only).
+   If missing/incomplete, fill internal blood defaults (including LH and FSH),
+   mark those categories complete, push them to MetSights, then continue.
 2. If individual_health_report.reports or report_url is null, fetch from MetSights.
 3. When both reports and report_url are present, send notifications using
    engagement_notifications for bioai_report_ready event (skipping services already sent).
@@ -19,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import settings
+from db.seed.blood_parameters_registry import BLOOD_PARAMETER_CATEGORY_KEY
 from modules.assessments.models import AssessmentInstance, AssessmentPackage
 from modules.audit.cron_sync_logging import tracked_integration_call
 from modules.bioai_report.pdf_registration import register_permanent_bio_ai_report_url
@@ -288,6 +291,135 @@ async def _send_report_notifications(
     return sent_count
 
 
+async def _try_recover_missing_blood_parameters(
+    db: AsyncSession,
+    *,
+    assessments_service: "AssessmentsService",
+    sync_service: "MetsightsSyncService",
+    user_id: int,
+    engagement_id: int,
+    instance_id: int,
+    details: list[dict[str, Any]],
+) -> bool:
+    """Draft blood questionnaire values and push blood-parameters to MetSights.
+
+    Used when MetSights has no blood-parameters row (404) or ``is_complete`` is
+    false, so BioAI load can proceed after a successful push.
+    """
+    try:
+        draft_result = await assessments_service.draft_blood_parameters_from_report(
+            db,
+            user_id=user_id,
+            assessment_instance_id=instance_id,
+            allow_completed=True,
+        )
+        await db.commit()
+        drafted = int(draft_result.get("responses_drafted") or 0)
+        if drafted > 0:
+            details.append({
+                "user_id": user_id,
+                "engagement_id": engagement_id,
+                "action": "drafted",
+                "reason": f"drafted {drafted} blood questionnaire responses from report",
+            })
+    except Exception as exc:
+        await db.rollback()
+        logger.warning(
+            "Blood parameter draft-from-report failed for user=%s instance=%s: %s",
+            user_id,
+            instance_id,
+            exc,
+        )
+        details.append({
+            "user_id": user_id,
+            "engagement_id": engagement_id,
+            "action": "skipped",
+            "reason": f"blood draft-from-report failed: {str(exc)[:120]}",
+        })
+
+    fallback_result: dict[str, Any] = {}
+    try:
+        fallback_result = await assessments_service.draft_blood_parameter_internal_fallbacks(
+            db,
+            user_id=user_id,
+            assessment_instance_id=instance_id,
+        )
+        await db.commit()
+        fallback_count = int(fallback_result.get("responses_drafted") or 0)
+        if fallback_count > 0:
+            details.append({
+                "user_id": user_id,
+                "engagement_id": engagement_id,
+                "action": "drafted",
+                "reason": (
+                    f"applied {fallback_count} internal average blood "
+                    "fallbacks before Metsights push"
+                ),
+            })
+    except Exception as exc:
+        await db.rollback()
+        logger.warning(
+            "Blood parameter fallback draft failed for user=%s instance=%s: %s",
+            user_id,
+            instance_id,
+            exc,
+        )
+        details.append({
+            "user_id": user_id,
+            "engagement_id": engagement_id,
+            "action": "skipped",
+            "reason": f"blood fallback draft failed: {str(exc)[:120]}",
+        })
+
+    category_keys = list(fallback_result.get("category_keys") or [BLOOD_PARAMETER_CATEGORY_KEY])
+
+    pushed_fields = 0
+    for category_key in category_keys:
+        try:
+            push_result = await sync_service._push_category_to_metsights(
+                db,
+                assessment_instance_id=instance_id,
+                user_id=user_id,
+                category_key=category_key,
+            )
+            await db.commit()
+        except Exception as exc:
+            message = str(getattr(exc, "message", exc))
+            not_on_package = "is not available" in message or "not supported" in message
+            if not_on_package:
+                continue
+            try:
+                await db.commit()
+            except Exception:
+                await db.rollback()
+            logger.warning(
+                "Metsights %s push failed for user=%s instance=%s: %s",
+                category_key,
+                user_id,
+                instance_id,
+                exc,
+            )
+            details.append({
+                "user_id": user_id,
+                "engagement_id": engagement_id,
+                "action": "failed",
+                "reason": f"metsights {category_key} push failed: {message[:100]}",
+            })
+            if category_key == BLOOD_PARAMETER_CATEGORY_KEY:
+                return False
+            continue
+
+        fields_count = len(push_result.get("fields_pushed") or [])
+        pushed_fields += fields_count
+        details.append({
+            "user_id": user_id,
+            "engagement_id": engagement_id,
+            "action": "pushed",
+            "reason": f"pushed {category_key} to Metsights ({fields_count} fields)",
+        })
+    return pushed_fields > 0
+
+
 async def load_bioai_reports(
     db: AsyncSession,
     *,
@@ -371,6 +503,51 @@ async def load_bioai_reports(
                         operation=lambda: metsights_service.get_blood_parameters(record_id=record_id),
                         reraise=False,
                     )
+                    needs_blood_recovery = bp_data is None or not bool(
+                        bp_data.get("is_complete", False)
+                    )
+                    if (
+                        needs_blood_recovery
+                        and assessments_service is not None
+                        and sync_service is not None
+                    ):
+                        try:
+                            recovered = await _try_recover_missing_blood_parameters(
+                                db,
+                                assessments_service=assessments_service,
+                                sync_service=sync_service,
+                                user_id=user_id,
+                                engagement_id=engagement_id,
+                                instance_id=instance_id,
+                                details=details,
+                            )
+                            if recovered:
+                                bp_data = await tracked_integration_call(
+                                    db,
+                                    provider="metsights",
+                                    api_url=_metsights_blood_parameters_url(record_id=record_id),
+                                    engagement_id=engagement_id,
+                                    user_id=user_id,
+                                    request_payload={"record_id": record_id},
+                                    operation=lambda: metsights_service.get_blood_parameters(
+                                        record_id=record_id
+                                    ),
+                                    reraise=False,
+                                )
+                        except Exception as exc:
+                            await db.rollback()
+                            logger.warning(
+                                "BioAI blood-parameters recovery failed for user=%s instance=%s: %s",
+                                user_id,
+                                instance_id,
+                                exc,
+                            )
+                            details.append({
+                                "user_id": user_id,
+                                "engagement_id": engagement_id,
+                                "action": "skipped",
+                                "reason": f"blood-parameters recovery failed: {str(exc)[:100]}",
+                            })
                     if bp_data is None:
                         skipped += 1
                         details.append({
