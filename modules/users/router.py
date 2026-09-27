@@ -42,6 +42,8 @@ from modules.users.schemas import (
     UserPreferencesUpdate,
     UpdateMetsightsProfileIdRequest,
     UpdateMyProfileRequest,
+    UserAddressCreate,
+    UserAddressUpdate,
     VifcQuickStartRequest,
 )
 from modules.users.service import UsersService
@@ -261,6 +263,86 @@ async def get_me(
                 },
             }
     return success_response(data)
+
+
+@router.get("/me/addresses")
+async def list_my_addresses(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+    users_service: UsersService = Depends(get_users_service),
+):
+    rows = await users_service.list_my_addresses(
+        db,
+        user_id=current_user.user_id,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response([row.model_dump(mode="json") for row in rows])
+
+
+@router.post("/me/addresses")
+async def create_my_address(
+    payload: UserAddressCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+    users_service: UsersService = Depends(get_users_service),
+):
+    row = await users_service.create_my_address(
+        db,
+        user_id=current_user.user_id,
+        payload=payload,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response(row.model_dump(mode="json"))
+
+
+@router.put("/me/addresses/{user_address_id}")
+async def update_my_address(
+    user_address_id: int,
+    payload: UserAddressUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+    users_service: UsersService = Depends(get_users_service),
+):
+    row = await users_service.update_my_address(
+        db,
+        user_id=current_user.user_id,
+        user_address_id=user_address_id,
+        payload=payload,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response(row.model_dump(mode="json"))
+
+
+@router.delete("/me/addresses/{user_address_id}")
+async def delete_my_address(
+    user_address_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+    users_service: UsersService = Depends(get_users_service),
+):
+    await users_service.delete_my_address(
+        db,
+        user_id=current_user.user_id,
+        user_address_id=user_address_id,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response({"deleted": True})
 
 
 @router.get("/me/upcoming-slot")

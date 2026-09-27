@@ -90,6 +90,41 @@ class UpdateMyProfileRequest(BaseModel):
         return v
 
 
+class UserAddressCreate(BaseModel):
+    address_line1: AddressText
+    address_line2: OptionalAddressText = None
+    landmark: OptionalLandmarkText = None
+    city: CityStateCountry
+    state: OptionalCityStateCountry = None
+    pincode: PinCode
+    is_default: Optional[bool] = None
+
+
+class UserAddressUpdate(BaseModel):
+    address_line1: OptionalAddressText = None
+    address_line2: OptionalAddressText = None
+    landmark: OptionalLandmarkText = None
+    city: OptionalCityStateCountry = None
+    state: OptionalCityStateCountry = None
+    pincode: OptionalPinCode = None
+    is_default: Optional[bool] = None
+
+
+class UserAddressResponse(BaseModel):
+    user_address_id: int
+    user_id: int
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    landmark: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
+    address: Optional[str] = None
+    is_default: bool
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
 class SportsPlaylistPayload(BaseModel):
     sportIds: list[str] = Field(default_factory=list)
     otherSelected: bool = False

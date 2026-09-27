@@ -15,7 +15,7 @@ from common.listing import apply_sort, ilike_pattern, normalize_sort_dir
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.users.models import User, UserPreference
+from modules.users.models import User, UserAddress, UserPreference
 from modules.engagements.models import Engagement, EngagementParticipant, EngagementSlotInfo
 from modules.organizations.models import Organization
 from modules.assessments.models import AssessmentCategoryProgress, AssessmentInstance
@@ -421,6 +421,64 @@ class UsersRepository:
         )
         return row.scalar_one()
 
+    async def list_addresses_for_user(self, db: AsyncSession, user_id: int) -> list[UserAddress]:
+        result = await db.execute(
+            select(UserAddress)
+            .where(UserAddress.user_id == user_id)
+            .order_by(UserAddress.is_default.desc(), UserAddress.created_at.asc(), UserAddress.user_address_id.asc())
+        )
+        return list(result.scalars().all())
+
+    async def count_addresses_for_user(self, db: AsyncSession, user_id: int) -> int:
+        result = await db.execute(
+            select(func.count()).select_from(UserAddress).where(UserAddress.user_id == user_id)
+        )
+        return int(result.scalar_one() or 0)
+
+    async def get_address_by_id(self, db: AsyncSession, user_address_id: int) -> Optional[UserAddress]:
+        result = await db.execute(
+            select(UserAddress).where(UserAddress.user_address_id == user_address_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_default_address(self, db: AsyncSession, user_id: int) -> Optional[UserAddress]:
+        result = await db.execute(
+            select(UserAddress)
+            .where(UserAddress.user_id == user_id, UserAddress.is_default.is_(True))
+        )
+        return result.scalar_one_or_none()
+
+    async def get_oldest_address(self, db: AsyncSession, user_id: int) -> Optional[UserAddress]:
+        result = await db.execute(
+            select(UserAddress)
+            .where(UserAddress.user_id == user_id)
+            .order_by(UserAddress.created_at.asc(), UserAddress.user_address_id.asc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def create_address(self, db: AsyncSession, address: UserAddress) -> UserAddress:
+        now = datetime.now(timezone.utc)
+        address.created_at = now
+        address.updated_at = now
+        db.add(address)
+        await db.flush()
+        return address
+
+    async def clear_default_addresses(self, db: AsyncSession, user_id: int, *, exclude_id: int | None = None) -> None:
+        query = (
+            update(UserAddress)
+            .where(UserAddress.user_id == user_id, UserAddress.is_default.is_(True))
+            .values(is_default=False, updated_at=datetime.now(timezone.utc))
+        )
+        if exclude_id is not None:
+            query = query.where(UserAddress.user_address_id != exclude_id)
+        await db.execute(query)
+
+    async def delete_address(self, db: AsyncSession, address: UserAddress) -> None:
+        await db.delete(address)
+        await db.flush()
+
     async def update_user_profile(self, db: AsyncSession, *, user: User, payload) -> User:
         data = payload.model_dump(exclude_unset=True)
 
@@ -610,6 +668,7 @@ class UsersRepository:
         await db.execute(delete(AuthToken).where(AuthToken.user_id.in_(user_ids)))
         await db.execute(delete(AuthOtpSession).where(AuthOtpSession.user_id.in_(user_ids)))
         await db.execute(delete(DataAuditLog).where(DataAuditLog.user_id.in_(user_ids)))
+        await db.execute(delete(UserAddress).where(UserAddress.user_id.in_(user_ids)))
         await db.execute(delete(UserPreference).where(UserPreference.user_id.in_(user_ids)))
         await db.execute(delete(EngagementParticipant).where(EngagementParticipant.user_id.in_(user_ids)))
 

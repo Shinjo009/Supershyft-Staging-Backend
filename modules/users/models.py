@@ -68,3 +68,23 @@ class UserPreference(Base):
     allergies = Column(JSON, nullable=True, server_default=text("'[]'"))
     sports_playlists = Column(JSON, nullable=True, server_default=text("'{}'"))
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class UserAddress(Base):
+    """SQLAlchemy model for `user_addresses` table (max 3 per user)."""
+
+    __tablename__ = "user_addresses"
+    __table_args__ = (Index("ix_user_addresses_user_id", "user_id"),)
+
+    user_address_id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
+    address_line1 = Column(String, nullable=True)
+    address_line2 = Column(String, nullable=True)
+    landmark = Column(String, nullable=True)
+    city = Column(String, nullable=True)
+    state = Column(String, nullable=True)
+    pincode = Column(String, nullable=True)
+    address = Column(String, nullable=True)
+    is_default = Column(Boolean, nullable=False, default=False, server_default="false")
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False)

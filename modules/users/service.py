@@ -32,7 +32,7 @@ from modules.metsights.sync_service import (
     _resolve_active_diagnostic_package_id,
 )
 from modules.platform_settings.service import PlatformSettingsService
-from modules.users.models import User, UserPreference
+from modules.users.models import User, UserAddress, UserPreference
 from modules.users.repository import UsersRepository
 from modules.engagements.blood_bookings_access import current_booking_id
 from modules.engagements.models import BloodCollectionType, EngagementKind, EngagementParticipant
@@ -41,6 +41,12 @@ from modules.engagements.slot_availability import find_active_cabin
 from modules.diagnostics.repository import DiagnosticsRepository
 from common.masking import looks_masked
 from common.phone import phone_lookup_candidates as _phone_lookup_candidates
+from modules.users.address_utils import (
+    MAX_USER_ADDRESSES,
+    compose_address,
+    snapshot_from_user,
+    user_has_location,
+)
 from modules.users.schemas import (
     B2CCodeOnboardAndBookRequest,
     B2COnboardAndBookRequest,
@@ -58,6 +64,9 @@ from modules.users.schemas import (
     SubProfileCreate,
     SubProfileUpdate,
     UnlinkRequest,
+    UserAddressCreate,
+    UserAddressResponse,
+    UserAddressUpdate,
     UserPreferencesUpdate,
     UpdateMyProfileRequest,
     UserOnboardResponse,
@@ -621,6 +630,10 @@ class UsersService:
 
         updated = await self._repository.update_user_profile(db, user=user, payload=payload_to_apply)
 
+        location_keys = {"address", "pin_code", "city", "state"}
+        if location_keys.intersection(partial.keys()):
+            await self._sync_default_address_from_user(db, updated)
+
         if self._audit_service is None:
             raise RuntimeError("Audit service is required")
 
@@ -635,6 +648,244 @@ class UsersService:
         )
 
         return updated
+
+    def _to_address_response(self, row: UserAddress) -> UserAddressResponse:
+        return UserAddressResponse(
+            user_address_id=row.user_address_id,
+            user_id=row.user_id,
+            address_line1=row.address_line1,
+            address_line2=row.address_line2,
+            landmark=row.landmark,
+            city=row.city,
+            state=row.state,
+            pincode=row.pincode,
+            address=row.address,
+            is_default=bool(row.is_default),
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+
+    def _apply_address_fields(self, row: UserAddress, data: dict) -> None:
+        for field_name, value in data.items():
+            if field_name == "is_default":
+                continue
+            setattr(row, field_name, value)
+        row.address = compose_address(row.address_line1, row.address_line2, row.landmark)
+        row.updated_at = datetime.now(timezone.utc)
+
+    async def _copy_address_to_user(self, db: AsyncSession, *, user_id: int, row: UserAddress | None) -> None:
+        user = await self._repository.get_user_by_id(db, user_id)
+        if user is None:
+            return
+        if row is None:
+            user.address = None
+            user.city = None
+            user.state = None
+            user.pin_code = None
+        else:
+            user.address = row.address
+            user.city = row.city
+            user.state = row.state
+            user.pin_code = row.pincode
+        user.updated_at = datetime.now(timezone.utc)
+        db.add(user)
+        await db.flush()
+
+    async def _sync_default_address_from_user(self, db: AsyncSession, user: User) -> None:
+        if not user_has_location(user):
+            return
+
+        snapshot = snapshot_from_user(user)
+        default = await self._repository.get_default_address(db, int(user.user_id))
+        if default is None:
+            default = await self._repository.get_oldest_address(db, int(user.user_id))
+
+        if default is None:
+            count = await self._repository.count_addresses_for_user(db, int(user.user_id))
+            if count >= MAX_USER_ADDRESSES:
+                return
+            row = UserAddress(
+                user_id=int(user.user_id),
+                is_default=True,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+                **snapshot,
+            )
+            await self._repository.create_address(db, row)
+            return
+
+        self._apply_address_fields(default, snapshot)
+        if not default.is_default:
+            await self._repository.clear_default_addresses(
+                db, int(user.user_id), exclude_id=int(default.user_address_id)
+            )
+            default.is_default = True
+        db.add(default)
+        await db.flush()
+
+    async def list_my_addresses(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> list[UserAddressResponse]:
+        rows = await self._repository.list_addresses_for_user(db, user_id)
+        if self._audit_service is None:
+            raise RuntimeError("Audit service is required")
+        await self._audit_service.log_event(
+            db,
+            action="USER_LIST_ADDRESSES",
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=user_id,
+            session_id=None,
+        )
+        return [self._to_address_response(row) for row in rows]
+
+    async def create_my_address(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        payload: UserAddressCreate,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> UserAddressResponse:
+        count = await self._repository.count_addresses_for_user(db, user_id)
+        if count >= MAX_USER_ADDRESSES:
+            raise AppError(
+                status_code=422,
+                error_code="ADDRESS_LIMIT_REACHED",
+                message="You can save up to 3 addresses",
+            )
+
+        make_default = bool(payload.is_default) or count == 0
+        now = datetime.now(timezone.utc)
+        row = UserAddress(
+            user_id=int(user_id),
+            address_line1=payload.address_line1,
+            address_line2=payload.address_line2,
+            landmark=payload.landmark,
+            city=payload.city,
+            state=payload.state,
+            pincode=payload.pincode,
+            address=compose_address(payload.address_line1, payload.address_line2, payload.landmark),
+            is_default=make_default,
+            created_at=now,
+            updated_at=now,
+        )
+        if make_default:
+            await self._repository.clear_default_addresses(db, user_id)
+        row = await self._repository.create_address(db, row)
+        if make_default:
+            await self._copy_address_to_user(db, user_id=user_id, row=row)
+
+        if self._audit_service is None:
+            raise RuntimeError("Audit service is required")
+        await self._audit_service.log_event(
+            db,
+            action="USER_CREATE_ADDRESS",
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=user_id,
+            session_id=None,
+        )
+        return self._to_address_response(row)
+
+    async def update_my_address(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        user_address_id: int,
+        payload: UserAddressUpdate,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> UserAddressResponse:
+        row = await self._repository.get_address_by_id(db, user_address_id)
+        if row is None or int(row.user_id) != int(user_id):
+            raise AppError(status_code=404, error_code="ADDRESS_NOT_FOUND", message="Address does not exist")
+
+        data = payload.model_dump(exclude_unset=True)
+        make_default = data.pop("is_default", None)
+        self._apply_address_fields(row, data)
+
+        if make_default is True or (make_default is None and row.is_default):
+            if make_default is True:
+                await self._repository.clear_default_addresses(
+                    db, user_id, exclude_id=int(row.user_address_id)
+                )
+                row.is_default = True
+            db.add(row)
+            await db.flush()
+            if row.is_default:
+                await self._copy_address_to_user(db, user_id=user_id, row=row)
+        else:
+            db.add(row)
+            await db.flush()
+
+        if self._audit_service is None:
+            raise RuntimeError("Audit service is required")
+        await self._audit_service.log_event(
+            db,
+            action="USER_UPDATE_ADDRESS",
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=user_id,
+            session_id=None,
+        )
+        return self._to_address_response(row)
+
+    async def delete_my_address(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        user_address_id: int,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> None:
+        row = await self._repository.get_address_by_id(db, user_address_id)
+        if row is None or int(row.user_id) != int(user_id):
+            raise AppError(status_code=404, error_code="ADDRESS_NOT_FOUND", message="Address does not exist")
+
+        was_default = bool(row.is_default)
+        await self._repository.delete_address(db, row)
+
+        remaining = await self._repository.list_addresses_for_user(db, user_id)
+        if not remaining:
+            await self._copy_address_to_user(db, user_id=user_id, row=None)
+        elif was_default:
+            next_default = remaining[0]
+            await self._repository.clear_default_addresses(
+                db, user_id, exclude_id=int(next_default.user_address_id)
+            )
+            next_default.is_default = True
+            next_default.updated_at = datetime.now(timezone.utc)
+            db.add(next_default)
+            await db.flush()
+            await self._copy_address_to_user(db, user_id=user_id, row=next_default)
+
+        if self._audit_service is None:
+            raise RuntimeError("Audit service is required")
+        await self._audit_service.log_event(
+            db,
+            action="USER_DELETE_ADDRESS",
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=user_id,
+            session_id=None,
+        )
 
     def _parse_time_slot(self, slot: str) -> time:
         """Parse a time slot string.
@@ -1482,6 +1733,7 @@ class UsersService:
         data["email"] = email_in
 
         updated = await self._repository.update_user_full(db, user=user, data=data)
+        await self._sync_default_address_from_user(db, updated)
 
         if self._audit_service is None:
             raise RuntimeError("Audit service is required")
@@ -1902,6 +2154,7 @@ class UsersService:
                 patch_data={**patch_data, "is_participant": True},
                 create_data=create_data,
             )
+            await self._sync_default_address_from_user(db, user)
 
         if self._engagements_service is None:
             raise RuntimeError("Engagements service is required")
@@ -2410,6 +2663,8 @@ class UsersService:
                 ) from exc
             if updated is not None:
                 user = updated
+
+        await self._sync_default_address_from_user(db, user)
 
         validated_department = await self._engagements_service.resolve_participant_department_for_engagement(
             db,
