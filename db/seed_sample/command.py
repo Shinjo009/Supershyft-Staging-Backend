@@ -19,7 +19,13 @@ from modules.assessments.models import AssessmentPackage, AssessmentPackageCateg
 from modules.diagnostics.models import DiagnosticPackage
 from modules.employee.models import Employee
 from modules.engagements.camp_no import compute_camp_no
-from modules.engagements.models import Engagement, EngagementParticipant, OnboardingAssistantAssignment
+from modules.engagements.blood_booking_enums import BloodBookingRelation, BloodBookingStatus
+from modules.engagements.models import (
+    Engagement,
+    EngagementParticipant,
+    OnboardingAssistantAssignment,
+    ParticipantBloodBooking,
+)
 from modules.organizations.models import Organization
 from modules.questionnaire.models import (
     QuestionnaireCategory,
@@ -171,6 +177,9 @@ class SeedParticipant:
     participant_department: str | None = None
     participant_blood_group: str | None = None
     is_profile_created_on_metsights: bool = False
+    booking_id: str | None = None
+    barcode: str | None = None
+    blood_collection_cabin: str | None = None
 
 
 SAMPLE_USERS: tuple[SeedUser, ...] = (
@@ -273,8 +282,26 @@ SAMPLE_ASSIGNMENTS: tuple[SeedOnboardingAssignment, ...] = (
 )
 
 SAMPLE_PARTICIPANTS: tuple[SeedParticipant, ...] = (
-    SeedParticipant(801, 401, 1101, time(10, 0), date(2026, 3, 11)),
-    SeedParticipant(802, 401, 1102, time(10, 30), date(2026, 3, 11)),
+    SeedParticipant(
+        801,
+        401,
+        1101,
+        time(10, 0),
+        date(2026, 3, 11),
+        booking_id="SEED-HL-801",
+        barcode="BC801",
+        blood_collection_cabin="Cabin A",
+    ),
+    SeedParticipant(
+        802,
+        401,
+        1102,
+        time(10, 30),
+        date(2026, 3, 11),
+        booking_id="SEED-HL-802",
+        barcode="BC802",
+        blood_collection_cabin="Cabin A",
+    ),
     SeedParticipant(803, 401, 1104, time(11, 0), date(2026, 3, 12)),
     SeedParticipant(804, 402, 1103, time(15, 0), date(2026, 3, 22)),
     SeedParticipant(805, 402, 1104, time(15, 45), date(2026, 3, 22)),
@@ -308,13 +335,20 @@ async def _upsert_users(session: AsyncSession, users: Iterable[SeedUser]) -> Non
         row.status = seed.status
 
 
+_USER_BY_ID = {u.user_id: u for u in SAMPLE_USERS}
+
+
 async def _upsert_employees(session: AsyncSession, employees: Iterable[SeedEmployee]) -> None:
     for seed in employees:
         row = await session.get(Employee, seed.employee_id)
         if row is None:
             row = Employee(employee_id=seed.employee_id)
             session.add(row)
-        row.user_id = seed.user_id
+        user = _USER_BY_ID.get(seed.user_id)
+        if user is not None:
+            row.name = f"{user.first_name} {user.last_name}".strip()
+            row.phone = user.phone
+            row.email = user.email
         row.role = seed.role
         row.status = seed.status
 
@@ -545,12 +579,34 @@ async def _upsert_participants(session: AsyncSession, slots: Iterable[SeedPartic
             session.add(row)
         row.engagement_id = seed.engagement_id
         row.user_id = seed.user_id
-        row.slot_start_time = seed.slot_start_time
-        row.engagement_date = seed.engagement_date
         row.participants_employee_id = seed.participants_employee_id
         row.participant_department = seed.participant_department
         row.participant_blood_group = seed.participant_blood_group
         row.is_profile_created_on_metsights = seed.is_profile_created_on_metsights
+
+        blood = await session.execute(
+            select(ParticipantBloodBooking)
+            .where(ParticipantBloodBooking.engagement_participant_id == seed.engagement_participant_id)
+            .where(ParticipantBloodBooking.relation == BloodBookingRelation.primary.value)
+            .where(ParticipantBloodBooking.status == BloodBookingStatus.active.value)
+            .order_by(ParticipantBloodBooking.id.asc())
+            .limit(1)
+        )
+        pbb = blood.scalar_one_or_none()
+        if pbb is None:
+            pbb = ParticipantBloodBooking(
+                engagement_participant_id=seed.engagement_participant_id,
+                relation=BloodBookingRelation.primary.value,
+                status=BloodBookingStatus.active.value,
+            )
+            session.add(pbb)
+        pbb.collection_date = seed.engagement_date
+        pbb.collection_time = seed.slot_start_time
+        pbb.collection_cabin = seed.blood_collection_cabin
+        if seed.booking_id:
+            pbb.booking_id = seed.booking_id
+        if seed.barcode:
+            pbb.barcode = seed.barcode
 
 
 async def _reset_sequences(session: AsyncSession) -> None:
@@ -568,6 +624,7 @@ async def _reset_sequences(session: AsyncSession) -> None:
         ("assessment_package_categories", "id"),
         ("onboarding_assistant_assignment", "onboarding_assistant_id"),
         ("engagement_participants", "engagement_participant_id"),
+        ("participant_blood_bookings", "id"),
     )
 
     for table_name, id_column in sequence_specs:
