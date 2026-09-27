@@ -39,14 +39,14 @@ def upgrade() -> None:
             "redraw",
             "reschedule",
             name="blood_booking_relation_enum",
-            create_type=True,
+            create_type=False,
         )
         blood_booking_status_enum = postgresql.ENUM(
             "active",
             "superseded",
             "cancelled",
             name="blood_booking_status_enum",
-            create_type=True,
+            create_type=False,
         )
         blood_booking_relation_enum.create(connection, checkfirst=True)
         blood_booking_status_enum.create(connection, checkfirst=True)
