@@ -1762,6 +1762,194 @@ class EngagementsService:
 
         return response
 
+    async def _participant_for_employee_admin(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        engagement_id: int,
+        user_id: int,
+    ):
+        ensure_admin(employee)
+        engagement = await self._repository.get_engagement_by_id(db, engagement_id)
+        if engagement is None:
+            raise AppError(status_code=404, error_code="ENGAGEMENT_NOT_FOUND", message="Engagement does not exist")
+        participant = await self._repository.get_participant_for_user_engagement(
+            db,
+            user_id=user_id,
+            engagement_id=engagement_id,
+        )
+        if participant is None:
+            raise AppError(status_code=404, error_code="PARTICIPANT_NOT_FOUND", message="Participant does not exist")
+        return participant
+
+    async def create_participant_blood_booking_for_employee(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        engagement_id: int,
+        user_id: int,
+        payload,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> dict:
+        from modules.engagements.blood_bookings_repository import (
+            BloodBookingsRepository,
+            blood_bookings_to_api_list,
+        )
+        from modules.engagements.models import ParticipantBloodBooking
+
+        participant = await self._participant_for_employee_admin(
+            db, employee=employee, engagement_id=engagement_id, user_id=user_id
+        )
+        data = payload.model_dump()
+        booking_id = (data.get("booking_id") or "").strip() or None
+        repo = BloodBookingsRepository()
+        if booking_id:
+            existing = await repo.get_by_booking_id(db, booking_id=booking_id)
+            if existing is not None:
+                raise AppError(
+                    status_code=409,
+                    error_code="BOOKING_ID_EXISTS",
+                    message="This booking ID is already used on another collection",
+                )
+        row = ParticipantBloodBooking(
+            engagement_participant_id=participant.engagement_participant_id,
+            relation=data["relation"],
+            status=data["status"],
+            booking_id=booking_id,
+            barcode=(data.get("barcode") or "").strip() or None,
+            collection_date=data.get("collection_date"),
+            collection_time=data.get("collection_time"),
+            collection_cabin=(data.get("collection_cabin") or "").strip() or None,
+            collection_time_slot_id=(data.get("collection_time_slot_id") or "").strip() or None,
+            parent_booking_id=(data.get("parent_booking_id") or "").strip() or None,
+        )
+        db.add(row)
+        await db.flush()
+        await self._require_audit_service().log_event(
+            db,
+            action="EMPLOYEE_CREATE_BLOOD_BOOKING",
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=None,
+            session_id=None,
+        )
+        return blood_bookings_to_api_list([row])[0]
+
+    async def update_participant_blood_booking_for_employee(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        engagement_id: int,
+        user_id: int,
+        blood_booking_id: int,
+        payload,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> dict:
+        from modules.engagements.blood_bookings_repository import (
+            BloodBookingsRepository,
+            blood_bookings_to_api_list,
+        )
+
+        participant = await self._participant_for_employee_admin(
+            db, employee=employee, engagement_id=engagement_id, user_id=user_id
+        )
+        repo = BloodBookingsRepository()
+        row = await repo.get_by_id(db, blood_booking_id=blood_booking_id)
+        if row is None or row.engagement_participant_id != participant.engagement_participant_id:
+            raise AppError(status_code=404, error_code="BLOOD_BOOKING_NOT_FOUND", message="Collection not found")
+
+        updates = payload.model_dump(exclude_unset=True)
+        if "booking_id" in updates:
+            bid = (updates["booking_id"] or "").strip() or None
+            if bid:
+                existing = await repo.get_by_booking_id(db, booking_id=bid)
+                if existing is not None and existing.id != row.id:
+                    raise AppError(
+                        status_code=409,
+                        error_code="BOOKING_ID_EXISTS",
+                        message="This booking ID is already used on another collection",
+                    )
+            row.booking_id = bid
+        for field in (
+            "relation",
+            "status",
+            "barcode",
+            "collection_date",
+            "collection_time",
+            "collection_cabin",
+            "collection_time_slot_id",
+            "parent_booking_id",
+        ):
+            if field in updates:
+                val = updates[field]
+                if field in ("barcode", "collection_cabin", "collection_time_slot_id", "parent_booking_id"):
+                    val = (val or "").strip() or None if val is not None else None
+                setattr(row, field, val)
+        db.add(row)
+        await db.flush()
+        await self._require_audit_service().log_event(
+            db,
+            action="EMPLOYEE_UPDATE_BLOOD_BOOKING",
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=None,
+            session_id=None,
+        )
+        return blood_bookings_to_api_list([row])[0]
+
+    async def delete_participant_blood_booking_for_employee(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        engagement_id: int,
+        user_id: int,
+        blood_booking_id: int,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> dict:
+        from modules.engagements.blood_booking_enums import BloodBookingStatus
+        from modules.engagements.blood_bookings_repository import BloodBookingsRepository
+
+        participant = await self._participant_for_employee_admin(
+            db, employee=employee, engagement_id=engagement_id, user_id=user_id
+        )
+        repo = BloodBookingsRepository()
+        row = await repo.get_by_id(db, blood_booking_id=blood_booking_id)
+        if row is None or row.engagement_participant_id != participant.engagement_participant_id:
+            raise AppError(status_code=404, error_code="BLOOD_BOOKING_NOT_FOUND", message="Collection not found")
+
+        if row.blood_parameters is not None or (row.diagnostic_report_url or "").strip():
+            row.status = BloodBookingStatus.cancelled.value
+            db.add(row)
+            await db.flush()
+            action = "cancelled"
+        else:
+            await db.delete(row)
+            await db.flush()
+            action = "deleted"
+
+        await self._require_audit_service().log_event(
+            db,
+            action="EMPLOYEE_DELETE_BLOOD_BOOKING",
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=None,
+            session_id=None,
+        )
+        return {"blood_booking_id": blood_booking_id, "result": action}
+
     async def reschedule_blood_collection_for_user(
         self,
         db: AsyncSession,

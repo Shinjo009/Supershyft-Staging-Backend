@@ -475,6 +475,32 @@ class RemoveReportsForParticipantsRequest(BaseModel):
     user_ids: list[int] = Field(min_length=1, max_length=2000)
 
 
+class ParticipantBloodBookingAdminCreate(BaseModel):
+    """Manual collection row for admin corrections."""
+
+    relation: str = Field(default="primary", pattern=r"^(primary|resample|redraw|reschedule)$")
+    status: str = Field(default="active", pattern=r"^(active|superseded|cancelled)$")
+    booking_id: Optional[str] = Field(default=None, max_length=100)
+    barcode: Optional[str] = Field(default=None, max_length=100)
+    collection_date: Optional[date] = None
+    collection_time: Optional[time] = None
+    collection_cabin: Optional[str] = Field(default=None, max_length=100)
+    collection_time_slot_id: Optional[str] = Field(default=None, max_length=100)
+    parent_booking_id: Optional[str] = Field(default=None, max_length=100)
+
+
+class ParticipantBloodBookingAdminUpdate(BaseModel):
+    relation: Optional[str] = Field(default=None, pattern=r"^(primary|resample|redraw|reschedule)$")
+    status: Optional[str] = Field(default=None, pattern=r"^(active|superseded|cancelled)$")
+    booking_id: Optional[str] = Field(default=None, max_length=100)
+    barcode: Optional[str] = Field(default=None, max_length=100)
+    collection_date: Optional[date] = None
+    collection_time: Optional[time] = None
+    collection_cabin: Optional[str] = Field(default=None, max_length=100)
+    collection_time_slot_id: Optional[str] = Field(default=None, max_length=100)
+    parent_booking_id: Optional[str] = Field(default=None, max_length=100)
+
+
 class ConsultationConsentRequest(BaseModel):
     bio_ai: bool = False
     blood_report: bool = False

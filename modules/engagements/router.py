@@ -25,6 +25,8 @@ from modules.engagements.schemas import (
     EngagementCreateRequest,
     EngagementNotificationOutput,
     EngagementParticipantUpdateRequest,
+    ParticipantBloodBookingAdminCreate,
+    ParticipantBloodBookingAdminUpdate,
     EngagementRescheduleRequest,
     EngagementStatusUpdateRequest,
     EngagementUpdateRequest,
@@ -864,6 +866,80 @@ async def update_participant(
         engagement_id=engagement_id,
         user_id=user_id,
         payload=payload,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response(data)
+
+
+@router.post("/{engagement_id}/participants/{user_id}/blood-bookings")
+async def create_participant_blood_booking(
+    engagement_id: int,
+    user_id: int,
+    payload: ParticipantBloodBookingAdminCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    engagements_service: EngagementsService = Depends(get_engagements_service),
+):
+    data = await engagements_service.create_participant_blood_booking_for_employee(
+        db,
+        employee=employee,
+        engagement_id=engagement_id,
+        user_id=user_id,
+        payload=payload,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response(data)
+
+
+@router.patch("/{engagement_id}/participants/{user_id}/blood-bookings/{blood_booking_id}")
+async def update_participant_blood_booking(
+    engagement_id: int,
+    user_id: int,
+    blood_booking_id: int,
+    payload: ParticipantBloodBookingAdminUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    engagements_service: EngagementsService = Depends(get_engagements_service),
+):
+    data = await engagements_service.update_participant_blood_booking_for_employee(
+        db,
+        employee=employee,
+        engagement_id=engagement_id,
+        user_id=user_id,
+        blood_booking_id=blood_booking_id,
+        payload=payload,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response(data)
+
+
+@router.delete("/{engagement_id}/participants/{user_id}/blood-bookings/{blood_booking_id}")
+async def delete_participant_blood_booking(
+    engagement_id: int,
+    user_id: int,
+    blood_booking_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    engagements_service: EngagementsService = Depends(get_engagements_service),
+):
+    data = await engagements_service.delete_participant_blood_booking_for_employee(
+        db,
+        employee=employee,
+        engagement_id=engagement_id,
+        user_id=user_id,
+        blood_booking_id=blood_booking_id,
         ip_address=_client_ip(request),
         user_agent=request.headers.get("User-Agent", "unknown"),
         endpoint=str(request.url.path),
