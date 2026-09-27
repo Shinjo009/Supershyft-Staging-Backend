@@ -114,6 +114,8 @@ def _engagement_to_dict(
         "slot_detail_id": engagement.slot_detail_id,
         "assessment_package_id": engagement.assessment_package_id,
         "diagnostic_package_id": engagement.diagnostic_package_id,
+        "diagnostic_package_id_male": engagement.diagnostic_package_id_male,
+        "diagnostic_package_id_female": engagement.diagnostic_package_id_female,
         "city": engagement.city,
         "address": engagement.address,
         "sub_locality": engagement.sub_locality,

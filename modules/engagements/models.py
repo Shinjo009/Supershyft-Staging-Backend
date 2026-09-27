@@ -70,6 +70,15 @@ class Engagement(Base):
         Index("uq_engagements_engagement_code", "engagement_code", unique=True),
         Index("ix_engagements_organization_id", "organization_id"),
         Index("ix_engagements_camp_no", "camp_no"),
+        CheckConstraint(
+            "(diagnostic_package_id IS NOT NULL AND diagnostic_package_id_male IS NULL "
+            "AND diagnostic_package_id_female IS NULL) "
+            "OR (diagnostic_package_id IS NULL AND diagnostic_package_id_male IS NOT NULL "
+            "AND diagnostic_package_id_female IS NOT NULL) "
+            "OR (diagnostic_package_id IS NULL AND diagnostic_package_id_male IS NULL "
+            "AND diagnostic_package_id_female IS NULL)",
+            name="ck_engagements_dx_pkg_choice",
+        ),
     )
 
     engagement_id = Column(Integer, primary_key=True)
@@ -83,6 +92,8 @@ class Engagement(Base):
     slot_detail_id = Column(Integer, ForeignKey("engagement_slot_info.slot_detail_id", ondelete="SET NULL"), nullable=True)
     assessment_package_id = Column(Integer, ForeignKey("assessment_packages.package_id"), nullable=True)
     diagnostic_package_id = Column(Integer, ForeignKey("diagnostic_package.diagnostic_package_id"), nullable=True)
+    diagnostic_package_id_male = Column(Integer, ForeignKey("diagnostic_package.diagnostic_package_id"), nullable=True)
+    diagnostic_package_id_female = Column(Integer, ForeignKey("diagnostic_package.diagnostic_package_id"), nullable=True)
     address = Column(String, nullable=True)
     sub_locality = Column(String, nullable=True)
     landmark = Column(String, nullable=True)

@@ -14,8 +14,10 @@ from core.exceptions import AppError
 from db.transaction import release_request_transaction
 from modules.diagnostics.models import DiagnosticPackage
 from modules.engagements.blood_bookings_repository import BloodBookingsRepository
+from modules.engagements.diagnostic_package_resolution import resolve_diagnostic_package_id
 from modules.engagements.models import Engagement, EngagementParticipant
 from modules.metsights.service import MetsightsService
+from modules.users.models import User
 from modules.reports.blood_parameters_schemas import (
     booking_id_from_fetch_collections,
     provider_code_from_field,
@@ -61,6 +63,50 @@ def is_healthians_diagnostic_provider(diagnostic_provider: str | None) -> bool:
     return (diagnostic_provider or "").strip().lower() == "healthians"
 
 
+async def _provider_for_engagement_packages(
+    db: AsyncSession,
+    *,
+    unisex_provider: str | None,
+    male_package_id: int | None,
+    female_package_id: int | None,
+    user_id: int,
+) -> str | None:
+    """Provider for the booked package. Either gender package counts when gender is unknown."""
+    if male_package_id is None and female_package_id is None:
+        return unisex_provider
+
+    class _EngagementPackages:
+        diagnostic_package_id = None
+        diagnostic_package_id_male = male_package_id
+        diagnostic_package_id_female = female_package_id
+
+    user = await db.get(User, user_id)
+    try:
+        package_id = resolve_diagnostic_package_id(
+            _EngagementPackages(),
+            user_gender=user.gender if user is not None else None,
+        )
+    except AppError:
+        package_id = None
+    if package_id is not None:
+        package = await db.get(DiagnosticPackage, package_id)
+        return package.diagnostic_provider if package is not None else None
+
+    gender_ids = [package_id for package_id in (male_package_id, female_package_id) if package_id is not None]
+    if not gender_ids:
+        return None
+    providers = (
+        await db.execute(
+            select(DiagnosticPackage.diagnostic_provider).where(
+                DiagnosticPackage.diagnostic_package_id.in_(gender_ids)
+            )
+        )
+    ).scalars().all()
+    if any(is_healthians_diagnostic_provider(provider) for provider in providers):
+        return "healthians"
+    return providers[0] if providers else None
+
+
 def try_participant_booking_id(
     participant_booking_id: str | None,
     diagnostic_provider: str | None,
@@ -82,7 +128,12 @@ async def _load_participant_booking_context(
     engagement_id: int,
 ) -> tuple[str | None, str | None]:
     result = await db.execute(
-        select(EngagementParticipant.engagement_participant_id, DiagnosticPackage.diagnostic_provider)
+        select(
+            EngagementParticipant.engagement_participant_id,
+            DiagnosticPackage.diagnostic_provider,
+            Engagement.diagnostic_package_id_male,
+            Engagement.diagnostic_package_id_female,
+        )
         .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
         .outerjoin(
             DiagnosticPackage,
@@ -96,11 +147,18 @@ async def _load_participant_booking_context(
     row = result.one_or_none()
     if row is None:
         return None, None
-    ep_id, provider = row[0], row[1]
+    ep_id, provider, male_package_id, female_package_id = row
     blood_repo = BloodBookingsRepository()
     current = await blood_repo.get_current_collection(db, engagement_participant_id=int(ep_id))
     booking_id = (current.booking_id if current else None) or None
-    return booking_id, provider
+    resolved_provider = await _provider_for_engagement_packages(
+        db,
+        unisex_provider=provider,
+        male_package_id=male_package_id,
+        female_package_id=female_package_id,
+        user_id=user_id,
+    )
+    return booking_id, resolved_provider
 
 
 async def resolve_healthians_booking_id(

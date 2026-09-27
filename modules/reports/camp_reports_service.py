@@ -88,6 +88,7 @@ from modules.reports.camp_report_bts import (
 from modules.assessments.models import AssessmentInstance, AssessmentPackage
 from modules.assessments.repository import AssessmentsRepository
 from modules.diagnostics.repository import DiagnosticsRepository
+from modules.engagements.diagnostic_package_resolution import engagement_has_diagnostic_package
 from modules.reports.camp_report_sections_repository import CampReportSectionsRepository
 from modules.reports.camp_reports_repository import (
     CampParticipantEnrichment,
@@ -136,6 +137,10 @@ _POSITIVE_WINS_BLOOD_ERROR_LABELS: dict[str, str] = {
     "BLOOD_SAMPLE_NOT_COLLECTED": "Blood sample has not been collected yet.",
     "INVALID_STATE": "Blood data could not be read from the saved health records.",
     "EXTERNAL_SERVICE_UNAVAILABLE": "We could not check blood results right now.",
+    "PARTICIPANT_GENDER_REQUIRED": (
+        "This camp uses different male and female blood packages, "
+        "and this participant's gender is missing or not male or female."
+    ),
 }
 
 
@@ -2305,7 +2310,7 @@ class CampReportsService:
                 )
 
         if not profiles:
-            if engagement is None or engagement.diagnostic_package_id is None:
+            if engagement is None or not engagement_has_diagnostic_package(engagement):
                 notes["healthy_profiles"] = (
                     "This camp session has no blood test package linked, so profile groups cannot be scored."
                 )
