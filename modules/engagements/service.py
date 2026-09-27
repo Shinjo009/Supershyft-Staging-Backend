@@ -2802,6 +2802,7 @@ class EngagementsService:
         from sqlalchemy import delete, update
 
         from modules.checklists.models import EngagementChecklist
+        from modules.engagements.models import EngagementNotification
         from modules.notifications.models import Notification
 
         instances = await self._assessments_repository.list_all_instances_for_engagement(
@@ -2853,6 +2854,11 @@ class EngagementsService:
             delete(EngagementChecklist).where(EngagementChecklist.engagement_id == engagement_id)
         )
         totals["deleted_engagement_checklists"] = int(checklist_result.rowcount or 0)
+
+        notification_result = await db.execute(
+            delete(EngagementNotification).where(EngagementNotification.engagement_id == engagement_id)
+        )
+        totals["deleted_engagement_notifications"] = int(notification_result.rowcount or 0)
 
         return totals
 
