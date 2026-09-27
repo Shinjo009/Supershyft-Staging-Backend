@@ -1693,6 +1693,7 @@ class MetsightsSyncService:
         responses = await self._questionnaire.list_responses_for_instances(
             db,
             assessment_instance_ids=effective_source_ids,
+            committed_only=True,
         )
 
         # Build an ordered list so that responses from later source ids overwrite earlier ones.
@@ -1825,6 +1826,7 @@ class MetsightsSyncService:
         responses = await self._questionnaire.list_responses_for_instances(
             db,
             assessment_instance_ids=effective_source_ids,
+            committed_only=True,
         )
         if not responses:
             await self._log_skipped_metsights_sync(
@@ -2069,7 +2071,11 @@ class MetsightsSyncService:
             )
 
         question_ids = [int(q.question_id) for q in questions]
-        responses = await self._questionnaire.list_responses_for_instances(db, assessment_instance_ids=source_ids)
+        responses = await self._questionnaire.list_responses_for_instances(
+            db,
+            assessment_instance_ids=source_ids,
+            committed_only=True,
+        )
         responses_map: dict[int, Any] = {}
         for r in responses:
             if int(r.question_id) in question_ids:
@@ -2264,7 +2270,10 @@ class MetsightsSyncService:
 
         if reload == 0:
             existing_responses = await self._questionnaire.list_responses_for_instance(
-                db, assessment_instance_id=assessment_instance_id, category_id=category_id,
+                db,
+                assessment_instance_id=assessment_instance_id,
+                category_id=category_id,
+                committed_only=True,
             )
             if existing_responses:
                 await self._update_all_category_progress_for_instance(

@@ -96,6 +96,7 @@ class QuestionnaireResponse(Base):
         server_default="{}",
     )
     answer = Column(JSON)
+    is_carried_forward = Column(Boolean, nullable=False, server_default=text("false"))
 
 
 class QuestionnaireHealthyHabitRule(Base):

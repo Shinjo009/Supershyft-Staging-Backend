@@ -207,6 +207,7 @@ class EngagementCreateRequest(BaseModel):
     create_profile_on_metsights: bool = False
     enroll_for_fitprint_full: bool = False
     load_prev_assessment_questionnaires: bool = False
+    load_prev_questionnaire_category_keys: list[str] | None = None
     notifications: list[EngagementNotificationInput] | None = None
 
     @model_validator(mode="after")
@@ -248,6 +249,7 @@ class EngagementUpdateRequest(BaseModel):
     create_profile_on_metsights: bool = False
     enroll_for_fitprint_full: bool = False
     load_prev_assessment_questionnaires: bool = False
+    load_prev_questionnaire_category_keys: list[str] | None = None
     notifications: list[EngagementNotificationInput] | None = None
 
     @model_validator(mode="after")
@@ -325,6 +327,7 @@ class EngagementListItem(BaseModel):
     create_profile_on_metsights: bool = False
     enroll_for_fitprint_full: bool = False
     load_prev_assessment_questionnaires: bool = False
+    load_prev_questionnaire_category_keys: list[str] | None = None
     notifications: list[EngagementNotificationOutput] = Field(default_factory=list)
     readiness: ChecklistReadiness
 

@@ -410,6 +410,21 @@ class EngagementsRepository:
         )
         return result.scalar_one_or_none() is not None
 
+    async def user_has_prior_engagement_participation(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        exclude_engagement_id: int,
+    ) -> bool:
+        result = await db.execute(
+            select(EngagementParticipant.engagement_participant_id)
+            .where(EngagementParticipant.user_id == user_id)
+            .where(EngagementParticipant.engagement_id != exclude_engagement_id)
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
     async def get_participant_for_user_engagement(
         self,
         db: AsyncSession,

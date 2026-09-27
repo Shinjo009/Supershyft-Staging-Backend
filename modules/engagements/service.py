@@ -169,7 +169,18 @@ def _participant_move_mismatch_reasons(source: Engagement, target: Engagement) -
         mismatches.append("Enroll for FitPrint Full")
     if bool(source.load_prev_assessment_questionnaires) != bool(target.load_prev_assessment_questionnaires):
         mismatches.append("Load previous assessment questionnaires")
+    source_keys = sorted((source.load_prev_questionnaire_category_keys or []) or [])
+    target_keys = sorted((target.load_prev_questionnaire_category_keys or []) or [])
+    if source_keys != target_keys:
+        mismatches.append("Load previous questionnaire categories")
     return mismatches
+
+
+def _normalize_load_prev_category_keys(keys: list[str] | None) -> list[str] | None:
+    if keys is None:
+        return None
+    cleaned = sorted({str(k).strip() for k in keys if str(k).strip()})
+    return cleaned or None
 
 
 def _cannot_move_participant_message(reason: str) -> str:
@@ -601,6 +612,9 @@ class EngagementsService:
             create_profile_on_metsights=payload.create_profile_on_metsights,
             enroll_for_fitprint_full=payload.enroll_for_fitprint_full,
             load_prev_assessment_questionnaires=payload.load_prev_assessment_questionnaires,
+            load_prev_questionnaire_category_keys=_normalize_load_prev_category_keys(
+                payload.load_prev_questionnaire_category_keys
+            ),
         )
 
         engagement = await self._repository.create_engagement(db, engagement)
@@ -1099,6 +1113,9 @@ class EngagementsService:
         engagement.create_profile_on_metsights = payload.create_profile_on_metsights
         engagement.enroll_for_fitprint_full = payload.enroll_for_fitprint_full
         engagement.load_prev_assessment_questionnaires = payload.load_prev_assessment_questionnaires
+        engagement.load_prev_questionnaire_category_keys = _normalize_load_prev_category_keys(
+            payload.load_prev_questionnaire_category_keys
+        )
 
         engagement = await self._repository.update_engagement(db, engagement)
 
@@ -1467,6 +1484,19 @@ class EngagementsService:
     ) -> bool:
         return await self._repository.has_participant_for_user_engagement(
             db, user_id=user_id, engagement_id=engagement_id
+        )
+
+    async def user_has_prior_engagement_participation(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        exclude_engagement_id: int,
+    ) -> bool:
+        return await self._repository.user_has_prior_engagement_participation(
+            db,
+            user_id=user_id,
+            exclude_engagement_id=exclude_engagement_id,
         )
 
     async def enroll_user_in_engagement(

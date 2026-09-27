@@ -425,6 +425,7 @@ class QuestionnaireRepository:
         *,
         assessment_instance_id: int,
         category_id: int | None = None,
+        committed_only: bool = False,
     ) -> list[QuestionnaireResponse]:
         query = (
             select(QuestionnaireResponse)
@@ -433,6 +434,8 @@ class QuestionnaireRepository:
         )
         if category_id is not None:
             query = query.where(QuestionnaireResponse.category_ids.any(category_id))
+        if committed_only:
+            query = query.where(QuestionnaireResponse.is_carried_forward.is_(False))
         result = await db.execute(query)
         return list(result.scalars().all())
 
@@ -441,10 +444,11 @@ class QuestionnaireRepository:
         db: AsyncSession,
         *,
         assessment_instance_ids: list[int],
+        committed_only: bool = False,
     ) -> list[QuestionnaireResponse]:
         if not assessment_instance_ids:
             return []
-        result = await db.execute(
+        query = (
             select(QuestionnaireResponse)
             .where(QuestionnaireResponse.assessment_instance_id.in_(assessment_instance_ids))
             .order_by(
@@ -452,6 +456,9 @@ class QuestionnaireRepository:
                 QuestionnaireResponse.question_id.asc(),
             )
         )
+        if committed_only:
+            query = query.where(QuestionnaireResponse.is_carried_forward.is_(False))
+        result = await db.execute(query)
         return list(result.scalars().all())
 
     async def create_response(

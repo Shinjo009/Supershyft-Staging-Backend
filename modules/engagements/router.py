@@ -136,6 +136,8 @@ def _engagement_to_dict(
         "create_profile_on_metsights": engagement.create_profile_on_metsights,
         "enroll_for_fitprint_full": engagement.enroll_for_fitprint_full,
         "load_prev_assessment_questionnaires": engagement.load_prev_assessment_questionnaires,
+        "load_prev_questionnaire_category_keys": list(engagement.load_prev_questionnaire_category_keys or [])
+        or None,
         "notifications": notifications or [],
     }
     if readiness is not None:

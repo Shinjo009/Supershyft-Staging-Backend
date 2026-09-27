@@ -48,18 +48,21 @@ _PREFERENCE_KEYS = {"diet_preference", "allergies"}
 _HABIT_CONDITION_OPTION = "option_match"
 _HABIT_CONDITION_SCALE = "scale_range"
 _ALLOWED_HABIT_RULE_STATUS = {"active", "inactive"}
-_LOAD_PREV_EXCLUDED_CATEGORY_KEYS = frozenset(
-    {
-        "vitals",
-        "health_vitals",
-        "blood-parameters",
-        "advanced-blood-parameters",
-    }
-)
-
-
 def _normalize(value: str | None) -> str:
     return (value or "").strip().lower()
+
+
+def _committed_answers_for_category(
+    responses: list,
+    category_id: int,
+) -> dict[int, object]:
+    """Answers that count toward category completion (excludes carried-forward copies)."""
+    return {
+        int(r.question_id): r.answer
+        for r in responses
+        if int(category_id) in (r.category_ids or [])
+        and not bool(getattr(r, "is_carried_forward", False))
+    }
 
 
 def _clean_options(options: list[dict[str, str | None]] | None) -> list[dict[str, str | None]]:
@@ -594,11 +597,7 @@ class QuestionnaireService:
             if qkey and response_row.answer is not None:
                 full_answers_by_key[qkey] = response_row.answer
 
-        category_answers_by_question_id: dict[int, object] = {
-            int(r.question_id): r.answer
-            for r in all_responses
-            if int(category_id) in (r.category_ids or [])
-        }
+        category_answers_by_question_id = _committed_answers_for_category(all_responses, category_id)
         preferences = self._build_preferences_map(
             await self._users_repository.get_preferences(db, user_id=user_id)
         )
@@ -658,11 +657,7 @@ class QuestionnaireService:
             if qkey and response_row.answer is not None:
                 full_answers_by_key[qkey] = response_row.answer
 
-        category_answers_by_question_id: dict[int, object] = {
-            int(r.question_id): r.answer
-            for r in all_responses
-            if int(category_id) in (r.category_ids or [])
-        }
+        category_answers_by_question_id = _committed_answers_for_category(all_responses, category_id)
         preferences = self._build_preferences_map(
             await self._users_repository.get_preferences(db, user_id=user_id)
         )
@@ -1480,6 +1475,7 @@ class QuestionnaireService:
             db,
             assessment_instance_id=instance.assessment_instance_id,
         )
+        response_by_question_id = {int(r.question_id): r for r in responses}
         responses_map = {r.question_id: r.answer for r in responses}
         preferences = self._build_preferences_map(
             await self._users_repository.get_preferences(db, user_id=user_id)
@@ -1534,11 +1530,15 @@ class QuestionnaireService:
             # Keep deterministic behavior from computed visibility map for consistency.
             is_visible = visibility.get(question_id, is_visible)
             answer = responses_map.get(question_id)
+            response_row = response_by_question_id.get(question_id)
+            is_carried_forward = bool(
+                response_row is not None and getattr(response_row, "is_carried_forward", False)
+            )
             if answer is not None:
                 answer = _coerce_answer_for_question(question.get("question_key"), answer)
             answer_source = "none"
             if answer is not None:
-                answer_source = "draft"
+                answer_source = "carried_forward" if is_carried_forward else "draft"
             elif is_visible:
                 prefill_answer = self._resolve_prefill_answer(
                     prefill_from=question.get("prefill_from"),
@@ -1568,6 +1568,7 @@ class QuestionnaireService:
                     "is_visible": is_visible,
                     "visibility_reason": visibility_reason,
                     "answer_source": answer_source,
+                    "is_carried_forward": is_carried_forward,
                     "answer": answer,
                 }
             )
@@ -1765,6 +1766,7 @@ class QuestionnaireService:
             if existing is not None:
                 existing.answer = answer
                 existing.category_ids = resolved_ids
+                existing.is_carried_forward = False
                 await self._repository.update_response(db, existing)
             else:
                 new_response = QuestionnaireResponse(
@@ -1772,6 +1774,7 @@ class QuestionnaireService:
                     question_id=question_id,
                     category_ids=resolved_ids,
                     answer=answer,
+                    is_carried_forward=False,
                 )
                 await self._repository.create_response(db, new_response)
 
@@ -2057,6 +2060,7 @@ class QuestionnaireService:
         user_id: int,
         source_assessment_instance_id: int,
         dest_assessment_instance_id: int,
+        allowed_category_keys: frozenset[str],
         ip_address: str,
         user_agent: str,
         endpoint: str,
@@ -2113,7 +2117,6 @@ class QuestionnaireService:
         )
 
         copied = 0
-        affected_category_ids: set[int] = set()
 
         for source_row in source_responses:
             question_id = int(source_row.question_id)
@@ -2126,8 +2129,8 @@ class QuestionnaireService:
             if not resolved_ids:
                 continue
 
-            if any(
-                category_key_by_id.get(int(cid), "") in _LOAD_PREV_EXCLUDED_CATEGORY_KEYS
+            if not all(
+                (category_key_by_id.get(int(cid), "") in allowed_category_keys)
                 for cid in resolved_ids
             ):
                 continue
@@ -2137,22 +2140,14 @@ class QuestionnaireService:
                 question_id=question_id,
                 category_ids=resolved_ids,
                 answer=source_row.answer,
+                is_carried_forward=True,
             )
             await self._repository.create_response(db, new_response)
             dest_existing_qids.add(question_id)
-            affected_category_ids.update(int(cid) for cid in resolved_ids)
             copied += 1
 
         if copied == 0:
             return 0
-
-        for category_id in sorted(affected_category_ids):
-            await self._sync_category_progress_after_responses(
-                db,
-                instance=dest_instance,
-                category_id=category_id,
-                user_id=user_id,
-            )
 
         audit = self._require_audit_service()
         await audit.log_event(

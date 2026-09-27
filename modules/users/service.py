@@ -2601,24 +2601,36 @@ class UsersService:
         ):
             try:
                 from modules.assessments.repository import AssessmentsRepository
+                from modules.questionnaire.load_prev_defaults import resolve_load_prev_category_keys
 
-                assessments_repo = AssessmentsRepository()
-                source_instance = await assessments_repo.get_latest_metsights_instance_excluding(
+                has_prior = await self._engagements_service.user_has_prior_engagement_participation(
                     db,
                     user_id=int(user.user_id),
-                    exclude_assessment_instance_id=int(assessment_instance.assessment_instance_id),
+                    exclude_engagement_id=int(engagement.engagement_id),
                 )
-                if source_instance is not None:
-                    copied_count = await self._questionnaire_service.copy_responses_from_previous_instance(
+                if has_prior:
+                    assessments_repo = AssessmentsRepository()
+                    source_instance = await assessments_repo.get_latest_metsights_instance_from_prior_engagement(
                         db,
                         user_id=int(user.user_id),
-                        source_assessment_instance_id=int(source_instance.assessment_instance_id),
-                        dest_assessment_instance_id=int(assessment_instance.assessment_instance_id),
-                        ip_address=ip_address,
-                        user_agent=user_agent,
-                        endpoint=endpoint,
+                        exclude_engagement_id=int(engagement.engagement_id),
+                        exclude_assessment_instance_id=int(assessment_instance.assessment_instance_id),
                     )
-                    preview_available = copied_count > 0
+                    if source_instance is not None:
+                        allowed_keys = resolve_load_prev_category_keys(
+                            list(engagement.load_prev_questionnaire_category_keys or [])
+                        )
+                        copied_count = await self._questionnaire_service.copy_responses_from_previous_instance(
+                            db,
+                            user_id=int(user.user_id),
+                            source_assessment_instance_id=int(source_instance.assessment_instance_id),
+                            dest_assessment_instance_id=int(assessment_instance.assessment_instance_id),
+                            allowed_category_keys=allowed_keys,
+                            ip_address=ip_address,
+                            user_agent=user_agent,
+                            endpoint=endpoint,
+                        )
+                        preview_available = copied_count > 0
             except Exception as exc:
                 logger.warning(
                     "Load previous assessment questionnaires failed for user_id=%s engagement_id=%s: %s",

@@ -155,6 +155,7 @@ async def push_questionnaires_to_metsights(
                 responses = await q_repo.list_responses_for_instances(
                     db,
                     assessment_instance_ids=source_ids,
+                    committed_only=True,
                 )
                 if not responses:
                     skipped += 1

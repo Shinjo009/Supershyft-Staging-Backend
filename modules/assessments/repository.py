@@ -14,7 +14,7 @@ from modules.assessments.models import (
     AssessmentPackage,
     AssessmentPackageCategory,
 )
-from modules.engagements.models import Engagement
+from modules.engagements.models import Engagement, EngagementParticipant
 from modules.questionnaire.models import QuestionnaireCategoryQuestion, QuestionnaireResponse
 
 
@@ -555,6 +555,34 @@ class AssessmentsRepository:
             select(AssessmentInstance)
             .join(AssessmentPackage, AssessmentPackage.package_id == AssessmentInstance.package_id)
             .where(AssessmentInstance.user_id == user_id)
+            .where(AssessmentInstance.assessment_instance_id != exclude_assessment_instance_id)
+            .where(AssessmentPackage.assessment_type_code.in_(metsights_type_codes))
+            .order_by(AssessmentInstance.assessment_instance_id.desc())
+            .limit(1)
+        )
+        result = await db.execute(query)
+        return result.scalar_one_or_none()
+
+    async def get_latest_metsights_instance_from_prior_engagement(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        exclude_engagement_id: int,
+        exclude_assessment_instance_id: int,
+    ) -> AssessmentInstance | None:
+        """Latest Metsights Basic/Pro instance on a prior engagement where the user enrolled."""
+        metsights_type_codes = ("1", "2")
+        query = (
+            select(AssessmentInstance)
+            .join(AssessmentPackage, AssessmentPackage.package_id == AssessmentInstance.package_id)
+            .join(
+                EngagementParticipant,
+                (EngagementParticipant.user_id == AssessmentInstance.user_id)
+                & (EngagementParticipant.engagement_id == AssessmentInstance.engagement_id),
+            )
+            .where(AssessmentInstance.user_id == user_id)
+            .where(AssessmentInstance.engagement_id != exclude_engagement_id)
             .where(AssessmentInstance.assessment_instance_id != exclude_assessment_instance_id)
             .where(AssessmentPackage.assessment_type_code.in_(metsights_type_codes))
             .order_by(AssessmentInstance.assessment_instance_id.desc())

@@ -17,6 +17,7 @@ from modules.questionnaire.models import (
     QuestionnaireResponse,
 )
 from modules.questionnaire.repository import QuestionnaireRepository
+from modules.questionnaire.load_prev_defaults import DEFAULT_LOAD_PREV_QUESTIONNAIRE_CATEGORY_KEYS
 from modules.questionnaire.service import QuestionnaireService
 from modules.users.repository import UsersRepository
 
@@ -254,6 +255,7 @@ async def test_copy_responses_skips_vitals_and_blood_categories(test_db_session)
         user_id=user_id,
         source_assessment_instance_id=source_instance_id,
         dest_assessment_instance_id=dest_instance_id,
+        allowed_category_keys=DEFAULT_LOAD_PREV_QUESTIONNAIRE_CATEGORY_KEYS,
         ip_address="127.0.0.1",
         user_agent="test",
         endpoint="/test",
@@ -263,7 +265,7 @@ async def test_copy_responses_skips_vitals_and_blood_categories(test_db_session)
     rows = (
         await test_db_session.execute(
             text(
-                "SELECT question_id, answer FROM questionnaire_responses "
+                "SELECT question_id, answer, is_carried_forward FROM questionnaire_responses "
                 "WHERE assessment_instance_id = :aid ORDER BY question_id"
             ),
             {"aid": dest_instance_id},
@@ -272,3 +274,4 @@ async def test_copy_responses_skips_vitals_and_blood_categories(test_db_session)
     assert len(rows) == 1
     assert int(rows[0].question_id) == 9201
     assert rows[0].answer == "allowed answer"
+    assert rows[0].is_carried_forward is True

@@ -110,6 +110,23 @@ async def _seed_engagement(
     await test_db_session.commit()
 
 
+async def _seed_engagement_participant(
+    test_db_session,
+    *,
+    engagement_id: int,
+    user_id: int,
+):
+    await test_db_session.execute(
+        text(
+            "INSERT INTO engagement_participants "
+            "(engagement_id, user_id, engagement_date, slot_start_time, booked_by_user_id) "
+            "VALUES (:eid, :uid, '2026-02-01', '10:00:00', :uid)"
+        ),
+        {"eid": engagement_id, "uid": user_id},
+    )
+    await test_db_session.commit()
+
+
 def _onboard_payload(**overrides):
     payload = {
         "age": 30,
@@ -217,7 +234,7 @@ async def test_engagement_onboard_load_prev_true_copies_from_prior_basic(async_c
         test_db_session,
         package_id=package_id,
         category_id=9102,
-        category_key="load_prev_cat2",
+        category_key="diet-lifestyle-parameters",
         question_id=9102,
         question_key="load_prev_q2",
         mapping_id=9102,
@@ -270,7 +287,9 @@ async def test_engagement_onboard_load_prev_true_copies_from_prior_basic(async_c
             answer="copied answer",
         )
     )
-    await test_db_session.commit()
+    await _seed_engagement_participant(
+        test_db_session, engagement_id=3201, user_id=91002
+    )
 
     response = await async_client.post(
         "/users/code/LOADPREV2B/onboard",
@@ -284,7 +303,7 @@ async def test_engagement_onboard_load_prev_true_copies_from_prior_basic(async_c
     row = (
         await test_db_session.execute(
             text(
-                "SELECT question_id, answer FROM questionnaire_responses "
+                "SELECT question_id, answer, is_carried_forward FROM questionnaire_responses "
                 "WHERE assessment_instance_id = :aid"
             ),
             {"aid": new_instance_id},
@@ -293,6 +312,7 @@ async def test_engagement_onboard_load_prev_true_copies_from_prior_basic(async_c
     assert row is not None
     assert int(row.question_id) == 9102
     assert row.answer == "copied answer"
+    assert row.is_carried_forward is True
 
 
 @pytest.mark.asyncio
@@ -498,7 +518,9 @@ async def test_engagement_onboard_load_prev_skips_vitals_and_blood_categories(
             ),
         ]
     )
-    await test_db_session.commit()
+    await _seed_engagement_participant(
+        test_db_session, engagement_id=3401, user_id=91100
+    )
 
     response = await async_client.post(
         "/users/code/LOADPREV4B/onboard",
@@ -512,7 +534,7 @@ async def test_engagement_onboard_load_prev_skips_vitals_and_blood_categories(
     rows = (
         await test_db_session.execute(
             text(
-                "SELECT question_id, answer FROM questionnaire_responses "
+                "SELECT question_id, answer, is_carried_forward FROM questionnaire_responses "
                 "WHERE assessment_instance_id = :aid ORDER BY question_id"
             ),
             {"aid": new_instance_id},
@@ -521,6 +543,7 @@ async def test_engagement_onboard_load_prev_skips_vitals_and_blood_categories(
     assert len(rows) == 1
     assert int(rows[0].question_id) == 9110
     assert rows[0].answer == "allowed answer"
+    assert rows[0].is_carried_forward is True
 
 
 @pytest.mark.asyncio
