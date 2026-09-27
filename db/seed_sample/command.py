@@ -197,10 +197,10 @@ SAMPLE_USERS: tuple[SeedUser, ...] = (
 
 SAMPLE_EMPLOYEES: tuple[SeedEmployee, ...] = (
     SeedEmployee(201, 1001, "admin", "active"),
-    SeedEmployee(202, 1002, "bd", "active"),
+    SeedEmployee(202, 1002, "inferior_admin", "active"),
     SeedEmployee(203, 1003, "onboarding_assistant", "active"),
     SeedEmployee(204, 1004, "onboarding_assistant", "inactive"),
-    SeedEmployee(205, 1005, "operations", "active"),
+    SeedEmployee(205, 1005, "onboarding_assistant", "active"),
 )
 
 SAMPLE_ORGANIZATIONS: tuple[SeedOrganization, ...] = (
