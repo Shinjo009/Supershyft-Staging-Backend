@@ -1,7 +1,7 @@
 """Sync diagnostic_report_url from Healthians for participants with booking_id.
 
 URL-only backfill: calls getBookingReport, archives PDFs when needed, and updates
-``individual_health_report.diagnostic_report_url`` (plus full_report / verified_at).
+``participant_blood_bookings`` (plus full_report / verified_at).
 No digital values, Metsights push, or notifications.
 """
 
@@ -11,7 +11,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import settings
@@ -20,7 +20,10 @@ from modules.assessments.models import AssessmentInstance
 from modules.audit.cron_sync_logging import tracked_integration_call
 from modules.diagnostics.healthians import client as healthians_client
 from modules.diagnostics.models import DiagnosticPackage
-from modules.engagements.models import Engagement, EngagementParticipant
+from modules.engagements.blood_bookings_access import get_or_create_current
+from modules.engagements.blood_bookings_repository import current_blood_booking_subquery
+from modules.engagements.models import Engagement, EngagementParticipant, ParticipantBloodBooking
+from modules.reports.blood_booking_reports import get_current_report_root, get_participant_for_user_engagement
 from modules.reports.blood_report_archival import (
     diagnostic_report_url_to_persist,
     is_archived_blood_report_url,
@@ -30,7 +33,6 @@ from modules.reports.healthians_report_fields import (
     customer_display_name,
     parse_booking_report_entry,
 )
-from modules.reports.models import IndividualHealthReport
 from modules.reports.repository import ReportsRepository
 from modules.users.models import User
 
@@ -84,23 +86,28 @@ async def _get_eligible_participants(
     Returns tuples of:
     (user_id, engagement_id, first_name, last_name, booking_id, diagnostic_provider)
     """
+    curr_pbb = current_blood_booking_subquery()
     query = (
         select(
             EngagementParticipant.user_id,
             Engagement.engagement_id,
             User.first_name,
             User.last_name,
-            EngagementParticipant.booking_id,
+            curr_pbb.c.booking_id,
             DiagnosticPackage.diagnostic_provider,
         )
         .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
         .join(User, User.user_id == EngagementParticipant.user_id)
+        .join(
+            curr_pbb,
+            curr_pbb.c.engagement_participant_id == EngagementParticipant.engagement_participant_id,
+        )
         .outerjoin(
             DiagnosticPackage,
             DiagnosticPackage.diagnostic_package_id == Engagement.diagnostic_package_id,
         )
-        .where(EngagementParticipant.booking_id.isnot(None))
-        .where(EngagementParticipant.booking_id != "")
+        .where(curr_pbb.c.booking_id.isnot(None))
+        .where(func.trim(curr_pbb.c.booking_id) != "")
     )
     if engagement_id is not None:
         query = query.where(Engagement.engagement_id == engagement_id)
@@ -133,41 +140,32 @@ async def _resolve_assessment_instance_id(
     return int(value) if value is not None else None
 
 
-async def _get_or_create_ihr(
+async def _ensure_blood_root(
     db: AsyncSession,
     *,
-    repo: ReportsRepository,
     user_id: int,
     engagement_id: int,
-    instance_id: int | None,
-) -> IndividualHealthReport:
-    if instance_id is not None:
-        assessment_ihr = await repo.get_individual_report_by_assessment(
-            db,
-            assessment_instance_id=instance_id,
-        )
-        if assessment_ihr is not None:
-            return assessment_ihr
-        return await repo.get_or_create_individual_report_by_assessment(
-            db,
-            user_id=user_id,
-            engagement_id=engagement_id,
-            assessment_instance_id=instance_id,
-        )
-
-    ihr = await repo.get_individual_report_by_engagement(
+) -> ParticipantBloodBooking | None:
+    root = await get_current_report_root(
         db,
         user_id=user_id,
         engagement_id=engagement_id,
     )
-    if ihr is None:
-        ihr = IndividualHealthReport(
-            user_id=user_id,
-            engagement_id=engagement_id,
-            assessment_instance_id=None,
-        )
-        db.add(ihr)
-    return ihr
+    if root is not None:
+        return root
+    participant = await get_participant_for_user_engagement(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    )
+    if participant is None:
+        return None
+    await get_or_create_current(db, participant)
+    return await get_current_report_root(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    )
 
 
 async def sync_diagnostic_report_urls(
@@ -216,17 +214,17 @@ async def sync_diagnostic_report_urls(
                 })
                 continue
 
-            existing_ihr = await repo.get_individual_report_by_engagement(
+            blood_root = await get_current_report_root(
                 db,
                 user_id=user_id,
                 engagement_id=row_engagement_id,
             )
-            diag_url = existing_ihr.diagnostic_report_url if existing_ihr else None
+            diag_url = blood_root.diagnostic_report_url if blood_root else None
             stored_full_report = (
-                existing_ihr.blood_parameters_full_report if existing_ihr else None
+                blood_root.blood_parameters_full_report if blood_root else None
             )
             stored_verified_at = (
-                existing_ihr.blood_parameters_verified_at if existing_ihr else None
+                blood_root.blood_parameters_verified_at if blood_root else None
             )
 
             existing_url = (diag_url or "").strip()
@@ -389,18 +387,26 @@ async def sync_diagnostic_report_urls(
                 })
                 continue
 
-            ihr = await _get_or_create_ihr(
+            target = await _ensure_blood_root(
                 db,
-                repo=repo,
                 user_id=user_id,
                 engagement_id=row_engagement_id,
-                instance_id=instance_id,
             )
-            ihr.diagnostic_report_url = url_to_store
+            if target is None:
+                skipped += 1
+                details.append({
+                    "user_id": user_id,
+                    "engagement_id": row_engagement_id,
+                    "action": "skipped",
+                    "reason": "no blood booking row for participant",
+                })
+                continue
+            target.diagnostic_report_url = url_to_store
             if api_full_report is not None:
-                ihr.blood_parameters_full_report = api_full_report
+                target.blood_parameters_full_report = api_full_report
             if api_verified_at is not None:
-                ihr.blood_parameters_verified_at = api_verified_at
+                target.blood_parameters_verified_at = api_verified_at
+            db.add(target)
             await db.flush()
             await db.commit()
             updated += 1

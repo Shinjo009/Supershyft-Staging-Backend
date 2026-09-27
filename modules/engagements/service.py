@@ -363,13 +363,25 @@ class EngagementsService:
         return await self._slot_info_repository.create(db, data)
 
     async def _participant_rows_to_dicts(self, db: AsyncSession, rows: list[tuple]) -> list[dict[str, Any]]:
+        from modules.engagements.blood_bookings_repository import (
+            BloodBookingsRepository,
+            blood_bookings_to_api_list,
+        )
+
         all_booking_ids: list[int] = []
+        ep_ids: list[int] = []
         for row in rows:
+            ep_ids.append(int(row[0]))
             ids = row[20] or []
             all_booking_ids.extend(int(i) for i in ids)
 
         bookings = await self._consultation_bookings.get_by_ids(db, list(dict.fromkeys(all_booking_ids)))
         bookings_by_id = {booking.consultation_id: booking for booking in bookings}
+
+        blood_repo = BloodBookingsRepository()
+        blood_by_ep: dict[int, list] = {}
+        for ep_id in ep_ids:
+            blood_by_ep[ep_id] = await blood_repo.list_for_participant(db, engagement_participant_id=ep_id)
 
         result: list[dict[str, Any]] = []
         for row in rows:
@@ -378,6 +390,9 @@ class EngagementsService:
             consultations = bookings_to_consultations_map(participant_bookings)
             participant = _participant_enrollment_to_dict(row, consultations=consultations)
             participant["blood_test_complete"] = None
+            participant["blood_bookings"] = blood_bookings_to_api_list(
+                blood_by_ep.get(int(row[0]), [])
+            )
             result.append(participant)
         return result
 
@@ -1662,6 +1677,13 @@ class EngagementsService:
             )
             response["consultations"] = bookings_to_consultations_map(bookings)
 
+        from modules.engagements.blood_bookings_access import (
+            apply_schedule,
+            get_current_row,
+            get_or_create_current,
+            read_schedule_from_row,
+        )
+
         if "booking_id" in updates:
             raw_booking_id = updates["booking_id"]
             if raw_booking_id is None:
@@ -1669,7 +1691,9 @@ class EngagementsService:
             else:
                 stripped = str(raw_booking_id).strip()
                 normalized_booking_id = stripped or None
-            participant.booking_id = normalized_booking_id
+            row = await get_or_create_current(db, participant)
+            row.booking_id = normalized_booking_id
+            db.add(row)
             response["booking_id"] = normalized_booking_id
 
         schedule_fields = {"engagement_date", "slot_start_time", "blood_collection_cabin"}
@@ -1689,10 +1713,11 @@ class EngagementsService:
                     message="Schedule editing requires slot_detail configuration",
                 )
 
-            new_date = updates.get("engagement_date", participant.engagement_date)
-            raw_slot = updates.get("slot_start_time", participant.slot_start_time)
+            sched = read_schedule_from_row(await get_current_row(db, participant))
+            new_date = updates.get("engagement_date", sched["engagement_date"])
+            raw_slot = updates.get("slot_start_time", sched["slot_start_time"])
             new_slot = coerce_time(raw_slot) if not isinstance(raw_slot, time) else raw_slot
-            new_cabin_raw = updates.get("blood_collection_cabin", participant.blood_collection_cabin)
+            new_cabin_raw = updates.get("blood_collection_cabin", sched["blood_collection_cabin"])
 
             if new_date is None or new_slot is None:
                 raise AppError(
@@ -1711,9 +1736,13 @@ class EngagementsService:
             )
 
             normalized_slot = time(new_slot.hour, new_slot.minute)
-            participant.engagement_date = new_date
-            participant.slot_start_time = normalized_slot
-            participant.blood_collection_cabin = persisted_cabin
+            await apply_schedule(
+                db,
+                participant,
+                engagement_date=new_date,
+                slot_start_time=normalized_slot,
+                blood_collection_cabin=persisted_cabin,
+            )
             response["engagement_date"] = new_date.isoformat()
             response["slot_start_time"] = normalized_slot.isoformat()
             response["blood_collection_cabin"] = persisted_cabin
@@ -1764,9 +1793,12 @@ class EngagementsService:
                 message="Schedule fields cannot be updated for home collection engagements",
             )
 
+        from modules.engagements.blood_bookings_access import apply_schedule, get_current_row, read_schedule_from_row
+
+        sched = read_schedule_from_row(await get_current_row(db, participant))
         ensure_schedule_change_allowed(
-            participant.engagement_date,
-            participant.slot_start_time,
+            sched["engagement_date"],
+            sched["slot_start_time"],
             message=MSG_BLOOD_COLLECTION_RESCHEDULE,
         )
 
@@ -1792,9 +1824,13 @@ class EngagementsService:
                     slot_time=normalized_slot,
                     exclude_engagement_participant_id=int(participant.engagement_participant_id),
                 )
-            participant.engagement_date = collection_date
-            participant.slot_start_time = normalized_slot
-            participant.blood_collection_cabin = cabin_key
+            await apply_schedule(
+                db,
+                participant,
+                engagement_date=collection_date,
+                slot_start_time=normalized_slot,
+                blood_collection_cabin=cabin_key,
+            )
         else:
             if engagement.start_date is None or engagement.end_date is None:
                 raise AppError(
@@ -1808,17 +1844,22 @@ class EngagementsService:
                     error_code="INVALID_INPUT",
                     message="blood_collection_date must be within the engagement start_date and end_date",
                 )
-            participant.engagement_date = collection_date
-            participant.slot_start_time = normalized_slot
+            await apply_schedule(
+                db,
+                participant,
+                engagement_date=collection_date,
+                slot_start_time=normalized_slot,
+            )
 
         await self._repository.update_participant(db, participant)
+        final_sched = read_schedule_from_row(await get_current_row(db, participant))
 
         return {
             "engagement_id": engagement_id,
             "user_id": user_id,
             "engagement_date": collection_date.isoformat(),
             "slot_start_time": normalized_slot.isoformat(),
-            "blood_collection_cabin": participant.blood_collection_cabin,
+            "blood_collection_cabin": final_sched["blood_collection_cabin"],
         }
 
     async def update_consultation_consent_for_user(
@@ -2353,6 +2394,8 @@ class EngagementsService:
                 ),
             )
 
+        from modules.reports.blood_booking_reports import clear_blood_report_data_for_participant
+
         total_removed = 0
         users_with_no_reports = 0
         for user_id in unique_user_ids:
@@ -2362,6 +2405,12 @@ class EngagementsService:
                 engagement_id=engagement_id,
             )
             total_removed += deleted
+            participant = enrolled.get(user_id)
+            if participant is not None:
+                await clear_blood_report_data_for_participant(
+                    db,
+                    engagement_participant_id=participant.engagement_participant_id,
+                )
             if deleted == 0:
                 users_with_no_reports += 1
 
@@ -3123,12 +3172,15 @@ class EngagementsService:
         engagement_id: int,
         include_participants: bool,
     ) -> dict:
+        from modules.engagements.blood_bookings_repository import current_blood_booking_subquery
         from modules.engagements.models import EngagementParticipant
         from modules.reports.blood_parameters_schemas import has_usable_provider_blood_parameters
         from modules.reports.blood_report_archival import is_archived_blood_report_url
         from modules.reports.camp_reports_repository import _coerce_reports_dict
         from modules.reports.models import IndividualHealthReport
         from modules.users.models import User
+
+        curr_pbb = current_blood_booking_subquery()
 
         enrolled_query = (
             select(
@@ -3137,10 +3189,15 @@ class EngagementsService:
                 User.last_name,
                 User.phone,
                 User.email,
-                EngagementParticipant.booking_id,
+                curr_pbb.c.booking_id,
             )
             .select_from(EngagementParticipant)
             .join(User, User.user_id == EngagementParticipant.user_id)
+            .outerjoin(
+                curr_pbb,
+                curr_pbb.c.engagement_participant_id
+                == EngagementParticipant.engagement_participant_id,
+            )
             .where(EngagementParticipant.engagement_id == engagement_id)
             .order_by(User.first_name.asc(), User.last_name.asc(), User.user_id.asc())
         )
@@ -3155,8 +3212,6 @@ class EngagementsService:
 
         ihr_query = select(
             IndividualHealthReport.user_id,
-            IndividualHealthReport.blood_parameters,
-            IndividualHealthReport.diagnostic_report_url,
             IndividualHealthReport.report_url,
             IndividualHealthReport.reports,
         ).where(IndividualHealthReport.engagement_id == engagement_id)
@@ -3174,16 +3229,43 @@ class EngagementsService:
                     "has_bio_ai_json": False,
                 },
             )
+            if row.report_url and str(row.report_url).strip():
+                flags["has_bio_ai_report"] = True
+            if _coerce_reports_dict(row.reports):
+                flags["has_bio_ai_json"] = True
+
+        blood_query = (
+            select(
+                EngagementParticipant.user_id,
+                curr_pbb.c.diagnostic_report_url,
+                curr_pbb.c.blood_parameters,
+            )
+            .select_from(EngagementParticipant)
+            .join(
+                curr_pbb,
+                curr_pbb.c.engagement_participant_id
+                == EngagementParticipant.engagement_participant_id,
+            )
+            .where(EngagementParticipant.engagement_id == engagement_id)
+        )
+        blood_result = await db.execute(blood_query)
+        for row in blood_result.all():
+            uid = int(row.user_id)
+            flags = ihr_flags.setdefault(
+                uid,
+                {
+                    "has_blood_report": False,
+                    "has_blood_values": False,
+                    "has_bio_ai_report": False,
+                    "has_bio_ai_json": False,
+                },
+            )
             if row.diagnostic_report_url and is_archived_blood_report_url(
                 str(row.diagnostic_report_url).strip()
             ):
                 flags["has_blood_report"] = True
             if has_usable_provider_blood_parameters(row.blood_parameters):
                 flags["has_blood_values"] = True
-            if row.report_url and str(row.report_url).strip():
-                flags["has_bio_ai_report"] = True
-            if _coerce_reports_dict(row.reports):
-                flags["has_bio_ai_json"] = True
 
         default_flags = {
             "has_blood_report": False,

@@ -34,6 +34,7 @@ from modules.metsights.sync_service import (
 from modules.platform_settings.service import PlatformSettingsService
 from modules.users.models import User, UserPreference
 from modules.users.repository import UsersRepository
+from modules.engagements.blood_bookings_access import current_booking_id
 from modules.engagements.models import BloodCollectionType, EngagementKind, EngagementParticipant
 from modules.engagements.repository import EngagementsRepository
 from modules.engagements.slot_availability import find_active_cabin
@@ -3073,7 +3074,8 @@ class UsersService:
             endpoint=endpoint,
         )
 
-        if participant.booking_id and not newly_enrolled:
+        existing_booking_id = await current_booking_id(db, participant)
+        if existing_booking_id and not newly_enrolled:
             if self._audit_service is None:
                 raise RuntimeError("Audit service is required")
             await self._audit_service.log_event(
@@ -3097,7 +3099,7 @@ class UsersService:
                 engagement_id=int(engagement.engagement_id),
                 engagement_code=engagement.engagement_code,
                 engagement_participant_id=participant.engagement_participant_id,
-                booking_id=str(participant.booking_id),
+                booking_id=str(existing_booking_id),
                 status="scheduled",
                 assessment_instance_id=primary_instance_id,
             )

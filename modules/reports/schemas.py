@@ -113,6 +113,7 @@ class BioAiPdfResponse(BaseModel):
 class DiagnosticPdfResponse(BaseModel):
     assessment_id: int
     report_url: str
+    report_urls: list[str] = Field(default_factory=list)
 
 
 class DiseaseDetailResponse(BaseModel):

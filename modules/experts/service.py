@@ -1829,6 +1829,8 @@ class ExpertAvailabilityService:
         pref = booking_to_api_preference(booking)
         consent = normalize_consent(booking.consent)
 
+        from modules.reports.blood_booking_reports import get_current_report_root
+        from modules.reports.blood_report_archival import is_archived_blood_report_url
         from modules.reports.models import IndividualHealthReport
 
         result = await db.execute(
@@ -1837,12 +1839,16 @@ class ExpertAvailabilityService:
             .where(IndividualHealthReport.engagement_id == engagement.engagement_id)
         )
         reports = list(result.scalars().all())
-        from modules.reports.blood_report_archival import is_archived_blood_report_url
 
         has_bio_ai = any(bool((r.report_url or "").strip()) for r in reports)
-        has_blood_report = any(
-            is_archived_blood_report_url((r.diagnostic_report_url or "").strip())
-            for r in reports
+        blood_root = await get_current_report_root(
+            db,
+            user_id=user.user_id,
+            engagement_id=engagement.engagement_id,
+        )
+        has_blood_report = bool(
+            blood_root
+            and is_archived_blood_report_url((blood_root.diagnostic_report_url or "").strip())
         )
 
         from modules.assessments.repository import AssessmentsRepository
@@ -1993,26 +1999,33 @@ class ExpertAvailabilityService:
         else:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Unknown report kind")
 
+        from modules.reports.blood_booking_reports import get_current_report_root
         from modules.reports.blood_report_archival import is_archived_blood_report_url
         from modules.reports.models import IndividualHealthReport
 
-        result = await db.execute(
-            select(IndividualHealthReport)
-            .where(IndividualHealthReport.user_id == user.user_id)
-            .where(IndividualHealthReport.engagement_id == engagement.engagement_id)
-            .order_by(IndividualHealthReport.report_id.desc())
-        )
-        reports = list(result.scalars().all())
         url = None
-        for report in reports:
-            candidate = report.report_url if kind == "bio_ai" else report.diagnostic_report_url
-            if not (isinstance(candidate, str) and candidate.strip()):
-                continue
-            # Blood PDFs must be permanently archived; never return Healthians/S3 links.
-            if kind != "bio_ai" and not is_archived_blood_report_url(candidate.strip()):
-                continue
-            url = candidate.strip()
-            break
+        if kind == "bio_ai":
+            result = await db.execute(
+                select(IndividualHealthReport)
+                .where(IndividualHealthReport.user_id == user.user_id)
+                .where(IndividualHealthReport.engagement_id == engagement.engagement_id)
+                .order_by(IndividualHealthReport.report_id.desc())
+            )
+            for report in result.scalars().all():
+                candidate = report.report_url
+                if isinstance(candidate, str) and candidate.strip():
+                    url = candidate.strip()
+                    break
+        else:
+            blood_root = await get_current_report_root(
+                db,
+                user_id=user.user_id,
+                engagement_id=engagement.engagement_id,
+            )
+            candidate = blood_root.diagnostic_report_url if blood_root else None
+            if isinstance(candidate, str) and candidate.strip():
+                if is_archived_blood_report_url(candidate.strip()):
+                    url = candidate.strip()
         if not url:
             raise AppError(
                 status_code=404,

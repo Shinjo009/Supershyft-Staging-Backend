@@ -344,13 +344,16 @@ class UsersRepository:
         return row
 
     async def get_upcoming_slots(self, db: AsyncSession, user_id: int):
+        from modules.engagements.blood_bookings_repository import current_blood_booking_subquery
+
         today = date.today()
+        curr_pbb = current_blood_booking_subquery()
         query = (
             select(
-                EngagementParticipant.slot_start_time.label("slot_start_time"),
-                EngagementParticipant.engagement_date.label("engagement_date"),
-                EngagementParticipant.booking_id.label("booking_id"),
-                EngagementParticipant.blood_collection_cabin.label("blood_collection_cabin"),
+                curr_pbb.c.collection_time.label("slot_start_time"),
+                curr_pbb.c.collection_date.label("engagement_date"),
+                curr_pbb.c.booking_id.label("booking_id"),
+                curr_pbb.c.collection_cabin.label("blood_collection_cabin"),
                 Engagement.engagement_type.label("engagement_type"),
                 Engagement.slot_duration.label("slot_duration"),
                 Engagement.slot_detail_id.label("slot_detail_id"),
@@ -365,14 +368,23 @@ class UsersRepository:
             )
             .select_from(EngagementParticipant)
             .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
+            .outerjoin(
+                curr_pbb,
+                curr_pbb.c.engagement_participant_id
+                == EngagementParticipant.engagement_participant_id,
+            )
             .outerjoin(Organization, Organization.organization_id == Engagement.organization_id)
             .outerjoin(EngagementSlotInfo, EngagementSlotInfo.slot_detail_id == Engagement.slot_detail_id)
             .join(User, User.user_id == EngagementParticipant.user_id)
             .where(
                 EngagementParticipant.user_id == user_id,
-                EngagementParticipant.engagement_date >= today,
+                curr_pbb.c.collection_date.isnot(None),
+                curr_pbb.c.collection_date >= today,
             )
-            .order_by(EngagementParticipant.engagement_date.asc(), EngagementParticipant.slot_start_time.asc())
+            .order_by(
+                curr_pbb.c.collection_date.asc(),
+                curr_pbb.c.collection_time.asc(),
+            )
         )
         result = await db.execute(query)
         return result.all()

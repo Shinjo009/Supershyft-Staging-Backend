@@ -207,13 +207,24 @@ async def _lookup_engagement_date_fallback(
 ) -> str | None:
     if user_id is None or engagement_id is None:
         return None
-    result = await db.execute(
-        select(EngagementParticipant.engagement_date)
+    from modules.engagements.blood_bookings_repository import BloodBookingsRepository
+
+    ep_result = await db.execute(
+        select(EngagementParticipant.engagement_participant_id)
         .where(EngagementParticipant.user_id == user_id)
         .where(EngagementParticipant.engagement_id == engagement_id)
         .limit(1)
     )
-    return _format_fallback_assessment_date(result.scalar_one_or_none())
+    ep_id = ep_result.scalar_one_or_none()
+    if ep_id is None:
+        return None
+    current = await BloodBookingsRepository().get_current_collection(
+        db,
+        engagement_participant_id=int(ep_id),
+    )
+    return _format_fallback_assessment_date(
+        current.collection_date if current is not None else None
+    )
 
 
 async def _lookup_completed_at_fallback(

@@ -166,10 +166,16 @@ class ParticipantJourneyService:
             )
 
             ihr = ihr_by_instance.get(instance.assessment_instance_id)
-            has_blood = (
-                is_archived_blood_report_url((ihr.diagnostic_report_url or "").strip())
-                if ihr
-                else False
+            from modules.reports.blood_booking_reports import get_current_report_root
+
+            blood_root = await get_current_report_root(
+                db,
+                user_id=int(instance.user_id),
+                engagement_id=int(instance.engagement_id),
+            )
+            has_blood = bool(
+                blood_root
+                and is_archived_blood_report_url((blood_root.diagnostic_report_url or "").strip())
             )
             type_code = (getattr(package, "assessment_type_code", None) or "").strip()
             has_report_url = bool((ihr.report_url or "").strip()) if ihr else False

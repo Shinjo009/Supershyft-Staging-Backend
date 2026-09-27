@@ -225,7 +225,14 @@ async def _get_eligible_participants(
         .where(AssessmentPackage.assessment_type_code.in_(_PRO_BASIC_TYPE_CODES))
     )
     if not ignore_engagement_date:
-        query = query.where(EngagementParticipant.engagement_date <= today)
+        from modules.engagements.blood_bookings_repository import current_blood_booking_subquery
+
+        curr_pbb = current_blood_booking_subquery()
+        query = query.outerjoin(
+            curr_pbb,
+            curr_pbb.c.engagement_participant_id
+            == EngagementParticipant.engagement_participant_id,
+        ).where(curr_pbb.c.collection_date <= today)
     if not all_engagements:
         query = query.where(Engagement.status.ilike("running"))
     if engagement_id is not None:

@@ -13,6 +13,8 @@ from sqlalchemy import String, and_, false, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.listing import apply_sort, ilike_pattern
+from modules.engagements.blood_booking_enums import BloodBookingRelation, BloodBookingStatus
+from modules.engagements.blood_bookings_repository import BloodBookingsRepository, current_blood_booking_subquery
 from modules.engagements.models import (
     AutoNotificationEvent,
     Engagement,
@@ -21,6 +23,7 @@ from modules.engagements.models import (
     EngagementSlotInfo,
     EngagementType,
     OnboardingAssistantAssignment,
+    ParticipantBloodBooking,
 )
 from modules.engagements.participant_list_filters import ParticipantListFilters
 from modules.experts.models import ConsultationBooking
@@ -64,6 +67,9 @@ class PretestReminderParticipant:
 
 
 class EngagementsRepository:
+    def __init__(self) -> None:
+        self._blood_bookings = BloodBookingsRepository()
+
     """Engagement database queries."""
 
     _ENGAGEMENT_SORT_COLUMNS = {
@@ -142,10 +148,16 @@ class EngagementsRepository:
         Each row is (engagement_date, slot_start_time).
         """
 
+        curr_pbb = current_blood_booking_subquery()
         query = (
-            select(EngagementParticipant.engagement_date, EngagementParticipant.slot_start_time)
+            select(curr_pbb.c.collection_date, curr_pbb.c.collection_time)
+            .join(
+                EngagementParticipant,
+                EngagementParticipant.engagement_participant_id == curr_pbb.c.engagement_participant_id,
+            )
             .where(EngagementParticipant.engagement_id == engagement_id)
-            .order_by(EngagementParticipant.engagement_date.asc(), EngagementParticipant.slot_start_time.asc())
+            .where(curr_pbb.c.collection_date.isnot(None))
+            .order_by(curr_pbb.c.collection_date.asc(), curr_pbb.c.collection_time.asc())
         )
         result = await db.execute(query)
         return list(result.all())
@@ -157,12 +169,18 @@ class EngagementsRepository:
         Each row is (engagement_date, slot_start_time).
         """
 
+        curr_pbb = current_blood_booking_subquery()
         query = (
-            select(EngagementParticipant.engagement_date, EngagementParticipant.slot_start_time)
+            select(curr_pbb.c.collection_date, curr_pbb.c.collection_time)
+            .join(
+                EngagementParticipant,
+                EngagementParticipant.engagement_participant_id == curr_pbb.c.engagement_participant_id,
+            )
             .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
             .where(Engagement.status == "running")
             .where(Engagement.organization_id.is_(None))
-            .order_by(EngagementParticipant.engagement_date.asc(), EngagementParticipant.slot_start_time.asc())
+            .where(curr_pbb.c.collection_date.isnot(None))
+            .order_by(curr_pbb.c.collection_date.asc(), curr_pbb.c.collection_time.asc())
         )
         result = await db.execute(query)
         return list(result.all())
@@ -349,26 +367,15 @@ class EngagementsRepository:
         slot_detail_id: int | None = None,
         exclude_engagement_participant_id: int | None = None,
     ) -> int:
-        query = (
-            select(func.count())
-            .select_from(EngagementParticipant)
-            .where(EngagementParticipant.blood_collection_cabin == blood_collection_cabin)
-            .where(EngagementParticipant.engagement_date == engagement_date)
-            .where(EngagementParticipant.slot_start_time == slot_start_time)
+        return await self._blood_bookings.count_cabin_slot_participants(
+            db,
+            engagement_id=engagement_id,
+            blood_collection_cabin=blood_collection_cabin,
+            engagement_date=engagement_date,
+            slot_start_time=slot_start_time,
+            slot_detail_id=slot_detail_id,
+            exclude_engagement_participant_id=exclude_engagement_participant_id,
         )
-        if exclude_engagement_participant_id is not None:
-            query = query.where(
-                EngagementParticipant.engagement_participant_id != exclude_engagement_participant_id
-            )
-        if slot_detail_id is not None:
-            query = query.join(
-                Engagement,
-                Engagement.engagement_id == EngagementParticipant.engagement_id,
-            ).where(Engagement.slot_detail_id == slot_detail_id)
-        else:
-            query = query.where(EngagementParticipant.engagement_id == engagement_id)
-        result = await db.execute(query)
-        return int(result.scalar_one())
 
     async def list_cabin_slot_occupancy(
         self,
@@ -377,28 +384,11 @@ class EngagementsRepository:
         engagement_id: int,
         slot_detail_id: int | None = None,
     ) -> list[tuple]:
-        query = select(
-            EngagementParticipant.blood_collection_cabin,
-            EngagementParticipant.engagement_date,
-            EngagementParticipant.slot_start_time,
-            func.count(),
-        ).where(EngagementParticipant.blood_collection_cabin.isnot(None)).where(
-            EngagementParticipant.engagement_date.isnot(None)
-        ).where(EngagementParticipant.slot_start_time.isnot(None))
-        if slot_detail_id is not None:
-            query = query.join(
-                Engagement,
-                Engagement.engagement_id == EngagementParticipant.engagement_id,
-            ).where(Engagement.slot_detail_id == slot_detail_id)
-        else:
-            query = query.where(EngagementParticipant.engagement_id == engagement_id)
-        query = query.group_by(
-            EngagementParticipant.blood_collection_cabin,
-            EngagementParticipant.engagement_date,
-            EngagementParticipant.slot_start_time,
+        return await self._blood_bookings.list_cabin_slot_occupancy(
+            db,
+            engagement_id=engagement_id,
+            slot_detail_id=slot_detail_id,
         )
-        result = await db.execute(query)
-        return list(result.all())
 
     async def update_participant(self, db: AsyncSession, participant: EngagementParticipant) -> EngagementParticipant:
         db.add(participant)
@@ -463,11 +453,13 @@ class EngagementsRepository:
         *,
         booking_id: str,
     ) -> EngagementParticipant | None:
+        pbb = await self._blood_bookings.get_by_booking_id(db, booking_id=booking_id)
+        if pbb is None:
+            return None
         result = await db.execute(
-            select(EngagementParticipant)
-            .where(EngagementParticipant.booking_id == booking_id)
-            .order_by(EngagementParticipant.engagement_participant_id.desc())
-            .limit(1)
+            select(EngagementParticipant).where(
+                EngagementParticipant.engagement_participant_id == pbb.engagement_participant_id
+            )
         )
         return result.scalar_one_or_none()
 
@@ -477,23 +469,22 @@ class EngagementsRepository:
         *,
         engagement_participant_id: int,
         barcode: str,
-    ) -> None:
-        """Persist tube barcode without requiring a Healthians booking_id.
-
-        Used so camp console can keep the scanned/entered barcode when the
-        external booking call fails (API down, not serviceable, etc.).
-        """
-        result = await db.execute(
-            select(EngagementParticipant).where(
-                EngagementParticipant.engagement_participant_id == engagement_participant_id
+        redraw: bool = False,
+    ) -> ParticipantBloodBooking:
+        """Persist tube barcode on the current (or new redraw) collection row."""
+        if redraw:
+            return await self._blood_bookings.insert_redraw(
+                db,
+                engagement_participant_id=engagement_participant_id,
+                barcode=barcode,
             )
+        row = await self._blood_bookings.get_or_create_current_collection(
+            db, engagement_participant_id=engagement_participant_id
         )
-        participant = result.scalar_one_or_none()
-        if participant is None:
-            return
-        participant.barcode = barcode
-        db.add(participant)
+        row.barcode = barcode
+        db.add(row)
         await db.flush()
+        return row
 
     async def update_participant_healthians_booking(
         self,
@@ -505,21 +496,16 @@ class EngagementsRepository:
         engagement_date: date | None = None,
         slot_start_time: time | None = None,
     ) -> None:
-        result = await db.execute(
-            select(EngagementParticipant).where(
-                EngagementParticipant.engagement_participant_id == engagement_participant_id
-            )
+        row = await self._blood_bookings.get_or_create_current_collection(
+            db, engagement_participant_id=engagement_participant_id
         )
-        participant = result.scalar_one_or_none()
-        if participant is None:
-            return
-        participant.barcode = barcode
-        participant.booking_id = booking_id
+        row.barcode = barcode
+        row.booking_id = booking_id
         if engagement_date is not None:
-            participant.engagement_date = engagement_date
+            row.collection_date = engagement_date
         if slot_start_time is not None:
-            participant.slot_start_time = slot_start_time
-        db.add(participant)
+            row.collection_time = slot_start_time
+        db.add(row)
         await db.flush()
 
     async def clear_participant_healthians_booking(
@@ -528,18 +514,12 @@ class EngagementsRepository:
         *,
         engagement_participant_id: int,
     ) -> None:
-        result = await db.execute(
-            select(EngagementParticipant).where(
-                EngagementParticipant.engagement_participant_id == engagement_participant_id
-            )
+        current = await self._blood_bookings.get_current_collection(
+            db, engagement_participant_id=engagement_participant_id
         )
-        participant = result.scalar_one_or_none()
-        if participant is None:
+        if current is None:
             return
-        participant.booking_id = None
-        participant.barcode = None
-        db.add(participant)
-        await db.flush()
+        await self._blood_bookings.clear_healthians_booking_on_row(db, row=current)
 
     async def list_enrolled_user_ids_for_engagement(
         self,
@@ -623,6 +603,8 @@ class EngagementsRepository:
     ):
         from modules.users.models import User
 
+        curr_pbb = current_blood_booking_subquery()
+
         participant_filters = [EngagementParticipant.engagement_id == engagement_id]
         if participant_department_slugs is not None:
             if not participant_department_slugs:
@@ -639,7 +621,7 @@ class EngagementsRepository:
                 )
             if filters.engagement_date is not None:
                 participant_filters.append(
-                    EngagementParticipant.engagement_date == filters.engagement_date
+                    curr_pbb.c.collection_date == filters.engagement_date
                 )
             if filters.booking_date_user_ids is not None:
                 if not filters.booking_date_user_ids:
@@ -650,27 +632,26 @@ class EngagementsRepository:
                     )
             if filters.has_booking_id is True:
                 participant_filters.append(
-                    EngagementParticipant.booking_id.isnot(None),
-                    EngagementParticipant.booking_id != "",
+                    curr_pbb.c.booking_id.isnot(None),
+                    func.trim(curr_pbb.c.booking_id) != "",
                 )
             elif filters.has_booking_id is False:
                 participant_filters.append(
                     or_(
-                        EngagementParticipant.booking_id.is_(None),
-                        EngagementParticipant.booking_id == "",
+                        curr_pbb.c.booking_id.is_(None),
+                        func.trim(curr_pbb.c.booking_id) == "",
                     )
                 )
             if filters.reports_ready is not None:
                 from core.config import settings
                 from modules.reports.models import IndividualHealthReport
 
-                # Blood and Bio AI URLs may live on different IHR rows for the
-                # same user+engagement. Blood URLs must be archived supershyft links.
+                # Blood and Bio AI URLs may live on different rows for the same user+engagement.
                 blood_base = (settings.BLOOD_REPORTS_BASE_URL or "").strip().rstrip("/")
                 blood_url_archived = (
-                    IndividualHealthReport.diagnostic_report_url.isnot(None),
-                    func.trim(IndividualHealthReport.diagnostic_report_url) != "",
-                    IndividualHealthReport.diagnostic_report_url.op("~")(
+                    ParticipantBloodBooking.diagnostic_report_url.isnot(None),
+                    func.trim(ParticipantBloodBooking.diagnostic_report_url) != "",
+                    ParticipantBloodBooking.diagnostic_report_url.op("~")(
                         f"^{re.escape(blood_base)}/[A-Za-z0-9]{{16}}\\.pdf$"
                     )
                     if blood_base
@@ -688,11 +669,11 @@ class EngagementsRepository:
                     .exists()
                 )
                 blood_report_ready = (
-                    select(IndividualHealthReport.report_id)
+                    select(ParticipantBloodBooking.id)
                     .where(
-                        IndividualHealthReport.user_id == EngagementParticipant.user_id,
-                        IndividualHealthReport.engagement_id
-                        == EngagementParticipant.engagement_id,
+                        ParticipantBloodBooking.engagement_participant_id
+                        == EngagementParticipant.engagement_participant_id,
+                        ParticipantBloodBooking.status == BloodBookingStatus.active.value,
                         *blood_url_archived,
                     )
                     .exists()
@@ -731,7 +712,7 @@ class EngagementsRepository:
                     User.last_name.ilike(pattern),
                     User.email.ilike(pattern),
                     User.phone.ilike(pattern),
-                    EngagementParticipant.booking_id.ilike(pattern),
+                    curr_pbb.c.booking_id.ilike(pattern),
                 )
             )
 
@@ -751,9 +732,9 @@ class EngagementsRepository:
                 User.state,
                 User.country,
                 User.status,
-                EngagementParticipant.slot_start_time,
-                EngagementParticipant.engagement_date,
-                EngagementParticipant.blood_collection_cabin,
+                curr_pbb.c.collection_time.label("slot_start_time"),
+                curr_pbb.c.collection_date.label("engagement_date"),
+                curr_pbb.c.collection_cabin.label("blood_collection_cabin"),
                 EngagementParticipant.participants_employee_id,
                 EngagementParticipant.participant_department,
                 EngagementParticipant.participant_blood_group,
@@ -761,9 +742,9 @@ class EngagementsRepository:
                 EngagementParticipant.is_profile_created_on_metsights,
                 EngagementParticipant.is_primary_record_id_synced,
                 EngagementParticipant.is_fitprint_record_id_synced,
-                EngagementParticipant.barcode,
-                EngagementParticipant.booking_id,
-                EngagementParticipant.blood_collection_time_slot_id,
+                curr_pbb.c.barcode,
+                curr_pbb.c.booking_id,
+                curr_pbb.c.collection_time_slot_id.label("blood_collection_time_slot_id"),
                 EngagementParticipant.booked_by_user_id,
                 func.row_number()
                 .over(
@@ -773,6 +754,10 @@ class EngagementsRepository:
                 .label("rn"),
             )
             .select_from(EngagementParticipant)
+            .outerjoin(
+                curr_pbb,
+                curr_pbb.c.engagement_participant_id == EngagementParticipant.engagement_participant_id,
+            )
             .join(User, User.user_id == EngagementParticipant.user_id)
             .where(*participant_filters, *user_filters)
         ).subquery()
@@ -783,14 +768,19 @@ class EngagementsRepository:
         *,
         engagement_id: int,
     ) -> list[str]:
+        curr_pbb = current_blood_booking_subquery()
         result = await db.execute(
-            select(EngagementParticipant.engagement_date)
+            select(curr_pbb.c.collection_date)
+            .join(
+                EngagementParticipant,
+                EngagementParticipant.engagement_participant_id == curr_pbb.c.engagement_participant_id,
+            )
             .where(
                 EngagementParticipant.engagement_id == engagement_id,
-                EngagementParticipant.engagement_date.isnot(None),
+                curr_pbb.c.collection_date.isnot(None),
             )
             .distinct()
-            .order_by(EngagementParticipant.engagement_date.desc())
+            .order_by(curr_pbb.c.collection_date.desc())
         )
         return [row[0].isoformat() for row in result.all() if row[0] is not None]
 
@@ -1382,6 +1372,7 @@ class EngagementsRepository:
         from modules.users.models import User
 
         offset = (page - 1) * limit
+        curr_pbb = current_blood_booking_subquery()
 
         ranked_rows = (
             select(
@@ -1399,9 +1390,9 @@ class EngagementsRepository:
                 User.state,
                 User.country,
                 User.status,
-                EngagementParticipant.slot_start_time,
-                EngagementParticipant.engagement_date,
-                EngagementParticipant.blood_collection_cabin,
+                curr_pbb.c.collection_time.label("slot_start_time"),
+                curr_pbb.c.collection_date.label("engagement_date"),
+                curr_pbb.c.collection_cabin.label("blood_collection_cabin"),
                 EngagementParticipant.participants_employee_id,
                 EngagementParticipant.participant_department,
                 EngagementParticipant.participant_blood_group,
@@ -1409,9 +1400,9 @@ class EngagementsRepository:
                 EngagementParticipant.is_profile_created_on_metsights,
                 EngagementParticipant.is_primary_record_id_synced,
                 EngagementParticipant.is_fitprint_record_id_synced,
-                EngagementParticipant.barcode,
-                EngagementParticipant.booking_id,
-                EngagementParticipant.blood_collection_time_slot_id,
+                curr_pbb.c.barcode,
+                curr_pbb.c.booking_id,
+                curr_pbb.c.collection_time_slot_id.label("blood_collection_time_slot_id"),
                 EngagementParticipant.booked_by_user_id,
                 func.row_number()
                 .over(
@@ -1422,6 +1413,10 @@ class EngagementsRepository:
             )
             .select_from(Engagement)
             .join(EngagementParticipant, EngagementParticipant.engagement_id == Engagement.engagement_id)
+            .outerjoin(
+                curr_pbb,
+                curr_pbb.c.engagement_participant_id == EngagementParticipant.engagement_participant_id,
+            )
             .join(User, User.user_id == EngagementParticipant.user_id)
             .where(Engagement.organization_id.is_(None))
         ).subquery()
@@ -1580,16 +1575,21 @@ class EngagementsRepository:
         collection_date: date,
     ) -> list[PretestReminderParticipant]:
         """Return participants for scheduled/running engagements with blood collection on collection_date."""
+        curr_pbb = current_blood_booking_subquery()
         query = (
             select(
                 EngagementParticipant.user_id,
                 EngagementParticipant.engagement_id,
-                EngagementParticipant.engagement_date,
-                EngagementParticipant.slot_start_time,
-                EngagementParticipant.blood_collection_cabin,
+                curr_pbb.c.collection_date.label("engagement_date"),
+                curr_pbb.c.collection_time.label("slot_start_time"),
+                curr_pbb.c.collection_cabin.label("blood_collection_cabin"),
                 EngagementNotification.notification_services,
             )
             .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
+            .join(
+                curr_pbb,
+                curr_pbb.c.engagement_participant_id == EngagementParticipant.engagement_participant_id,
+            )
             .join(
                 EngagementNotification,
                 EngagementNotification.engagement_id == Engagement.engagement_id,
@@ -1599,7 +1599,7 @@ class EngagementsRepository:
                 AutoNotificationEvent.id == EngagementNotification.notification_event_id,
             )
             .where(self._scheduled_or_running_engagement_status_filter())
-            .where(EngagementParticipant.engagement_date == collection_date)
+            .where(curr_pbb.c.collection_date == collection_date)
             .where(AutoNotificationEvent.event_code == "pretest_guidelines")
             .distinct()
             .order_by(
@@ -1697,15 +1697,20 @@ class EngagementsRepository:
             AutoNotificationEvent.event_code == "questionnaire_reminder_after"
         ).subquery("en_after")
 
+        curr_pbb = current_blood_booking_subquery()
         query = (
             select(
                 EngagementParticipant.user_id,
                 EngagementParticipant.engagement_id,
-                EngagementParticipant.engagement_date,
+                curr_pbb.c.collection_date.label("engagement_date"),
                 en_before.c.notification_services.label("qr_before_services"),
                 en_after.c.notification_services.label("qr_after_services"),
             )
             .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
+            .join(
+                curr_pbb,
+                curr_pbb.c.engagement_participant_id == EngagementParticipant.engagement_participant_id,
+            )
             .outerjoin(
                 en_before,
                 en_before.c.engagement_id == Engagement.engagement_id,
@@ -1715,7 +1720,7 @@ class EngagementsRepository:
                 en_after.c.engagement_id == Engagement.engagement_id,
             )
             .where(self._scheduled_or_running_engagement_status_filter())
-            .where(EngagementParticipant.engagement_date.in_(target_dates))
+            .where(curr_pbb.c.collection_date.in_(target_dates))
             .distinct()
             .order_by(
                 EngagementParticipant.engagement_id.asc(),
@@ -1770,9 +1775,16 @@ class EngagementsRepository:
             WHERE lower(trim(e.status)) IN ('scheduled', 'running')
               AND ane.event_code = 'consultation_ready'
               AND et.code IN ('bio_ai_with_consultation', 'blood_test_with_consultation')
-              AND ihr.blood_report_raw IS NOT NULL
-              AND ihr.diagnostic_report_url IS NOT NULL
-              AND ihr.diagnostic_report_url ~ :blood_url_pattern
+              AND EXISTS (
+                    SELECT 1
+                    FROM participant_blood_bookings pbb
+                    WHERE pbb.engagement_participant_id = ep.engagement_participant_id
+                      AND pbb.status = 'active'
+                      AND pbb.relation <> 'resample'
+                      AND pbb.blood_report_raw IS NOT NULL
+                      AND pbb.diagnostic_report_url IS NOT NULL
+                      AND pbb.diagnostic_report_url ~ :blood_url_pattern
+                  )
               AND e.consultations IS NOT NULL
               AND jsonb_typeof(e.consultations::jsonb) = 'object'
               AND EXISTS (

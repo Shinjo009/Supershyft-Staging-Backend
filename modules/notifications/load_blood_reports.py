@@ -45,7 +45,13 @@ from modules.assessments.service import AssessmentsService, _PACKAGE_BLOOD_CATEG
 from modules.questionnaire.repository import QuestionnaireRepository
 from modules.audit.cron_sync_logging import tracked_integration_call
 from modules.diagnostics.models import DiagnosticPackage
-from modules.engagements.models import Engagement, EngagementParticipant
+from modules.engagements.blood_bookings_repository import current_blood_booking_subquery
+from modules.engagements.models import Engagement, EngagementParticipant, ParticipantBloodBooking
+from modules.reports.blood_booking_reports import (
+    get_current_report_root,
+    get_participant_for_user_engagement,
+)
+from modules.engagements.blood_bookings_access import get_or_create_current
 from modules.diagnostics.repository import DiagnosticsRepository
 from modules.metsights.service import MetsightsService
 from modules.metsights.sync_service import MetsightsSyncService
@@ -494,12 +500,14 @@ async def _get_eligible_participants(
 
     Returns tuples of:
     (user_id, engagement_id, record_id, first_name, last_name,
-     blood_parameters, diagnostic_report_url, blood_report_services, ihr_id, instance_id,
+     blood_parameters, diagnostic_report_url, blood_report_services, instance_id,
      package_id, diagnostic_package_id, participant_booking_id, diagnostic_provider,
      package_code, assessment_type_code, blood_parameters_full_report,
      blood_parameters_verified_at)
     """
     from modules.engagements.models import AutoNotificationEvent, EngagementNotification
+
+    curr_pbb = current_blood_booking_subquery()
 
     en_sub = (
         select(
@@ -511,9 +519,6 @@ async def _get_eligible_participants(
         .subquery("en_blood")
     )
 
-    from modules.reports.repository import ReportsRepository
-
-    canonical_ihr = ReportsRepository.canonical_individual_health_report_subquery()
     query = (
         select(
             EngagementParticipant.user_id,
@@ -521,21 +526,24 @@ async def _get_eligible_participants(
             AssessmentInstance.metsights_record_id,
             User.first_name,
             User.last_name,
-            canonical_ihr.c.blood_parameters,
-            canonical_ihr.c.diagnostic_report_url,
+            curr_pbb.c.blood_parameters,
+            curr_pbb.c.diagnostic_report_url,
             en_sub.c.notification_services.label("blood_report_services"),
-            canonical_ihr.c.report_id,
             AssessmentInstance.assessment_instance_id,
             AssessmentInstance.package_id,
             Engagement.diagnostic_package_id,
-            EngagementParticipant.booking_id,
+            curr_pbb.c.booking_id,
             DiagnosticPackage.diagnostic_provider,
             AssessmentPackage.package_code,
             AssessmentPackage.assessment_type_code,
-            canonical_ihr.c.blood_parameters_full_report,
-            canonical_ihr.c.blood_parameters_verified_at,
+            curr_pbb.c.blood_parameters_full_report,
+            curr_pbb.c.blood_parameters_verified_at,
         )
         .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
+        .outerjoin(
+            curr_pbb,
+            curr_pbb.c.engagement_participant_id == EngagementParticipant.engagement_participant_id,
+        )
         .outerjoin(
             DiagnosticPackage,
             DiagnosticPackage.diagnostic_package_id == Engagement.diagnostic_package_id,
@@ -547,10 +555,6 @@ async def _get_eligible_participants(
             & (AssessmentInstance.user_id == EngagementParticipant.user_id),
         )
         .join(AssessmentPackage, AssessmentPackage.package_id == AssessmentInstance.package_id)
-        .outerjoin(
-            canonical_ihr,
-            canonical_ihr.c.assessment_instance_id == AssessmentInstance.assessment_instance_id,
-        )
         .outerjoin(
             en_sub,
             en_sub.c.engagement_id == Engagement.engagement_id,
@@ -566,7 +570,7 @@ async def _get_eligible_participants(
         .where(AssessmentInstance.metsights_record_id != "")
     )
     if not ignore_engagement_date:
-        query = query.where(EngagementParticipant.engagement_date <= today)
+        query = query.where(curr_pbb.c.collection_date <= today)
     if not all_engagements:
         query = query.where(Engagement.status.ilike("running"))
     if engagement_id is not None:
@@ -603,6 +607,34 @@ async def _get_or_create_ihr(
         user_id=user_id,
         engagement_id=engagement_id,
         assessment_instance_id=instance_id,
+    )
+
+
+async def _get_or_create_blood_root(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    engagement_id: int,
+) -> ParticipantBloodBooking | None:
+    root = await get_current_report_root(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    )
+    if root is not None:
+        return root
+    participant = await get_participant_for_user_engagement(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    )
+    if participant is None:
+        return None
+    await get_or_create_current(db, participant)
+    return await get_current_report_root(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
     )
 
 
@@ -705,7 +737,7 @@ async def load_blood_reports(
                 user_id, engagement_id, record_id,
                 first_name, last_name,
                 blood_params, diag_url,
-                blood_report_services, ihr_id, instance_id,
+                blood_report_services, instance_id,
                 package_id, diagnostic_package_id, participant_booking_id, diagnostic_provider,
                 package_code, assessment_type_code,
                 stored_full_report, stored_verified_at,
@@ -942,22 +974,27 @@ async def load_blood_reports(
 
                 if skip_digital_reload:
                     if metadata_needs_update:
-                        ihr = await _get_or_create_ihr(
+                        blood_root = await _get_or_create_blood_root(
                             db,
-                            ihr_id=ihr_id,
                             user_id=user_id,
                             engagement_id=engagement_id,
-                            instance_id=instance_id,
                         )
-                        ihr.diagnostic_report_url = url_to_store
+                        if blood_root is None:
+                            skipped += 1
+                            details.append({
+                                "user_id": user_id,
+                                "engagement_id": engagement_id,
+                                "action": "skipped",
+                                "reason": "no blood booking row for participant",
+                            })
+                            continue
+                        blood_root.diagnostic_report_url = url_to_store
                         diagnostic_report_url = url_to_store
                         if api_full_report is not None:
-                            ihr.blood_parameters_full_report = api_full_report
+                            blood_root.blood_parameters_full_report = api_full_report
                         if api_verified_at is not None:
-                            ihr.blood_parameters_verified_at = api_verified_at
-                        if ihr_id is None:
-                            await db.flush()
-                            ihr_id = ihr.report_id
+                            blood_root.blood_parameters_verified_at = api_verified_at
+                        db.add(blood_root)
                         await db.flush()
                         await db.commit()
                         loaded += 1
@@ -976,20 +1013,25 @@ async def load_blood_reports(
                         "reason": "verified_at unchanged; skipped blood reload",
                     })
                 else:
-                    ihr = await _get_or_create_ihr(
+                    blood_root = await _get_or_create_blood_root(
                         db,
-                        ihr_id=ihr_id,
                         user_id=user_id,
                         engagement_id=engagement_id,
-                        instance_id=instance_id,
                     )
-                    ihr.diagnostic_report_url = url_to_store
+                    if blood_root is None:
+                        skipped += 1
+                        details.append({
+                            "user_id": user_id,
+                            "engagement_id": engagement_id,
+                            "action": "skipped",
+                            "reason": "no blood booking row for participant",
+                        })
+                        continue
+                    blood_root.diagnostic_report_url = url_to_store
                     diagnostic_report_url = url_to_store
-                    ihr.blood_parameters_full_report = api_full_report
-                    ihr.blood_parameters_verified_at = api_verified_at
-                    if ihr_id is None:
-                        await db.flush()
-                        ihr_id = ihr.report_id
+                    blood_root.blood_parameters_full_report = api_full_report
+                    blood_root.blood_parameters_verified_at = api_verified_at
+                    db.add(blood_root)
                     await db.flush()
                     await db.commit()
                     loaded += 1
@@ -1038,22 +1080,29 @@ async def load_blood_reports(
                                 "reason": "engagement has no diagnostic package for blood parameters",
                             })
                         else:
-                            ihr = await _get_or_create_ihr(
+                            blood_root = await _get_or_create_blood_root(
                                 db,
-                                ihr_id=ihr_id,
                                 user_id=user_id,
                                 engagement_id=engagement_id,
-                                instance_id=instance_id,
                             )
+                            if blood_root is None:
+                                details.append({
+                                    "user_id": user_id,
+                                    "engagement_id": engagement_id,
+                                    "action": "skipped",
+                                    "reason": "no blood booking row for participant",
+                                })
+                                continue
                             grouped, raw = await _group_provider_blood(
                                 db,
                                 fetched_blood,
                                 diagnostic_package_id=int(diagnostic_package_id),
                             )
-                            ihr.blood_parameters = grouped
-                            ihr.blood_report_raw = raw
+                            blood_root.blood_parameters = grouped
+                            blood_root.blood_report_raw = raw
                             blood_parameters = grouped
                             blood_loaded_this_run = True
+                            db.add(blood_root)
                             await db.flush()
                             await db.commit()
                             details.append({

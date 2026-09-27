@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.exceptions import AppError
 from db.transaction import release_request_transaction
 from modules.diagnostics.models import DiagnosticPackage
+from modules.engagements.blood_bookings_repository import BloodBookingsRepository
 from modules.engagements.models import Engagement, EngagementParticipant
 from modules.metsights.service import MetsightsService
 from modules.reports.blood_parameters_schemas import (
@@ -81,7 +82,7 @@ async def _load_participant_booking_context(
     engagement_id: int,
 ) -> tuple[str | None, str | None]:
     result = await db.execute(
-        select(EngagementParticipant.booking_id, DiagnosticPackage.diagnostic_provider)
+        select(EngagementParticipant.engagement_participant_id, DiagnosticPackage.diagnostic_provider)
         .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
         .outerjoin(
             DiagnosticPackage,
@@ -95,7 +96,11 @@ async def _load_participant_booking_context(
     row = result.one_or_none()
     if row is None:
         return None, None
-    return row[0], row[1]
+    ep_id, provider = row[0], row[1]
+    blood_repo = BloodBookingsRepository()
+    current = await blood_repo.get_current_collection(db, engagement_participant_id=int(ep_id))
+    booking_id = (current.booking_id if current else None) or None
+    return booking_id, provider
 
 
 async def resolve_healthians_booking_id(

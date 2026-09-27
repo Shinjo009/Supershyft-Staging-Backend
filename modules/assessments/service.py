@@ -26,6 +26,7 @@ from modules.assessments.schemas import MetsightsRecordIdUpdate
 from modules.employee.service import EmployeeContext
 from modules.questionnaire.models import QuestionnaireOption, QuestionnaireResponse
 from modules.questionnaire.repository import QuestionnaireRepository
+from modules.reports.blood_booking_reports import get_current_report_root, merged_blood_parameters_blob
 from modules.reports.blood_parameters_read_service import build_parameter_value_map
 from modules.reports.blood_parameters_schemas import has_usable_provider_blood_parameters
 from modules.reports.repository import ReportsRepository
@@ -573,7 +574,7 @@ class AssessmentsService:
         employee_ok: bool = False,
         allow_completed: bool = False,
     ) -> dict[str, Any]:
-        """Draft blood-parameter questionnaire answers from individual_health_report.blood_parameters."""
+        """Draft blood-parameter questionnaire answers from participant blood booking data."""
 
         if self._questionnaire is None:
             raise RuntimeError("QuestionnaireRepository is required for draft_blood_parameters_from_report")
@@ -655,31 +656,21 @@ class AssessmentsService:
             if current_status != "active":
                 raise AppError(status_code=422, error_code="INVALID_STATE", message="Assessment is not active")
 
-        report = await self._reports.get_individual_report_by_assessment(
+        blood_root = await get_current_report_root(
             db,
-            assessment_instance_id=int(instance.assessment_instance_id),
+            user_id=int(instance.user_id),
+            engagement_id=int(instance.engagement_id),
         )
-        if report is None or not has_usable_provider_blood_parameters(report.blood_parameters):
-            report = await self._reports.get_individual_report_by_engagement(
-                db,
-                user_id=int(instance.user_id),
-                engagement_id=int(instance.engagement_id),
-            )
+        blood_blob = merged_blood_parameters_blob(blood_root)
 
-        if report is None or report.blood_parameters is None:
-            raise AppError(
-                status_code=422,
-                error_code="INVALID_STATE",
-                message="Blood parameters report is not available",
-            )
-        if not has_usable_provider_blood_parameters(report.blood_parameters):
+        if not has_usable_provider_blood_parameters(blood_blob):
             raise AppError(
                 status_code=422,
                 error_code="INVALID_STATE",
                 message="Blood parameters report is not available",
             )
 
-        values_by_key = build_parameter_value_map(report.blood_parameters)
+        values_by_key = build_parameter_value_map(blood_blob)
         category_results: list[dict[str, Any]] = []
         total_drafted = 0
 

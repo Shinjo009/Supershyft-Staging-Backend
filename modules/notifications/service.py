@@ -30,6 +30,11 @@ from modules.notifications.schemas import (
 )
 from modules.notifications.report_prepare import prepare_user_report_urls
 from modules.reports.bio_ai_report_resolver import resolve_bio_ai_report_url
+from modules.reports.blood_booking_reports import (
+    get_current_report_root,
+    get_participant_for_user_engagement,
+    list_archived_diagnostic_urls,
+)
 from modules.reports.blood_report_archival import is_archived_blood_report_url
 from modules.reports.blood_report_resolver import resolve_blood_report_url
 
@@ -278,7 +283,14 @@ class NotificationsService:
                     db, assessment_instance_id=instance.assessment_instance_id
                 )
                 if svc.require_blood_report_url:
-                    url = (ihr.diagnostic_report_url if ihr else None) or None
+                    blood_root = await get_current_report_root(
+                        db,
+                        user_id=user.user_id,
+                        engagement_id=int(instance.engagement_id),
+                    )
+                    url = (
+                        (blood_root.diagnostic_report_url if blood_root else None) or None
+                    )
                     # Never send Healthians/S3 signed links — only archived supershyft URLs.
                     if url and not is_archived_blood_report_url(str(url).strip()):
                         url = None
@@ -304,6 +316,18 @@ class NotificationsService:
                             message=f"Blood report URL not available for user_id={user.user_id}",
                         )
                     member["blood_report_url"] = str(url).strip()
+                    participant = await get_participant_for_user_engagement(
+                        db,
+                        user_id=user.user_id,
+                        engagement_id=int(instance.engagement_id),
+                    )
+                    if participant is not None:
+                        archived_urls = await list_archived_diagnostic_urls(
+                            db,
+                            engagement_participant_id=participant.engagement_participant_id,
+                        )
+                        if archived_urls:
+                            member["blood_report_urls"] = archived_urls
                 if svc.require_bio_ai_report_url:
                     if svc.require_blood_report_url:
                         ihr = await self._repo.get_health_report_for_instance(

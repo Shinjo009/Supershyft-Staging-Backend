@@ -43,9 +43,8 @@ class ReportsRepository:
             .where(IndividualHealthReport.user_id == user_id)
             .where(IndividualHealthReport.engagement_id == engagement_id)
             .order_by(
-                IndividualHealthReport.blood_parameters.isnot(None).desc(),
                 (func.coalesce(AssessmentPackage.assessment_type_code, "") == _FITPRINT_TYPE_CODE).asc(),
-                IndividualHealthReport.diagnostic_report_url.isnot(None).desc(),
+                IndividualHealthReport.report_url.isnot(None).desc(),
                 IndividualHealthReport.report_id.desc(),
             )
             .limit(1)
@@ -104,8 +103,6 @@ class ReportsRepository:
             .order_by(
                 IndividualHealthReport.assessment_instance_id,
                 IndividualHealthReport.report_url.isnot(None).desc(),
-                IndividualHealthReport.blood_parameters.isnot(None).desc(),
-                IndividualHealthReport.diagnostic_report_url.isnot(None).desc(),
                 IndividualHealthReport.report_id.desc(),
             )
         ).subquery("canonical_ihr")
@@ -134,10 +131,10 @@ class ReportsRepository:
         *,
         assessment_instance_id: int,
     ) -> int:
-        """Clear assessment-scoped fields; keep engagement-scoped blood data.
+        """Clear assessment-scoped fields on matching rows.
 
-        Nulls ``assessment_instance_id``, ``reports``, and ``report_url`` on matching rows.
-        Deletes the row only when no blood/diagnostic data remains.
+        Nulls ``assessment_instance_id``, ``reports``, and ``report_url``.
+        Deletes the row when no report payload remains (blood data lives on PBB).
         """
         result = await db.execute(
             select(IndividualHealthReport).where(
@@ -150,9 +147,7 @@ class ReportsRepository:
             row.assessment_instance_id = None
             row.reports = None
             row.report_url = None
-            has_blood = row.blood_parameters is not None or row.blood_report_raw is not None
-            has_diag = row.diagnostic_report_url is not None
-            if not has_blood and not has_diag:
+            if row.reports is None and row.report_url is None:
                 await db.delete(row)
                 deleted += 1
             else:
@@ -248,34 +243,9 @@ class ReportsRepository:
         user_id: int,
         engagement_id: int,
     ) -> int:
-        """Null blood fields on FitPrint IHR rows for the same user+engagement."""
-        result = await db.execute(
-            select(IndividualHealthReport, AssessmentPackage.assessment_type_code)
-            .outerjoin(
-                AssessmentInstance,
-                AssessmentInstance.assessment_instance_id
-                == IndividualHealthReport.assessment_instance_id,
-            )
-            .outerjoin(
-                AssessmentPackage,
-                AssessmentPackage.package_id == AssessmentInstance.package_id,
-            )
-            .where(IndividualHealthReport.user_id == user_id)
-            .where(IndividualHealthReport.engagement_id == engagement_id)
-        )
-        cleared = 0
-        for ihr, type_code in result.all():
-            if (type_code or "").strip() != _FITPRINT_TYPE_CODE:
-                continue
-            if ihr.blood_parameters is None and ihr.blood_report_raw is None:
-                continue
-            ihr.blood_parameters = None
-            ihr.blood_report_raw = None
-            db.add(ihr)
-            cleared += 1
-        if cleared:
-            await db.flush()
-        return cleared
+        """No-op: blood lab data is stored on participant_blood_bookings, not IHR."""
+        _ = (db, user_id, engagement_id)
+        return 0
 
     async def list_individual_reports_for_user_with_assessment(
         self,

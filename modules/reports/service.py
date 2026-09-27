@@ -28,6 +28,13 @@ from modules.bioai_report.pdf_registration import register_permanent_bio_ai_repo
 from modules.metsights.service import MetsightsService
 from modules.metsights.sync_service import MetsightsSyncService
 from modules.nutrition_score import NUTRITION_INTERNAL_ENDPOINT, calculate_nutrition
+from modules.engagements.blood_bookings_repository import BloodBookingsRepository
+from modules.engagements.models import ParticipantBloodBooking
+from modules.reports.blood_booking_reports import (
+    get_current_report_root,
+    list_archived_diagnostic_urls,
+    merged_blood_parameters_blob,
+)
 from modules.reports.blood_parameters_normalizer import build_grouped_from_healthians
 from modules.reports.blood_parameters_read_service import (
     BloodParametersReadService,
@@ -191,23 +198,14 @@ class ReportsService:
             engagement_id=engagement_id,
         )
 
-    async def _get_blood_individual_report(
+    async def _get_blood_report_root(
         self,
         db: AsyncSession,
         *,
         user_id: int,
         engagement_id: int,
-        assessment_instance_id: int | None = None,
-    ) -> IndividualHealthReport | None:
-        """Prefer assessment row with blood; fall back to any engagement row with blood."""
-        if assessment_instance_id is not None:
-            report = await self._repository.get_individual_report_by_assessment(
-                db,
-                assessment_instance_id=assessment_instance_id,
-            )
-            if report is not None and has_usable_provider_blood_parameters(report.blood_parameters):
-                return report
-        return await self._repository.get_individual_report_by_engagement(
+    ) -> ParticipantBloodBooking | None:
+        return await get_current_report_root(
             db,
             user_id=user_id,
             engagement_id=engagement_id,
@@ -245,7 +243,7 @@ class ReportsService:
         assessment_instance_id: int,
         diagnostic_package_id: int,
         raw_customer: dict[str, Any],
-    ) -> IndividualHealthReport:
+    ) -> ParticipantBloodBooking:
         package_tests = await self._diagnostics_service.get_package_tests(
             db=db,
             package_id=diagnostic_package_id,
@@ -260,38 +258,39 @@ class ReportsService:
                 engagement_id,
             )
 
-        storage_assessment_id = await self._repository.resolve_blood_storage_assessment_instance_id(
-            db,
-            user_id=user_id,
-            engagement_id=engagement_id,
-            caller_assessment_instance_id=assessment_instance_id,
-        )
-        target = await self._repository.get_individual_report_by_assessment(
-            db,
-            assessment_instance_id=storage_assessment_id,
-        )
+        root = await get_current_report_root(db, user_id=user_id, engagement_id=engagement_id)
+        if root is None:
+            from modules.reports.blood_booking_reports import get_participant_for_user_engagement
+            from modules.engagements.blood_bookings_access import get_or_create_current
 
-        if target is None:
-            target = await self._repository.get_or_create_individual_report_by_assessment(
-                db,
-                user_id=user_id,
-                engagement_id=engagement_id,
-                assessment_instance_id=storage_assessment_id,
+            participant = await get_participant_for_user_engagement(
+                db, user_id=user_id, engagement_id=engagement_id
             )
-            target.blood_parameters = grouped
-            target.blood_report_raw = raw
-            await self._repository.update_individual_report(db, target)
-        else:
-            target.blood_parameters = grouped
-            target.blood_report_raw = raw
-            await self._repository.update_individual_report(db, target)
+            if participant is None:
+                raise AppError(
+                    status_code=422,
+                    error_code="INVALID_STATE",
+                    message="Participant not found for blood data storage",
+                )
+            await get_or_create_current(db, participant)
+            root = await get_current_report_root(db, user_id=user_id, engagement_id=engagement_id)
+        if root is None:
+            raise AppError(
+                status_code=422,
+                error_code="INVALID_STATE",
+                message="Blood collection row not found",
+            )
+        root.blood_parameters = grouped
+        root.blood_report_raw = raw
+        db.add(root)
+        await db.flush()
 
         await self._repository.clear_fitprint_blood_fields_for_engagement(
             db,
             user_id=user_id,
             engagement_id=engagement_id,
         )
-        return target
+        return root
 
     async def _import_metsights_blood_categories_if_requested(
         self,
@@ -503,22 +502,18 @@ class ReportsService:
             engagement_id=sn_engagement_id,
             assessment_instance_id=assessment_id,
         )
-        existing_report = await self._get_blood_individual_report(
+        blood_root = await self._get_blood_report_root(
             db,
             user_id=user_id,
             engagement_id=sn_engagement_id,
-            assessment_instance_id=assessment_id,
         )
+        cached_blob = merged_blood_parameters_blob(blood_root)
 
-        use_cache = (
-            reload != 1
-            and existing_report is not None
-            and has_usable_provider_blood_parameters(existing_report.blood_parameters)
-        )
+        use_cache = reload != 1 and has_usable_provider_blood_parameters(cached_blob)
         if use_cache:
             return await self._blood_read_service.build_from_canonical_or_legacy_provider(
                 db=db,
-                blood_parameters=existing_report.blood_parameters,
+                blood_parameters=cached_blob,
                 diagnostic_package_id=diagnostic_package_id,
                 user_gender=normalized_gender,
             )
@@ -551,13 +546,12 @@ class ReportsService:
                     user_id=user_id,
                     session_id=None,
                 )
-                refreshed = await self._get_blood_individual_report(
+                refreshed = await self._get_blood_report_root(
                     db,
                     user_id=sn_user_id,
                     engagement_id=sn_engagement_id,
-                    assessment_instance_id=assessment_id,
                 )
-                cached = refreshed.blood_parameters if refreshed is not None else None
+                cached = merged_blood_parameters_blob(refreshed)
                 if has_usable_provider_blood_parameters(cached):
                     return await self._blood_read_service.build_from_canonical_or_legacy_provider(
                         db=db,
@@ -612,17 +606,12 @@ class ReportsService:
             engagement_id=engagement_id,
         )
         if not instances:
-            # Serve engagement-cached blood when no assessment instance exists.
-            existing_report = await self._repository.get_individual_report_by_engagement(
-                db,
-                user_id=user_id,
-                engagement_id=engagement_id,
+            blood_root = await get_current_report_root(
+                db, user_id=user_id, engagement_id=engagement_id
             )
-            if (
-                existing_report is not None
-                and has_usable_provider_blood_parameters(existing_report.blood_parameters)
-            ):
-                stored = self._blood_read_service.groups_from_stored(existing_report.blood_parameters)
+            cached_blob = merged_blood_parameters_blob(blood_root)
+            if has_usable_provider_blood_parameters(cached_blob):
+                stored = self._blood_read_service.groups_from_stored(cached_blob)
                 if stored is not None:
                     await self._require_audit_service().log_event(
                         db,
@@ -682,27 +671,26 @@ class ReportsService:
 
         assessment_instance, _package, _engagement = row
 
-        assessment_report = await self._get_individual_report(
-            db,
-            user_id=user_id,
-            engagement_id=int(assessment_instance.engagement_id),
-            assessment_instance_id=assessment_id,
-        )
-        engagement_report = await self._repository.get_individual_report_by_engagement(
-            db,
-            user_id=user_id,
-            engagement_id=int(assessment_instance.engagement_id),
-        )
-        existing_report = assessment_report
-        for candidate in (assessment_report, engagement_report):
-            if candidate is None:
-                continue
-            cached_candidate = (candidate.diagnostic_report_url or "").strip()
-            if cached_candidate and is_archived_blood_report_url(cached_candidate):
-                existing_report = candidate
-                break
+        from modules.reports.blood_booking_reports import get_participant_for_user_engagement
 
-        cached = (existing_report.diagnostic_report_url if existing_report is not None else None) or ""
+        participant = await get_participant_for_user_engagement(
+            db,
+            user_id=user_id,
+            engagement_id=int(assessment_instance.engagement_id),
+        )
+        all_urls: list[str] = []
+        if participant is not None:
+            all_urls = await list_archived_diagnostic_urls(
+                db,
+                engagement_participant_id=participant.engagement_participant_id,
+            )
+
+        blood_root = await self._get_blood_report_root(
+            db,
+            user_id=user_id,
+            engagement_id=int(assessment_instance.engagement_id),
+        )
+        cached = (blood_root.diagnostic_report_url if blood_root is not None else None) or ""
         # Only serve permanently archived supershyft URLs from cache — never Healthians/S3.
         if cached.strip() and is_archived_blood_report_url(cached):
             await self._require_audit_service().log_event(
@@ -714,7 +702,12 @@ class ReportsService:
                 user_id=user_id,
                 session_id=None,
             )
-            return DiagnosticPdfResponse(assessment_id=assessment_id, report_url=cached.strip())
+            report_urls = all_urls if all_urls else [cached.strip()]
+            return DiagnosticPdfResponse(
+                assessment_id=assessment_id,
+                report_url=cached.strip(),
+                report_urls=report_urls,
+            )
 
         record_id = (assessment_instance.metsights_record_id or "").strip()
         if not record_id:
@@ -818,28 +811,24 @@ class ReportsService:
             existing_url=existing_diag,
         )
 
-        # Prefer engagement blood/diag row; else assessment row; else create assessment row.
-        target = engagement_report if engagement_report is not None else assessment_report
-        if target is None:
-            target = await self._repository.get_or_create_individual_report_by_assessment(
+        target = blood_root
+        if target is None and participant is not None:
+            from modules.engagements.blood_bookings_access import get_or_create_current
+
+            target = await get_or_create_current(db, participant)
+            target = await self._get_blood_report_root(
                 db,
-                user_id=int(assessment_instance.user_id),
+                user_id=user_id,
                 engagement_id=int(assessment_instance.engagement_id),
-                assessment_instance_id=int(assessment_instance.assessment_instance_id),
             )
+        if target is not None:
             target.diagnostic_report_url = url_to_store
             if full_report is not None:
                 target.blood_parameters_full_report = full_report
             if verified_at is not None:
                 target.blood_parameters_verified_at = verified_at
-            await self._repository.update_individual_report(db, target)
-        else:
-            target.diagnostic_report_url = url_to_store
-            if full_report is not None:
-                target.blood_parameters_full_report = full_report
-            if verified_at is not None:
-                target.blood_parameters_verified_at = verified_at
-            await self._repository.update_individual_report(db, target)
+            db.add(target)
+            await db.flush()
 
         if not url_to_store:
             raise AppError(
@@ -862,7 +851,17 @@ class ReportsService:
             session_id=None,
         )
 
-        return DiagnosticPdfResponse(assessment_id=assessment_id, report_url=url_to_store)
+        if participant is not None:
+            all_urls = await list_archived_diagnostic_urls(
+                db,
+                engagement_participant_id=participant.engagement_participant_id,
+            )
+        report_urls = all_urls if all_urls else ([url_to_store] if url_to_store else [])
+        return DiagnosticPdfResponse(
+            assessment_id=assessment_id,
+            report_url=url_to_store,
+            report_urls=report_urls,
+        )
 
     async def get_bio_ai_pdf_for_user(
         self,
@@ -1142,10 +1141,16 @@ class ReportsService:
             else (assessment_instance.metsights_record_id or "").strip()
         )
 
-        if has_usable_provider_blood_parameters(individual_report.blood_parameters):
+        blood_root = await self._get_blood_report_root(
+            db,
+            user_id=sn_user_id,
+            engagement_id=sn_engagement_id,
+        )
+        cached_blob = merged_blood_parameters_blob(blood_root)
+        if has_usable_provider_blood_parameters(cached_blob):
             return await self._blood_read_service.build_from_canonical_or_legacy_provider(
                 db=db,
-                blood_parameters=individual_report.blood_parameters,
+                blood_parameters=cached_blob,
                 diagnostic_package_id=diagnostic_package_id,
                 user_gender=user_gender,
             )
@@ -1176,18 +1181,16 @@ class ReportsService:
                     diagnostic_package_id=diagnostic_package_id,
                     raw_customer=raw_customer,
                 )
-                refreshed = await self._get_blood_individual_report(
+                refreshed = await self._get_blood_report_root(
                     db,
                     user_id=sn_user_id,
                     engagement_id=sn_engagement_id,
-                    assessment_instance_id=sn_assessment_instance_id,
                 )
-                if refreshed is not None and has_usable_provider_blood_parameters(
-                    refreshed.blood_parameters
-                ):
+                cached_blob = merged_blood_parameters_blob(refreshed)
+                if has_usable_provider_blood_parameters(cached_blob):
                     return await self._blood_read_service.build_from_canonical_or_legacy_provider(
                         db=db,
-                        blood_parameters=refreshed.blood_parameters,
+                        blood_parameters=cached_blob,
                         diagnostic_package_id=diagnostic_package_id,
                         user_gender=user_gender,
                     )
@@ -1254,9 +1257,16 @@ class ReportsService:
                     normalized_gender = None
                 user_first_name = ""
                 user_last_name = ""
+                blood_root = await self._get_blood_report_root(
+                    db,
+                    user_id=sn_user_id,
+                    engagement_id=sn_engagement_id,
+                )
                 if (
                     allow_provider_fetch
-                    and not has_usable_provider_blood_parameters(individual_report.blood_parameters)
+                    and not has_usable_provider_blood_parameters(
+                        merged_blood_parameters_blob(blood_root)
+                    )
                 ):
                     user_row = await db.get(User, sn_user_id)
                     if user_row is not None:
@@ -1385,13 +1395,7 @@ class ReportsService:
                 assessment_instance_id=assessment_id,
             )
 
-        blood_report = await self._get_blood_individual_report(
-            db,
-            user_id=user_id,
-            engagement_id=sn_engagement_id,
-            assessment_instance_id=assessment_id,
-        )
-        profile_report = blood_report if blood_report is not None else individual_report
+        profile_report = individual_report
 
         metabolic_age = extract_metabolic_age(report_dict)
         if assessment_id in _OVERVIEW_METABOLIC_AGE_OVERRIDES:
@@ -2574,7 +2578,12 @@ class ReportsService:
                 continue
 
             seen_assessment_ids.add(int(assessment.assessment_instance_id))
-            blood_parameters = report.blood_parameters
+            blood_root = await get_current_report_root(
+                db,
+                user_id=int(assessment.user_id),
+                engagement_id=engagement_id,
+            )
+            blood_parameters = merged_blood_parameters_blob(blood_root)
             numeric_value: float | None = None
             entry_unit: str | None = None
 
@@ -2718,7 +2727,13 @@ class ReportsService:
             if date_value is None:
                 continue
 
-            values = build_parameter_value_map(report.blood_parameters)
+            blood_root = await get_current_report_root(
+                db,
+                user_id=int(assessment.user_id),
+                engagement_id=engagement_id,
+            )
+            blood_blob = merged_blood_parameters_blob(blood_root)
+            values = build_parameter_value_map(blood_blob)
             flat = await self._blood_read_service._questionnaire_reader.build_flat_from_questionnaire_responses(
                 db,
                 assessment_instance_id=int(assessment.assessment_instance_id),

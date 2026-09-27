@@ -545,7 +545,9 @@ class ConsoleService:
                         participant_department=participant.participant_department,
                     )
 
-        if participant.booking_id:
+        from modules.engagements.blood_bookings_access import has_active_booking
+
+        if await has_active_booking(db, participant):
             raise AppError(
                 status_code=409,
                 error_code="BOOKING_ALREADY_EXISTS",
@@ -1162,14 +1164,16 @@ class ConsoleService:
         )
         if participant is None:
             raise AppError(status_code=404, error_code="PARTICIPANT_NOT_FOUND", message="Participant is not enrolled in this engagement")
+        from modules.engagements.blood_bookings_access import current_booking_id, has_active_booking
+
         if for_reschedule:
-            if not (participant.booking_id or "").strip():
+            if not (await current_booking_id(db, participant) or "").strip():
                 raise AppError(
                     status_code=422,
                     error_code="NO_BOOKING",
                     message="No Healthians booking exists for this participant",
                 )
-        elif participant.booking_id:
+        elif await has_active_booking(db, participant):
             raise AppError(status_code=409, error_code="BOOKING_ALREADY_EXISTS", message="A booking already exists for this participant")
 
         pkg = await self._load_healthians_package_for_engagement(db, engagement)
@@ -1413,10 +1417,15 @@ class ConsoleService:
             raise AppError(status_code=422, error_code="INVALID_SLOT_TIME", message=str(exc)) from exc
 
         participant = await self._reload_participant(db, engagement_participant_id)
-        participant.blood_collection_time_slot_id = blood_collection_time_slot_id
-        participant.engagement_date = blood_collection_date
-        participant.slot_start_time = slot_start_time
-        await db.flush()
+        from modules.engagements.blood_bookings_access import apply_schedule
+
+        await apply_schedule(
+            db,
+            participant,
+            engagement_date=blood_collection_date,
+            slot_start_time=slot_start_time,
+            blood_collection_time_slot_id=blood_collection_time_slot_id,
+        )
 
         return {
             "status": "success",
@@ -1449,9 +1458,18 @@ class ConsoleService:
         )
         if participant is None:
             raise AppError(status_code=404, error_code="PARTICIPANT_NOT_FOUND", message="Participant is not enrolled in this engagement")
-        if participant.booking_id:
+        from modules.engagements.blood_bookings_access import (
+            current_booking_id,
+            get_current_row,
+            has_active_booking,
+            read_schedule_from_row,
+        )
+
+        if await has_active_booking(db, participant):
             raise AppError(status_code=409, error_code="BOOKING_ALREADY_EXISTS", message="A booking already exists for this participant")
-        if not participant.blood_collection_time_slot_id:
+        coll = await get_current_row(db, participant)
+        sched = read_schedule_from_row(coll)
+        if not sched["blood_collection_time_slot_id"]:
             raise AppError(status_code=422, error_code="SLOT_NOT_LOCKED", message="Blood collection slot is not locked")
 
         pkg = await self._load_healthians_package_for_engagement(db, engagement)
@@ -1487,7 +1505,7 @@ class ConsoleService:
         relation = (user.relationship or "self").strip() or "self"
         vendor_billing_user_id = str(participant.booked_by_user_id)
         external_package_id = pkg.external_package_id or 0
-        slot_id = participant.blood_collection_time_slot_id or ""
+        slot_id = sched["blood_collection_time_slot_id"] or ""
         engagement_participant_id = participant.engagement_participant_id
 
         booking_payload: dict[str, Any] = {
@@ -1588,8 +1606,12 @@ class ConsoleService:
             raise AppError(status_code=502, error_code="HEALTHIANS_BOOKING_FAILED", message=str(exc)) from exc
 
         participant = await self._reload_participant(db, engagement_participant_id)
-        participant.booking_id = str(healthians_booking_id)
-        await db.flush()
+        await self._repository.update_participant_healthians_booking(
+            db,
+            engagement_participant_id=engagement_participant_id,
+            barcode=str(healthians_booking_id),
+            booking_id=str(healthians_booking_id),
+        )
 
         return {
             "status": booking_response.get("status"),

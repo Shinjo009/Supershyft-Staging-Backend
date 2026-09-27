@@ -23,6 +23,8 @@ from modules.diagnostics.healthians.sync_log import (
     persist_healthians_sync_log_isolated,
 )
 from modules.engagement_notifications.repository import EngagementNotificationsRepository
+from modules.engagements.blood_bookings_access import get_current_row, read_schedule_from_row
+from modules.engagements.blood_bookings_repository import BloodBookingsRepository
 from modules.engagements.models import EngagementParticipant
 from modules.engagements.repository import EngagementsRepository
 from modules.notifications.dedup import should_skip_notification
@@ -233,6 +235,43 @@ class WebhooksReceiverService:
 
         return None
 
+    async def _maybe_insert_resample_booking(
+        self,
+        db: AsyncSession,
+        *,
+        participant: EngagementParticipant,
+        payload: dict,
+    ) -> None:
+        """When Healthians sends a new booking_id with ref_booking_id, record a resample row."""
+        primary = str(payload.get("booking_id") or "").strip()
+        data = payload.get("data")
+        if not primary or not isinstance(data, dict):
+            return
+        ref = str(data.get("ref_booking_id") or "").strip()
+        if not ref or ref == "0" or ref == primary:
+            return
+        blood_repo = BloodBookingsRepository()
+        if await blood_repo.get_by_booking_id(db, booking_id=primary) is not None:
+            return
+        parent = await blood_repo.get_by_booking_id(db, booking_id=ref)
+        if parent is None:
+            return
+        await blood_repo.insert_resample(
+            db,
+            engagement_participant_id=participant.engagement_participant_id,
+            booking_id=primary,
+            parent_booking_id=ref,
+        )
+
+    @staticmethod
+    async def _participant_collection_schedule(
+        db: AsyncSession,
+        participant: EngagementParticipant,
+    ) -> tuple[date | None, time | None, str | None]:
+        sched = read_schedule_from_row(await get_current_row(db, participant))
+        cabin = (sched.get("blood_collection_cabin") or "").strip() or None
+        return sched.get("engagement_date"), sched.get("slot_start_time"), cabin
+
     async def _dispatch_booking_confirmation_notifications(
         self,
         db: AsyncSession,
@@ -401,16 +440,25 @@ class WebhooksReceiverService:
         payload_dict = payload.model_dump(mode="json")
 
         participant = await self._resolve_participant(db, payload_dict)
+        if participant is not None:
+            await self._maybe_insert_resample_booking(
+                db,
+                participant=participant,
+                payload=payload_dict,
+            )
         engagement_id = participant.engagement_id if participant else None
         user_id = participant.user_id if participant else None
         # Snapshot before release_request_transaction expires ORM attrs.
-        participant_engagement_date = participant.engagement_date if participant else None
-        participant_slot_start_time = participant.slot_start_time if participant else None
-        participant_cabin = (
-            (participant.blood_collection_cabin or "").strip() or None
-            if participant is not None
-            else None
-        )
+        if participant is not None:
+            (
+                participant_engagement_date,
+                participant_slot_start_time,
+                participant_cabin,
+            ) = await self._participant_collection_schedule(db, participant)
+        else:
+            participant_engagement_date = None
+            participant_slot_start_time = None
+            participant_cabin = None
 
         await release_request_transaction(db)
 

@@ -18,11 +18,13 @@ from modules.assessments.models import (
     AssessmentPackageCategory,
 )
 from modules.engagement_notifications.service_config import extract_service_keys
+from modules.engagements.blood_bookings_repository import current_blood_booking_subquery
 from modules.engagements.models import (
     AutoNotificationEvent,
     Engagement,
     EngagementNotification,
     EngagementParticipant,
+    ParticipantBloodBooking,
 )
 from modules.experts.models import ConsultationBooking, ExpertTypeModel
 from modules.organizations.models import Organization
@@ -104,7 +106,7 @@ class EnrolledAssessmentContext:
 def _dedupe_enrolled_assessment_contexts(
     rows: list[tuple],
 ) -> list[EnrolledAssessmentContext]:
-    """Collapse duplicate IHR outer-join rows; prefer a row that has blood_parameters."""
+    """Collapse duplicate IHR outer-join rows; prefer a row that has BioAI report JSON."""
     by_id: dict[int, EnrolledAssessmentContext] = {}
     for ai, pkg, eng, ihr, gender, age, date_of_birth in rows:
         aid = int(ai.assessment_instance_id)
@@ -121,12 +123,12 @@ def _dedupe_enrolled_assessment_contexts(
         if existing is None:
             by_id[aid] = ctx
             continue
-        existing_has_blood = (
+        existing_has_reports = (
             existing.individual_report is not None
-            and existing.individual_report.blood_parameters is not None
+            and existing.individual_report.reports is not None
         )
-        new_has_blood = ihr is not None and ihr.blood_parameters is not None
-        if new_has_blood and not existing_has_blood:
+        new_has_reports = ihr is not None and ihr.reports is not None
+        if new_has_reports and not existing_has_reports:
             by_id[aid] = ctx
     return list(by_id.values())
 
@@ -660,6 +662,7 @@ class CampReportsRepository:
         """
         enrolled = self._enrolled_users_ranked_cte(camp_no=camp_no, department=department, city=city)
 
+        curr_pbb = current_blood_booking_subquery()
         booking_users = (
             select(EngagementParticipant.user_id.label("user_id"))
             .select_from(Engagement)
@@ -667,9 +670,15 @@ class CampReportsRepository:
                 EngagementParticipant,
                 EngagementParticipant.engagement_id == Engagement.engagement_id,
             )
+            .join(
+                curr_pbb,
+                curr_pbb.c.engagement_participant_id
+                == EngagementParticipant.engagement_participant_id,
+            )
             .where(
                 Engagement.camp_no == camp_no,
-                EngagementParticipant.booking_id.isnot(None),
+                curr_pbb.c.booking_id.isnot(None),
+                func.trim(curr_pbb.c.booking_id) != "",
             )
             .distinct()
         ).cte("booking_users")
@@ -884,6 +893,7 @@ class CampReportsRepository:
         doctor_consultation = int(consultations.get("doctor", 0))
         nutritionist_consultation = int(consultations.get("nutritionist", 0))
 
+        curr_pbb = current_blood_booking_subquery()
         ranked_reports = (
             select(
                 enrolled.c.user_id,
@@ -892,8 +902,8 @@ class CampReportsRepository:
                 enrolled.c.first_name,
                 enrolled.c.last_name,
                 IndividualHealthReport.reports,
-                IndividualHealthReport.blood_parameters,
-                IndividualHealthReport.diagnostic_report_url,
+                curr_pbb.c.blood_parameters,
+                curr_pbb.c.diagnostic_report_url,
                 AssessmentInstance.assessment_instance_id,
                 func.row_number()
                 .over(
@@ -913,6 +923,18 @@ class CampReportsRepository:
                     Engagement.engagement_id == AssessmentInstance.engagement_id,
                     Engagement.camp_no == camp_no,
                 ),
+            )
+            .join(
+                EngagementParticipant,
+                and_(
+                    EngagementParticipant.user_id == enrolled.c.user_id,
+                    EngagementParticipant.engagement_id == enrolled.c.engagement_id,
+                ),
+            )
+            .outerjoin(
+                curr_pbb,
+                curr_pbb.c.engagement_participant_id
+                == EngagementParticipant.engagement_participant_id,
             )
             .join(AssessmentPackage, AssessmentPackage.package_id == AssessmentInstance.package_id)
             .join(
@@ -2024,6 +2046,7 @@ class CampReportsRepository:
         Each row is ``(user_id, first_name, last_name, gender, blood_parameters)``.
         """
         enrolled = self._enrolled_users_ranked_subquery(camp_no=camp_no, department=department, city=city)
+        curr_pbb = current_blood_booking_subquery()
 
         ranked_reports = (
             select(
@@ -2031,24 +2054,29 @@ class CampReportsRepository:
                 User.first_name,
                 User.last_name,
                 enrolled.c.gender,
-                IndividualHealthReport.blood_parameters,
+                curr_pbb.c.blood_parameters,
                 func.row_number()
                 .over(
                     partition_by=enrolled.c.user_id,
-                    order_by=IndividualHealthReport.report_id.desc(),
+                    order_by=ParticipantBloodBooking.id.desc(),
                 )
                 .label("rn"),
             )
             .select_from(enrolled)
             .join(User, User.user_id == enrolled.c.user_id)
             .join(
-                IndividualHealthReport,
+                EngagementParticipant,
                 and_(
-                    IndividualHealthReport.engagement_id == enrolled.c.engagement_id,
-                    IndividualHealthReport.user_id == enrolled.c.user_id,
+                    EngagementParticipant.user_id == enrolled.c.user_id,
+                    EngagementParticipant.engagement_id == enrolled.c.engagement_id,
                 ),
             )
-            .where(IndividualHealthReport.blood_parameters.isnot(None))
+            .join(
+                curr_pbb,
+                curr_pbb.c.engagement_participant_id
+                == EngagementParticipant.engagement_participant_id,
+            )
+            .where(curr_pbb.c.blood_parameters.isnot(None))
         ).subquery()
 
         result = await db.execute(
@@ -2097,18 +2125,24 @@ class CampReportsRepository:
         Returns list of (user_id, first_name, last_name).
         """
         enrolled = self._enrolled_users_ranked_subquery(camp_no=camp_no, department=department, city=city)
+        curr_pbb = current_blood_booking_subquery()
 
         blood_users = (
             select(enrolled.c.user_id)
             .select_from(enrolled)
             .join(
-                IndividualHealthReport,
+                EngagementParticipant,
                 and_(
-                    IndividualHealthReport.engagement_id == enrolled.c.engagement_id,
-                    IndividualHealthReport.user_id == enrolled.c.user_id,
+                    EngagementParticipant.user_id == enrolled.c.user_id,
+                    EngagementParticipant.engagement_id == enrolled.c.engagement_id,
                 ),
             )
-            .where(IndividualHealthReport.blood_parameters.isnot(None))
+            .join(
+                curr_pbb,
+                curr_pbb.c.engagement_participant_id
+                == EngagementParticipant.engagement_participant_id,
+            )
+            .where(curr_pbb.c.blood_parameters.isnot(None))
         ).subquery()
 
         query = (
@@ -2471,11 +2505,28 @@ class CampReportsRepository:
         for (participant_id,) in consultation_result.all():
             by_participant_id[int(participant_id)].consultations = True
 
+        curr_pbb = current_blood_booking_subquery()
+        blood_result = await db.execute(
+            select(
+                EngagementParticipant.user_id,
+                EngagementParticipant.engagement_id,
+                curr_pbb.c.diagnostic_report_url,
+            )
+            .select_from(EngagementParticipant)
+            .join(
+                curr_pbb,
+                curr_pbb.c.engagement_participant_id
+                == EngagementParticipant.engagement_participant_id,
+            )
+            .where(
+                EngagementParticipant.user_id.in_(user_ids),
+                EngagementParticipant.engagement_id.in_(engagement_ids),
+            )
+        )
         ihr_result = await db.execute(
             select(
                 IndividualHealthReport.user_id,
                 IndividualHealthReport.engagement_id,
-                IndividualHealthReport.diagnostic_report_url,
                 IndividualHealthReport.report_url,
             ).where(
                 IndividualHealthReport.user_id.in_(user_ids),
@@ -2484,12 +2535,16 @@ class CampReportsRepository:
         )
         blood_generated: set[tuple[int, int]] = set()
         bio_generated: set[tuple[int, int]] = set()
-        for user_id, engagement_id, diagnostic_url, report_url in ihr_result.all():
+        for user_id, engagement_id, diagnostic_url in blood_result.all():
             key = (int(user_id), int(engagement_id))
             if key not in enrollment_keys:
                 continue
-            if _url_present(diagnostic_url):
+            if diagnostic_url and is_archived_blood_report_url(str(diagnostic_url).strip()):
                 blood_generated.add(key)
+        for user_id, engagement_id, report_url in ihr_result.all():
+            key = (int(user_id), int(engagement_id))
+            if key not in enrollment_keys:
+                continue
             if _url_present(report_url):
                 bio_generated.add(key)
 

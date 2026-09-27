@@ -15,7 +15,10 @@ from modules.diagnostics.healthians.sync_log import (
     finalize_healthians_sync_log_isolated,
     persist_healthians_sync_log_isolated,
 )
+from modules.engagements.blood_bookings_access import get_or_create_current
+from modules.engagements.models import ParticipantBloodBooking
 from modules.metsights.service import MetsightsService
+from modules.reports.blood_booking_reports import get_current_report_root, get_participant_for_user_engagement
 from modules.reports.blood_report_archival import (
     diagnostic_report_url_to_persist,
     is_archived_blood_report_url,
@@ -149,6 +152,34 @@ async def _fetch_healthians_report_fields(
     )
 
 
+async def _ensure_blood_storage_root(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    engagement_id: int,
+) -> ParticipantBloodBooking | None:
+    root = await get_current_report_root(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    )
+    if root is not None:
+        return root
+    participant = await get_participant_for_user_engagement(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    )
+    if participant is None:
+        return None
+    await get_or_create_current(db, participant)
+    return await get_current_report_root(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    )
+
+
 async def resolve_blood_report_url(
     db: AsyncSession,
     *,
@@ -163,7 +194,18 @@ async def resolve_blood_report_url(
     last_name: str | None = None,
 ) -> str:
     """Return a blood diagnostic report URL, fetching from Healthians and caching when needed."""
+    _ = existing_ihr
     repo = reports_repository or ReportsRepository()
+
+    blood_root = await get_current_report_root(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    )
+    if blood_root is not None:
+        cached = (blood_root.diagnostic_report_url or "").strip()
+        if cached and is_archived_blood_report_url(cached):
+            return cached
 
     storage_assessment_id = await repo.resolve_blood_storage_assessment_instance_id(
         db,
@@ -171,36 +213,6 @@ async def resolve_blood_report_url(
         engagement_id=engagement_id,
         caller_assessment_instance_id=assessment_instance_id,
     )
-    storage_report = await repo.get_individual_report_by_assessment(
-        db,
-        assessment_instance_id=storage_assessment_id,
-    )
-    assessment_report = await repo.get_individual_report_by_assessment(
-        db, assessment_instance_id=assessment_instance_id
-    )
-    engagement_report = await repo.get_individual_report_by_engagement(
-        db,
-        user_id=user_id,
-        engagement_id=engagement_id,
-    )
-
-    for candidate in (storage_report, assessment_report, engagement_report, existing_ihr):
-        if candidate is None:
-            continue
-        if (
-            candidate.assessment_instance_id is not None
-            and int(candidate.assessment_instance_id) != storage_assessment_id
-        ):
-            type_code = await repo.get_assessment_type_code_for_instance(
-                db,
-                assessment_instance_id=int(candidate.assessment_instance_id),
-            )
-            if (type_code or "").strip() == "7":
-                continue
-        cached = (candidate.diagnostic_report_url or "").strip()
-        # Only reuse permanently archived supershyft URLs — never Healthians/S3 signed links.
-        if cached and is_archived_blood_report_url(cached):
-            return cached
 
     record_id = (metsights_record_id or "").strip()
     if not record_id:
@@ -243,7 +255,6 @@ async def resolve_blood_report_url(
         file_url = collection_data.get("file")
         if isinstance(file_url, str) and file_url.strip():
             report_url = file_url.strip()
-            # MetSights collection files are treated as complete PDFs.
             full_report = True
         else:
             report_url, full_report, verified_at = await _fetch_healthians_report_fields(
@@ -257,16 +268,11 @@ async def resolve_blood_report_url(
 
     is_full = bool(full_report) if full_report is not None else False
     existing_diag = None
-    for candidate in (storage_report, assessment_report, engagement_report, existing_ihr):
-        if candidate is None:
-            continue
-        cached_existing = (candidate.diagnostic_report_url or "").strip()
-        # Only treat permanently archived URLs as reusable existing state.
+    if blood_root is not None:
+        cached_existing = (blood_root.diagnostic_report_url or "").strip()
         if cached_existing and is_archived_blood_report_url(cached_existing):
             existing_diag = cached_existing
-            break
 
-    # If Healthians/MetSights already returned a permanent supershyft URL, keep it.
     if report_url and is_archived_blood_report_url(report_url.strip()):
         source_for_resolve = report_url.strip()
         existing_for_resolve = report_url.strip()
@@ -288,27 +294,24 @@ async def resolve_blood_report_url(
         existing_url=existing_diag,
     )
 
-    target = storage_report
+    target = await _ensure_blood_storage_root(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    )
     if target is None:
-        target = await repo.get_or_create_individual_report_by_assessment(
-            db,
-            user_id=user_id,
-            engagement_id=engagement_id,
-            assessment_instance_id=storage_assessment_id,
+        raise AppError(
+            status_code=422,
+            error_code="INVALID_STATE",
+            message="Blood collection row not found for this participant",
         )
-        target.diagnostic_report_url = url_to_store
-        if full_report is not None:
-            target.blood_parameters_full_report = full_report
-        if verified_at is not None:
-            target.blood_parameters_verified_at = verified_at
-        await repo.update_individual_report(db, target)
-    else:
-        target.diagnostic_report_url = url_to_store
-        if full_report is not None:
-            target.blood_parameters_full_report = full_report
-        if verified_at is not None:
-            target.blood_parameters_verified_at = verified_at
-        await repo.update_individual_report(db, target)
+    target.diagnostic_report_url = url_to_store
+    if full_report is not None:
+        target.blood_parameters_full_report = full_report
+    if verified_at is not None:
+        target.blood_parameters_verified_at = verified_at
+    db.add(target)
+    await db.flush()
 
     if not url_to_store:
         raise AppError(

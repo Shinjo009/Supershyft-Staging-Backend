@@ -70,7 +70,10 @@ async def _get_regenerate_candidates(
     engagement_id: int | None = None,
 ) -> list[tuple]:
     """Female booked participants on primary assessment with an existing report_url."""
+    from modules.engagements.blood_bookings_repository import current_blood_booking_subquery
+
     canonical_ihr = ReportsRepository.canonical_individual_health_report_subquery()
+    curr_pbb = current_blood_booking_subquery()
     query = (
         select(
             EngagementParticipant.user_id,
@@ -96,10 +99,15 @@ async def _get_regenerate_candidates(
             canonical_ihr,
             canonical_ihr.c.assessment_instance_id == AssessmentInstance.assessment_instance_id,
         )
-        .where(EngagementParticipant.engagement_date <= today)
+        .join(
+            curr_pbb,
+            curr_pbb.c.engagement_participant_id
+            == EngagementParticipant.engagement_participant_id,
+        )
+        .where(curr_pbb.c.collection_date <= today)
         .where(Engagement.assessment_package_id.isnot(None))
-        .where(EngagementParticipant.booking_id.isnot(None))
-        .where(EngagementParticipant.booking_id != "")
+        .where(curr_pbb.c.booking_id.isnot(None))
+        .where(func.trim(curr_pbb.c.booking_id) != "")
         .where(func.lower(func.trim(User.gender)).in_(_FEMALE_GENDERS))
         .where(AssessmentInstance.metsights_record_id.isnot(None))
         .where(AssessmentInstance.metsights_record_id != "")

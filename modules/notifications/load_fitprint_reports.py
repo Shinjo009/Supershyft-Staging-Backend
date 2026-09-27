@@ -47,7 +47,10 @@ async def _get_eligible_participants(
     *,
     all_engagements: bool = False,
 ) -> list[tuple]:
+    from modules.engagements.blood_bookings_repository import current_blood_booking_subquery
+
     canonical_ihr = ReportsRepository.canonical_individual_health_report_subquery()
+    curr_pbb = current_blood_booking_subquery()
     query = (
         select(
             EngagementParticipant.user_id,
@@ -70,8 +73,13 @@ async def _get_eligible_participants(
             canonical_ihr,
             canonical_ihr.c.assessment_instance_id == AssessmentInstance.assessment_instance_id,
         )
+        .outerjoin(
+            curr_pbb,
+            curr_pbb.c.engagement_participant_id
+            == EngagementParticipant.engagement_participant_id,
+        )
         .where(AssessmentInstance.status == "completed")
-        .where(EngagementParticipant.engagement_date <= today)
+        .where(curr_pbb.c.collection_date <= today)
         .where(AssessmentInstance.metsights_record_id.isnot(None))
         .where(AssessmentInstance.metsights_record_id != "")
         .where(AssessmentPackage.assessment_type_code == _FITPRINT_TYPE_CODE)

@@ -2240,20 +2240,6 @@ class CampReportsService:
                 "low_risk_math": None,
             }
 
-        # Blood may live on a different IHR row for the same engagement.
-        if individual_report is None or individual_report.blood_parameters is None:
-            blood_report = await self._reports_service._get_blood_individual_report(
-                db,
-                user_id=int(ctx.assessment_instance.user_id),
-                engagement_id=int(ctx.assessment_instance.engagement_id),
-                assessment_instance_id=int(ctx.assessment_instance.assessment_instance_id),
-            )
-            if blood_report is not None:
-                if individual_report is None:
-                    individual_report = blood_report
-                elif individual_report.blood_parameters is None:
-                    individual_report.blood_parameters = blood_report.blood_parameters
-
         reports_dict: dict[str, Any] = {}
         if individual_report is not None and individual_report.reports is not None:
             reports_dict = _coerce_reports_dict_for_positive_wins(individual_report.reports)
@@ -2375,7 +2361,7 @@ class CampReportsService:
                     IndividualHealthReport.assessment_instance_id == assessment_instance_id
                 )
                 .order_by(
-                    IndividualHealthReport.blood_parameters.isnot(None).desc(),
+                    IndividualHealthReport.report_url.isnot(None).desc(),
                     IndividualHealthReport.report_id.desc(),
                 )
                 .limit(1)

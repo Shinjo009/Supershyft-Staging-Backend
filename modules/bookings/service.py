@@ -17,6 +17,14 @@ from db.transaction import release_request_transaction
 from modules.diagnostics.healthians import client as healthians_client
 from modules.diagnostics.healthians.sync_log import log_healthians_call
 from modules.diagnostics.models import DiagnosticPackage
+from modules.engagements.blood_bookings_access import (
+    apply_schedule,
+    current_booking_id,
+    get_current_row,
+    get_or_create_current,
+    read_schedule_from_row,
+)
+from modules.engagements.blood_bookings_repository import BloodBookingsRepository
 from modules.engagements.models import BloodCollectionType, Engagement, EngagementKind, EngagementParticipant, EngagementType
 from modules.engagements.repository import EngagementsRepository
 from modules.engagements.service import EngagementsService, _generate_engagement_code
@@ -490,10 +498,13 @@ async def lock_slots(
             })
             continue
 
-        participant.blood_collection_time_slot_id = slot_id
-        participant.engagement_date = blood_collection_date
-        participant.slot_start_time = slot_start_time
-        await db.flush()
+        await apply_schedule(
+            db,
+            participant,
+            engagement_date=blood_collection_date,
+            slot_start_time=slot_start_time,
+            blood_collection_time_slot_id=slot_id,
+        )
 
         results.append({
             "user_id": user_id,
@@ -1242,11 +1253,13 @@ async def _validate_locked_draft_for_pay(
         raise AppError(status_code=404, error_code="NOT_ENROLLED", message="User is not a participant")
     if caller_user_id not in (participant.user_id, participant.booked_by_user_id):
         raise AppError(status_code=403, error_code="FORBIDDEN", message="Not authorized to pay for this participant")
-    if not participant.blood_collection_time_slot_id:
+    coll = await get_current_row(db, participant)
+    sched = read_schedule_from_row(coll)
+    if not sched["blood_collection_time_slot_id"]:
         raise AppError(status_code=422, error_code="SLOT_NOT_LOCKED", message="Blood collection slot is not locked")
-    if participant.engagement_date is None:
+    if sched["engagement_date"] is None:
         raise AppError(status_code=422, error_code="SLOT_NOT_LOCKED", message="Blood collection date is not set")
-    if participant.slot_start_time is None:
+    if sched["slot_start_time"] is None:
         raise AppError(status_code=422, error_code="SLOT_NOT_LOCKED", message="Blood collection time is not set")
 
     pkg = await _get_diagnostic_package(db, engagement.diagnostic_package_id)
@@ -1459,13 +1472,14 @@ async def create_healthians_booking_after_payment(
             continue
 
         status_lower = (engagement.status or "").lower()
-        if status_lower == "scheduled" and participant.booking_id:
+        existing_bid = await current_booking_id(db, participant)
+        if status_lower == "scheduled" and existing_bid:
             results.append({
                 "user_id": user_id,
                 "engagement_id": engagement_id,
                 "status": "success",
                 "message": "Booking already placed",
-                "booking_id": participant.booking_id,
+                "booking_id": existing_bid,
             })
             continue
 
@@ -1502,7 +1516,9 @@ async def create_healthians_booking_after_payment(
             dob = user.date_of_birth.strftime("%d/%m/%Y")
 
         external_package_id = pkg.external_package_id or 0
-        slot_id = participant.blood_collection_time_slot_id or ""
+        coll_row = await get_current_row(db, participant)
+        sched = read_schedule_from_row(coll_row)
+        slot_id = sched["blood_collection_time_slot_id"] or ""
         relation = (user.relationship or "self").strip() or "self"
         vendor_billing_user_id = vendor_billing_user_id_override or str(participant.booked_by_user_id)
 
@@ -1592,8 +1608,12 @@ async def create_healthians_booking_after_payment(
             continue
 
         booking_id = resp.get("booking_id", "")
-        participant.booking_id = str(booking_id)
-        participant.barcode = str(booking_id)
+        coll_row = await get_or_create_current(db, participant)
+        coll_row.booking_id = str(booking_id)
+        coll_row.barcode = str(booking_id)
+        db.add(coll_row)
+        await db.flush()
+        sched_after = read_schedule_from_row(coll_row)
         base_type_id = await _resolve_engagement_type_id(db, engagement_type_code) if engagement_type_code else None
         await _apply_complementary_consultation(db, engagement, pkg, base_type_id)
         if not preserve_engagement_status:
@@ -1604,8 +1624,8 @@ async def create_healthians_booking_after_payment(
                 db,
                 engagement=engagement,
                 user=user,
-                collection_date=participant.engagement_date,
-                collection_time=participant.slot_start_time,
+                collection_date=sched_after.get("engagement_date"),
+                collection_time=sched_after.get("slot_start_time"),
             )
 
         await db.flush()
@@ -1646,7 +1666,7 @@ async def cancel_healthians_participant_booking(
     repository: EngagementsRepository,
 ) -> dict[str, Any]:
     """Cancel a Healthians booking for an engagement participant and clear local booking fields."""
-    booking_id = (participant.booking_id or "").strip()
+    booking_id = (await current_booking_id(db, participant)) or ""
     if not booking_id:
         raise AppError(
             status_code=422,
@@ -1745,7 +1765,17 @@ async def reschedule_healthians_participant_booking(
     reschedule_reason: str,
 ) -> dict[str, Any]:
     """Reschedule a Healthians home-collection booking and update local participant fields."""
-    booking_id = (participant.booking_id or "").strip()
+    blood_repo = BloodBookingsRepository()
+    current = await blood_repo.get_current_collection(
+        db, engagement_participant_id=participant.engagement_participant_id
+    )
+    if current is None:
+        raise AppError(
+            status_code=422,
+            error_code="NO_BOOKING",
+            message="No Healthians booking exists for this participant",
+        )
+    booking_id = (current.booking_id or "").strip()
     if not booking_id:
         raise AppError(
             status_code=422,
@@ -1761,7 +1791,7 @@ async def reschedule_healthians_participant_booking(
             message="Blood collection slot has not been locked",
         )
 
-    locked_id = (participant.blood_collection_time_slot_id or "").strip()
+    locked_id = (current.collection_time_slot_id or "").strip()
     if not locked_id:
         raise AppError(
             status_code=422,
@@ -1847,13 +1877,14 @@ async def reschedule_healthians_participant_booking(
     data = resp.get("data") or {}
     new_booking_id = data.get("new_booking_id")
     new_booking_id_str = str(new_booking_id).strip() if new_booking_id else booking_id
-    if (participant.barcode or "").strip() == booking_id:
-        participant.barcode = new_booking_id_str
-    participant.booking_id = new_booking_id_str
-    participant.blood_collection_time_slot_id = slot_id
-    participant.engagement_date = blood_collection_date
-    participant.slot_start_time = slot_start_time
-    await db.flush()
+    await blood_repo.record_reschedule(
+        db,
+        current=current,
+        new_booking_id=new_booking_id_str,
+        collection_date=blood_collection_date,
+        collection_time=slot_start_time,
+        collection_time_slot_id=slot_id,
+    )
 
     return {
         "status": True,

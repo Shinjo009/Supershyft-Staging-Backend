@@ -26,7 +26,21 @@ from sqlalchemy.sql import func
 from sqlalchemy.types import JSON
 
 from db.base import Base
+from modules.engagements.blood_booking_enums import BloodBookingRelation, BloodBookingStatus
 from modules.engagements.enums import BloodCollectionType, ConsultationMode, EngagementKind, EngagementStatus
+
+_blood_booking_relation = SAEnum(
+    BloodBookingRelation,
+    name="blood_booking_relation_enum",
+    values_callable=lambda obj: [e.value for e in obj],
+    create_type=False,
+)
+_blood_booking_status = SAEnum(
+    BloodBookingStatus,
+    name="blood_booking_status_enum",
+    values_callable=lambda obj: [e.value for e in obj],
+    create_type=False,
+)
 
 
 _engagement_kind = SAEnum(
@@ -134,6 +148,59 @@ class OnboardingAssistantAssignment(Base):
     )
 
 
+class ParticipantBloodBooking(Base):
+    """One blood collection attempt / Healthians booking for an engagement participant."""
+
+    __tablename__ = "participant_blood_bookings"
+    __table_args__ = (
+        Index("ix_pbb_engagement_participant_id", "engagement_participant_id"),
+        Index(
+            "uq_pbb_booking_id",
+            "booking_id",
+            unique=True,
+            postgresql_where=text("booking_id IS NOT NULL AND btrim(booking_id) <> ''"),
+        ),
+        Index(
+            "ix_pbb_cabin_slot_occupancy",
+            "engagement_participant_id",
+            "collection_cabin",
+            "collection_date",
+            "collection_time",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    engagement_participant_id = Column(
+        Integer,
+        ForeignKey("engagement_participants.engagement_participant_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    collection_date = Column(Date, nullable=True)
+    collection_cabin = Column(String, nullable=True)
+    collection_time = Column(Time, nullable=True)
+    collection_time_slot_id = Column(String, nullable=True)
+    booking_id = Column(String, nullable=True)
+    barcode = Column(String, nullable=True)
+    collected_at = Column(DateTime(timezone=True), nullable=True)
+    relation = Column(
+        _blood_booking_relation,
+        nullable=False,
+        server_default=BloodBookingRelation.primary.value,
+    )
+    parent_booking_id = Column(String, nullable=True)
+    status = Column(
+        _blood_booking_status,
+        nullable=False,
+        server_default=BloodBookingStatus.active.value,
+    )
+    diagnostic_report_url = Column(Text, nullable=True)
+    blood_parameters = Column(JSON, nullable=True)
+    blood_report_raw = Column(JSON, nullable=True)
+    blood_parameters_full_report = Column(Boolean, nullable=True)
+    blood_parameters_verified_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class EngagementParticipant(Base):
     """SQLAlchemy model for `engagement_participants` table."""
 
@@ -143,23 +210,12 @@ class EngagementParticipant(Base):
         Index("ix_ep_engagement_id_user_id", "engagement_id", "user_id"),
         Index("ix_ep_user_id", "user_id"),
         Index("ix_ep_booked_by_user_id", "booked_by_user_id"),
-        Index("ix_ep_engagement_date", "engagement_date"),
-        Index("ix_engagement_participants_booking_id", "booking_id"),
-        Index(
-            "ix_ep_cabin_slot_occupancy",
-            "engagement_id",
-            "blood_collection_cabin",
-            "engagement_date",
-            "slot_start_time",
-        ),
     )
 
     engagement_participant_id = Column(Integer, primary_key=True)
     engagement_id = Column(Integer, ForeignKey("engagements.engagement_id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
     booked_by_user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
-    slot_start_time = Column(Time, nullable=True)
-    engagement_date = Column(Date, nullable=True)
     participants_employee_id = Column(String, nullable=True)
     participant_department = Column(String, nullable=True)
     participant_blood_group = Column(String, nullable=True)
@@ -167,10 +223,6 @@ class EngagementParticipant(Base):
     is_profile_created_on_metsights = Column(Boolean, nullable=False, default=False, server_default="false")
     is_primary_record_id_synced = Column(Boolean, nullable=False, default=False, server_default="false")
     is_fitprint_record_id_synced = Column(Boolean, nullable=False, default=False, server_default="false")
-    barcode = Column(String, nullable=True)
-    booking_id = Column(String, nullable=True)
-    blood_collection_time_slot_id = Column(String, nullable=True)
-    blood_collection_cabin = Column(String, nullable=True)
     face_scan_link = Column(String, nullable=True)
     address = Column(String, nullable=True)
     sub_locality = Column(String, nullable=True)
