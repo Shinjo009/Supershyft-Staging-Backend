@@ -3163,13 +3163,12 @@ class CampReportsRepository:
         db: AsyncSession,
         *,
         camp_no: int,
-    ) -> tuple[int, str, str | None] | None:
-        """Return (organization_id, organization_name, state) for a camp."""
+    ) -> tuple[int, str] | None:
+        """Return (organization_id, organization_name) for a camp."""
         result = await db.execute(
             select(
                 Organization.organization_id,
                 Organization.name,
-                Organization.state,
             )
             .select_from(Engagement)
             .join(Organization, Organization.organization_id == Engagement.organization_id)
@@ -3179,8 +3178,49 @@ class CampReportsRepository:
         row = result.one_or_none()
         if row is None:
             return None
-        organization_id, name, state = row
-        return int(organization_id), (name or ""), state
+        organization_id, name = row
+        return int(organization_id), (name or "")
+
+    async def list_distinct_engagement_states_for_camp(
+        self,
+        db: AsyncSession,
+        *,
+        camp_no: int,
+        city: str | None = None,
+    ) -> list[str]:
+        """Return distinct non-empty engagements.state values for a camp.
+
+        When ``city`` is set, only engagements in that city are considered.
+        Dedupes case-insensitively and keeps the first spelling encountered (ordered).
+        """
+        query = (
+            select(Engagement.state)
+            .where(
+                Engagement.camp_no == camp_no,
+                Engagement.state.isnot(None),
+                func.trim(Engagement.state) != "",
+            )
+            .distinct()
+            .order_by(Engagement.state.asc())
+        )
+        if city is not None:
+            query = query.where(func.lower(func.trim(Engagement.city)) == city.lower())
+
+        result = await db.execute(query)
+        states: list[str] = []
+        seen: set[str] = set()
+        for (raw,) in result.all():
+            if raw is None:
+                continue
+            trimmed = str(raw).strip()
+            if not trimmed:
+                continue
+            key = trimmed.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            states.append(trimmed)
+        return states
 
     async def list_benchmark_score_maps_for_camp(
         self,
@@ -3246,8 +3286,10 @@ class CampReportsRepository:
     ) -> dict[int, list[dict[str, float]]]:
         """Return {organization_id: [score_map, ...]} for peer Bio-AI orgs in ``state``.
 
-        Selected ``exclude_organization_id`` is omitted. Only orgs with at least one
-        usable Bio-AI score map are included.
+        Peers are matched by ``engagements.state`` (not organizations.state). Only score maps
+        from engagements in the target state are included. Selected
+        ``exclude_organization_id`` is omitted. Only orgs with at least one usable
+        Bio-AI score map are included.
         """
         from modules.reports.camp_report_section_builders import extract_benchmark_category_scores
 
@@ -3287,8 +3329,8 @@ class CampReportsRepository:
                 == AssessmentInstance.assessment_instance_id,
             )
             .where(
-                Organization.state.isnot(None),
-                func.lower(func.trim(Organization.state)) == state_norm,
+                Engagement.state.isnot(None),
+                func.lower(func.trim(Engagement.state)) == state_norm,
                 Organization.organization_id != exclude_organization_id,
                 AssessmentPackage.assessment_type_code.in_(("1", "2")),
             )

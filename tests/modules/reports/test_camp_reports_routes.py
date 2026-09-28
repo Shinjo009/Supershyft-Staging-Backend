@@ -4739,7 +4739,7 @@ async def _seed_state_disease_benchmark_camp_data(test_db_session):
                 name="D Decor",
                 organization_type="corporate",
                 status="active",
-                state="Maharashtra",
+                state="",  # company states come from engagements.state, not org
                 departments=[{"department": "Sales", "slug": "sales"}],
             ),
             Organization(
@@ -4747,7 +4747,7 @@ async def _seed_state_disease_benchmark_camp_data(test_db_session):
                 name="XYZ1",
                 organization_type="corporate",
                 status="active",
-                state="Maharashtra",
+                state="",  # peers matched via engagements.state
                 departments=[{"department": "Sales", "slug": "sales"}],
             ),
             Organization(
@@ -4755,7 +4755,7 @@ async def _seed_state_disease_benchmark_camp_data(test_db_session):
                 name="XYZ2",
                 organization_type="corporate",
                 status="active",
-                state="Maharashtra",
+                state="",  # peers matched via engagements.state
                 departments=[{"department": "Sales", "slug": "sales"}],
             ),
         ]
@@ -4776,6 +4776,7 @@ async def _seed_state_disease_benchmark_camp_data(test_db_session):
                 engagement_code="SDB9701",
                 engagement_type=type_id,
                 city="Mumbai",
+                state="Maharashtra",
                 slot_duration=20,
                 start_date=start,
                 end_date=end,
@@ -4789,6 +4790,7 @@ async def _seed_state_disease_benchmark_camp_data(test_db_session):
                 engagement_code="SDB9702",
                 engagement_type=type_id,
                 city="Pune",
+                state="Maharashtra",
                 slot_duration=20,
                 start_date=start,
                 end_date=end,
@@ -4802,6 +4804,7 @@ async def _seed_state_disease_benchmark_camp_data(test_db_session):
                 engagement_code="SDB9703",
                 engagement_type=type_id,
                 city="Nagpur",
+                state="Maharashtra",
                 slot_duration=20,
                 start_date=start,
                 end_date=end,
@@ -4835,32 +4838,24 @@ async def _seed_state_disease_benchmark_camp_data(test_db_session):
                 engagement_participant_id=97001,
                 engagement_id=9701,
                 user_id=97001,
-                engagement_date=start,
-                slot_start_time=time(10, 0),
                 participant_department="sales",
             ),
             EngagementParticipant(
                 engagement_participant_id=97002,
                 engagement_id=9701,
                 user_id=97002,
-                engagement_date=start,
-                slot_start_time=time(10, 20),
                 participant_department="sales",
             ),
             EngagementParticipant(
                 engagement_participant_id=97003,
                 engagement_id=9702,
                 user_id=97003,
-                engagement_date=start,
-                slot_start_time=time(10, 0),
                 participant_department="sales",
             ),
             EngagementParticipant(
                 engagement_participant_id=97004,
                 engagement_id=9703,
                 user_id=97004,
-                engagement_date=start,
-                slot_start_time=time(10, 0),
                 participant_department="sales",
             ),
         ]
@@ -4969,17 +4964,24 @@ async def test_refresh_and_dashboard_state_disease_benchmark(async_client, test_
     data = section["data"]
     assert data["company"]["organization_id"] == 9701
     assert data["company"]["name"] == "D Decor"
-    assert data["company"]["state"] == "Maharashtra"
-    assert data["benchmark"]["companies_count"] == 2
+    assert "state" not in data["company"]
+    assert len(data["states"]) == 1
+    state_entry = data["states"][0]
+    assert state_entry["state"] == "Maharashtra"
+    assert state_entry["benchmark"]["companies_count"] == 2
 
-    thyroid = next(r for r in data["risk_comparison"] if r["category_key"] == "thyroid_health")
+    thyroid = next(
+        r for r in state_entry["risk_comparison"] if r["category_key"] == "thyroid_health"
+    )
     assert thyroid["category"] == "Thyroid"
     assert thyroid["company_average"] == 45.0
     assert thyroid["state_average"] == 50.0
 
-    oxidative = next(r for r in data["risk_comparison"] if r["category_key"] == "oxidative_stress")
+    oxidative = next(
+        r for r in state_entry["risk_comparison"] if r["category_key"] == "oxidative_stress"
+    )
     assert oxidative["company_average"] == 35.0
-    assert oxidative["state_average"] is None
+    assert oxidative["state_average"] == 0.0
 
     bts = response.json()["data"]["report_bts"]
     assert bts["status"] == "ok"
@@ -4991,8 +4993,9 @@ async def test_refresh_and_dashboard_state_disease_benchmark(async_client, test_
     )
     assert dashboard.status_code == 200
     dash_data = dashboard.json()["data"]["data"]
-    assert dash_data["benchmark"]["companies_count"] == 2
-    assert dash_data["risk_comparison"][0]["category_key"]
+    assert len(dash_data["states"]) == 1
+    assert dash_data["states"][0]["benchmark"]["companies_count"] == 2
+    assert dash_data["states"][0]["risk_comparison"][0]["category_key"]
 
     row = (
         await test_db_session.execute(select(CampReport).where(CampReport.report_id == report_id))
@@ -5000,3 +5003,236 @@ async def test_refresh_and_dashboard_state_disease_benchmark(async_client, test_
     assert "state_disease_benchmark" in row.report
     assert row.report_bts["state_disease_benchmark"]["status"] == "ok"
 
+
+@pytest.mark.asyncio
+async def test_refresh_state_disease_benchmark_multi_engagement_states(
+    async_client, test_db_session
+):
+    """Distinct engagements.state values produce multiple states[] entries."""
+    from modules.assessments.models import AssessmentInstance, AssessmentPackage
+    from modules.reports.models import IndividualHealthReport
+    from tests.helpers.engagement_types import engagement_type_id
+
+    await _seed_employee(test_db_session, user_id=7911, employee_id=441)
+    await _seed_state_disease_benchmark_section(test_db_session, report_sections=441)
+    headers = _auth_header(441)
+
+    start = date(2026, 7, 1)
+    end = date(2026, 7, 3)
+    type_id = await engagement_type_id(test_db_session, "bio_ai")
+    camp_no = compute_camp_no(9801, start)
+
+    test_db_session.add_all(
+        [
+            Organization(
+                organization_id=9801,
+                name="Multi State Co",
+                organization_type="corporate",
+                status="active",
+                state="",
+                departments=[{"department": "Sales", "slug": "sales"}],
+            ),
+            Organization(
+                organization_id=9802,
+                name="MH Peer",
+                organization_type="corporate",
+                status="active",
+                state="",  # peers matched via engagements.state
+            ),
+            Organization(
+                organization_id=9803,
+                name="KA Peer",
+                organization_type="corporate",
+                status="active",
+                state="",  # peers matched via engagements.state
+            ),
+        ]
+    )
+    await test_db_session.flush()
+
+    test_db_session.add_all(
+        [
+            Engagement(
+                engagement_id=9801,
+                engagement_name="Pune Site",
+                organization_id=9801,
+                camp_no=camp_no,
+                engagement_code="MSD9801",
+                engagement_type=type_id,
+                city="Pune",
+                state="Maharashtra",
+                slot_duration=20,
+                start_date=start,
+                end_date=end,
+                status="running",
+            ),
+            Engagement(
+                engagement_id=9802,
+                engagement_name="Bangalore Site",
+                organization_id=9801,
+                camp_no=camp_no,
+                engagement_code="MSD9802",
+                engagement_type=type_id,
+                city="Bangalore",
+                state="Karnataka",
+                slot_duration=20,
+                start_date=start,
+                end_date=end,
+                status="running",
+            ),
+            Engagement(
+                engagement_id=9803,
+                engagement_name="MH Peer Camp",
+                organization_id=9802,
+                camp_no=compute_camp_no(9802, start),
+                engagement_code="MSD9803",
+                engagement_type=type_id,
+                city="Mumbai",
+                state="Maharashtra",
+                slot_duration=20,
+                start_date=start,
+                end_date=end,
+                status="running",
+            ),
+            Engagement(
+                engagement_id=9804,
+                engagement_name="KA Peer Camp",
+                organization_id=9803,
+                camp_no=compute_camp_no(9803, start),
+                engagement_code="MSD9804",
+                engagement_type=type_id,
+                city="Mysore",
+                state="Karnataka",
+                slot_duration=20,
+                start_date=start,
+                end_date=end,
+                status="running",
+            ),
+            AssessmentPackage(
+                package_id=9801,
+                package_code="MSDPKG1",
+                display_name="Bio AI Package",
+                assessment_type_code="1",
+                status="active",
+            ),
+        ]
+    )
+    await test_db_session.flush()
+
+    test_db_session.add_all(
+        [
+            User(user_id=98001, age=30, phone="980010000000", status="active"),
+            User(user_id=98002, age=31, phone="980020000000", status="active"),
+            User(user_id=98003, age=32, phone="980030000000", status="active"),
+        ]
+    )
+    await test_db_session.flush()
+    test_db_session.add_all(
+        [
+            EngagementParticipant(
+                engagement_participant_id=98001,
+                engagement_id=9801,
+                user_id=98001,
+                participant_department="sales",
+            ),
+            EngagementParticipant(
+                engagement_participant_id=98002,
+                engagement_id=9803,
+                user_id=98002,
+                participant_department="sales",
+            ),
+            EngagementParticipant(
+                engagement_participant_id=98003,
+                engagement_id=9804,
+                user_id=98003,
+                participant_department="sales",
+            ),
+            AssessmentInstance(
+                assessment_instance_id=98001,
+                engagement_id=9801,
+                user_id=98001,
+                package_id=9801,
+                status="completed",
+            ),
+            AssessmentInstance(
+                assessment_instance_id=98002,
+                engagement_id=9803,
+                user_id=98002,
+                package_id=9801,
+                status="completed",
+            ),
+            AssessmentInstance(
+                assessment_instance_id=98003,
+                engagement_id=9804,
+                user_id=98003,
+                package_id=9801,
+                status="completed",
+            ),
+            IndividualHealthReport(
+                report_id=98001,
+                assessment_instance_id=98001,
+                engagement_id=9801,
+                user_id=98001,
+                reports={"diseases": [{"code": "thyroid_health", "risk_score_scaled": 40}]},
+            ),
+            IndividualHealthReport(
+                report_id=98002,
+                assessment_instance_id=98002,
+                engagement_id=9803,
+                user_id=98002,
+                reports={"diseases": [{"code": "thyroid_health", "risk_score_scaled": 50}]},
+            ),
+            IndividualHealthReport(
+                report_id=98003,
+                assessment_instance_id=98003,
+                engagement_id=9804,
+                user_id=98003,
+                reports={"diseases": [{"code": "thyroid_health", "risk_score_scaled": 60}]},
+            ),
+        ]
+    )
+    await test_db_session.commit()
+
+    init = await async_client.post(f"/reports/camps/{camp_no}/init", headers=headers)
+    assert init.status_code == 201
+
+    response = await async_client.put(
+        f"/reports/camps/{camp_no}/refresh",
+        headers=headers,
+        params={"async": "false"},
+        json={"section": "state_disease_benchmark"},
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]["section"]["data"]
+    assert data["company"]["organization_id"] == 9801
+    assert [s["state"] for s in data["states"]] == ["Karnataka", "Maharashtra"]
+
+    by_state = {s["state"]: s for s in data["states"]}
+    assert by_state["Maharashtra"]["benchmark"]["companies_count"] == 1
+    assert by_state["Karnataka"]["benchmark"]["companies_count"] == 1
+    mh_thyroid = next(
+        r
+        for r in by_state["Maharashtra"]["risk_comparison"]
+        if r["category_key"] == "thyroid_health"
+    )
+    ka_thyroid = next(
+        r
+        for r in by_state["Karnataka"]["risk_comparison"]
+        if r["category_key"] == "thyroid_health"
+    )
+    assert mh_thyroid["company_average"] == 40.0
+    assert ka_thyroid["company_average"] == 40.0
+    assert mh_thyroid["state_average"] == 50.0
+    assert ka_thyroid["state_average"] == 60.0
+
+    init_city = await async_client.post(f"/reports/camps/{camp_no}/Bangalore/init", headers=headers)
+    assert init_city.status_code == 201
+    city_refresh = await async_client.put(
+        f"/reports/camps/{camp_no}/Bangalore/refresh",
+        headers=headers,
+        params={"async": "false"},
+        json={"section": "state_disease_benchmark"},
+    )
+    assert city_refresh.status_code == 200
+    city_states = city_refresh.json()["data"]["section"]["data"]["states"]
+    assert [s["state"] for s in city_states] == ["Karnataka"]

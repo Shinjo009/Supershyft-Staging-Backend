@@ -948,28 +948,93 @@ def test_build_state_disease_benchmark_peer_company_equal_weight():
     payload = build_state_disease_benchmark(
         organization_id=25,
         company_name="D Decor",
-        state="Maharashtra",
         company_category_averages=company_avg,
-        peer_company_category_averages=[peer1, peer2],
+        state_peer_averages=[
+            {
+                "state": "Maharashtra",
+                "peer_company_category_averages": [peer1, peer2],
+            }
+        ],
     )
     data = payload["data"]
     assert data["company"] == {
         "organization_id": 25,
         "name": "D Decor",
-        "state": "Maharashtra",
     }
-    assert data["benchmark"]["companies_count"] == 2
-    assert len(data["risk_comparison"]) == len(STATE_BENCHMARK_CATEGORIES)
+    assert "state" not in data["company"]
+    assert len(data["states"]) == 1
+    state_entry = data["states"][0]
+    assert state_entry["state"] == "Maharashtra"
+    assert state_entry["benchmark"]["companies_count"] == 2
+    assert len(state_entry["risk_comparison"]) == len(STATE_BENCHMARK_CATEGORIES)
 
-    thyroid = next(r for r in data["risk_comparison"] if r["category_key"] == "thyroid_health")
+    thyroid = next(
+        r for r in state_entry["risk_comparison"] if r["category_key"] == "thyroid_health"
+    )
     assert thyroid["category"] == "Thyroid"
     assert thyroid["company_average"] == 45.0
     assert thyroid["state_average"] == 50.0  # (40 + 60) / 2, not (40*3+60)/4
 
-    oxidative = next(r for r in data["risk_comparison"] if r["category_key"] == "oxidative_stress")
+    oxidative = next(
+        r for r in state_entry["risk_comparison"] if r["category_key"] == "oxidative_stress"
+    )
     assert oxidative["category"] == "Oxidative Stress"
     assert oxidative["company_average"] == 35.0
-    assert oxidative["state_average"] is None
+    assert oxidative["state_average"] == 0.0
 
-    assert data["overall"]["company_average"] == 40.0  # mean of 45 and 35
-    assert data["overall"]["state_average"] == 50.0
+    assert state_entry["overall"]["company_average"] == 40.0  # mean of 45 and 35
+    assert state_entry["overall"]["state_average"] == 50.0
+
+
+def test_build_state_disease_benchmark_empty_states():
+    from modules.reports.camp_report_section_builders import build_state_disease_benchmark
+
+    payload = build_state_disease_benchmark(
+        organization_id=8,
+        company_name="NVIDIA",
+        company_category_averages={"thyroid_health": 22.0},
+        state_peer_averages=[],
+    )
+    assert payload["data"]["company"] == {"organization_id": 8, "name": "NVIDIA"}
+    assert payload["data"]["states"] == []
+
+
+def test_build_state_disease_benchmark_multi_state_shared_company_averages():
+    from modules.reports.camp_report_section_builders import build_state_disease_benchmark
+
+    company_avg = {"thyroid_health": 45.0, "oxidative_stress": 35.0}
+    payload = build_state_disease_benchmark(
+        organization_id=8,
+        company_name="NVIDIA",
+        company_category_averages=company_avg,
+        state_peer_averages=[
+            {
+                "state": "Maharashtra",
+                "peer_company_category_averages": [{"thyroid_health": 40.0}],
+            },
+            {
+                "state": "Karnataka",
+                "peer_company_category_averages": [
+                    {"thyroid_health": 50.0},
+                    {"thyroid_health": 60.0},
+                ],
+            },
+        ],
+    )
+    states = payload["data"]["states"]
+    assert len(states) == 2
+    assert states[0]["state"] == "Maharashtra"
+    assert states[0]["benchmark"]["companies_count"] == 1
+    assert states[1]["state"] == "Karnataka"
+    assert states[1]["benchmark"]["companies_count"] == 2
+
+    mh_thyroid = next(
+        r for r in states[0]["risk_comparison"] if r["category_key"] == "thyroid_health"
+    )
+    ka_thyroid = next(
+        r for r in states[1]["risk_comparison"] if r["category_key"] == "thyroid_health"
+    )
+    assert mh_thyroid["company_average"] == 45.0
+    assert ka_thyroid["company_average"] == 45.0
+    assert mh_thyroid["state_average"] == 40.0
+    assert ka_thyroid["state_average"] == 55.0

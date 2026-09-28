@@ -2621,7 +2621,7 @@ def build_state_disease_benchmark_bts(
 
     expected_company = expected_data.get("company") if isinstance(expected_data.get("company"), dict) else {}
     stored_company = stored_data.get("company") if isinstance(stored_data.get("company"), dict) else {}
-    for key in ("organization_id", "name", "state"):
+    for key in ("organization_id", "name"):
         expected_value = expected_company.get(key)
         stored_value = stored_company.get(key)
         fields[f"company.{key}"] = _field_entry(
@@ -2632,61 +2632,98 @@ def build_state_disease_benchmark_bts(
             ),
         )
 
-    expected_benchmark = (
-        expected_data.get("benchmark") if isinstance(expected_data.get("benchmark"), dict) else {}
-    )
-    stored_benchmark = (
-        stored_data.get("benchmark") if isinstance(stored_data.get("benchmark"), dict) else {}
-    )
-    expected_count = _int_or_none(expected_benchmark.get("companies_count"))
-    stored_count = _int_or_none(stored_benchmark.get("companies_count"))
-    fields["benchmark.companies_count"] = _field_entry(
-        expected=expected_count if expected_count is not None else 0,
-        stored=stored_count,
+    expected_states = expected_data.get("states")
+    stored_states = stored_data.get("states")
+    if not isinstance(expected_states, list):
+        expected_states = []
+    if not isinstance(stored_states, list):
+        stored_states = []
+
+    fields["states.count"] = _field_entry(
+        expected=len(expected_states),
+        stored=len(stored_states),
         reason=(
-            f"Peer Bio-AI company count should be {expected_count} but the report shows {stored_count}."
+            f"State count should be {len(expected_states)} but the report shows {len(stored_states)}."
         ),
     )
 
-    expected_rows = expected_data.get("risk_comparison")
-    stored_rows = stored_data.get("risk_comparison")
-    expected_by_key: dict[str, dict[str, Any]] = {}
-    if isinstance(expected_rows, list):
-        for row in expected_rows:
-            if isinstance(row, dict) and isinstance(row.get("category_key"), str):
-                expected_by_key[row["category_key"]] = row
-    stored_by_key: dict[str, dict[str, Any]] = {}
-    if isinstance(stored_rows, list):
-        for row in stored_rows:
-            if isinstance(row, dict) and isinstance(row.get("category_key"), str):
-                stored_by_key[row["category_key"]] = row
+    for index, expected_state in enumerate(expected_states):
+        if not isinstance(expected_state, dict):
+            continue
+        stored_state = stored_states[index] if index < len(stored_states) and isinstance(stored_states[index], dict) else {}
+        prefix = f"states.{index}"
 
-    for category_key, expected_row in expected_by_key.items():
-        stored_row = stored_by_key.get(category_key) or {}
+        expected_state_name = expected_state.get("state")
+        stored_state_name = stored_state.get("state")
+        fields[f"{prefix}.state"] = _field_entry(
+            expected=expected_state_name,
+            stored=stored_state_name,
+            reason=(
+                f"State name should be {expected_state_name!r} but the report shows {stored_state_name!r}."
+            ),
+        )
+
+        expected_benchmark = (
+            expected_state.get("benchmark") if isinstance(expected_state.get("benchmark"), dict) else {}
+        )
+        stored_benchmark = (
+            stored_state.get("benchmark") if isinstance(stored_state.get("benchmark"), dict) else {}
+        )
+        expected_count = _int_or_none(expected_benchmark.get("companies_count"))
+        stored_count = _int_or_none(stored_benchmark.get("companies_count"))
+        fields[f"{prefix}.benchmark.companies_count"] = _field_entry(
+            expected=expected_count if expected_count is not None else 0,
+            stored=stored_count,
+            reason=(
+                f"Peer Bio-AI company count for {expected_state_name!r} should be {expected_count} "
+                f"but the report shows {stored_count}."
+            ),
+        )
+
+        expected_rows = expected_state.get("risk_comparison")
+        stored_rows = stored_state.get("risk_comparison")
+        expected_by_key: dict[str, dict[str, Any]] = {}
+        if isinstance(expected_rows, list):
+            for row in expected_rows:
+                if isinstance(row, dict) and isinstance(row.get("category_key"), str):
+                    expected_by_key[row["category_key"]] = row
+        stored_by_key: dict[str, dict[str, Any]] = {}
+        if isinstance(stored_rows, list):
+            for row in stored_rows:
+                if isinstance(row, dict) and isinstance(row.get("category_key"), str):
+                    stored_by_key[row["category_key"]] = row
+
+        for category_key, expected_row in expected_by_key.items():
+            stored_row = stored_by_key.get(category_key) or {}
+            for field_name in ("company_average", "state_average"):
+                expected_value = _float_or_none(expected_row.get(field_name))
+                stored_value = _float_or_none(stored_row.get(field_name))
+                fields[f"{prefix}.risk_comparison.{category_key}.{field_name}"] = _field_entry(
+                    expected=expected_value,
+                    stored=stored_value,
+                    reason=(
+                        f"For {expected_state_name!r} / {category_key}, {field_name} should be "
+                        f"{expected_value} but the report shows {stored_value}."
+                    ),
+                )
+
+        expected_overall = (
+            expected_state.get("overall") if isinstance(expected_state.get("overall"), dict) else {}
+        )
+        stored_overall = (
+            stored_state.get("overall") if isinstance(stored_state.get("overall"), dict) else {}
+        )
         for field_name in ("company_average", "state_average"):
-            expected_value = _float_or_none(expected_row.get(field_name))
-            stored_value = _float_or_none(stored_row.get(field_name))
-            fields[f"risk_comparison.{category_key}.{field_name}"] = _field_entry(
+            expected_value = _float_or_none(expected_overall.get(field_name))
+            stored_value = _float_or_none(stored_overall.get(field_name))
+            fields[f"{prefix}.overall.{field_name}"] = _field_entry(
                 expected=expected_value,
                 stored=stored_value,
                 reason=(
-                    f"For {category_key}, {field_name} should be {expected_value} "
+                    f"Overall {field_name} for {expected_state_name!r} should be {expected_value} "
                     f"but the report shows {stored_value}."
                 ),
             )
-
-    expected_overall = expected_data.get("overall") if isinstance(expected_data.get("overall"), dict) else {}
-    stored_overall = stored_data.get("overall") if isinstance(stored_data.get("overall"), dict) else {}
-    for field_name in ("company_average", "state_average"):
-        expected_value = _float_or_none(expected_overall.get(field_name))
-        stored_value = _float_or_none(stored_overall.get(field_name))
-        fields[f"overall.{field_name}"] = _field_entry(
-            expected=expected_value,
-            stored=stored_value,
-            reason=(
-                f"Overall {field_name} should be {expected_value} but the report shows {stored_value}."
-            ),
-        )
 
     all_match = all(bool(entry.get("match")) for entry in fields.values())
     if all_match:
