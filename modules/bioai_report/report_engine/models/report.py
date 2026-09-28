@@ -6,15 +6,16 @@ names are never exposed to the frontend.
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 
 class PatientInfo(BaseModel):
     """Patient demographics and metabolic snapshot for the report."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", ser_json_inf_nan="null")
 
     record_id: str | None = None
     name: str | None = None
@@ -26,11 +27,28 @@ class PatientInfo(BaseModel):
     weight: float | int | None = None
     bmi: float | int | None = None
     profile_id: str | None = None
+    user_id: int | None = None
     metabolic_age: float | int | None = None
     metabolic_score: float | int | None = None
     metabolic_health_status: str | None = None
     assessment_code: str | None = None
     assessment_date: str | None = None
+
+    @field_validator("date_of_birth", "assessment_date", mode="before")
+    @classmethod
+    def _coerce_date_strings(cls, value: Any, info: ValidationInfo) -> str | None:
+        if value is None or isinstance(value, bool):
+            return None
+        if isinstance(value, datetime):
+            if info.field_name == "date_of_birth":
+                return value.date().isoformat()
+            return value.isoformat()
+        if isinstance(value, date):
+            return value.isoformat()
+        if isinstance(value, (dict, list, tuple, set, bytes)):
+            return None
+        text = str(value).strip()
+        return text or None
 
 
 class DiseaseHighlight(BaseModel):
@@ -63,7 +81,7 @@ class ExecutiveSummary(BaseModel):
 class DiseaseCurrentStatus(BaseModel):
     """Score / risk block rendered at the top of a disease page."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", ser_json_inf_nan="null")
 
     score: int
     risk: str
@@ -157,7 +175,7 @@ class ReportMetadata(BaseModel):
 class BioReport(BaseModel):
     """Final JSON contract between the content engine and the frontend."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", ser_json_inf_nan="null")
 
     patient: PatientInfo
     executive_summary: ExecutiveSummary

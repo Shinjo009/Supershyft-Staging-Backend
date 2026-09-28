@@ -492,3 +492,40 @@ class PatientProfileService:
         merged = merge_patient_into_assessment(assessment, patient)
         self._emit("enrichment", "merged", f"patient_fields={sorted(patient.keys())}")
         return merged
+
+    async def enrich_assessment_from_local_user(
+        self,
+        assessment: dict[str, Any],
+        *,
+        user_id: int,
+        assessment_instance_id: int,
+        db: AsyncSession,
+    ) -> dict[str, Any]:
+        """Authoritative SuperShyft user + questionnaire demographics. No MetSights."""
+        demographics: dict[str, Any] = {"user_id": user_id}
+        if self._users is not None:
+            try:
+                user = await self._users.get_user_by_id(db, user_id)
+            except Exception as exc:  # noqa: BLE001
+                self._emit(
+                    "user_api",
+                    "failed",
+                    f"get_user_by_id({user_id}) failed: {type(exc).__name__}: {exc}",
+                )
+                user = None
+            if user is not None:
+                extracted = extract_demographics_from_user(user)
+                demographics.update(extracted)
+                demographics["user_id"] = int(user_id)
+                self._emit("user_api", "extracted", f"fields={sorted(extracted.keys()) or ['<none>']}")
+            else:
+                self._emit("user_api", "empty", f"no local user found for user_id={user_id}")
+
+        physical = await self._fetch_questionnaire_demographics(
+            db, assessment_instance_id=assessment_instance_id
+        )
+        for key, value in physical.items():
+            current = demographics.get(key)
+            if current is None or (isinstance(current, str) and not current.strip()):
+                demographics[key] = value
+        return merge_patient_into_assessment(assessment, demographics, overwrite=True)

@@ -44,9 +44,48 @@ class _FakeAssessments:
 class _FakeFetch:
     def __init__(self, by_record: dict[str, AssessmentPayload]) -> None:
         self.by_record = by_record
+        self.fetch_calls = 0
 
     async def fetch(self, *, record_id: str, assessment_type_code: str | None = None):
-        return self.by_record[record_id]
+        self.fetch_calls += 1
+        raise AssertionError("MetSights fetch must not be used for Bio-AI trends")
+
+
+def _reports_from_payload(payload: AssessmentPayload) -> dict:
+    return {
+        "assessment_date": payload.assessment_date,
+        "sex": payload.sex,
+        "gender": payload.gender,
+        "metabolic_score": payload.metabolic_score,
+        "metabolic_health_status": payload.metabolic_health_status,
+        "diseases": [
+            {
+                "code": disease.code,
+                "risk_score_scaled": disease.risk_score_scaled,
+                "risk_status": disease.risk_status,
+            }
+            for disease in payload.diseases
+        ],
+    }
+
+
+class _FakeReports:
+    def __init__(self, rows: list, payloads: dict[str, AssessmentPayload]) -> None:
+        self.rows = []
+        for instance, package in rows:
+            payload = payloads.get(getattr(instance, "metsights_record_id", None))
+            if payload is None:
+                continue
+            self.rows.append(
+                (
+                    instance,
+                    package,
+                    SimpleNamespace(reports=_reports_from_payload(payload)),
+                )
+            )
+
+    async def list_completed_bioai_reports_for_user(self, db, *, user_id: int):
+        return self.rows
 
 
 def _instance(*, instance_id: int, record_id: str, completed: str) -> SimpleNamespace:
@@ -95,6 +134,7 @@ def _service(rows, payloads, *, user_exists: bool = True, gender: str | None = N
         assessment_service=_FakeFetch(payloads),
         assessments_repository=_FakeAssessments(rows),
         users_repository=_FakeUsers(exists=user_exists, gender=gender),
+        reports_repository=_FakeReports(rows, payloads),
     )
 
 
@@ -329,7 +369,12 @@ def test_health_trends_false_when_not_available():
             ]
         ),
     ).to_report_field()
-    assert embedded is False
+    assert embedded == {
+        "series": [
+            {"disease_id": disease_id, "title": title, "points": []}
+            for disease_id, title in TREND_DISEASE_TITLES.items()
+        ]
+    }
 
 
 def test_health_trends_series_omits_nulls_and_extra_fields():
@@ -380,7 +425,7 @@ def test_health_trends_series_omits_nulls_and_extra_fields():
     ).to_report_field()
     assert embedded is not False
     by_id = _series_by_id(embedded)
-    assert "pcos" not in by_id
+    assert by_id["pcos"]["points"] == []
     assert by_id["obesity"]["title"] == TREND_DISEASE_TITLES["obesity"]
     assert by_id["obesity"]["points"] == [{"date": "2024-01-01", "score": 20}]
     assert by_id["nafld"]["points"] == [{"date": "2024-01-01", "score": 0}]
@@ -422,7 +467,8 @@ async def test_embed_for_report_applies_historical_cutoff():
         "2025-06-01",
         "2026-06-01",
     ]
-    assert "pcos" not in _series_by_id(latest)
+    assert "pcos" in _series_by_id(latest)
+    assert _series_by_id(latest)["pcos"]["points"] == []
 
     mid = await svc.embed_for_assessment_instance(
         None,
@@ -444,7 +490,12 @@ async def test_embed_for_report_applies_historical_cutoff():
         assessment_instance_id=2023,
         report_payload={"patient": {"assessment_date": "2023-06-01T10:00:00+05:30"}},
     )
-    assert single is False
+    assert single == {
+        "series": [
+            {"disease_id": disease_id, "title": title, "points": []}
+            for disease_id, title in TREND_DISEASE_TITLES.items()
+        ]
+    }
 
 
 @pytest.mark.asyncio
@@ -462,7 +513,12 @@ async def test_same_day_cutoff_in_health_trends():
         assessment_instance_id=10,
         report_payload={"patient": {"assessment_date": "2024-06-15T08:00:00+05:30"}},
     )
-    assert only_first is False
+    assert only_first == {
+        "series": [
+            {"disease_id": disease_id, "title": title, "points": []}
+            for disease_id, title in TREND_DISEASE_TITLES.items()
+        ]
+    }
 
     both = await _service(rows, payloads).embed_for_assessment_instance(
         None,
@@ -512,7 +568,7 @@ async def test_male_pcos_is_absent_from_health_trends():
         report_payload={"patient": {"assessment_date": "2025-01-01", "sex": "male", "gender": "male"}},
     )
     by_id = _series_by_id(embedded)
-    assert "pcos" not in by_id
+    assert by_id["pcos"]["points"] == []
     assert [p["score"] for p in by_id["obesity"]["points"]] == [20, 25]
 
 
@@ -580,7 +636,12 @@ async def test_health_trends_false_does_not_strip_existing_report_fields():
     without_trends = {k: v for k, v in merged.items() if k != "health_trends"}
     assert json.dumps(without_trends, sort_keys=True) == original
     assert "trends" not in merged
-    assert merged["health_trends"] is False
+    assert merged["health_trends"] == {
+        "series": [
+            {"disease_id": disease_id, "title": title, "points": []}
+            for disease_id, title in TREND_DISEASE_TITLES.items()
+        ]
+    }
     assert merged["disease_sections"][0]["current_status"]["score"] == 33
     assert merged["executive_summary"]["metabolic_score"] == 20
 

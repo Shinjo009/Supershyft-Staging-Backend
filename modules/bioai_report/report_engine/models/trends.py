@@ -74,17 +74,17 @@ class BioAITrendResponse(BaseModel):
     assessments: list[BioAITrendAssessment] = Field(default_factory=list)
     trends: BioAITrendsByDisease = Field(default_factory=BioAITrendsByDisease)
 
-    def to_report_field(self) -> dict[str, Any] | bool:
+    def to_report_field(self) -> dict[str, Any]:
         """Frontend ``health_trends`` value for the Bio-AI report JSON.
 
-        Returns ``False`` when fewer than two assessments qualify. Otherwise
-        returns ``{"series": [...]}`` with only diseases that have at least one
-        numeric score. Each point is ``{date, score}`` only; null scores are omitted.
-        """
-        if not self.trend_available:
-            return False
+        Always returns::
 
-        by_disease = self.trends.model_dump(mode="json")
+            {"series": [{"disease_id", "title", "points": [{"date", "score"}]}]}
+
+        Every canonical disease is present. When trends are unavailable, or a
+        disease has no numeric scores, that disease's ``points`` is ``[]``.
+        """
+        by_disease = self.trends.model_dump(mode="json") if self.trend_available else {}
         series: list[dict[str, Any]] = []
         for disease_id, title in TREND_DISEASE_TITLES.items():
             points: list[dict[str, Any]] = []
@@ -93,8 +93,6 @@ class BioAITrendResponse(BaseModel):
                 if score is None:
                     continue
                 points.append({"date": point.get("date"), "score": score})
-            if not points:
-                continue
             series.append(
                 {
                     "disease_id": disease_id,

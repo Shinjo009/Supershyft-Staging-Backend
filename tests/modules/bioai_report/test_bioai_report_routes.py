@@ -3,35 +3,29 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+import inspect
 
 import pytest
 from sqlalchemy import text
 
-from core.config import settings
-from core.security import create_jwt_token
 from modules.assessments.models import AssessmentInstance
 from modules.bioai_report.report_engine.api.dependencies import get_bioreport_service
+from modules.bioai_report.report_engine.api import router as bioai_router
 from modules.bioai_report.report_engine.models.report import (
     BioReport,
     ExecutiveSummary,
     PatientInfo,
     ReportMetadata,
 )
-from modules.employee.models import Employee
 from modules.engagements.models import Engagement
 from modules.users.models import User
-
-
-def _auth_header(employee_id: int) -> dict[str, str]:
-    from tests.helpers.auth import employee_auth_header
-    return employee_auth_header(employee_id)
 
 
 class _FakeBioReportService:
     async def generate_for_assessment_instance(self, *, assessment_instance_id: int, db):
         return BioReport(
             patient=PatientInfo(record_id="REC-1", name="Test User"),
-            executive_summary=ExecutiveSummary(),
+            executive_summary=ExecutiveSummary(patient=PatientInfo(record_id="REC-1", name="Test User")),
             disease_sections=[],
             report_metadata=ReportMetadata(
                 record_id="REC-1",
@@ -86,57 +80,32 @@ async def _seed_assessment(test_db_session, *, assessment_id: int, user_id: int)
             user_id=user_id,
             package_id=1,
             engagement_id=assessment_id,
-            status="active",
+            status="completed",
             metsights_record_id="REC-1",
         )
     )
     await test_db_session.commit()
 
 
-async def _seed_admin_employee(test_db_session, *, user_id: int, employee_id: int):
-    test_db_session.add(User(user_id=user_id, age=30, phone=f"{user_id}000000", status="active"))
-    await test_db_session.flush()
-    test_db_session.add(Employee(employee_id=employee_id, name=f"Employee {employee_id}", phone=str(employee_id).zfill(10)[:15], email=f"employee{employee_id}@test.example", role="admin", status="active"))
-    await test_db_session.commit()
-
-
 @pytest.mark.asyncio
-async def test_get_bioreport_requires_internal_employee(async_client, test_db_session):
+async def test_get_bioreport_returns_engine_content_without_endpoint_auth(
+    async_client, fastapi_app, test_db_session
+):
     await _seed_assessment(test_db_session, assessment_id=99501, user_id=89501)
-
-    response = await async_client.get("/bioai-report/99501", headers=_auth_header(89501))
-    assert response.status_code == 403
-
-
-@pytest.mark.asyncio
-async def test_get_bioreport_onboarding_assistant_allowed(async_client, fastapi_app, test_db_session):
-    await _seed_assessment(test_db_session, assessment_id=99502, user_id=89502)
-    test_db_session.add(User(user_id=89512, age=30, phone="8951200000", status="active"))
-    await test_db_session.flush()
-    test_db_session.add(
-        Employee(employee_id=99512, name="Employee 99512", phone="0000099512", email="employee99512@test.example", role="onboarding_assistant", status="active")
-    )
-    await test_db_session.commit()
-
     fastapi_app.dependency_overrides[get_bioreport_service] = lambda: _FakeBioReportService()
 
-    response = await async_client.get("/bioai-report/99502", headers=_auth_header(99512))
+    response = await async_client.get("/bioai-report/99501")
+
     assert response.status_code == 200
     body = response.json()
-    assert body["patient"]["name"] == "Test User"
-    assert body["report_metadata"]["record_id"] == "REC-1"
-
+    assert set(body) >= {"patient", "executive_summary", "disease_sections", "report_metadata", "health_trends"}
+    assert body["patient"]["record_id"] == "REC-1"
     fastapi_app.dependency_overrides.pop(get_bioreport_service, None)
 
 
-@pytest.mark.asyncio
-async def test_get_bioreport_admin_allowed(async_client, fastapi_app, test_db_session):
-    await _seed_assessment(test_db_session, assessment_id=99503, user_id=89503)
-    await _seed_admin_employee(test_db_session, user_id=89513, employee_id=99513)
-    fastapi_app.dependency_overrides[get_bioreport_service] = lambda: _FakeBioReportService()
-
-    response = await async_client.get("/bioai-report/99503", headers=_auth_header(89513))
-    assert response.status_code == 200
-    assert response.json()["patient"]["record_id"] == "REC-1"
-
-    fastapi_app.dependency_overrides.pop(get_bioreport_service, None)
+def test_bioai_route_does_not_query_employee_or_custom_auth():
+    source = inspect.getsource(bioai_router)
+    assert "employee" not in source.lower()
+    assert "get_current_employee" not in source
+    assert "ensure_internal_employee" not in source
+    assert "phone" not in source.lower()

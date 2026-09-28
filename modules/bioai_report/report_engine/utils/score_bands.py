@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 from modules.bioai_report.report_engine.models.knowledge_base import RiskBandName
 
 # Canonical 5-point slabs used across all disease knowledge bases.
@@ -45,7 +47,13 @@ _RISK_DISPLAY: dict[RiskBandName, str] = {
 
 def clamp_score(score: float | int) -> int:
     """Round and clamp a disease score to the integer 0–100 range."""
-    value = int(round(float(score)))
+    try:
+        number = float(score)
+    except (TypeError, ValueError, OverflowError):
+        number = 0.0
+    if not math.isfinite(number):
+        number = 0.0
+    value = int(round(number))
     return max(0, min(100, value))
 
 

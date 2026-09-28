@@ -4,9 +4,10 @@ Frontend contract — single call, single input:
 
     GET /bioai-report/{assessment_instance_id}
 
-The backend fetches assessment + patient demographics, enriches, assembles,
-and returns one self-contained BioReport JSON plus historical trends cut off
-at the requested assessment date.
+The backend resolves the assessment to a user, builds the Bio-AI report from
+the user's latest stored IHR, and attaches historical trends cut off at the
+requested assessment date. This route does not call MetSights and does not
+perform endpoint-specific authorization.
 """
 
 from __future__ import annotations
@@ -25,9 +26,6 @@ from modules.bioai_report.report_engine.api.dependencies import (
 from modules.bioai_report.report_engine.exceptions import KnowledgeBaseError, ReportEngineError
 from modules.bioai_report.report_engine.services.report_service import BioReportService
 from modules.bioai_report.report_engine.services.trend_service import BioAITrendService
-from modules.employee.access_control import ensure_internal_employee
-from modules.employee.dependencies import get_current_employee
-from modules.employee.service import EmployeeContext
 
 logger = logging.getLogger(__name__)
 
@@ -38,26 +36,18 @@ router = APIRouter(prefix="/bioai-report", tags=["bioai-report"])
 async def get_bioreport_content(
     assessment_instance_id: int,
     db: AsyncSession = Depends(get_db),
-    employee: EmployeeContext = Depends(get_current_employee),
     report_service: BioReportService = Depends(get_bioreport_service),
     trend_service: BioAITrendService = Depends(get_bioai_trend_service),
 ):
     """Return one complete BioReport for ``assessment_instance_id``.
 
-    Restricted to internal employees (admin / onboarding assistant). Cron jobs
-    use ``BioReportService`` in-process via ``register_permanent_bio_ai_report_url``.
-
-    Pipeline (all server-side):
-    1. Resolve Metsights ``record_id`` from DB using ``assessment_instance_id``
-    2. Fetch assessment JSON from MetSights ``GET /reports/{record_id}/``
-    3. Enrich patient demographics for the same ``record_id``
-    4. Merge into one assessment object
-    5. Build BioReport (patient → summary → disease sections + KB)
-    6. Attach ``health_trends`` cut off at this assessment date
-    7. Return the raw ``BioReport`` JSON object plus ``health_trends``
+    Pipeline (all server-side, SuperShyft DB + stored IHR):
+    1. Resolve ``user_id`` from ``assessment_instances``
+    2. Load the user's latest completed Basic/Pro IHR ``reports`` JSON
+    3. Normalize and build the existing BioReport
+    4. Enrich patient demographics from the SuperShyft user/profile
+    5. Attach ``health_trends`` cut off at this assessment date
     """
-    ensure_internal_employee(employee)
-
     if assessment_instance_id is None:
         raise AppError(
             status_code=422,
@@ -90,10 +80,6 @@ async def get_bioreport_content(
         ) from exc
 
     payload = report.to_dict()
-    # Additive only: existing report keys are never rewritten. health_trends is
-    # attached as a new top-level field (object or false).
-    # Enrichment may swallow a DB error; Postgres then rejects later statements
-    # in this request until the transaction is reset.
     try:
         await db.rollback()
     except Exception:

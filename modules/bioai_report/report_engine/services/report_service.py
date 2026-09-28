@@ -1,39 +1,94 @@
 """Orchestrate assessment fetch → patient enrichment → BioReport assembly.
 
-Production entry point is ``generate_for_record(record_id)``. The frontend
-supplies only a MetSights ``record_id``; this service:
-
-1. Fetches assessment JSON (MetSights ``GET /reports/{record_id}/``)
-2. Enriches patient demographics for the same ``record_id``
-3. Merges demographics into the assessment
-4. Assembles the final BioReport via builders + knowledge base
-
-Offline runners may inject a local assessment dict via
-``generate_from_assessment_with_enrichment`` — enrichment and assembly stay
-identical; only the assessment source differs.
+``GET /bioai-report/{assessment_instance_id}`` uses stored
+``individual_health_report.reports`` plus SuperShyft user demographics.
+``generate_for_record(record_id)`` remains available for MetSights-backed
+offline/record flows.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.exceptions import AppError
+from modules.assessments.models import AssessmentInstance
 from modules.assessments.repository import AssessmentsRepository
 from modules.bioai_report.report_engine.builders.report_builder import build_bioreport
 from modules.bioai_report.report_engine.knowledge_base.loader import KnowledgeBaseStore
 from modules.bioai_report.report_engine.models.report import BioReport
 from modules.bioai_report.report_engine.services.assessment_service import AssessmentFetchService
 from modules.bioai_report.report_engine.services.patient_service import PatientProfileService
-from modules.bioai_report.report_engine.utils.patient_enrichment import missing_demographic_fields
+from modules.bioai_report.report_engine.utils.patient_enrichment import (
+    merge_patient_into_assessment,
+    missing_demographic_fields,
+)
+from modules.reports.models import IndividualHealthReport
+from modules.reports.repository import ReportsRepository
 
 logger = logging.getLogger(__name__)
 
+_AWARE_MIN = datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _as_aware(value: datetime | None) -> datetime:
+    if value is None:
+        return _AWARE_MIN
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def _completed_sort_key(instance: AssessmentInstance) -> tuple[datetime, datetime, int]:
+    return (
+        _as_aware(getattr(instance, "completed_at", None)),
+        _as_aware(getattr(instance, "assigned_at", None)),
+        int(instance.assessment_instance_id),
+    )
+
+
+def _latest_completed_source(
+    rows: list[tuple[AssessmentInstance, Any, IndividualHealthReport]],
+) -> tuple[AssessmentInstance, Any, IndividualHealthReport]:
+    return max(rows, key=lambda row: _completed_sort_key(row[0]))
+
+
+def _has_stored_reports(ihr: IndividualHealthReport | None) -> bool:
+    if ihr is None:
+        return False
+    reports = getattr(ihr, "reports", None)
+    if reports is None:
+        return False
+    if isinstance(reports, str) and not reports.strip():
+        return False
+    if isinstance(reports, dict) and not reports:
+        return False
+    return True
+
+
+def _stored_reports_dict(reports: Any, *, assessment_instance_id: int) -> dict[str, Any]:
+    if reports is None:
+        raise ValueError("IHR not available")
+    if isinstance(reports, str):
+        text = reports.strip()
+        if not text:
+            raise ValueError("IHR not available")
+        try:
+            reports = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError("IHR not available") from exc
+    if not isinstance(reports, dict) or not reports:
+        raise ValueError("IHR not available")
+    return reports
+
 
 class BioReportService:
-    """Application service that produces a BioReport from a MetSights ``record_id``."""
+    """Application service that produces a BioReport from stored IHR or a record id."""
 
     def __init__(
         self,
@@ -41,10 +96,14 @@ class BioReportService:
         assessment_service: AssessmentFetchService,
         patient_service: PatientProfileService | None = None,
         kb_store: KnowledgeBaseStore | None = None,
+        assessments_repository: AssessmentsRepository | None = None,
+        reports_repository: ReportsRepository | None = None,
     ) -> None:
         self._assessment_service = assessment_service
         self._patient_service = patient_service
         self._kb_store = kb_store or KnowledgeBaseStore()
+        self._assessments = assessments_repository or AssessmentsRepository()
+        self._reports = reports_repository or ReportsRepository()
 
     async def generate_for_record(
         self,
@@ -53,11 +112,7 @@ class BioReportService:
         assessment_type_code: str | None = None,
         db: AsyncSession | None = None,
     ) -> BioReport:
-        """Production pipeline: ``record_id`` → assessment → enrich → BioReport.
-
-        The frontend must not send patient details or disease payloads — only
-        ``record_id``. Enrichment failures never abort report generation.
-        """
+        """Record-id pipeline: ``record_id`` → assessment → enrich → BioReport."""
         rid = (record_id or "").strip()
         if not rid:
             raise ValueError("record_id is required")
@@ -78,11 +133,12 @@ class BioReportService:
         assessment_instance_id: int,
         db: AsyncSession,
     ) -> BioReport:
-        """Production pipeline: ``assessment_instance_id`` → assessment → enrich → BioReport.
+        """``assessment_instance_id`` → user → latest stored IHR ``reports`` → BioReport.
 
-        This resolves the underlying MetSights ``record_id`` using existing DB
-        repository relationships, then reuses the unchanged enrichment + assembly
-        pipeline.
+        The requested instance is looked up without completed/IHR filters and is
+        used to resolve ``user_id``. The Bio-AI body comes from the user's latest
+        completed Basic/Pro assessment that has ``individual_health_report.reports``.
+        Does not call MetSights.
         """
         if assessment_instance_id is None:
             raise ValueError("assessment_instance_id is required")
@@ -90,35 +146,82 @@ class BioReportService:
         if instance_id <= 0:
             raise ValueError("assessment_instance_id must be positive")
 
-        assessments_repo = AssessmentsRepository()
-        instance = await assessments_repo.get_instance_by_id(
+        instance = await self._assessments.get_instance_by_id(
             db,
             assessment_instance_id=instance_id,
         )
         if instance is None:
-            raise ValueError(f"assessment_instance_id not found: {instance_id}")
+            raise AppError(
+                status_code=404,
+                error_code="ASSESSMENT_NOT_FOUND",
+                message="Assessment does not exist",
+            )
 
-        record_id = (getattr(instance, "metsights_record_id", None) or "").strip()
-        if not record_id:
-            raise ValueError(f"metsights_record_id missing for assessment_instance_id={instance_id}")
+        user_id = int(instance.user_id)
+        rows = await self._reports.list_completed_bioai_reports_for_user(db, user_id=user_id)
+        if not rows:
+            diagnostic = getattr(self._reports, "get_bioai_link_diagnostics_for_user", None)
+            if callable(diagnostic):
+                assessment_ids, ihr_assessment_ids = await diagnostic(db, user_id=user_id)
+                logger.info(
+                    "BioAI request: assessment_instance_id=%s user_id=%s "
+                    "qualifying_assessments=[] assessment_ids=%s ihr_assessment_ids=%s",
+                    instance_id,
+                    user_id,
+                    assessment_ids,
+                    ihr_assessment_ids,
+                )
+            raise ValueError("IHR not available")
 
-        # Derive the optional MetSights assessment type code from the linked package.
-        assessment_type_code: str | None = None
-        package_id = getattr(instance, "package_id", None)
-        if package_id is not None:
-            package = await assessments_repo.get_package_by_id(db, package_id=int(package_id))
-            assessment_type_code = getattr(package, "assessment_type_code", None) if package else None
-
-        assessment = await self._assessment_service.fetch_raw(
-            record_id=record_id,
-            assessment_type_code=assessment_type_code,
+        latest_instance, _package, ihr = _latest_completed_source(rows)
+        source_instance_id = int(latest_instance.assessment_instance_id)
+        source_record_id = getattr(latest_instance, "metsights_record_id", None)
+        qualifying_ids = [int(row[0].assessment_instance_id) for row in rows]
+        logger.info(
+            "BioAI request: assessment_instance_id=%s user_id=%s "
+            "qualifying_assessments=%s latest_assessment=%s",
+            instance_id,
+            user_id,
+            qualifying_ids,
+            source_instance_id,
         )
-
-        # Keep existing enrichment logic unchanged; it runs on the resolved MetSights record_id.
-        return await self.generate_from_assessment_with_enrichment(
+        if not _has_stored_reports(ihr):
+            raise ValueError("IHR not available")
+        assessment = _stored_reports_dict(
+            getattr(ihr, "reports", None),
+            assessment_instance_id=source_instance_id,
+        )
+        assessment = merge_patient_into_assessment(
+            assessment,
+            {"user_id": user_id},
+            overwrite=True,
+        )
+        if self._patient_service is not None:
+            assessment = await self._patient_service.enrich_assessment_from_local_user(
+                assessment,
+                user_id=user_id,
+                assessment_instance_id=source_instance_id,
+                db=db,
+            )
+            if db is not None:
+                try:
+                    await db.rollback()
+                except Exception:
+                    logger.exception(
+                        "Bio-AI report could not reset DB session after patient enrichment "
+                        "for assessment_instance_id=%s",
+                        instance_id,
+                    )
+        record_id = str(
+            source_record_id
+            or assessment.get("record_id")
+            or assessment.get("id")
+            or source_instance_id
+        )
+        return await asyncio.to_thread(
+            self.generate_from_assessment,
             assessment,
             record_id=record_id,
-            db=db,
         )
 
     async def generate_from_assessment_with_enrichment(
@@ -128,12 +231,7 @@ class BioReportService:
         record_id: str | None = None,
         db: AsyncSession | None = None,
     ) -> BioReport:
-        """Enrich a pre-loaded assessment dict, then assemble BioReport.
-
-        Used by ``generate_for_record`` after the live MetSights fetch, and by
-        offline runners that load assessment JSON from disk. Steps after the
-        assessment source are identical.
-        """
+        """Enrich a pre-loaded assessment dict, then assemble BioReport."""
         resolved_record_id = (record_id or "").strip()
         if not resolved_record_id:
             body = assessment.get("data") if isinstance(assessment.get("data"), dict) else assessment

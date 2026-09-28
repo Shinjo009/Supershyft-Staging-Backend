@@ -12,6 +12,7 @@ from modules.bioai_report.report_engine.services.report_service import BioReport
 from modules.bioai_report.report_engine.services.trend_service import BioAITrendService
 from modules.metsights.dependencies import get_metsights_service
 from modules.questionnaire.repository import QuestionnaireRepository
+from modules.reports.repository import ReportsRepository
 from modules.users.repository import UsersRepository
 
 
@@ -38,12 +39,14 @@ def get_bioreport_service() -> BioReportService:
         assessment_service=get_assessment_fetch_service(),
         patient_service=get_patient_profile_service(),
         kb_store=get_knowledge_base_store(),
+        assessments_repository=AssessmentsRepository(),
+        reports_repository=ReportsRepository(),
     )
 
 
 def get_bioai_trend_service() -> BioAITrendService:
     return BioAITrendService(
-        assessment_service=get_assessment_fetch_service(),
         assessments_repository=AssessmentsRepository(),
         users_repository=UsersRepository(),
+        reports_repository=ReportsRepository(),
     )

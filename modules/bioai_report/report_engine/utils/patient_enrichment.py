@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from typing import Any
 
 # Fields the BioReport patient block expects from assessment + profile sources.
 PATIENT_DEMOGRAPHIC_FIELDS: tuple[str, ...] = (
+    "user_id",
     "name",
     "gender",
     "sex",
@@ -351,6 +353,15 @@ def extract_scale_answer(answer: Any) -> tuple[float | int | None, str | None]:
     return _as_optional_number(answer), None
 
 
+def _age_on_date(dob: date, on_date: date | None = None) -> int:
+    """Age in whole years on ``on_date``, accounting for whether the birthday has occurred."""
+    on_date = on_date or date.today()
+    years = on_date.year - dob.year
+    if (on_date.month, on_date.day) < (dob.month, dob.day):
+        years -= 1
+    return years
+
+
 def extract_demographics_from_user(user: Any) -> dict[str, Any]:
     """Map a local ``User`` ORM/row object into demographic fields."""
     if user is None:
@@ -370,9 +381,29 @@ def extract_demographics_from_user(user: Any) -> dict[str, Any]:
     age = _as_optional_number(getattr(user, "age", None))
     if age is not None:
         out["age"] = age
+    dob_raw = getattr(user, "date_of_birth", None)
+    dob: date | None = None
+    if isinstance(dob_raw, datetime):
+        dob = dob_raw.date()
+    elif isinstance(dob_raw, date):
+        dob = dob_raw
+    elif dob_raw is not None:
+        text = _as_optional_str(dob_raw)
+        if text:
+            try:
+                dob = date.fromisoformat(text[:10])
+            except ValueError:
+                dob = None
+    if dob is not None:
+        out["date_of_birth"] = dob.isoformat()
+        if "age" not in out:
+            out["age"] = _age_on_date(dob)
     user_id = getattr(user, "user_id", None)
     if user_id is not None:
         out["user_id"] = user_id
+    profile_id = _as_optional_str(getattr(user, "metsights_profile_id", None))
+    if profile_id:
+        out["profile_id"] = profile_id
     return out
 
 
@@ -416,8 +447,14 @@ def extract_demographics_from_questionnaire(lookup: dict[str, Any] | None) -> di
 def merge_patient_into_assessment(
     assessment: dict[str, Any],
     patient: dict[str, Any],
+    *,
+    overwrite: bool = False,
 ) -> dict[str, Any]:
-    """Fill blank demographic fields on assessment from patient data (assessment wins)."""
+    """Merge demographic fields into assessment.
+
+    By default assessment values win. ``overwrite=True`` makes ``patient``
+    authoritative for demographic fields that are present.
+    """
     if not isinstance(assessment, dict):
         raise TypeError("assessment must be a dict")
     if not isinstance(patient, dict) or not patient:
@@ -435,12 +472,11 @@ def merge_patient_into_assessment(
             target = merged
 
     for field in PATIENT_DEMOGRAPHIC_FIELDS:
-        if not _is_blank(target.get(field)):
-            continue
         incoming = patient.get(field)
         if _is_blank(incoming):
             continue
-        target[field] = incoming
+        if overwrite or _is_blank(target.get(field)):
+            target[field] = incoming
 
     if _is_blank(target.get("sex")) and not _is_blank(target.get("gender")):
         target["sex"] = target["gender"]

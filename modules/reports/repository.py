@@ -43,8 +43,9 @@ class ReportsRepository:
             .where(IndividualHealthReport.user_id == user_id)
             .where(IndividualHealthReport.engagement_id == engagement_id)
             .order_by(
+                IndividualHealthReport.blood_parameters.isnot(None).desc(),
                 (func.coalesce(AssessmentPackage.assessment_type_code, "") == _FITPRINT_TYPE_CODE).asc(),
-                IndividualHealthReport.report_url.isnot(None).desc(),
+                IndividualHealthReport.diagnostic_report_url.isnot(None).desc(),
                 IndividualHealthReport.report_id.desc(),
             )
             .limit(1)
@@ -65,6 +66,87 @@ class ReportsRepository:
             .limit(1)
         )
         return result.scalar_one_or_none()
+
+    async def list_completed_bioai_reports_for_user(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+    ) -> list[tuple[AssessmentInstance, AssessmentPackage | None, IndividualHealthReport]]:
+        """Completed Basic/Pro assessments with stored ``individual_health_report.reports``.
+
+        One IHR row per assessment (highest ``report_id``). Oldest → newest by
+        ``completed_at``, then ``assigned_at``, then instance id.
+        Does not require ``metsights_record_id``.
+        """
+        latest_ihr = (
+            select(
+                IndividualHealthReport.assessment_instance_id.label("assessment_instance_id"),
+                func.max(IndividualHealthReport.report_id).label("report_id"),
+            )
+            .where(IndividualHealthReport.user_id == user_id)
+            .where(IndividualHealthReport.assessment_instance_id.isnot(None))
+            .where(IndividualHealthReport.reports.isnot(None))
+            .group_by(IndividualHealthReport.assessment_instance_id)
+            .subquery()
+        )
+        result = await db.execute(
+            select(AssessmentInstance, AssessmentPackage, IndividualHealthReport)
+            .join(
+                latest_ihr,
+                latest_ihr.c.assessment_instance_id
+                == AssessmentInstance.assessment_instance_id,
+            )
+            .join(
+                IndividualHealthReport,
+                IndividualHealthReport.report_id == latest_ihr.c.report_id,
+            )
+            .outerjoin(
+                AssessmentPackage,
+                AssessmentPackage.package_id == AssessmentInstance.package_id,
+            )
+            .where(AssessmentInstance.user_id == user_id)
+            .where(IndividualHealthReport.user_id == AssessmentInstance.user_id)
+            .where(func.lower(AssessmentInstance.status) == "completed")
+            .where(AssessmentPackage.assessment_type_code.in_(_METSIGHTS_PRO_BASIC_TYPE_CODES))
+            .order_by(
+                AssessmentInstance.completed_at.asc().nulls_last(),
+                AssessmentInstance.assigned_at.asc().nulls_last(),
+                AssessmentInstance.assessment_instance_id.asc(),
+            )
+        )
+        return list(result.all())
+
+    async def get_bioai_link_diagnostics_for_user(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+    ) -> tuple[list[int], list[int]]:
+        """Return all assessment ids and all IHR-linked ids for debug logging."""
+        result = await db.execute(
+            select(
+                AssessmentInstance.assessment_instance_id,
+                IndividualHealthReport.assessment_instance_id.label("ihr_assessment_instance_id"),
+            )
+            .outerjoin(
+                IndividualHealthReport,
+                IndividualHealthReport.assessment_instance_id
+                == AssessmentInstance.assessment_instance_id,
+            )
+            .where(AssessmentInstance.user_id == user_id)
+            .order_by(AssessmentInstance.assessment_instance_id.asc())
+        )
+        rows = result.all()
+        assessment_ids = sorted({int(row.assessment_instance_id) for row in rows})
+        ihr_ids = sorted(
+            {
+                int(row.ihr_assessment_instance_id)
+                for row in rows
+                if row.ihr_assessment_instance_id is not None
+            }
+        )
+        return assessment_ids, ihr_ids
 
     async def get_or_create_individual_report_by_assessment(
         self,
@@ -103,6 +185,8 @@ class ReportsRepository:
             .order_by(
                 IndividualHealthReport.assessment_instance_id,
                 IndividualHealthReport.report_url.isnot(None).desc(),
+                IndividualHealthReport.blood_parameters.isnot(None).desc(),
+                IndividualHealthReport.diagnostic_report_url.isnot(None).desc(),
                 IndividualHealthReport.report_id.desc(),
             )
         ).subquery("canonical_ihr")
@@ -131,10 +215,10 @@ class ReportsRepository:
         *,
         assessment_instance_id: int,
     ) -> int:
-        """Clear assessment-scoped fields on matching rows.
+        """Clear assessment-scoped fields; keep engagement-scoped blood data.
 
-        Nulls ``assessment_instance_id``, ``reports``, and ``report_url``.
-        Deletes the row when no report payload remains (blood data lives on PBB).
+        Nulls ``assessment_instance_id``, ``reports``, and ``report_url`` on matching rows.
+        Deletes the row only when no blood/diagnostic data remains.
         """
         result = await db.execute(
             select(IndividualHealthReport).where(
@@ -147,7 +231,9 @@ class ReportsRepository:
             row.assessment_instance_id = None
             row.reports = None
             row.report_url = None
-            if row.reports is None and row.report_url is None:
+            has_blood = row.blood_parameters is not None or row.blood_report_raw is not None
+            has_diag = row.diagnostic_report_url is not None
+            if not has_blood and not has_diag:
                 await db.delete(row)
                 deleted += 1
             else:
@@ -243,9 +329,34 @@ class ReportsRepository:
         user_id: int,
         engagement_id: int,
     ) -> int:
-        """No-op: blood lab data is stored on participant_blood_bookings, not IHR."""
-        _ = (db, user_id, engagement_id)
-        return 0
+        """Null blood fields on FitPrint IHR rows for the same user+engagement."""
+        result = await db.execute(
+            select(IndividualHealthReport, AssessmentPackage.assessment_type_code)
+            .outerjoin(
+                AssessmentInstance,
+                AssessmentInstance.assessment_instance_id
+                == IndividualHealthReport.assessment_instance_id,
+            )
+            .outerjoin(
+                AssessmentPackage,
+                AssessmentPackage.package_id == AssessmentInstance.package_id,
+            )
+            .where(IndividualHealthReport.user_id == user_id)
+            .where(IndividualHealthReport.engagement_id == engagement_id)
+        )
+        cleared = 0
+        for ihr, type_code in result.all():
+            if (type_code or "").strip() != _FITPRINT_TYPE_CODE:
+                continue
+            if ihr.blood_parameters is None and ihr.blood_report_raw is None:
+                continue
+            ihr.blood_parameters = None
+            ihr.blood_report_raw = None
+            db.add(ihr)
+            cleared += 1
+        if cleared:
+            await db.flush()
+        return cleared
 
     async def list_individual_reports_for_user_with_assessment(
         self,

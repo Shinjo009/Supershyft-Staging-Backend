@@ -1,11 +1,12 @@
 """Build historical Bio-AI disease-score series for a user.
 
-Uses the existing assessment fetch + normalizer + score-band helpers.
-Does not assemble a full BioReport (no KB slabs, nutrition, or summaries).
+Uses stored ``individual_health_report.reports`` plus existing normalizer
+and score-band helpers. Does not assemble a full BioReport.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
 
@@ -23,6 +24,7 @@ from modules.bioai_report.report_engine.models.trends import (
     BioAITrendsByDisease,
 )
 from modules.bioai_report.report_engine.services.assessment_service import AssessmentFetchService
+from modules.bioai_report.report_engine.utils.assessment_normalizer import normalize_assessment
 from modules.bioai_report.report_engine.utils.disease_codes import normalize_disease_code
 from modules.bioai_report.report_engine.utils.patient_enrichment import normalize_gender_label
 from modules.bioai_report.report_engine.utils.score_bands import (
@@ -30,6 +32,7 @@ from modules.bioai_report.report_engine.utils.score_bands import (
     risk_band_range,
     score_to_risk_band,
 )
+from modules.reports.repository import ReportsRepository
 from modules.users.repository import UsersRepository
 
 logger = logging.getLogger(__name__)
@@ -48,7 +51,6 @@ TREND_DISEASE_IDS: tuple[str, ...] = (
     "cardiac_health",
 )
 
-# Metsights Basic / Pro only. FitPrint (7) and face-scan packages have no disease scores.
 _BIOAI_TREND_TYPE_CODES = frozenset({"1", "2"})
 
 
@@ -75,14 +77,7 @@ def _included_in_cutoff(
     through_date: str | None,
     through_instance_id: int | None,
 ) -> bool:
-    """Keep history on or before the requested report, including that report.
-
-    Primary bound is ``assessment_date`` (``YYYY-MM-DD``), the same value the
-    trend series uses. Same-day instances are not dropped by date alone.
-    When ``through_instance_id`` is set, instance id is the secondary bound so
-    a later same-day instance is excluded — consistent with sort by
-    ``(assessment_date, assessment_instance_id)``.
-    """
+    """Keep history on or before the requested report, including that report."""
     if through_date is None:
         return True
     if point_date is None:
@@ -107,7 +102,6 @@ def _instance_fallback_date(instance: AssessmentInstance) -> str | None:
 
 
 def _is_male_label(*values: object) -> bool:
-    """True only when existing sex/gender data clearly resolves to male."""
     for value in values:
         if normalize_gender_label(value) == "male":
             return True
@@ -125,18 +119,20 @@ def empty_trend_response(user_id: int) -> BioAITrendResponse:
 
 
 class BioAITrendService:
-    """Assemble per-disease historical scores from completed Bio-AI assessments."""
+    """Assemble per-disease historical scores from stored IHR reports."""
 
     def __init__(
         self,
         *,
-        assessment_service: AssessmentFetchService,
+        assessment_service: AssessmentFetchService | None = None,
         assessments_repository: AssessmentsRepository | None = None,
         users_repository: UsersRepository | None = None,
+        reports_repository: ReportsRepository | None = None,
     ) -> None:
         self._assessment_service = assessment_service
         self._assessments = assessments_repository or AssessmentsRepository()
         self._users = users_repository or UsersRepository()
+        self._reports = reports_repository or ReportsRepository()
 
     async def get_trends_for_user(
         self,
@@ -151,31 +147,45 @@ class BioAITrendService:
         if user is None:
             raise AppError(status_code=404, error_code="USER_NOT_FOUND", message="User does not exist")
 
-        rows = await self._assessments.list_completed_instances_for_user(db, user_id=user_id)
+        rows = await self._reports.list_completed_bioai_reports_for_user(db, user_id=user_id)
         if not rows:
             return empty_trend_response(user_id)
+
+        collected: list[
+            tuple[AssessmentInstance, str | None, dict[str, tuple[int, str | None]], object | None]
+        ] = []
+        for instance, package, ihr in rows:
+            if not _is_bioai_trend_package(package):
+                continue
+            point_date, scores_by_disease, payload_gender = self._scores_for_stored_reports(
+                instance=instance,
+                stored_reports=getattr(ihr, "reports", None),
+            )
+            collected.append((instance, point_date, scores_by_disease, payload_gender))
+
+        resolved_through_date = through_date
+        if through_instance_id is not None:
+            for instance, point_date, _scores, _gender in collected:
+                if int(instance.assessment_instance_id) == int(through_instance_id):
+                    if point_date:
+                        resolved_through_date = point_date
+                    break
 
         assessments: list[BioAITrendAssessment] = []
         series: dict[str, list[BioAITrendPoint]] = {key: [] for key in TREND_DISEASE_IDS}
         payload_genders: list[object] = []
 
-        for instance, package in rows:
-            if not _is_bioai_trend_package(package):
-                continue
-            point_date, scores_by_disease, payload_gender = await self._scores_for_instance(
-                instance=instance,
-                package=package,
-            )
-            if payload_gender is not None:
-                payload_genders.append(payload_gender)
+        for instance, point_date, scores_by_disease, payload_gender in collected:
             instance_id = int(instance.assessment_instance_id)
             if not _included_in_cutoff(
                 point_date=point_date,
                 instance_id=instance_id,
-                through_date=through_date,
+                through_date=resolved_through_date,
                 through_instance_id=through_instance_id,
             ):
                 continue
+            if payload_gender is not None:
+                payload_genders.append(payload_gender)
             assessments.append(
                 BioAITrendAssessment(
                     assessment_instance_id=instance_id,
@@ -216,7 +226,6 @@ class BioAITrendService:
                 item.assessment_instance_id,
             ),
         )
-        # Keep trend series in the same chronological order as ``ordered``.
         order_ids = [item.assessment_instance_id for item in ordered]
         for disease_id in TREND_DISEASE_IDS:
             by_id = {p.assessment_instance_id: p for p in series[disease_id]}
@@ -231,6 +240,12 @@ class BioAITrendService:
         )
         if is_male:
             series["pcos"] = []
+        logger.info(
+            "BioAI trends: user_id=%s through_instance_id=%s trend_assessments=%s",
+            user_id,
+            through_instance_id,
+            order_ids,
+        )
         return BioAITrendResponse(
             user_id=user_id,
             assessment_count=count,
@@ -239,30 +254,29 @@ class BioAITrendService:
             trends=BioAITrendsByDisease.model_validate(series),
         )
 
-    async def _scores_for_instance(
+    def _scores_for_stored_reports(
         self,
         *,
         instance: AssessmentInstance,
-        package: AssessmentPackage | None,
+        stored_reports: object,
     ) -> tuple[str | None, dict[str, tuple[int, str | None]], str | None]:
-        record_id = (getattr(instance, "metsights_record_id", None) or "").strip()
         fallback_date = _instance_fallback_date(instance)
-        if not record_id:
+        if stored_reports is None:
             return fallback_date, {}, None
-
-        assessment_type_code = (
-            getattr(package, "assessment_type_code", None) if package is not None else None
-        )
+        raw: object = stored_reports
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                return fallback_date, {}, None
+        if not isinstance(raw, dict):
+            return fallback_date, {}, None
         try:
-            payload: AssessmentPayload = await self._assessment_service.fetch(
-                record_id=record_id,
-                assessment_type_code=assessment_type_code,
-            )
+            payload: AssessmentPayload = normalize_assessment(raw)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "Bio-AI trends: skipping scores for assessment_instance_id=%s record_id=%s (%s: %s)",
+                "Bio-AI trends: stored reports invalid for assessment_instance_id=%s (%s: %s)",
                 instance.assessment_instance_id,
-                record_id,
                 type(exc).__name__,
                 exc,
             )
@@ -281,7 +295,6 @@ class BioAITrendService:
                 clamp_score(disease.risk_score_scaled),
                 disease.risk_status,
             )
-        # Overall metabolic risk is on metabolic_score, not a metabolic_syndrome disease row.
         if "metabolic_syndrome" not in scores and payload.metabolic_score is not None:
             scores["metabolic_syndrome"] = (
                 clamp_score(payload.metabolic_score),
@@ -295,8 +308,8 @@ class BioAITrendService:
         *,
         assessment_instance_id: int,
         report_payload: dict[str, object],
-    ) -> dict[str, object] | bool:
-        """Cutoff ``health_trends`` for the requested report. Never raises into report generation."""
+    ) -> dict[str, object]:
+        """Cutoff ``health_trends`` at the requested assessment. Never raises into report generation."""
         try:
             instance = await self._assessments.get_instance_by_id(
                 db,
@@ -319,11 +332,6 @@ class BioAITrendService:
             if isinstance(report_payload.get("executive_summary"), dict)
             else {}
         )
-        cutoff = _date_only(patient.get("assessment_date") if isinstance(patient, dict) else None)
-        if cutoff is None and isinstance(summary, dict):
-            cutoff = _date_only(summary.get("assessment_date"))
-        if cutoff is None:
-            cutoff = _instance_fallback_date(instance)
 
         gender_hint = None
         if isinstance(patient, dict):
@@ -337,8 +345,8 @@ class BioAITrendService:
             trend = await self.get_trends_for_user(
                 db,
                 user_id=user_id,
-                through_date=cutoff,
-                through_instance_id=int(instance.assessment_instance_id),
+                through_date=_instance_fallback_date(instance),
+                through_instance_id=int(assessment_instance_id),
                 patient_gender=str(gender_hint) if gender_hint is not None else None,
             )
         except AppError as exc:
