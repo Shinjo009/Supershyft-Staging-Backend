@@ -326,6 +326,7 @@ class DiagnosticsService:
     ) -> DiagnosticPackageResponse:
         price = float(row.price) if row.price is not None else None
         original_price = float(row.original_price) if row.original_price is not None else None
+        min_price = float(row.min_price) if row.min_price is not None else None
         return DiagnosticPackageResponse(
             diagnostic_package_id=row.diagnostic_package_id,
             reference_id=row.reference_id,
@@ -342,6 +343,7 @@ class DiagnosticsService:
             bookings_count=row.bookings_count,
             price=price,
             original_price=original_price,
+            min_price=min_price,
             is_most_popular=row.is_most_popular,
             complementary_consultation=row.complementary_consultation,
             gender_suitability=row.gender_suitability,
@@ -401,6 +403,7 @@ class DiagnosticsService:
         for row in rows:
             price = float(row.price) if row.price is not None else None
             original_price = float(row.original_price) if row.original_price is not None else None
+            min_price = float(row.min_price) if row.min_price is not None else None
             tags = sorted(
                 list(row.tags),
                 key=lambda t: (t.display_order is None, t.display_order or 0, t.tag_id),
@@ -419,6 +422,7 @@ class DiagnosticsService:
                     collection_type=row.collection_type,
                     price=price,
                     original_price=original_price,
+                    min_price=min_price,
                     discount_percent=_discount_percent(price, original_price),
                     is_most_popular=row.is_most_popular,
                     complementary_consultation=row.complementary_consultation,
@@ -471,7 +475,7 @@ class DiagnosticsService:
         db,
         *,
         employee: EmployeeContext | None,
-        current_user_id: int,
+        current_user_id: int | None,
         data: DiagnosticPackageCreate,
         ip_address: str,
         user_agent: str,
@@ -523,7 +527,7 @@ class DiagnosticsService:
         db,
         *,
         employee: EmployeeContext | None,
-        current_user_id: int,
+        current_user_id: int | None,
         package_id: int,
         data: DiagnosticPackageUpdate,
         ip_address: str,
@@ -1047,7 +1051,7 @@ class DiagnosticsService:
         db,
         *,
         employee: EmployeeContext | None,
-        current_user_id: int,
+        current_user_id: int | None,
         package_id: int,
         data: AssignGroupsToPackageRequest,
         ip_address: str,
@@ -1108,7 +1112,7 @@ class DiagnosticsService:
         db,
         *,
         employee: EmployeeContext | None,
-        current_user_id: int,
+        current_user_id: int | None,
         package_id: int,
         group_id: int,
         ip_address: str,

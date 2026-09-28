@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.responses import success_response
 from core.dependencies import _http_bearer, authenticate_bearer_user, get_current_user
 from db.session import get_db
+from modules.diagnostics.actor import DiagnosticsPackageActor, get_diagnostics_package_actor
 from modules.diagnostics.dependencies import get_diagnostics_service
 from modules.diagnostics.schemas import (
     AssignGroupsToPackageRequest,
@@ -38,7 +39,7 @@ from modules.diagnostics.schemas import (
     TestGroupUpdate,
 )
 from modules.diagnostics.service import DiagnosticsService
-from modules.employee.dependencies import get_current_employee, get_employee_service, get_optional_employee
+from modules.employee.dependencies import get_current_employee, get_employee_service
 from modules.employee.service import EmployeeContext, EmployeeService
 from modules.users.models import User
 
@@ -189,14 +190,13 @@ async def create_package(
     payload: DiagnosticPackageCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    employee: EmployeeContext | None = Depends(get_optional_employee),
+    actor: DiagnosticsPackageActor = Depends(get_diagnostics_package_actor),
     diagnostics_service: DiagnosticsService = Depends(get_diagnostics_service),
 ):
     created = await diagnostics_service.create_package(
         db,
-        employee=employee,
-        current_user_id=current_user.user_id,
+        employee=actor.employee,
+        current_user_id=actor.current_user_id,
         data=payload,
         ip_address=_client_ip(request),
         user_agent=request.headers.get("User-Agent", "unknown"),
@@ -212,14 +212,13 @@ async def update_package(
     payload: DiagnosticPackageUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    employee: EmployeeContext | None = Depends(get_optional_employee),
+    actor: DiagnosticsPackageActor = Depends(get_diagnostics_package_actor),
     diagnostics_service: DiagnosticsService = Depends(get_diagnostics_service),
 ):
     updated = await diagnostics_service.update_package(
         db,
-        employee=employee,
-        current_user_id=current_user.user_id,
+        employee=actor.employee,
+        current_user_id=actor.current_user_id,
         package_id=package_id,
         data=payload,
         ip_address=_client_ip(request),
@@ -901,14 +900,13 @@ async def assign_groups_to_package(
     payload: AssignGroupsToPackageRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    employee: EmployeeContext | None = Depends(get_optional_employee),
+    actor: DiagnosticsPackageActor = Depends(get_diagnostics_package_actor),
     diagnostics_service: DiagnosticsService = Depends(get_diagnostics_service),
 ):
     data = await diagnostics_service.assign_groups_to_package(
         db,
-        employee=employee,
-        current_user_id=current_user.user_id,
+        employee=actor.employee,
+        current_user_id=actor.current_user_id,
         package_id=package_id,
         data=payload,
         ip_address=_client_ip(request),
@@ -947,14 +945,13 @@ async def remove_group_from_package(
     group_id: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    employee: EmployeeContext | None = Depends(get_optional_employee),
+    actor: DiagnosticsPackageActor = Depends(get_diagnostics_package_actor),
     diagnostics_service: DiagnosticsService = Depends(get_diagnostics_service),
 ):
     await diagnostics_service.remove_group_from_package(
         db,
-        employee=employee,
-        current_user_id=current_user.user_id,
+        employee=actor.employee,
+        current_user_id=actor.current_user_id,
         package_id=package_id,
         group_id=group_id,
         ip_address=_client_ip(request),

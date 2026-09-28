@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from common.validation import (
     OptionalParameterKey,
@@ -40,6 +40,8 @@ class FilterChipForSchema(str, Enum):
 
 
 class DiagnosticPackageCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     package_name: SafeDisplayName
     package_image: Optional[str] = None
     diagnostic_provider: Optional[str] = None
@@ -52,7 +54,10 @@ class DiagnosticPackageCreate(BaseModel):
     bookings_count: Optional[int] = None
     price: Optional[float] = None
     original_price: Optional[float] = None
-    min_price: Optional[float] = None
+    min_price: Optional[float] = Field(
+        default=None,
+        validation_alias=AliasChoices("min_price", "minimum_price"),
+    )
     is_most_popular: Optional[bool] = None
     complementary_consultation: Optional[dict[str, bool]] = None
     gender_suitability: Optional[str] = None
@@ -61,6 +66,8 @@ class DiagnosticPackageCreate(BaseModel):
 
 
 class DiagnosticPackageUpdate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     package_name: OptionalSafeDisplayName = None
     package_image: Optional[str] = None
     diagnostic_provider: Optional[str] = None
@@ -72,7 +79,10 @@ class DiagnosticPackageUpdate(BaseModel):
     bookings_count: Optional[int] = None
     price: Optional[float] = None
     original_price: Optional[float] = None
-    min_price: Optional[float] = None
+    min_price: Optional[float] = Field(
+        default=None,
+        validation_alias=AliasChoices("min_price", "minimum_price"),
+    )
     is_most_popular: Optional[bool] = None
     complementary_consultation: Optional[dict[str, bool]] = None
     gender_suitability: Optional[str] = None
@@ -100,6 +110,7 @@ class DiagnosticPackageResponse(BaseModel):
     bookings_count: Optional[int] = None
     price: Optional[float] = None
     original_price: Optional[float] = None
+    min_price: Optional[float] = None
     is_most_popular: Optional[bool] = None
     complementary_consultation: Optional[dict[str, bool]] = None
     gender_suitability: Optional[str] = None
@@ -411,6 +422,7 @@ class DiagnosticPackageListItem(BaseModel):
     collection_type: Optional[str] = None
     price: Optional[float] = None
     original_price: Optional[float] = None
+    min_price: Optional[float] = None
     discount_percent: Optional[int] = None
     is_most_popular: Optional[bool] = None
     complementary_consultation: Optional[dict[str, bool]] = None
