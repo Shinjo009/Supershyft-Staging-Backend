@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Run on the staging server (not production). Typical flow after `git push staging main`:
+# Run on the staging server (not production). Typical flow:
 #
 #   deploy-staging-backend
+#   # or: bash /var/www/staging-api/scripts/deploy_staging_backend.sh
+#
+# Post-deploy (migrations also run in deploy script; this adds sample seed):
 #   bash /var/www/staging-api/scripts/staging-post-deploy.sh
-#   deploy-staging-frontend
 #
 set -euo pipefail
 
