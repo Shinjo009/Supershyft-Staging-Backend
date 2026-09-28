@@ -8,6 +8,7 @@ import pytest
 
 from modules.bioai_report.pdf_registration import (
     _generate_bioreport_payload,
+    bioreport_pdf_sync_request_payload,
     apply_assessment_date_override,
     bioreport_generate_endpoint,
     bioreport_regenerate_endpoint,
@@ -93,6 +94,12 @@ def test_summarize_bioreport_payload():
             "disease_count": 4,
             "engine_version": "1.0.0",
         },
+        "health_trends": {
+            "series": [
+                {"disease_id": "thyroid_health", "points": [{"date": "2026-01-01", "score": 10}]},
+                {"disease_id": "pcos", "points": []},
+            ]
+        },
     }
     summary = summarize_bioreport_payload(payload)
     assert summary == {
@@ -101,7 +108,24 @@ def test_summarize_bioreport_payload():
         "disease_count": 4,
         "engine_version": "1.0.0",
         "truncated": True,
+        "health_trends_attached": True,
+        "health_trends_series_count": 2,
+        "health_trends_nonempty_series": 1,
     }
+
+
+def test_bioreport_pdf_sync_request_payload_includes_health_trends():
+    payload = {
+        "patient": {"name": "Jane Doe"},
+        "report_metadata": {"record_id": "REC123", "disease_count": 4, "engine_version": "1.0.0"},
+        "health_trends": {
+            "series": [{"disease_id": "thyroid_health", "points": [{"date": "2026-01-01", "score": 10}]}]
+        },
+    }
+    log = bioreport_pdf_sync_request_payload(payload, slug="my-slug")
+    assert log["slug"] == "my-slug"
+    assert log["health_trends"] == payload["health_trends"]
+    assert log["health_trends_attached"] is True
 
 
 def test_extract_registered_report_url_success():

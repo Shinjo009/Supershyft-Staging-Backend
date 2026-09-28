@@ -285,6 +285,26 @@ async def lookup_original_bio_ai_assessment_date(
     )
 
 
+def _health_trends_log_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    """Compact trend metadata for integration_sync_logs request rows."""
+    block = payload.get("health_trends")
+    if not isinstance(block, dict):
+        return {"health_trends_attached": False, "health_trends_series_count": 0}
+    series = block.get("series")
+    if not isinstance(series, list):
+        return {"health_trends_attached": True, "health_trends_series_count": 0}
+    nonempty = sum(
+        1
+        for item in series
+        if isinstance(item, dict) and isinstance(item.get("points"), list) and item.get("points")
+    )
+    return {
+        "health_trends_attached": True,
+        "health_trends_series_count": len(series),
+        "health_trends_nonempty_series": nonempty,
+    }
+
+
 def summarize_bioreport_payload(payload: dict[str, Any]) -> dict[str, Any]:
     metadata = payload.get("report_metadata") if isinstance(payload.get("report_metadata"), dict) else {}
     patient = payload.get("patient") if isinstance(payload.get("patient"), dict) else {}
@@ -294,7 +314,27 @@ def summarize_bioreport_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "disease_count": metadata.get("disease_count"),
         "engine_version": metadata.get("engine_version"),
         "truncated": True,
+        **_health_trends_log_summary(payload),
     }
+
+
+def bioreport_pdf_sync_request_payload(
+    payload: dict[str, Any],
+    *,
+    slug: str | None = None,
+) -> dict[str, Any]:
+    """Integration sync log body for bio-ai-reports register/regenerate requests.
+
+    Keeps the historical summary fields and attaches the full ``health_trends``
+    block so admins can audit the same trend data sent to the PDF service.
+    """
+    log: dict[str, Any] = summarize_bioreport_payload(payload)
+    health_trends = payload.get("health_trends")
+    if isinstance(health_trends, dict):
+        log["health_trends"] = health_trends
+    if slug:
+        log["slug"] = slug.strip()
+    return log
 
 
 def extract_registered_report_url(response: dict[str, Any]) -> str:
@@ -362,7 +402,7 @@ async def register_permanent_bio_ai_report_url(
         api_url=bioreport_register_endpoint(),
         engagement_id=engagement_id,
         user_id=user_id,
-        request_payload=summarize_bioreport_payload(bioreport_payload),
+        request_payload=bioreport_pdf_sync_request_payload(bioreport_payload),
         operation=lambda: client.register_report(bioreport_payload),
         reraise=True,
     )
@@ -440,10 +480,7 @@ async def regenerate_permanent_bio_ai_report_url(
         api_url=bioreport_regenerate_endpoint(),
         engagement_id=engagement_id,
         user_id=user_id,
-        request_payload={
-            **summarize_bioreport_payload(bioreport_payload),
-            "slug": slug,
-        },
+        request_payload=bioreport_pdf_sync_request_payload(bioreport_payload, slug=slug),
         operation=lambda: client.regenerate_report(bioreport_payload, slug=slug),
         reraise=True,
     )
