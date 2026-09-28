@@ -7,6 +7,7 @@ from datetime import timedelta
 import pytest
 
 from modules.bioai_report.pdf_registration import (
+    _generate_bioreport_payload,
     apply_assessment_date_override,
     bioreport_generate_endpoint,
     bioreport_regenerate_endpoint,
@@ -19,7 +20,69 @@ from modules.bioai_report.pdf_registration import (
     resolve_canonical_bio_ai_report_url,
     summarize_bioreport_payload,
 )
+from modules.bioai_report.report_engine.models.report import (
+    BioReport,
+    ExecutiveSummary,
+    PatientInfo,
+    ReportMetadata,
+)
 from modules.audit.models import IntegrationSyncLog
+
+
+@pytest.mark.asyncio
+async def test_generate_bioreport_payload_includes_health_trends(monkeypatch):
+    class FakeReportService:
+        async def generate_for_assessment_instance(self, *, assessment_instance_id: int, db):
+            return BioReport(
+                patient=PatientInfo(record_id="REC-1", name="Test User"),
+                executive_summary=ExecutiveSummary(
+                    patient=PatientInfo(record_id="REC-1", name="Test User"),
+                ),
+                disease_sections=[],
+                report_metadata=ReportMetadata(
+                    record_id="REC-1",
+                    engine_version="test",
+                    template_version="test",
+                ),
+            )
+
+    class FakeTrendService:
+        async def embed_for_assessment_instance(self, db, *, assessment_instance_id, report_payload):
+            assert report_payload["patient"]["record_id"] == "REC-1"
+            return {
+                "series": [
+                    {
+                        "disease_id": "thyroid_health",
+                        "title": "Thyroid Health",
+                        "points": [{"date": "2026-01-01", "score": 10}],
+                    }
+                ]
+            }
+
+    class FakeDb:
+        async def rollback(self):
+            return None
+
+    monkeypatch.setattr(
+        "modules.bioai_report.report_engine.api.dependencies.get_bioai_trend_service",
+        lambda: FakeTrendService(),
+    )
+
+    payload = await _generate_bioreport_payload(
+        FakeReportService(),
+        assessment_instance_id=12216,
+        db=FakeDb(),
+    )
+    assert payload["patient"]["record_id"] == "REC-1"
+    assert payload["health_trends"] == {
+        "series": [
+            {
+                "disease_id": "thyroid_health",
+                "title": "Thyroid Health",
+                "points": [{"date": "2026-01-01", "score": 10}],
+            }
+        ]
+    }
 
 
 def test_summarize_bioreport_payload():
