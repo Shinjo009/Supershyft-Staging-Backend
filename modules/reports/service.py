@@ -18,6 +18,10 @@ from core.exceptions import AppError
 from db.transaction import release_request_transaction
 from db.session import AsyncSessionLocal
 from modules.assessments.models import AssessmentInstance, AssessmentPackage
+from modules.engagements.diagnostic_package_resolution import (
+    engagement_has_diagnostic_package,
+    resolve_diagnostic_package_id,
+)
 from modules.engagements.models import Engagement
 from modules.assessments.repository import AssessmentsRepository
 from modules.audit.models import IntegrationSyncLog
@@ -113,6 +117,7 @@ BLOOD_DATA_UNAVAILABLE_ERROR_CODES = frozenset({
     "BLOOD_SAMPLE_NOT_COLLECTED",
     "INVALID_STATE",
     "EXTERNAL_SERVICE_UNAVAILABLE",
+    "PARTICIPANT_GENDER_REQUIRED",
 })
 
 _OVERVIEW_METABOLIC_AGE_OVERRIDES: dict[int, float] = {
@@ -456,13 +461,7 @@ class ReportsService:
                 message="Assessment is missing engagement context",
             )
 
-        if engagement.diagnostic_package_id is None:
-            raise AppError(
-                status_code=422,
-                error_code="INVALID_STATE",
-                message="Engagement has no diagnostic package",
-            )
-        diagnostic_package_id = int(engagement.diagnostic_package_id)
+        diagnostic_package_id = resolve_diagnostic_package_id(engagement, user_gender=user_gender)
         sn_engagement_id = int(engagement.engagement_id)
         sn_user_id = int(assessment_instance.user_id)
         normalized_gender = (user_gender or "").strip().lower() or None
@@ -1237,15 +1236,12 @@ class ReportsService:
         sn_engagement_id = (
             engagement_id if engagement_id is not None else int(assessment_instance.engagement_id)
         )
-        sn_diagnostic_package_id = (
-            diagnostic_package_id
-            if diagnostic_package_id is not None
-            else (
-                int(engagement.diagnostic_package_id)
-                if engagement is not None and engagement.diagnostic_package_id is not None
-                else None
-            )
-        )
+        if diagnostic_package_id is not None:
+            sn_diagnostic_package_id = diagnostic_package_id
+        elif engagement is not None and engagement_has_diagnostic_package(engagement):
+            sn_diagnostic_package_id = resolve_diagnostic_package_id(engagement, user_gender=user_gender)
+        else:
+            sn_diagnostic_package_id = None
         healthy_profiles: list[str] = []
         if (
             sn_diagnostic_package_id is not None

@@ -25,6 +25,11 @@ from modules.engagements.blood_bookings_access import (
     read_schedule_from_row,
 )
 from modules.engagements.blood_bookings_repository import BloodBookingsRepository
+from modules.engagements.diagnostic_package_resolution import (
+    healthians_gender_code,
+    is_split_diagnostic_engagement,
+    resolve_diagnostic_package_id,
+)
 from modules.engagements.models import BloodCollectionType, Engagement, EngagementKind, EngagementParticipant, EngagementType
 from modules.engagements.repository import EngagementsRepository
 from modules.engagements.service import EngagementsService, _generate_engagement_code
@@ -1490,25 +1495,35 @@ async def create_healthians_booking_after_payment(
             results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": "Engagement is not in draft status"})
             continue
 
-        if not engagement.diagnostic_package_id:
-            results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": "No diagnostic package"})
-            continue
-
-        pkg = await _get_diagnostic_package(db, engagement.diagnostic_package_id)
-        if not _is_healthians(pkg):
-            results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": "Not a Healthians package"})
-            continue
-
         user_result = await db.execute(select(User).where(User.user_id == user_id))
         user = user_result.scalar_one_or_none()
         if user is None:
             results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": "User not found"})
             continue
 
+        try:
+            package_id = resolve_diagnostic_package_id(engagement, user_gender=user.gender)
+        except AppError as exc:
+            results.append({
+                "user_id": user_id,
+                "engagement_id": engagement_id,
+                "status": "error",
+                "message": exc.message,
+            })
+            continue
+
+        pkg = await _get_diagnostic_package(db, package_id)
+        if not _is_healthians(pkg):
+            results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": "Not a Healthians package"})
+            continue
+
         full_name = f"{(user.first_name or '').strip()} {(user.last_name or '').strip()}".strip() or "User"
-        gender_code = "M"
-        if (user.gender or "").strip().lower().startswith("f"):
-            gender_code = "F"
+        if is_split_diagnostic_engagement(engagement):
+            gender_code = healthians_gender_code(user.gender) or ""
+        else:
+            gender_code = "M"
+            if (user.gender or "").strip().lower().startswith("f"):
+                gender_code = "F"
 
         age = user.age or 30
         dob = ""
@@ -1644,10 +1659,16 @@ async def create_healthians_booking_after_payment(
 async def _get_healthians_package_for_engagement(
     db: AsyncSession,
     engagement: Engagement,
+    *,
+    user_id: int,
 ) -> DiagnosticPackage:
-    if not engagement.diagnostic_package_id:
-        raise AppError(status_code=422, error_code="INVALID_STATE", message="No diagnostic package")
-    pkg = await _get_diagnostic_package(db, engagement.diagnostic_package_id)
+    user_result = await db.execute(select(User).where(User.user_id == user_id))
+    user = user_result.scalar_one_or_none()
+    package_id = resolve_diagnostic_package_id(
+        engagement,
+        user_gender=user.gender if user is not None else None,
+    )
+    pkg = await _get_diagnostic_package(db, package_id)
     if not _is_healthians(pkg):
         raise AppError(
             status_code=422,
@@ -1674,7 +1695,7 @@ async def cancel_healthians_participant_booking(
             message="No Healthians booking exists for this participant",
         )
 
-    await _get_healthians_package_for_engagement(db, engagement)
+    await _get_healthians_package_for_engagement(db, engagement, user_id=participant.user_id)
 
     access_token = await _get_healthians_token()
     cancel_payload = {
@@ -1812,7 +1833,7 @@ async def reschedule_healthians_participant_booking(
             message="Reschedule is only allowed for home collection engagements",
         )
 
-    await _get_healthians_package_for_engagement(db, engagement)
+    await _get_healthians_package_for_engagement(db, engagement, user_id=participant.user_id)
 
     try:
         slot_start_time = _parse_slot_time(blood_collection_time_slot)

@@ -22,6 +22,11 @@ from modules.diagnostics.healthians.sync_log import (
     persist_healthians_sync_log_isolated,
 )
 from modules.diagnostics.models import DiagnosticPackage
+from modules.engagements.diagnostic_package_resolution import (
+    engagement_has_diagnostic_package,
+    healthians_gender_code,
+    resolve_diagnostic_package_id,
+)
 from modules.employee.access_control import (
     ensure_console_access,
     ensure_employee_present,
@@ -84,19 +89,7 @@ def _console_participant_to_dict(row: tuple) -> dict[str, Any]:
 
 
 def _to_healthians_gender(raw: str | None) -> str | None:
-    v = (raw or "").strip()
-    if not v:
-        return None
-    if v in {"1", "M", "m"}:
-        return "M"
-    if v in {"2", "F", "f"}:
-        return "F"
-    lowered = v.lower()
-    if lowered.startswith("m"):
-        return "M"
-    if lowered.startswith("f"):
-        return "F"
-    return None
+    return healthians_gender_code(raw)
 
 
 def _format_healthians_dob(user: User) -> str | None:
@@ -554,40 +547,11 @@ class ConsoleService:
                 message="A Healthians booking already exists for this participant",
             )
 
-        if engagement.diagnostic_package_id is None:
+        if not engagement_has_diagnostic_package(engagement):
             raise AppError(
                 status_code=422,
                 error_code="INVALID_STATE",
                 message="Engagement has no diagnostic package configured",
-            )
-
-        diagnostic_package = (
-            await db.execute(
-                select(DiagnosticPackage).where(
-                    DiagnosticPackage.diagnostic_package_id == engagement.diagnostic_package_id
-                )
-            )
-        ).scalar_one_or_none()
-        if diagnostic_package is None:
-            raise AppError(
-                status_code=422,
-                error_code="INVALID_STATE",
-                message="Diagnostic package does not exist",
-            )
-
-        provider = (diagnostic_package.diagnostic_provider or "").strip()
-        if provider.lower() != "healthians":
-            raise AppError(
-                status_code=422,
-                error_code="INVALID_DIAGNOSTIC_PROVIDER",
-                message="Engagement diagnostic provider must be Healthians",
-            )
-
-        if engagement.external_camp_id is None or diagnostic_package.external_package_id is None:
-            raise AppError(
-                status_code=422,
-                error_code="MISSING_DIAGNOSTIC_CONFIG",
-                message="Engagement is missing external camp ID or diagnostic package is missing external package ID",
             )
 
         if (
@@ -626,6 +590,19 @@ class ConsoleService:
                 status_code=422,
                 error_code="INCOMPLETE_PARTICIPANT_PROFILE",
                 message="Participant profile is missing required fields (name, phone, gender, age or date of birth)",
+            )
+
+        diagnostic_package = await self._diagnostic_package_for_participant(
+            db,
+            engagement,
+            user_gender=user.gender,
+        )
+        provider = (diagnostic_package.diagnostic_provider or "").strip()
+        if engagement.external_camp_id is None or diagnostic_package.external_package_id is None:
+            raise AppError(
+                status_code=422,
+                error_code="MISSING_DIAGNOSTIC_CONFIG",
+                message="Engagement is missing external camp ID or diagnostic package is missing external package ID",
             )
 
         phone = to_healthians_mobile(phone_raw)
@@ -1077,22 +1054,17 @@ class ConsoleService:
 
     # ── Home-collection booking flow ──────────────────────────────────────
 
-    async def _load_healthians_package_for_engagement(
+    async def _diagnostic_package_for_participant(
         self,
         db: AsyncSession,
         engagement: Engagement,
+        *,
+        user_gender: str | None,
     ) -> DiagnosticPackage:
-        if engagement.diagnostic_package_id is None:
-            raise AppError(
-                status_code=422,
-                error_code="INVALID_STATE",
-                message="Engagement has no diagnostic package configured",
-            )
+        package_id = resolve_diagnostic_package_id(engagement, user_gender=user_gender)
         pkg = (
             await db.execute(
-                select(DiagnosticPackage).where(
-                    DiagnosticPackage.diagnostic_package_id == engagement.diagnostic_package_id
-                )
+                select(DiagnosticPackage).where(DiagnosticPackage.diagnostic_package_id == package_id)
             )
         ).scalar_one_or_none()
         if pkg is None:
@@ -1108,6 +1080,20 @@ class ConsoleService:
                 message="Diagnostic provider is not Healthians",
             )
         return pkg
+
+    async def _load_healthians_package_for_engagement(
+        self,
+        db: AsyncSession,
+        engagement: Engagement,
+        *,
+        user_id: int,
+    ) -> DiagnosticPackage:
+        user = await self._users_repository.get_user_by_id(db, user_id=user_id)
+        return await self._diagnostic_package_for_participant(
+            db,
+            engagement,
+            user_gender=user.gender if user is not None else None,
+        )
 
     @staticmethod
     def _ensure_home_collection_engagement(engagement: Engagement) -> None:
@@ -1176,7 +1162,7 @@ class ConsoleService:
         elif await has_active_booking(db, participant):
             raise AppError(status_code=409, error_code="BOOKING_ALREADY_EXISTS", message="A booking already exists for this participant")
 
-        pkg = await self._load_healthians_package_for_engagement(db, engagement)
+        pkg = await self._load_healthians_package_for_engagement(db, engagement, user_id=user_id)
 
         engagement_participant_id = participant.engagement_participant_id
 
@@ -1276,7 +1262,7 @@ class ConsoleService:
         if participant.latitude is None or participant.longitude is None or not (participant.pincode or "").strip():
             raise AppError(status_code=422, error_code="MISSING_LOCATION", message="Service availability has not been checked yet")
 
-        pkg = await self._load_healthians_package_for_engagement(db, engagement)
+        pkg = await self._load_healthians_package_for_engagement(db, engagement, user_id=user_id)
 
         user_result = await db.execute(select(User).where(User.user_id == user_id))
         user = user_result.scalar_one_or_none()
@@ -1371,7 +1357,7 @@ class ConsoleService:
         if participant is None:
             raise AppError(status_code=404, error_code="PARTICIPANT_NOT_FOUND", message="Participant is not enrolled in this engagement")
 
-        pkg = await self._load_healthians_package_for_engagement(db, engagement)
+        pkg = await self._load_healthians_package_for_engagement(db, engagement, user_id=user_id)
 
         vendor_billing_user_id = str(participant.booked_by_user_id)
         engagement_participant_id = participant.engagement_participant_id
@@ -1472,7 +1458,7 @@ class ConsoleService:
         if not sched["blood_collection_time_slot_id"]:
             raise AppError(status_code=422, error_code="SLOT_NOT_LOCKED", message="Blood collection slot is not locked")
 
-        pkg = await self._load_healthians_package_for_engagement(db, engagement)
+        pkg = await self._load_healthians_package_for_engagement(db, engagement, user_id=user_id)
 
         if not settings.HEALTHIANS_CHECKSUM_KEY:
             raise AppError(status_code=500, error_code="CONFIG_ERROR", message="Healthians checksum key is not configured")

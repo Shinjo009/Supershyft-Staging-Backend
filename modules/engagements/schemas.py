@@ -175,6 +175,23 @@ def _consultations_enabled(consultations: dict[str, bool] | None) -> bool:
     return any(value is True for value in consultations.values())
 
 
+def _validate_diagnostic_package_choice(
+    *,
+    diagnostic_package_id: int | None,
+    diagnostic_package_id_male: int | None,
+    diagnostic_package_id_female: int | None,
+) -> None:
+    """Allow one unisex package, both gender packages, or none. Reject mixtures."""
+    has_male = diagnostic_package_id_male is not None
+    has_female = diagnostic_package_id_female is not None
+    if has_male != has_female:
+        raise ValueError("Set both a male and a female diagnostic package, or neither")
+    if diagnostic_package_id is not None and (has_male or has_female):
+        raise ValueError(
+            "Set either one diagnostic package or both male and female packages, not both"
+        )
+
+
 class EngagementCreateRequest(BaseModel):
     """Create a new B2B engagement."""
 
@@ -188,6 +205,8 @@ class EngagementCreateRequest(BaseModel):
     engagement_code: OptionalEngagementCode = None
     assessment_package_id: Optional[PositiveIntId] = None
     diagnostic_package_id: Optional[PositiveIntId] = None
+    diagnostic_package_id_male: Optional[PositiveIntId] = None
+    diagnostic_package_id_female: Optional[PositiveIntId] = None
     city: OptionalCityStateCountry = None
     address: OptionalAddressText = None
     sub_locality: OptionalLandmarkText = None
@@ -214,6 +233,11 @@ class EngagementCreateRequest(BaseModel):
     def consultation_mode_required_when_consultations(self) -> EngagementCreateRequest:
         if _consultations_enabled(self.consultations) and self.consultation_mode is None:
             raise ValueError("consultation_mode is required when consultations are enabled")
+        _validate_diagnostic_package_choice(
+            diagnostic_package_id=self.diagnostic_package_id,
+            diagnostic_package_id_male=self.diagnostic_package_id_male,
+            diagnostic_package_id_female=self.diagnostic_package_id_female,
+        )
         return self
 
 
@@ -229,6 +253,8 @@ class EngagementUpdateRequest(BaseModel):
     slot_detail: Optional[SlotDetail] = None
     assessment_package_id: Optional[PositiveIntId] = None
     diagnostic_package_id: Optional[PositiveIntId] = None
+    diagnostic_package_id_male: Optional[PositiveIntId] = None
+    diagnostic_package_id_female: Optional[PositiveIntId] = None
     city: OptionalCityStateCountry = None
     address: OptionalAddressText = None
     sub_locality: OptionalLandmarkText = None
@@ -256,6 +282,11 @@ class EngagementUpdateRequest(BaseModel):
     def consultation_mode_required_when_consultations(self) -> EngagementUpdateRequest:
         if _consultations_enabled(self.consultations) and self.consultation_mode is None:
             raise ValueError("consultation_mode is required when consultations are enabled")
+        _validate_diagnostic_package_choice(
+            diagnostic_package_id=self.diagnostic_package_id,
+            diagnostic_package_id_male=self.diagnostic_package_id_male,
+            diagnostic_package_id_female=self.diagnostic_package_id_female,
+        )
         return self
 
 
@@ -305,6 +336,8 @@ class EngagementListItem(BaseModel):
     slot_detail: Optional[dict[str, Any]] = None
     assessment_package_id: Optional[int] = None
     diagnostic_package_id: Optional[int] = None
+    diagnostic_package_id_male: Optional[int] = None
+    diagnostic_package_id_female: Optional[int] = None
     city: Optional[str] = None
     address: Optional[str] = None
     sub_locality: Optional[str] = None

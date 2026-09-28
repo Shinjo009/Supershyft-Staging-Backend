@@ -155,6 +155,10 @@ def _participant_move_mismatch_reasons(source: Engagement, target: Engagement) -
         mismatches.append("Assessment package")
     if source.diagnostic_package_id != target.diagnostic_package_id:
         mismatches.append("diagnostic_package_id")
+    if source.diagnostic_package_id_male != target.diagnostic_package_id_male:
+        mismatches.append("diagnostic_package_id_male")
+    if source.diagnostic_package_id_female != target.diagnostic_package_id_female:
+        mismatches.append("diagnostic_package_id_female")
     if source.engagement_type != target.engagement_type:
         mismatches.append("Engagement Type")
     if _blood_collection_type_value(source.blood_collection_type) != _blood_collection_type_value(
@@ -592,6 +596,8 @@ class EngagementsService:
             slot_detail_id=slot_detail_id,
             assessment_package_id=payload.assessment_package_id,
             diagnostic_package_id=diagnostic_package_id,
+            diagnostic_package_id_male=payload.diagnostic_package_id_male,
+            diagnostic_package_id_female=payload.diagnostic_package_id_female,
             city=payload.city,
             address=payload.address,
             sub_locality=payload.sub_locality,
@@ -1090,6 +1096,8 @@ class EngagementsService:
                     )
         engagement.assessment_package_id = payload.assessment_package_id
         engagement.diagnostic_package_id = payload.diagnostic_package_id
+        engagement.diagnostic_package_id_male = payload.diagnostic_package_id_male
+        engagement.diagnostic_package_id_female = payload.diagnostic_package_id_female
         engagement.city = payload.city
         engagement.address = payload.address
         engagement.sub_locality = payload.sub_locality
@@ -2794,6 +2802,7 @@ class EngagementsService:
         from sqlalchemy import delete, update
 
         from modules.checklists.models import EngagementChecklist
+        from modules.engagements.models import EngagementNotification
         from modules.notifications.models import Notification
 
         instances = await self._assessments_repository.list_all_instances_for_engagement(
@@ -2845,6 +2854,11 @@ class EngagementsService:
             delete(EngagementChecklist).where(EngagementChecklist.engagement_id == engagement_id)
         )
         totals["deleted_engagement_checklists"] = int(checklist_result.rowcount or 0)
+
+        notification_result = await db.execute(
+            delete(EngagementNotification).where(EngagementNotification.engagement_id == engagement_id)
+        )
+        totals["deleted_engagement_notifications"] = int(notification_result.rowcount or 0)
 
         return totals
 
