@@ -1,24 +1,30 @@
-"""Integration tests for GET /bioai-report/{assessment_instance_id}."""
+"""Access tests for GET /bioai-report/{assessment_instance_id}."""
 
 from __future__ import annotations
 
-from datetime import date, timedelta
-import inspect
+from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import text
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 
-from modules.assessments.models import AssessmentInstance
-from modules.bioai_report.report_engine.api.dependencies import get_bioreport_service
-from modules.bioai_report.report_engine.api import router as bioai_router
+from core.dependencies import get_optional_user
+from core.exceptions import add_exception_handlers
+from db.session import get_db
+from modules.bioai_report.report_engine.api.dependencies import (
+    get_bioai_trend_service,
+    get_bioreport_service,
+)
+from modules.bioai_report.report_engine.api.router import router
 from modules.bioai_report.report_engine.models.report import (
     BioReport,
     ExecutiveSummary,
     PatientInfo,
     ReportMetadata,
 )
-from modules.engagements.models import Engagement
-from modules.users.models import User
+from modules.employee.dependencies import get_optional_employee
+from modules.employee.models import EmployeeRole
+from modules.employee.service import EmployeeContext
 
 
 class _FakeBioReportService:
@@ -35,77 +41,89 @@ class _FakeBioReportService:
         )
 
 
-async def _seed_assessment(test_db_session, *, assessment_id: int, user_id: int):
-    await test_db_session.execute(
-        text(
-            "INSERT INTO diagnostic_package (diagnostic_package_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'Test Diagnostic', 'test_provider', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
-        )
+class _FakeTrendService:
+    async def embed_for_assessment_instance(self, db, *, assessment_instance_id, report_payload):
+        return {"series": []}
+
+
+async def _noop_db():
+    yield SimpleNamespace()
+
+
+def _app(*, user=None, employee=None) -> FastAPI:
+    app = FastAPI()
+    add_exception_handlers(app)
+    app.include_router(router)
+    app.dependency_overrides[get_db] = _noop_db
+    app.dependency_overrides[get_optional_user] = lambda: user
+    app.dependency_overrides[get_optional_employee] = lambda: employee
+    app.dependency_overrides[get_bioreport_service] = lambda: _FakeBioReportService()
+    app.dependency_overrides[get_bioai_trend_service] = lambda: _FakeTrendService()
+    return app
+
+
+@pytest.fixture
+def owner_instance(monkeypatch):
+    async def _get_instance(self, db, assessment_instance_id: int):
+        if int(assessment_instance_id) != 99501:
+            return None
+        return SimpleNamespace(user_id=89501, assessment_instance_id=99501)
+
+    monkeypatch.setattr(
+        "modules.assessments.repository.AssessmentsRepository.get_instance_by_id",
+        _get_instance,
     )
-    await test_db_session.execute(
-        text(
-            "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status) "
-            "VALUES (1, 'PRO', 'Pro', '2', 'active') "
-            "ON CONFLICT (package_id) DO UPDATE SET assessment_type_code = EXCLUDED.assessment_type_code"
-        )
-    )
-    test_db_session.add(
-        User(
-            user_id=user_id,
-            first_name="Test",
-            last_name="User",
-            phone=f"{user_id}000000",
-            age=30,
-            status="active",
-        )
-    )
-    test_db_session.add(
-        Engagement(
-            engagement_id=assessment_id,
-            engagement_name="BioAI Route Engagement",
-            engagement_code=f"ENG-BIOAI-ROUTE-{assessment_id}",
-            engagement_type="bio_ai",
-            assessment_package_id=1,
-            diagnostic_package_id=1,
-            city="Bengaluru",
-            slot_duration=20,
-            start_date=date.today() - timedelta(days=7),
-            end_date=date.today() + timedelta(days=7),
-            status="running",
-        )
-    )
-    test_db_session.add(
-        AssessmentInstance(
-            assessment_instance_id=assessment_id,
-            user_id=user_id,
-            package_id=1,
-            engagement_id=assessment_id,
-            status="completed",
-            metsights_record_id="REC-1",
-        )
-    )
-    await test_db_session.commit()
+
+
+async def _get(app: FastAPI, path: str = "/bioai-report/99501"):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        return await client.get(path)
 
 
 @pytest.mark.asyncio
-async def test_get_bioreport_returns_engine_content_without_endpoint_auth(
-    async_client, fastapi_app, test_db_session
-):
-    await _seed_assessment(test_db_session, assessment_id=99501, user_id=89501)
-    fastapi_app.dependency_overrides[get_bioreport_service] = lambda: _FakeBioReportService()
+async def test_get_bioreport_requires_auth(owner_instance):
+    response = await _get(_app())
+    assert response.status_code == 401
+    assert response.json() == {"error_code": "AUTH_FAILED", "message": "Authentication failed"}
 
-    response = await async_client.get("/bioai-report/99501")
 
+@pytest.mark.asyncio
+async def test_get_bioreport_owner_can_read(owner_instance):
+    response = await _get(_app(user=SimpleNamespace(user_id=89501)))
     assert response.status_code == 200
     body = response.json()
-    assert set(body) >= {"patient", "executive_summary", "disease_sections", "report_metadata", "health_trends"}
+    assert set(body) >= {
+        "patient",
+        "executive_summary",
+        "disease_sections",
+        "report_metadata",
+        "health_trends",
+    }
     assert body["patient"]["record_id"] == "REC-1"
-    fastapi_app.dependency_overrides.pop(get_bioreport_service, None)
 
 
-def test_bioai_route_does_not_query_employee_or_custom_auth():
-    source = inspect.getsource(bioai_router)
-    assert "employee" not in source.lower()
-    assert "get_current_employee" not in source
-    assert "ensure_internal_employee" not in source
-    assert "phone" not in source.lower()
+@pytest.mark.asyncio
+async def test_get_bioreport_other_user_cannot_read(owner_instance):
+    response = await _get(_app(user=SimpleNamespace(user_id=89503)))
+    assert response.status_code == 404
+    assert response.json() == {
+        "error_code": "ASSESSMENT_NOT_FOUND",
+        "message": "Assessment does not exist",
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_bioreport_admin_can_read_any_instance(owner_instance):
+    admin = EmployeeContext(employee_id=99514, role=EmployeeRole.admin)
+    response = await _get(_app(employee=admin))
+    assert response.status_code == 200
+    assert response.json()["patient"]["record_id"] == "REC-1"
+
+
+@pytest.mark.asyncio
+async def test_get_bioreport_non_admin_employee_is_forbidden(owner_instance):
+    manager = EmployeeContext(employee_id=99515, role=EmployeeRole.organization_manager)
+    response = await _get(_app(employee=manager))
+    assert response.status_code == 403
+    assert response.json()["error_code"] == "FORBIDDEN"
