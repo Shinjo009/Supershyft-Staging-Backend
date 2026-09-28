@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from typing import Any
 
@@ -17,6 +18,8 @@ from modules.bioai_report.client import BioAiReportsClient
 from modules.bioai_report.report_engine.services.report_service import BioReportService
 from modules.engagements.models import EngagementParticipant
 from modules.reports.repository import ReportsRepository
+
+logger = logging.getLogger(__name__)
 
 _PROVIDER = "bio_ai_reports"
 _BIO_AI_TYPE_CODES = frozenset({"1", "2"})
@@ -471,4 +474,20 @@ async def _generate_bioreport_payload(
         assessment_instance_id=assessment_instance_id,
         db=db,
     )
-    return report.to_dict()
+    payload = report.to_dict()
+    try:
+        await db.rollback()
+    except Exception:
+        logger.exception(
+            "Bio-AI report could not reset DB session before trends for assessment_instance_id=%s",
+            assessment_instance_id,
+        )
+    from modules.bioai_report.report_engine.api.dependencies import get_bioai_trend_service
+
+    trend_service = get_bioai_trend_service()
+    payload["health_trends"] = await trend_service.embed_for_assessment_instance(
+        db,
+        assessment_instance_id=int(assessment_instance_id),
+        report_payload=payload,
+    )
+    return payload
