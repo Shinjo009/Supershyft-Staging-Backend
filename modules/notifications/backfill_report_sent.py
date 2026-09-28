@@ -425,8 +425,6 @@ async def _backfill_cohort(
                     engagement_id=int(engagement.engagement_id),
                     user_id=int(user.user_id),
                     booked_by_user_id=int(user.user_id),
-                    engagement_date=None,
-                    slot_start_time=None,
                     is_profile_created_on_metsights=False,
                     is_primary_record_id_synced=False,
                     is_fitprint_record_id_synced=False,

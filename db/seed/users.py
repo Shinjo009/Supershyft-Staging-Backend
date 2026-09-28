@@ -423,14 +423,22 @@ async def _seed_one_engagement_per_user(
     participant = EngagementParticipant(
         engagement_id=eid,
         user_id=uid,
-        engagement_date=slot_date,
-        slot_start_time=slot_start,
+        booked_by_user_id=uid,
         participants_employee_id=None,
         participant_department=None,
         participant_blood_group=None,
         is_profile_created_on_metsights=False,
     )
     await er.create_participant(session, participant)
+    if slot_date is not None or slot_start is not None:
+        from modules.engagements.blood_bookings_access import apply_schedule
+
+        await apply_schedule(
+            session,
+            participant,
+            engagement_date=slot_date,
+            slot_start_time=slot_start,
+        )
 
     seen_package: set[int] = set()
     for pkg_id, mid, ad in ordered:

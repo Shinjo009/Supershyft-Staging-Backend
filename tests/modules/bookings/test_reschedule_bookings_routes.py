@@ -93,16 +93,26 @@ async def _seed_reschedule_fixture(
         )
     await test_db_session.flush()
     slot_date = date.today() + timedelta(days=3)
+    from modules.engagements.blood_booking_enums import BloodBookingRelation, BloodBookingStatus
+    from modules.engagements.models import ParticipantBloodBooking
+
+    participant = EngagementParticipant(
+        engagement_id=engagement_id,
+        user_id=participant_user_id,
+        booked_by_user_id=booked_by_user_id,
+    )
+    test_db_session.add(participant)
+    await test_db_session.flush()
     test_db_session.add(
-        EngagementParticipant(
-            engagement_id=engagement_id,
-            user_id=participant_user_id,
-            booked_by_user_id=booked_by_user_id,
-            engagement_date=slot_date,
-            slot_start_time=time(11, 30),
+        ParticipantBloodBooking(
+            engagement_participant_id=participant.engagement_participant_id,
+            relation=BloodBookingRelation.primary.value,
+            status=BloodBookingStatus.active.value,
+            collection_date=slot_date,
+            collection_time=time(11, 30),
             booking_id=f"BK{engagement_id}",
             barcode=f"BK{engagement_id}",
-            blood_collection_time_slot_id="STM_BATCH",
+            collection_time_slot_id="STM_BATCH",
         )
     )
     await test_db_session.commit()

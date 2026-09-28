@@ -57,7 +57,37 @@ async def _get_diagnostic_package(db: AsyncSession, package_id: int) -> Diagnost
 
 
 async def _get_healthians_token() -> str:
-    return await healthians_client.get_access_token()
+    """Fetch Healthians access token; map failures to a clear 502 for API clients."""
+    try:
+        return await healthians_client.get_access_token()
+    except Exception as exc:
+        logger.exception("Healthians access-token fetch failed")
+        is_blocked = "403" in str(exc) or "blocked" in str(exc).lower()
+        raise AppError(
+            status_code=502,
+            error_code="HEALTHIANS_IP_BLOCKED" if is_blocked else "HEALTHIANS_API_ERROR",
+            message=(
+                "Healthians is blocking requests from this server. "
+                "The server IP needs to be whitelisted by Healthians."
+                if is_blocked
+                else f"Failed to authenticate with Healthians: {exc}"
+            ),
+        ) from exc
+
+
+def _healthians_zone_id(resp: dict[str, Any]) -> Any:
+    data = resp.get("data")
+    if isinstance(data, dict):
+        return data.get("zone_id")
+    return None
+
+
+async def _safe_log_healthians_call(db: AsyncSession, **kwargs: Any) -> None:
+    """Best-effort Healthians sync log; never fails the booking request."""
+    try:
+        await log_healthians_call(db, **kwargs)
+    except Exception:
+        logger.exception("Failed to persist Healthians sync log")
 
 
 async def _geocode_for_booking(query: str) -> dict[str, Any]:
@@ -211,8 +241,6 @@ async def check_service_availability(
             engagement_id=engagement.engagement_id,
             user_id=user_id,
             booked_by_user_id=booked_by_user_id,
-            engagement_date=None,
-            slot_start_time=None,
         )
         db.add(participant)
         await db.flush()
@@ -232,7 +260,7 @@ async def check_service_availability(
             )
         except Exception as exc:
             logger.exception("Healthians serviceability check failed for user %s", user_id)
-            await log_healthians_call(
+            await _safe_log_healthians_call(
                 db,
                 engagement_id=engagement.engagement_id,
                 user_id=user_id,
@@ -245,7 +273,7 @@ async def check_service_availability(
             results.append({"user_id": user_id, "status": "error", "message": str(exc)})
             continue
 
-        await log_healthians_call(
+        await _safe_log_healthians_call(
             db,
             engagement_id=engagement.engagement_id,
             user_id=user_id,
@@ -267,7 +295,7 @@ async def check_service_availability(
             })
             continue
 
-        zone_id = resp.get("data", {}).get("zone_id") if resp.get("data") else None
+        zone_id = _healthians_zone_id(resp)
         engagement.healthians_zone_id = str(zone_id) if zone_id else None
         await db.flush()
 
@@ -589,7 +617,7 @@ async def _check_healthians_serviceability_at_location(
     except Exception as exc:
         log_label = engagement_code or "public"
         logger.exception("Healthians serviceability check failed for %s", log_label)
-        await log_healthians_call(
+        await _safe_log_healthians_call(
             db,
             engagement_id=engagement_id,
             user_id=None,
@@ -601,7 +629,7 @@ async def _check_healthians_serviceability_at_location(
         )
         return {**result, "status": "error", "message": str(exc)}
 
-    await log_healthians_call(
+    await _safe_log_healthians_call(
         db,
         engagement_id=engagement_id,
         user_id=None,
@@ -619,7 +647,7 @@ async def _check_healthians_serviceability_at_location(
             "message": resp.get("message", "This location is not serviceable."),
         }
 
-    zone_id = resp.get("data", {}).get("zone_id") if resp.get("data") else None
+    zone_id = _healthians_zone_id(resp)
     return {
         **result,
         "status": "serviceable",

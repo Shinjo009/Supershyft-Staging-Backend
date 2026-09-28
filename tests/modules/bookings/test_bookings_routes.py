@@ -170,7 +170,8 @@ async def _seed_draft_engagement(
     address: str | None = "Flat 1, Block A, Near Park, Mumbai - 400001",
     locked: bool = False,
 ) -> None:
-    from modules.engagements.models import BloodCollectionType, Engagement, EngagementParticipant
+    from modules.engagements.blood_booking_enums import BloodBookingRelation, BloodBookingStatus
+    from modules.engagements.models import BloodCollectionType, Engagement, EngagementParticipant, ParticipantBloodBooking
 
     test_db_session.add(
         Engagement(
@@ -191,23 +192,24 @@ async def _seed_draft_engagement(
             blood_collection_type=BloodCollectionType.home_collection,
         )
     )
-    participant_kwargs: dict = {
-        "engagement_id": engagement_id,
-        "user_id": user_id,
-        "booked_by_user_id": booked_by_user_id,
-    }
+    participant = EngagementParticipant(
+        engagement_id=engagement_id,
+        user_id=user_id,
+        booked_by_user_id=booked_by_user_id,
+    )
+    test_db_session.add(participant)
+    await test_db_session.flush()
     if locked:
-        participant_kwargs.update({
-            "engagement_date": date(2026, 7, 15),
-            "slot_start_time": time(6, 0),
-            "blood_collection_time_slot_id": "slot-123",
-        })
-    else:
-        participant_kwargs.update({
-            "engagement_date": None,
-            "slot_start_time": None,
-        })
-    test_db_session.add(EngagementParticipant(**participant_kwargs))
+        test_db_session.add(
+            ParticipantBloodBooking(
+                engagement_participant_id=participant.engagement_participant_id,
+                relation=BloodBookingRelation.primary.value,
+                status=BloodBookingStatus.active.value,
+                collection_date=date(2026, 7, 15),
+                collection_time=time(6, 0),
+                collection_time_slot_id="slot-123",
+            )
+        )
     await test_db_session.commit()
 
 
@@ -385,15 +387,71 @@ async def test_check_service_availability_creates_engagement_before_healthians(
     part_row = (
         await test_db_session.execute(
             text(
-                "SELECT booked_by_user_id, engagement_date, slot_start_time "
+                "SELECT booked_by_user_id "
                 "FROM engagement_participants WHERE engagement_id = :eid"
             ),
             {"eid": member["engagement_id"]},
         )
     ).one()
     assert part_row.booked_by_user_id == 930001
-    assert part_row.engagement_date is None
-    assert part_row.slot_start_time is None
+
+    blood_count = (
+        await test_db_session.execute(
+            text(
+                "SELECT COUNT(*) AS n FROM participant_blood_bookings pbb "
+                "JOIN engagement_participants ep ON ep.engagement_participant_id = pbb.engagement_participant_id "
+                "WHERE ep.engagement_id = :eid"
+            ),
+            {"eid": member["engagement_id"]},
+        )
+    ).scalar_one()
+    assert blood_count == 0
+
+
+@pytest.mark.asyncio
+async def test_check_service_availability_token_failure_returns_502(async_client, test_db_session):
+    await _seed_healthians_diagnostic_package(test_db_session)
+    u = User(
+        user_id=930099,
+        age=30,
+        phone="9300990000",
+        status="active",
+        first_name="Tok",
+        last_name="Fail",
+        gender="male",
+        city="Mumbai",
+        parent_id=None,
+    )
+    test_db_session.add(u)
+    await test_db_session.commit()
+
+    payload = {
+        "members": [
+            {
+                "user_id": 930099,
+                "address_line": "Flat 12, Green Park",
+                "landmark": "Near Mall",
+                "city": "Mumbai",
+                "pincode": "400001",
+                "diagnostic_package_id": 1,
+            }
+        ]
+    }
+
+    with patch(
+        "modules.bookings.service.healthians_client.get_access_token",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("Healthians blocked the request (403 Forbidden)"),
+    ):
+        response = await async_client.post(
+            "/book/check-service-availability",
+            headers=_auth_header(930099),
+            json=payload,
+        )
+
+    assert response.status_code == 502
+    body = response.json()
+    assert body["error_code"] == "HEALTHIANS_IP_BLOCKED"
 
 
 @pytest.mark.asyncio
@@ -655,14 +713,16 @@ async def test_lock_updates_slot_start_time(async_client, test_db_session):
     part_row = (
         await test_db_session.execute(
             text(
-                "SELECT engagement_date, slot_start_time, blood_collection_time_slot_id "
-                "FROM engagement_participants WHERE engagement_id = 930105"
+                "SELECT pbb.collection_date, pbb.collection_time, pbb.collection_time_slot_id "
+                "FROM participant_blood_bookings pbb "
+                "JOIN engagement_participants ep ON ep.engagement_participant_id = pbb.engagement_participant_id "
+                "WHERE ep.engagement_id = 930105"
             )
         )
     ).one()
-    assert str(part_row.engagement_date) == "2026-07-16"
-    assert str(part_row.slot_start_time) == "09:30:00"
-    assert part_row.blood_collection_time_slot_id == "999"
+    assert str(part_row.collection_date) == "2026-07-16"
+    assert str(part_row.collection_time) == "09:30:00"
+    assert part_row.collection_time_slot_id == "999"
 
 
 @pytest.mark.asyncio

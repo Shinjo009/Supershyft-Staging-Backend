@@ -1554,17 +1554,25 @@ class EngagementsService:
             engagement_id=engagement.engagement_id,
             user_id=user_id,
             booked_by_user_id=booked_by,
-            engagement_date=engagement_date,
-            slot_start_time=slot_start_time,
             participants_employee_id=participants_employee_id,
             participant_department=participant_department,
             participant_blood_group=participant_blood_group,
-            blood_collection_cabin=(blood_collection_cabin or "").strip() or None,
             is_profile_created_on_metsights=is_profile_created_on_metsights,
             is_primary_record_id_synced=is_primary_record_id_synced,
             is_fitprint_record_id_synced=is_fitprint_record_id_synced,
         )
         created = await self._repository.create_participant(db, participant)
+        cabin = (blood_collection_cabin or "").strip() or None
+        if engagement_date is not None or slot_start_time is not None or cabin is not None:
+            from modules.engagements.blood_bookings_access import apply_schedule
+
+            await apply_schedule(
+                db,
+                created,
+                engagement_date=engagement_date,
+                slot_start_time=slot_start_time,
+                blood_collection_cabin=cabin,
+            )
         if consultations:
             await self._consultation_bookings.sync_from_want_map(db, created, consultations)
         return created
