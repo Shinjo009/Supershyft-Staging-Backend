@@ -50,8 +50,8 @@ set +a
 alembic upgrade head || fail "alembic migration failed"
 success "Migrations applied"
 
-if [[ -f "${API_DIR}/scripts/staging-post-deploy.sh" ]]; then
-  step "[API] Post-deploy hooks"
+if [[ "${STAGING_RUN_POST_DEPLOY:-0}" == "1" && -f "${API_DIR}/scripts/staging-post-deploy.sh" ]]; then
+  step "[API] Post-deploy hooks (sample seed)"
   bash "${API_DIR}/scripts/staging-post-deploy.sh" || warn "staging-post-deploy.sh failed (non-fatal)"
 fi
 
