@@ -823,6 +823,21 @@ async def employee_get_participant_journey_summary(
     return success_response(data, meta=meta)
 
 
+@router.get("/{user_id}/participant-journey/overview")
+async def employee_get_participant_journey_overview(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    journey_service: ParticipantJourneyService = Depends(get_participant_journey_service),
+):
+    data = await journey_service.get_overview(
+        db,
+        employee=employee,
+        user_id=user_id,
+    )
+    return success_response(data)
+
+
 @router.post("/{user_id}/metsights/sync-records")
 async def sync_user_metsights_completed_records(
     request: Request,
