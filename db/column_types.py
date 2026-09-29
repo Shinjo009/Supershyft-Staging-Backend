@@ -151,6 +151,13 @@ class StatusLabel(TypeDecorator[int]):
         except KeyError:
             raise ValueError(f"Unknown status code in database: {value}") from None
 
+    def coerce_compared_value(self, op: Any, value: Any) -> StatusLabel:
+        """Ensure WHERE clauses bind string labels as smallint, not varchar."""
+        return self
+
+    def copy(self, **kwargs: Any) -> StatusLabel:
+        return StatusLabel(self._label_to_code)
+
 
 def status_code(label: str, mapping: Mapping[str, int]) -> int:
     return mapping[label]
