@@ -3002,20 +3002,13 @@ def mean_scores_by_category(score_rows: list[dict[str, float]]) -> dict[str, flo
     return {key: _mean_or_none(values) for key, values in buckets.items()}
 
 
-def build_state_disease_benchmark(
+def _build_state_benchmark_entry(
     *,
-    organization_id: int,
-    company_name: str,
-    state: str | None,
+    state: str,
     company_category_averages: dict[str, float | None],
     peer_company_category_averages: list[dict[str, float | None]],
-) -> dict:
-    """Build state_disease_benchmark section payload.
-
-    ``peer_company_category_averages`` is one dict per peer Bio-AI company (equal weight).
-    ``state_average`` for a category is the mean of peer companies that have that category.
-    """
-    companies_count = len(peer_company_category_averages)
+) -> dict[str, Any]:
+    """Build one states[] entry: peer means are equal-weight per company."""
     risk_comparison: list[dict[str, Any]] = []
     company_overall_values: list[float] = []
     state_overall_values: list[float] = []
@@ -3036,6 +3029,8 @@ def build_state_disease_benchmark(
         state_average = _mean_or_none(peer_values)
         if state_average is not None:
             state_overall_values.append(state_average)
+        else:
+            state_average = 0.0
 
         risk_comparison.append(
             {
@@ -3047,20 +3042,54 @@ def build_state_disease_benchmark(
         )
 
     return {
+        "state": state,
+        "benchmark": {
+            "companies_count": len(peer_company_category_averages),
+        },
+        "risk_comparison": risk_comparison,
+        "overall": {
+            "company_average": _mean_or_none(company_overall_values),
+            "state_average": _mean_or_none(state_overall_values) if state_overall_values else 0.0,
+        },
+    }
+
+
+def build_state_disease_benchmark(
+    *,
+    organization_id: int,
+    company_name: str,
+    company_category_averages: dict[str, float | None],
+    state_peer_averages: list[dict[str, Any]],
+) -> dict:
+    """Build state_disease_benchmark section payload.
+
+    ``state_peer_averages`` is a list of
+    ``{state, peer_company_category_averages}`` (one dict per peer company per state).
+    Company averages are computed once and repeated in each states[] entry.
+    """
+    states: list[dict[str, Any]] = []
+    for entry in state_peer_averages:
+        state_name = entry.get("state")
+        if not isinstance(state_name, str) or not state_name.strip():
+            continue
+        peers = entry.get("peer_company_category_averages") or []
+        if not isinstance(peers, list):
+            peers = []
+        states.append(
+            _build_state_benchmark_entry(
+                state=state_name.strip(),
+                company_category_averages=company_category_averages,
+                peer_company_category_averages=peers,
+            )
+        )
+
+    return {
         "data": {
             "company": {
                 "organization_id": int(organization_id),
                 "name": company_name or "",
-                "state": state,
             },
-            "benchmark": {
-                "companies_count": companies_count,
-            },
-            "risk_comparison": risk_comparison,
-            "overall": {
-                "company_average": _mean_or_none(company_overall_values),
-                "state_average": _mean_or_none(state_overall_values),
-            },
+            "states": states,
         }
     }
 
@@ -3069,32 +3098,44 @@ def build_state_disease_benchmark_details(
     *,
     organization_id: int,
     company_name: str,
-    state: str | None,
     company_category_averages: dict[str, float | None],
-    peer_company_category_averages: list[dict[str, float | None]],
-    peer_organization_ids: list[int] | None = None,
+    state_peer_averages: list[dict[str, Any]],
 ) -> tuple[dict, dict]:
     """Return section payload plus BTS details for state disease benchmarking."""
     payload = build_state_disease_benchmark(
         organization_id=organization_id,
         company_name=company_name,
-        state=state,
         company_category_averages=company_category_averages,
-        peer_company_category_averages=peer_company_category_averages,
+        state_peer_averages=state_peer_averages,
     )
+    states_method: list[dict[str, Any]] = []
+    for entry in state_peer_averages:
+        state_name = entry.get("state")
+        if not isinstance(state_name, str) or not state_name.strip():
+            continue
+        peers = entry.get("peer_company_category_averages") or []
+        peer_ids = entry.get("peer_organization_ids") or []
+        states_method.append(
+            {
+                "state": state_name.strip(),
+                "peer_organization_ids": list(peer_ids),
+                "companies_count": len(peers) if isinstance(peers, list) else 0,
+            }
+        )
     details = {
         "method": {
-            "state_source": "organizations.state",
-            "company_average": "Mean of individuals enrolled in this camp with a Bio-AI score for the category",
-            "state_average": (
-                "Mean of peer company averages (equal weight per company); "
-                "selected organization excluded"
+            "state_source": "engagements.state",
+            "company_average": (
+                "Mean of individuals enrolled in this camp with a Bio-AI score for the category"
             ),
-            "peer_organization_ids": list(peer_organization_ids or []),
-            "companies_count": len(peer_company_category_averages),
+            "state_average": (
+                "Mean of peer company averages (equal weight per company) from other orgs "
+                "with Bio-AI engagements in the same engagements.state; selected organization excluded"
+            ),
+            "states": states_method,
         },
         "company_category_averages": dict(company_category_averages),
-        "peer_company_category_averages": list(peer_company_category_averages),
+        "state_peer_averages": list(state_peer_averages),
     }
     return payload, details
 

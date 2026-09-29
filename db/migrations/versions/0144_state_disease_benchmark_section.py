@@ -25,7 +25,7 @@ def upgrade() -> None:
             VALUES (
                 'state_disease_benchmark',
                 'State Disease Benchmark',
-                'Compare company Bio-AI disease and oxidative risk averages with the average of other Bio-AI-tested companies in the same state.'
+                'Compare company Bio-AI disease and oxidative risk averages with the average of other Bio-AI-tested companies in each state.'
             )
             ON CONFLICT (section_key) DO NOTHING
             """

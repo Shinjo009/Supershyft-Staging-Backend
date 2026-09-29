@@ -3645,8 +3645,7 @@ class CampReportsService:
                 error_code="CAMP_NOT_FOUND",
                 message="Camp does not exist",
             )
-        organization_id, organization_name, state = org_context
-        state_value = state.strip() if isinstance(state, str) and state.strip() else None
+        organization_id, organization_name = org_context
 
         company_score_maps = await self._repository.list_benchmark_score_maps_for_camp(
             db,
@@ -3656,27 +3655,39 @@ class CampReportsService:
         )
         company_category_averages = mean_scores_by_category(company_score_maps)
 
-        peer_company_category_averages: list[dict[str, float | None]] = []
-        peer_organization_ids: list[int] = []
-        if state_value is not None:
+        engagement_states = await self._repository.list_distinct_engagement_states_for_camp(
+            db,
+            camp_no=camp_no,
+            city=city,
+        )
+
+        state_peer_averages: list[dict] = []
+        for state_value in engagement_states:
             peer_by_org = await self._repository.list_benchmark_score_maps_by_org_for_state(
                 db,
                 state=state_value,
                 exclude_organization_id=organization_id,
             )
+            peer_company_category_averages: list[dict[str, float | None]] = []
+            peer_organization_ids: list[int] = []
             for peer_org_id in sorted(peer_by_org.keys()):
                 peer_organization_ids.append(peer_org_id)
                 peer_company_category_averages.append(
                     mean_scores_by_category(peer_by_org[peer_org_id])
                 )
+            state_peer_averages.append(
+                {
+                    "state": state_value,
+                    "peer_company_category_averages": peer_company_category_averages,
+                    "peer_organization_ids": peer_organization_ids,
+                }
+            )
 
         return build_state_disease_benchmark_details(
             organization_id=organization_id,
             company_name=organization_name,
-            state=state_value,
             company_category_averages=company_category_averages,
-            peer_company_category_averages=peer_company_category_averages,
-            peer_organization_ids=peer_organization_ids,
+            state_peer_averages=state_peer_averages,
         )
 
     async def _compute_ranking_payload(self, db: AsyncSession, *, camp_no: int) -> dict:
