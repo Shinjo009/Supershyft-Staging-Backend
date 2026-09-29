@@ -1591,7 +1591,7 @@ async def test_load_blood_reports_persists_metsights_sync_log_on_push_failure(
             text(
                 "SELECT provider, status, api_endpoint_url, error_message "
                 "FROM integration_sync_logs WHERE provider = 'metsights' "
-                "AND user_id = 88004 AND status = 'failed' ORDER BY sync_log_id"
+                "AND user_id = 88004 AND status = 3 ORDER BY sync_log_id"
             )
         )
     ).mappings().all()

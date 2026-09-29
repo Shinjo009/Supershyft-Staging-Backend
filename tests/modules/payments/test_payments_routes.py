@@ -39,7 +39,7 @@ async def _seed_diag_package(test_db_session) -> None:
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, "
             "diagnostic_provider, status, price) "
-            "VALUES (1, 'REF1', 'Diag Package', 'test_provider', 'active', 500) "
+            "VALUES (1, 'REF1', 'Diag Package', 'test_provider', 1, 500) "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
             "reference_id = EXCLUDED.reference_id, package_name = EXCLUDED.package_name, "
             "diagnostic_provider = EXCLUDED.diagnostic_provider, status = EXCLUDED.status, "

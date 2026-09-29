@@ -30,15 +30,15 @@ async def _seed_assessment_and_diagnostic_packages(test_db_session):
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status) "
-            "VALUES (901, 'MB', 'Met Basic', '1', 'active'), (902, 'MP', 'Met Pro', '2', 'active') "
+            "VALUES (901, 'MB', 'Met Basic', '1', 1), (902, 'MP', 'Met Pro', '2', 1) "
             "ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status, complementary_consultation) "
-            "VALUES (17, 'MEN', 'Men Peak Performance', 'active', CAST('{\"nutritionist\": true}' AS json)), "
-            "(24, 'WMN', 'Women Peak Performance', 'active', CAST('{}' AS json)) "
+            "VALUES (17, 'MEN', 'Men Peak Performance', 1, CAST('{\"nutritionist\": true}' AS json)), "
+            "(24, 'WMN', 'Women Peak Performance', 1, CAST('{}' AS json)) "
             "ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )

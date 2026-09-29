@@ -7,6 +7,12 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import relationship
 
 from db.base import Base
+from db.column_types import (
+    ActiveInactiveStatus,
+    OverrideStatusColumn,
+    STATUS_ACTIVE_INACTIVE,
+    status_server_default,
+)
 
 
 class ExpertTypeModel(Base):
@@ -40,7 +46,12 @@ class Expert(Base):
     session_duration_mins = Column(Integer, nullable=True)
     appointment_fee_paise = Column(Integer, nullable=True)
     original_fee_paise = Column(Integer, nullable=True)
-    status = Column(String, nullable=False, server_default="active")
+    status = Column(
+        ActiveInactiveStatus,
+        nullable=False,
+        default="active",
+        server_default=status_server_default("active", STATUS_ACTIVE_INACTIVE),
+    )
     effective_from = Column(Date, nullable=True)
     effective_until = Column(Date, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -95,7 +106,7 @@ class ExpertAvailabilityOverrideModel(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     expert_id = Column(Integer, ForeignKey("experts.expert_id", ondelete="CASCADE"), nullable=False)
     override_date = Column(Date, nullable=False)
-    status = Column(String, nullable=False)  # available | unavailable | booked
+    status = Column(OverrideStatusColumn, nullable=False)
     start_time = Column(Time, nullable=True)
     end_time = Column(Time, nullable=True)
     buffer_time = Column(Integer, nullable=True)

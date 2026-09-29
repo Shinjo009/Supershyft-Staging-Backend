@@ -34,7 +34,7 @@ async def test_sync_metsights_records_forbidden_non_employee_other_user(async_cl
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, first_name, last_name, age, phone, email, status, is_participant, gender) "
-            "VALUES (50101, 'P', 'User', 28, '+1555010101', 'pu@example.com', 'active', true, 'male') "
+            "VALUES (50101, 'P', 'User', 28, '+1555010101', 'pu@example.com', 1, true, 'male') "
             "ON CONFLICT (user_id) DO NOTHING"
         )
     )

@@ -304,16 +304,16 @@ async def test_vifc_quick_start_returns_link(async_client, test_db_session, monk
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status) "
-            "VALUES (:pid, 'vifc', 'Aurae Face Scan', 'vifc', 'active') "
+            "VALUES (:pid, 'vifc', 'Aurae Face Scan', 'vifc', 1) "
             "ON CONFLICT (package_id) DO UPDATE SET "
-            "package_code = 'vifc', assessment_type_code = 'vifc', status = 'active'"
+            "package_code = 'vifc', assessment_type_code = 'vifc', status = 1"
         ),
         {"pid": pkg_id},
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = 'active'"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = 1"
         )
     )
     await test_db_session.execute(
@@ -419,16 +419,16 @@ async def test_vifc_quick_start_by_user_id(async_client, test_db_session, monkey
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status) "
-            "VALUES (:pid, 'vifc', 'Aurae Face Scan', 'vifc', 'active') "
+            "VALUES (:pid, 'vifc', 'Aurae Face Scan', 'vifc', 1) "
             "ON CONFLICT (package_id) DO UPDATE SET "
-            "package_code = 'vifc', assessment_type_code = 'vifc', status = 'active'"
+            "package_code = 'vifc', assessment_type_code = 'vifc', status = 1"
         ),
         {"pid": pkg_id},
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = 'active'"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = 1"
         )
     )
     await test_db_session.execute(
@@ -479,7 +479,7 @@ async def test_vifc_quick_start_by_user_id(async_client, test_db_session, monkey
             "INSERT INTO users (user_id, first_name, last_name, age, phone, email, gender, date_of_birth, "
             "city, is_participant, status) "
             "VALUES (88250, 'Existing', 'User', 35, '9876500999', 'existing.vifc@example.com', 'male', "
-            "'1990-03-01', 'Pune', true, 'active') "
+            "'1990-03-01', 'Pune', true, 1) "
             "ON CONFLICT (user_id) DO NOTHING"
         )
     )

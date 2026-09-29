@@ -59,7 +59,7 @@ FIND_MISMATCHES_SQL = text(
         JOIN engagements e ON e.engagement_id = ai.engagement_id
         JOIN assessment_packages ap ON ap.package_id = ai.package_id
         WHERE e.engagement_code = ANY(:engagement_codes)
-          AND lower(coalesce(ai.status, '')) = 'completed'
+          AND ai.status = 2
     ),
     category_rows AS (
         SELECT
@@ -73,7 +73,7 @@ FIND_MISMATCHES_SQL = text(
             si.completed_at,
             qc.category_id,
             qc.category_key,
-            coalesce(lower(acp.status), 'incomplete') AS category_status
+            coalesce(acp.status, 2) AS category_status
         FROM scoped_instances si
         JOIN assessment_package_categories apc ON apc.package_id = si.package_id
         JOIN questionnaire_categories qc ON qc.category_id = apc.category_id
@@ -92,10 +92,10 @@ FIND_MISMATCHES_SQL = text(
             instance_status,
             completed_at,
             count(*) AS total_categories,
-            count(*) FILTER (WHERE category_status = 'complete') AS complete_categories,
-            count(*) FILTER (WHERE category_status <> 'complete') AS incomplete_categories,
+            count(*) FILTER (WHERE category_status = 1) AS complete_categories,
+            count(*) FILTER (WHERE category_status <> 1) AS incomplete_categories,
             array_agg(category_key ORDER BY category_key)
-                FILTER (WHERE category_status <> 'complete') AS incomplete_category_keys
+                FILTER (WHERE category_status <> 1) AS incomplete_category_keys
         FROM category_rows
         GROUP BY
             assessment_instance_id,
@@ -117,10 +117,10 @@ FIND_MISMATCHES_SQL = text(
 UPDATE_INSTANCE_SQL = text(
     """
     UPDATE assessment_instances
-    SET status = 'active',
+    SET status = 1,
         completed_at = NULL
     WHERE assessment_instance_id = ANY(:instance_ids)
-      AND lower(coalesce(status, '')) = 'completed'
+      AND status = 2
     """
 )
 

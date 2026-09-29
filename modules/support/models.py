@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Text, func, text
 
 from db.base import Base
+from db.column_types import STATUS_SUPPORT_TICKET, SupportTicketStatusColumn, status_server_default
 
 
 class SupportTicket(Base):
@@ -20,5 +21,9 @@ class SupportTicket(Base):
     user_id = Column(Integer, ForeignKey("users.user_id"), nullable=True)
     contact_input = Column(String, nullable=False)
     query_text = Column(Text, nullable=False)
-    status = Column(String, nullable=False, server_default=text("'open'"))
+    status = Column(
+        SupportTicketStatusColumn,
+        nullable=False,
+        server_default=status_server_default("open", STATUS_SUPPORT_TICKET),
+    )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

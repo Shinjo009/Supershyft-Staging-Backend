@@ -36,7 +36,7 @@ async def _seed_assessment_package(test_db_session, *, package_id: int, package_
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (:pid, :pcode, :dname, 'active') ON CONFLICT (package_id) DO UPDATE SET "
+            "VALUES (:pid, :pcode, :dname, 1) ON CONFLICT (package_id) DO UPDATE SET "
             "package_code = EXCLUDED.package_code, display_name = EXCLUDED.display_name, status = EXCLUDED.status"
         ),
         {"pid": package_id, "pcode": package_code, "dname": f"Test Package {package_id}"},
@@ -71,7 +71,7 @@ async def _seed_diagnostic_package(test_db_session, *, diagnostic_package_id: in
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, bookings_count) "
-            "VALUES (:did, :ref, :pname, 'test_provider', 'active', 0) ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
+            "VALUES (:did, :ref, :pname, 'test_provider', 1, 0) ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
             "reference_id = EXCLUDED.reference_id, package_name = EXCLUDED.package_name, "
             "diagnostic_provider = EXCLUDED.diagnostic_provider, status = EXCLUDED.status"
         ),
@@ -844,7 +844,7 @@ async def test_resolve_healthians_zone_serviceable(async_client, test_db_session
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, bookings_count) "
-            "VALUES (99, 'REF99', 'Healthians Package', 'healthians', 'active', 0) "
+            "VALUES (99, 'REF99', 'Healthians Package', 'healthians', 1, 0) "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET diagnostic_provider = EXCLUDED.diagnostic_provider"
         )
     )

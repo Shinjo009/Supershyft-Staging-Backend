@@ -5,10 +5,18 @@ This module owns checklist templates and engagement-applied checklists.
 
 from __future__ import annotations
 
-from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, Index
+from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, Index, text
 from sqlalchemy.orm import relationship
 
 from db.base import Base
+from db.column_types import (
+    ActiveInactiveArchivedStatus,
+    ChecklistTaskStatusColumn,
+    STATUS_ACTIVE_INACTIVE_ARCHIVED,
+    STATUS_CHECKLIST_TASK,
+    checklist_audience_enum,
+    status_server_default,
+)
 
 
 class ChecklistTemplate(Base):
@@ -17,8 +25,18 @@ class ChecklistTemplate(Base):
     template_id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
-    status = Column(String, nullable=False, default="active")
-    audience = Column(String, nullable=False, default="internal")  # 'internal' | 'user'
+    status = Column(
+        ActiveInactiveArchivedStatus,
+        nullable=False,
+        default="active",
+        server_default=status_server_default("active", STATUS_ACTIVE_INACTIVE_ARCHIVED),
+    )
+    audience = Column(
+        checklist_audience_enum,
+        nullable=False,
+        default="internal",
+        server_default=text("'internal'::checklist_audience_enum"),
+    )
     created_at = Column(DateTime(timezone=True), nullable=False)
     created_employee_id = Column(Integer, ForeignKey("employee.employee_id", ondelete="SET NULL"), nullable=True)
 
@@ -79,7 +97,12 @@ class EngagementChecklistTask(Base):
     )
     item_id = Column(Integer, ForeignKey("checklist_template_items.item_id"), nullable=False)
     assigned_employee_id = Column(Integer, ForeignKey("employee.employee_id", ondelete="SET NULL"), nullable=True)
-    status = Column(String, nullable=False, default="pending")
+    status = Column(
+        ChecklistTaskStatusColumn,
+        nullable=False,
+        default="pending",
+        server_default=status_server_default("pending", STATUS_CHECKLIST_TASK),
+    )
     notes = Column(Text, nullable=True)
     due_date = Column(Date, nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)

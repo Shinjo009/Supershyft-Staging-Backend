@@ -291,7 +291,7 @@ async def _seed_assessment(
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
-            "VALUES (:pid, :ref, :pname, :provider, 'active') "
+            "VALUES (:pid, :ref, :pname, :provider, 1) "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
             "status = EXCLUDED.status, diagnostic_provider = EXCLUDED.diagnostic_provider"
         ),
@@ -324,7 +324,7 @@ async def _seed_assessment(
         text(
             f"INSERT INTO assessment_packages (package_id, package_code, display_name, status"
             f"{', assessment_type_code' if assessment_type_code is not None else ''}) "
-            f"VALUES (:pkg_id, :pcode, :dname, 'active'"
+            f"VALUES (:pkg_id, :pcode, :dname, 1"
             f"{', :atype' if assessment_type_code is not None else ''}) "
             f"ON CONFLICT (package_id) DO UPDATE SET package_code = EXCLUDED.package_code, "
             f"display_name = EXCLUDED.display_name, status = EXCLUDED.status{atype_sql}"
@@ -3137,7 +3137,7 @@ async def _add_assessment_instance(
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status, assessment_type_code) "
-            "VALUES (:pkg_id, :pcode, :dname, 'active', :atype) "
+            "VALUES (:pkg_id, :pcode, :dname, 1, :atype) "
             "ON CONFLICT (package_id) DO UPDATE SET package_code = EXCLUDED.package_code, "
             "display_name = EXCLUDED.display_name, status = EXCLUDED.status, "
             "assessment_type_code = EXCLUDED.assessment_type_code"

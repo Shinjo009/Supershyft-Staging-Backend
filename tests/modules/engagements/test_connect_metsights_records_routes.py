@@ -27,13 +27,13 @@ async def _seed_engagement_with_package(test_db_session, *, engagement_id: int =
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'Test Diagnostic', 'test_provider', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status) "
-            "VALUES (:pid, 'METSIGHTS_PRO', 'Metsights Pro', '2', 'active') "
+            "VALUES (:pid, 'METSIGHTS_PRO', 'Metsights Pro', '2', 1) "
             "ON CONFLICT (package_id) DO UPDATE SET assessment_type_code = EXCLUDED.assessment_type_code"
         ),
         {"pid": package_id},
@@ -68,7 +68,7 @@ async def test_connect_metsights_records_links_existing_instances(async_client, 
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, first_name, last_name, age, phone, status, metsights_profile_id) "
-            "VALUES (5201, 'Riya', 'Sharma', 33, '+919876543210', 'active', :pid)"
+            "VALUES (5201, 'Riya', 'Sharma', 33, '+919876543210', 1, :pid)"
         ),
         {"pid": METSIGHTS_PROFILE_ID},
     )
@@ -125,7 +125,7 @@ async def test_connect_metsights_records_skips_already_connected(async_client, t
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, status, metsights_profile_id) "
-            "VALUES (5202, 30, '+919876543211', 'active', :pid)"
+            "VALUES (5202, 30, '+919876543211', 1, :pid)"
         ),
         {"pid": METSIGHTS_PROFILE_ID},
     )
@@ -167,7 +167,7 @@ async def test_connect_metsights_records_skips_no_profile_id(async_client, test_
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, status, metsights_profile_id) "
-            "VALUES (5203, 30, '+919876543212', 'active', NULL)"
+            "VALUES (5203, 30, '+919876543212', 1, NULL)"
         )
     )
     await test_db_session.execute(

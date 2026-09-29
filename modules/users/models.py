@@ -8,6 +8,12 @@ from __future__ import annotations
 from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Index, Integer, JSON, String, func, text
 
 from db.base import Base
+from db.column_types import (
+    ActiveInactiveArchivedStatus,
+    diet_preference_enum,
+    user_gender_enum,
+    user_relationship_enum,
+)
 
 
 class User(Base):
@@ -32,7 +38,7 @@ class User(Base):
     metsights_profile_id = Column(String, nullable=True)
     profile_photo = Column(String)
     date_of_birth = Column(Date, nullable=True)
-    gender = Column(String)
+    gender = Column(user_gender_enum, nullable=True)
     address = Column(String)
     pin_code = Column(String)
     city = Column(String)
@@ -40,9 +46,13 @@ class User(Base):
     country = Column(String)
     referred_by = Column(String)
     is_participant = Column(Boolean)
-    status = Column(String)
+    status = Column(ActiveInactiveArchivedStatus, nullable=True)
     parent_id = Column(Integer, ForeignKey("users.user_id"), nullable=True)
-    relationship = Column(String, nullable=False, server_default=text("'self'"))
+    relationship = Column(
+        user_relationship_enum,
+        nullable=False,
+        server_default=text("'self'::user_relationship_enum"),
+    )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
@@ -64,7 +74,7 @@ class UserPreference(Base):
     sms_enabled = Column(Boolean, nullable=False, server_default=text("false"))
     access_to_files = Column(Boolean, nullable=False, server_default=text("true"))
     store_downloaded_files = Column(Boolean, nullable=False, server_default=text("true"))
-    diet_preference = Column(String, nullable=True)
+    diet_preference = Column(diet_preference_enum, nullable=True)
     allergies = Column(JSON, nullable=True, server_default=text("'[]'"))
     sports_playlists = Column(JSON, nullable=True, server_default=text("'{}'"))
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

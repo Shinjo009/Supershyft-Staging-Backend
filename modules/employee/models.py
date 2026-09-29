@@ -10,6 +10,7 @@ import enum
 from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, Enum as SAEnum, ForeignKey, Index, Integer, String, func
 
 from db.base import Base
+from db.column_types import ActiveInactiveArchivedStatus
 
 
 class EmployeeRole(str, enum.Enum):
@@ -46,7 +47,7 @@ class Employee(Base):
     phone = Column(String, nullable=True)
     email = Column(String, nullable=True)
     role = Column(_employee_role, nullable=False)
-    status = Column(String, nullable=False)
+    status = Column(ActiveInactiveArchivedStatus, nullable=False)
     permissions_version = Column(Integer, nullable=False, default=1, server_default="1")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(

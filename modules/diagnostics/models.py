@@ -9,6 +9,16 @@ from sqlalchemy.types import JSON
 from sqlalchemy.orm import relationship
 
 from db.base import Base
+from db.column_types import (
+    ActiveInactiveStatus,
+    diagnostic_collection_type_enum,
+    diagnostic_provider_enum,
+    filter_chip_for_enum,
+    gender_suitability_enum,
+    package_for_enum,
+    status_server_default,
+    STATUS_ACTIVE_INACTIVE,
+)
 
 
 class ParameterType(str, enum.Enum):
@@ -33,11 +43,11 @@ class DiagnosticPackage(Base):
     reference_id = Column(String)
     package_name = Column(String, nullable=False)
     package_image = Column(String, nullable=True)
-    diagnostic_provider = Column(String)
+    diagnostic_provider = Column(diagnostic_provider_enum, nullable=True)
     external_package_id = Column(Integer, nullable=True)
     created_by_user_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
     report_duration_hours = Column(Integer)
-    collection_type = Column(String)
+    collection_type = Column(diagnostic_collection_type_enum, nullable=True)
     health_areas_covered = Column(String)
     about_text = Column(Text)
     bookings_count = Column(Integer, nullable=False, default=0, server_default="0")
@@ -46,9 +56,18 @@ class DiagnosticPackage(Base):
     min_price = Column(Numeric(10, 2), nullable=True)
     is_most_popular = Column(Boolean, nullable=False, default=False, server_default="false")
     complementary_consultation = Column(JSON, nullable=True)
-    gender_suitability = Column(String)
-    status = Column(String, default="active", server_default="active")
-    package_for = Column(String, nullable=False, default="public", server_default="public")
+    gender_suitability = Column(gender_suitability_enum, nullable=True)
+    status = Column(
+        ActiveInactiveStatus,
+        default="active",
+        server_default=status_server_default("active", STATUS_ACTIVE_INACTIVE),
+    )
+    package_for = Column(
+        package_for_enum,
+        nullable=False,
+        default="public",
+        server_default=text("'public'::package_for_enum"),
+    )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     display_order = Column(Integer)
     reasons = relationship(
@@ -101,8 +120,17 @@ class DiagnosticPackageFilterChip(Base):
     chip_key = Column(String, nullable=False)
     display_name = Column(String, nullable=False)
     display_order = Column(Integer)
-    chip_for = Column(String, nullable=False, default="public_package", server_default="public_package")
-    status = Column(String, default="active", server_default="active")
+    chip_for = Column(
+        filter_chip_for_enum,
+        nullable=False,
+        default="public_package",
+        server_default=text("'public_package'::filter_chip_for_enum"),
+    )
+    status = Column(
+        ActiveInactiveStatus,
+        default="active",
+        server_default=status_server_default("active", STATUS_ACTIVE_INACTIVE),
+    )
 
     package_links = relationship(
         "DiagnosticPackageFilterChipLink",
@@ -185,8 +213,13 @@ class DiagnosticTestGroup(Base):
     price = Column(Numeric(10, 2))
     original_price = Column(Numeric(10, 2))
     is_most_popular = Column(Boolean, nullable=False, default=False, server_default="false")
-    gender_suitability = Column(String)
-    package_for = Column(String, nullable=False, default="public", server_default="public")
+    gender_suitability = Column(gender_suitability_enum, nullable=True)
+    package_for = Column(
+        package_for_enum,
+        nullable=False,
+        default="public",
+        server_default=text("'public'::package_for_enum"),
+    )
 
     tests = relationship(
         "DiagnosticTestGroupTest",
@@ -243,7 +276,7 @@ class HealthParameter(Base):
     price = Column(Numeric(10, 2))
     original_price = Column(Numeric(10, 2))
     is_most_popular = Column(Boolean, nullable=False, default=False, server_default="false")
-    gender_suitability = Column(String)
+    gender_suitability = Column(gender_suitability_enum, nullable=True)
     external_parameter_id = Column(Integer, nullable=True)
 
     low_risk_lower_range_male = Column(Numeric(12, 4), nullable=True)

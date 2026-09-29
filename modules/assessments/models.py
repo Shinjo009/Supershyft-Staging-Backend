@@ -8,6 +8,11 @@ from __future__ import annotations
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, text
 
 from db.base import Base
+from db.column_types import (
+    ActiveInactiveArchivedStatus,
+    AssessmentCategoryProgressStatusColumn,
+    AssessmentInstanceStatusColumn,
+)
 
 
 class AssessmentPackage(Base):
@@ -23,7 +28,7 @@ class AssessmentPackage(Base):
     package_code = Column(String)
     display_name = Column(String)
     assessment_type_code = Column(String, nullable=True)
-    status = Column(String)
+    status = Column(ActiveInactiveArchivedStatus, nullable=True)
 
 
 class AssessmentInstance(Base):
@@ -44,7 +49,7 @@ class AssessmentInstance(Base):
     user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
     package_id = Column(Integer, ForeignKey("assessment_packages.package_id"), nullable=False)
     engagement_id = Column(Integer, ForeignKey("engagements.engagement_id"), nullable=False)
-    status = Column(String)
+    status = Column(AssessmentInstanceStatusColumn, nullable=True)
     metsights_record_id = Column(String, nullable=True)
     assigned_at = Column(DateTime(timezone=True))
     completed_at = Column(DateTime(timezone=True), nullable=True)
@@ -73,6 +78,6 @@ class AssessmentCategoryProgress(Base):
         nullable=False,
     )
     category_id = Column(Integer, ForeignKey("questionnaire_categories.category_id"), nullable=False)
-    status = Column(String, nullable=False)
+    status = Column(AssessmentCategoryProgressStatusColumn, nullable=False)
     is_submitted = Column(Boolean, nullable=False, server_default=text("false"))
     completed_at = Column(DateTime(timezone=True), nullable=True)

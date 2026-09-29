@@ -9,6 +9,7 @@ from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Index,
 from sqlalchemy.types import JSON
 
 from db.base import Base
+from db.column_types import ReportsSyncStatusColumn, STATUS_REPORTS_SYNC, status_server_default
 
 
 class IndividualHealthReport(Base):
@@ -82,7 +83,12 @@ class ReportsUserSyncState(Base):
     sync_id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False, unique=True)
     last_synced_assessment_instance_id = Column(Integer, nullable=True)
-    sync_status = Column(String, nullable=False, server_default="idle")
+    sync_status = Column(
+        ReportsSyncStatusColumn,
+        nullable=False,
+        default="idle",
+        server_default=status_server_default("idle", STATUS_REPORTS_SYNC),
+    )
     last_synced_at = Column(DateTime(timezone=True), nullable=True)
     last_sync_error = Column(Text, nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

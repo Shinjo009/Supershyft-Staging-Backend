@@ -24,13 +24,13 @@ async def _seed_dependencies(test_db_session) -> None:
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PKG1', 'Test Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PKG1', 'Test Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'Test Diagnostic', 'test_provider', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     for service_key, channel, webhook_path in (
@@ -735,7 +735,7 @@ async def test_consultation_notifications_skips_already_sent(test_db_session, mo
     assert len(webhook_calls) == 1
 
     await test_db_session.execute(
-        text("UPDATE notifications SET status = 'sent' WHERE engagement_id = 9708")
+        text("UPDATE notifications SET status = 2 WHERE engagement_id = 9708")
     )
     await test_db_session.commit()
 

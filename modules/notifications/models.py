@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, JSON, String, Text, func, text
 
 from db.base import Base
+from db.column_types import NotificationStatusColumn, notification_channel_enum
 
 
 class NotificationService(Base):
@@ -15,7 +16,7 @@ class NotificationService(Base):
     notification_service_id = Column(Integer, primary_key=True, autoincrement=True)
     service_key = Column(String, nullable=False, unique=True)
     display_name = Column(String, nullable=False)
-    channel = Column(String, nullable=False)
+    channel = Column(notification_channel_enum, nullable=False)
     webhook_path = Column(String, nullable=False)
     is_active = Column(Boolean, nullable=False, server_default="true")
     require_blood_report_url = Column(Boolean, nullable=False, server_default="false")
@@ -35,7 +36,7 @@ class Notification(Base):
         Index(
             "ix_notifications_pending_dispatched_at",
             "dispatched_at",
-            postgresql_where=text("status = 'pending' AND dispatched_at IS NOT NULL"),
+            postgresql_where=text("status = 1 AND dispatched_at IS NOT NULL"),
         ),
         Index("ix_notifications_svc_eng_status", "service_key", "engagement_id", "status"),
         Index("ix_notifications_engagement_id", "engagement_id"),
@@ -44,8 +45,8 @@ class Notification(Base):
 
     notification_id = Column(Integer, primary_key=True, autoincrement=True)
     service_key = Column(String, ForeignKey("notification_services.service_key"), nullable=False)
-    status = Column(String, nullable=False)
-    channel = Column(String, nullable=False)
+    status = Column(NotificationStatusColumn, nullable=False)
+    channel = Column(notification_channel_enum, nullable=False)
     user = Column(JSON, nullable=True)
     engagement_id = Column(Integer, ForeignKey("engagements.engagement_id"), nullable=True)
     assessment_instance_id = Column(

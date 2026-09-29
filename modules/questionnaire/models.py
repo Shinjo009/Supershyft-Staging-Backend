@@ -10,6 +10,15 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.types import JSON
 
 from db.base import Base
+from db.column_types import (
+    ActiveInactiveArchivedStatus,
+    ActiveInactiveStatus,
+    STATUS_ACTIVE_INACTIVE,
+    STATUS_ACTIVE_INACTIVE_ARCHIVED,
+    habit_rule_condition_type_enum,
+    questionnaire_category_of_enum,
+    status_server_default,
+)
 
 
 class QuestionnaireDefinition(Base):
@@ -28,7 +37,7 @@ class QuestionnaireDefinition(Base):
     visibility_rules = Column(JSON, nullable=True)
     prefill_from = Column(JSON, nullable=True)
     metsights_sync = Column(JSON, nullable=True)
-    status = Column(String, nullable=False)
+    status = Column(ActiveInactiveArchivedStatus, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
@@ -55,8 +64,16 @@ class QuestionnaireCategory(Base):
     category_id = Column(Integer, primary_key=True)
     category_key = Column(String, nullable=False)
     display_name = Column(String, nullable=False)
-    category_of = Column(String(20), nullable=False, server_default=text("'supershyft'"))
-    status = Column(String, nullable=False, server_default=text("'active'"))
+    category_of = Column(
+        questionnaire_category_of_enum,
+        nullable=False,
+        server_default=text("'supershyft'::questionnaire_category_of_enum"),
+    )
+    status = Column(
+        ActiveInactiveArchivedStatus,
+        nullable=False,
+        server_default=status_server_default("active", STATUS_ACTIVE_INACTIVE_ARCHIVED),
+    )
 
 
 class QuestionnaireCategoryQuestion(Base):
@@ -109,11 +126,15 @@ class QuestionnaireHealthyHabitRule(Base):
     habit_key = Column(String(200), nullable=True)
     habit_label = Column(String(500), nullable=False)
     display_order = Column(Integer, nullable=True)
-    condition_type = Column(String(50), nullable=False)
+    condition_type = Column(habit_rule_condition_type_enum, nullable=False)
     matched_option_values = Column(JSON, nullable=True)
     scale_min = Column(Numeric(20, 8), nullable=True)
     scale_max = Column(Numeric(20, 8), nullable=True)
     scale_unit = Column(String(200), nullable=True)
-    status = Column(String(20), nullable=False, server_default=text("'active'"))
+    status = Column(
+        ActiveInactiveStatus,
+        nullable=False,
+        server_default=status_server_default("active", STATUS_ACTIVE_INACTIVE),
+    )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_employee_id = Column(Integer, ForeignKey("employee.employee_id", ondelete="SET NULL"), nullable=True)

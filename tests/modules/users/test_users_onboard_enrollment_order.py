@@ -29,8 +29,8 @@ async def _seed_primary_and_fitprint_packages(test_db_session) -> None:
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status) "
             "VALUES "
-            "(9911, 'PK9911', 'Primary Pro', '2', 'active'), "
-            "(9912, 'PK9912', 'FitPrint Full', '7', 'active') "
+            "(9911, 'PK9911', 'Primary Pro', '2', 1), "
+            "(9912, 'PK9912', 'FitPrint Full', '7', 1) "
             "ON CONFLICT (package_id) DO UPDATE SET "
             "package_code = EXCLUDED.package_code, "
             "display_name = EXCLUDED.display_name, "
@@ -41,7 +41,7 @@ async def _seed_primary_and_fitprint_packages(test_db_session) -> None:
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (9911, 'REF9911', 'Diag Package', 'active') "
+            "VALUES (9911, 'REF9911', 'Diag Package', 1) "
             "ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
@@ -62,7 +62,7 @@ async def test_engagement_onboard_enrolls_fitprint_before_primary(async_client, 
     await test_db_session.execute(
         text(
             "INSERT INTO organizations (organization_id, name, status) "
-            "VALUES (9911, 'FitPrint Order Org', 'active') "
+            "VALUES (9911, 'FitPrint Order Org', 1) "
             "ON CONFLICT (organization_id) DO NOTHING"
         )
     )
@@ -128,7 +128,7 @@ async def test_engagement_onboard_null_metsights_engagement_enrolls_fitprint_bef
     await test_db_session.execute(
         text(
             "INSERT INTO organizations (organization_id, name, status) "
-            "VALUES (9913, 'Null Metsights Org', 'active') "
+            "VALUES (9913, 'Null Metsights Org', 1) "
             "ON CONFLICT (organization_id) DO NOTHING"
         )
     )
@@ -275,7 +275,7 @@ async def test_fulfill_bio_ai_booking_enrolls_fitprint_before_primary(test_db_se
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, status, first_name, last_name, gender, city) "
-            "VALUES (991130, 30, '9911300000', 'active', 'Fulfill', 'FitOrder', 'male', 'Mumbai')"
+            "VALUES (991130, 30, '9911300000', 1, 'Fulfill', 'FitOrder', 'male', 'Mumbai')"
         )
     )
     await test_db_session.execute(

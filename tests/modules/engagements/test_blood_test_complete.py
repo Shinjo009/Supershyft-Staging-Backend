@@ -42,14 +42,14 @@ async def _seed_engagement(test_db_session, *, engagement_id: int, type_code: st
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (:pid, :pcode, :dname, 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (:pid, :pcode, :dname, 1) ON CONFLICT (package_id) DO NOTHING"
         ),
         {"pid": engagement_id, "pcode": f"PKG{engagement_id}", "dname": f"Package {engagement_id}"},
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, bookings_count) "
-            "VALUES (:did, :ref, :pname, 'test_provider', 'active', 0) ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (:did, :ref, :pname, 'test_provider', 1, 0) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         ),
         {"did": engagement_id, "ref": f"REF{engagement_id}", "pname": f"Diag {engagement_id}"},
     )

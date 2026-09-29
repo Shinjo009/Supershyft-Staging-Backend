@@ -84,7 +84,7 @@ async def test_get_questionnaire_exposes_is_carried_forward(async_client, test_d
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, status) "
-            "VALUES (99001, 30, '7999009901', 'active') ON CONFLICT (user_id) DO NOTHING"
+            "VALUES (99001, 30, '7999009901', 1) ON CONFLICT (user_id) DO NOTHING"
         )
     )
     test_db_session.add(

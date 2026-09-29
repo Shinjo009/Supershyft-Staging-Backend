@@ -9,6 +9,7 @@ from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Tex
 from sqlalchemy.dialects.postgresql import JSONB
 
 from db.base import Base
+from db.column_types import IntegrationSyncStatusColumn, integration_provider_enum
 
 
 class DataAuditLog(Base):
@@ -39,10 +40,10 @@ class IntegrationSyncLog(Base):
     sync_log_id = Column(Integer, primary_key=True, autoincrement=True)
     engagement_id = Column(Integer, ForeignKey("engagements.engagement_id", ondelete="SET NULL"), nullable=True)
     user_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
-    provider = Column(String(30), nullable=False)
+    provider = Column(integration_provider_enum, nullable=False)
     api_endpoint_url = Column(Text, nullable=False)
     request_payload = Column(JSONB, nullable=True)
     response_payload = Column(JSONB, nullable=True)
-    status = Column(String(20), nullable=True)
+    status = Column(IntegrationSyncStatusColumn, nullable=True)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

@@ -3612,7 +3612,7 @@ async def _seed_positive_wins_camp_with_assessments(test_db_session, *, organiza
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'REF1', 'Diag Package 1', 'test_provider', 'active') "
+            "VALUES (1, 'REF1', 'Diag Package 1', 'test_provider', 1) "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
         )
     )

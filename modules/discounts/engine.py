@@ -483,7 +483,8 @@ class DiscountEngine:
         if user_id is not None:
             clauses.append(DiscountUsage.user_id == user_id)
         if camp_no is not None:
-            clauses.append(DiscountUsage.camp_no == camp_no)
+            camp_key: int | str = int(camp_no) if str(camp_no).isdigit() else camp_no
+            clauses.append(DiscountUsage.camp_no == camp_key)
         if since is not None:
             clauses.append(DiscountUsage.created_at >= since)
         result = await db.execute(select(func.count(DiscountUsage.usage_id)).where(and_(*clauses)))

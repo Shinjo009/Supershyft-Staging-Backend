@@ -36,7 +36,7 @@ async def _seed_metsights_basic_package(test_db_session, *, package_id: int = 1)
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status) "
-            "VALUES (:pid, 'METSIGHTS_BASIC', 'Metsights Basic', '1', 'active') "
+            "VALUES (:pid, 'METSIGHTS_BASIC', 'Metsights Basic', '1', 1) "
             "ON CONFLICT (package_id) DO UPDATE SET assessment_type_code = EXCLUDED.assessment_type_code"
         ),
         {"pid": package_id},
@@ -48,7 +48,7 @@ async def _seed_diagnostic_package(test_db_session, *, diagnostic_package_id: in
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, bookings_count) "
-            "VALUES (:did, :ref, :pname, 'test_provider', 'active', 0) ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (:did, :ref, :pname, 'test_provider', 1, 0) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         ),
         {"did": diagnostic_package_id, "ref": f"REF{diagnostic_package_id}", "pname": "Diag"},
     )
@@ -902,7 +902,7 @@ async def _seed_fitprint_package(test_db_session, *, package_id: int = 2):
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status) "
-            "VALUES (:pid, 'FITPRINT', 'FitPrint', '7', 'active') "
+            "VALUES (:pid, 'FITPRINT', 'FitPrint', '7', 1) "
             "ON CONFLICT (package_id) DO UPDATE SET assessment_type_code = EXCLUDED.assessment_type_code"
         ),
         {"pid": package_id},
@@ -1244,7 +1244,7 @@ async def test_dispatch_report_service_auto_picks_latest_instance(
             "diagnostic_package_id, city, slot_duration, start_date, end_date, status) "
             "VALUES (:eid, 'Camp', :code, "
             "(SELECT id FROM engagement_types WHERE code = 'bio_ai'), 1, 1, 'BLR', 20, "
-            "'2026-05-01', '2026-05-01', 'active') "
+            "'2026-05-01', '2026-05-01', 1) "
             "ON CONFLICT (engagement_id) DO NOTHING"
         ),
         {"eid": 9742, "code": "ENG-NOTIF-9742"},
@@ -1795,7 +1795,7 @@ async def _seed_vifc_package(test_db_session, *, package_id: int = 3):
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status) "
-            "VALUES (:pid, 'vifc', 'Aurae Face Scan', 'vifc', 'active') "
+            "VALUES (:pid, 'vifc', 'Aurae Face Scan', 'vifc', 1) "
             "ON CONFLICT (package_id) DO UPDATE SET assessment_type_code = EXCLUDED.assessment_type_code"
         ),
         {"pid": package_id},

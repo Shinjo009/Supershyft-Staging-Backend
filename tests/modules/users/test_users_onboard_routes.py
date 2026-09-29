@@ -41,13 +41,13 @@ async def test_public_onboard_vifc_allows_missing_blood_fields(async_client, tes
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PK1', 'Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
@@ -104,13 +104,13 @@ async def test_public_onboard_by_user_id_skips_personal_fields(async_client, tes
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PK1', 'Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
@@ -118,7 +118,7 @@ async def test_public_onboard_by_user_id_skips_personal_fields(async_client, tes
             "INSERT INTO users (user_id, first_name, last_name, age, phone, email, city, address, pin_code, "
             "state, country, is_participant, status) "
             "VALUES (2101, 'Existing', 'User', 35, '9988776655', 'exist@example.com', 'Pune', "
-            "'12 Main', '411001', 'MH', 'IN', false, 'active')"
+            "'12 Main', '411001', 'MH', 'IN', false, 1)"
         )
     )
     await test_db_session.commit()
@@ -161,13 +161,13 @@ async def test_public_onboard_by_unknown_user_id_returns_404(async_client, test_
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PK1', 'Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.commit()
@@ -188,21 +188,21 @@ async def test_public_onboard_updates_only_missing_fields(async_client, test_db_
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PK1', 'Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     # Seed required diagnostic package used by B2C onboarding.
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.commit()
     # Create a user with first_name already set, last_name missing.
     await test_db_session.execute(
         text(
-            "INSERT INTO users (user_id, first_name, last_name, age, phone, email, status) VALUES (2001, 'Existing', NULL, 30, '2222222222', 'ex@example.com', 'active')"
+            "INSERT INTO users (user_id, first_name, last_name, age, phone, email, status) VALUES (2001, 'Existing', NULL, 30, '2222222222', 'ex@example.com', 1)"
         )
     )
     await test_db_session.commit()
@@ -237,14 +237,14 @@ async def test_public_onboard_creates_engagement_participant_and_assessment_inst
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PK1', 'Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     # Seed required diagnostic package used by B2C onboarding.
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.commit()
@@ -334,13 +334,13 @@ async def test_engagement_onboard_attaches_by_engagement_code(async_client, test
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PK1', 'Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
 
@@ -348,7 +348,7 @@ async def test_engagement_onboard_attaches_by_engagement_code(async_client, test
     await test_db_session.execute(
         text(
             "INSERT INTO organizations (organization_id, name, status, departments) "
-            "VALUES (8001, 'Camp Org', 'active', "
+            "VALUES (8001, 'Camp Org', 1, "
             "'[{\"department\": \"HR\", \"slug\": \"hr\"}]'::json)"
         )
     )
@@ -430,19 +430,19 @@ async def test_engagement_onboard_reuses_user_when_phone_format_differs(async_cl
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PK1', 'Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO organizations (organization_id, name, status, departments) "
-            "VALUES (8011, 'Phone Format Org', 'active', "
+            "VALUES (8011, 'Phone Format Org', 1, "
             "'[{\"department\": \"HR\", \"slug\": \"hr\"}]'::json)"
         )
     )
@@ -458,7 +458,7 @@ async def test_engagement_onboard_reuses_user_when_phone_format_differs(async_cl
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, first_name, last_name, phone, email, status, is_participant) "
-            "VALUES (88101, 30, 'Format', 'User', '+917000008899', 'format88101@example.com', 'active', true)"
+            "VALUES (88101, 30, 'Format', 'User', '+917000008899', 'format88101@example.com', 1, true)"
         )
     )
     await test_db_session.commit()
@@ -497,13 +497,13 @@ async def test_engagement_onboard_prefers_payload_referred_by(async_client, test
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PK1', 'Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
 
@@ -553,13 +553,13 @@ async def test_engagement_onboard_overwrites_existing_address_fields(async_clien
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PK1', 'Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
@@ -572,7 +572,7 @@ async def test_engagement_onboard_overwrites_existing_address_fields(async_clien
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, first_name, age, phone, email, status, address, pin_code, city, state, country) "
-            "VALUES (2101, 'Existing', 30, '7777777777', 'addr@example.com', 'active', "
+            "VALUES (2101, 'Existing', 30, '7777777777', 'addr@example.com', 1, "
             "'Old Street', '110001', 'Delhi', 'DL', 'India')"
         )
     )
@@ -615,13 +615,13 @@ async def test_engagement_onboard_overwrites_existing_age_and_email(async_client
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PK1', 'Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
@@ -634,7 +634,7 @@ async def test_engagement_onboard_overwrites_existing_age_and_email(async_client
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, first_name, age, phone, email, status) "
-            "VALUES (2102, 'Existing', 28, '7777777778', 'old@example.com', 'active')"
+            "VALUES (2102, 'Existing', 28, '7777777778', 'old@example.com', 1)"
         )
     )
     await test_db_session.commit()
@@ -689,13 +689,13 @@ async def test_engagement_onboard_reclaims_email_from_own_sub_profile(async_clie
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, first_name, age, phone, email, status, parent_id, relationship) "
-            "VALUES (2103, 'Primary', 40, '7777777779', 'primary-old@example.com', 'active', NULL, 'self')"
+            "VALUES (2103, 'Primary', 40, '7777777779', 'primary-old@example.com', 1, NULL, 'self')"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, first_name, age, phone, email, status, parent_id, relationship) "
-            "VALUES (2104, 'Child', 12, '7777777779', 'target@example.com', 'active', 2103, 'child')"
+            "VALUES (2104, 'Child', 12, '7777777779', 'target@example.com', 1, 2103, 'child')"
         )
     )
     await test_db_session.commit()
@@ -755,13 +755,13 @@ async def test_engagement_onboard_email_owned_by_unrelated_user_returns_409(asyn
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, first_name, age, phone, email, status) "
-            "VALUES (2105, 'PhoneUser', 30, '7777777780', 'phone-user@example.com', 'active')"
+            "VALUES (2105, 'PhoneUser', 30, '7777777780', 'phone-user@example.com', 1)"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, first_name, age, phone, email, status) "
-            "VALUES (2106, 'EmailOwner', 30, '7777777781', 'taken@example.com', 'active')"
+            "VALUES (2106, 'EmailOwner', 30, '7777777781', 'taken@example.com', 1)"
         )
     )
     await test_db_session.commit()
@@ -800,13 +800,13 @@ async def test_engagement_onboard_requires_active_engagement(async_client, test_
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PK1', 'Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
@@ -836,7 +836,7 @@ async def test_public_onboard_uses_platform_settings_package_ids(async_client, t
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
-            "(1, 'PK1', 'Package 1', 'active'), (2, 'PK2', 'Package 2', 'active') "
+            "(1, 'PK1', 'Package 1', 1), (2, 'PK2', 'Package 2', 1) "
             "ON CONFLICT (package_id) DO UPDATE SET "
             "package_code = EXCLUDED.package_code, display_name = EXCLUDED.display_name, status = EXCLUDED.status"
         )
@@ -844,7 +844,7 @@ async def test_public_onboard_uses_platform_settings_package_ids(async_client, t
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) VALUES "
-            "(1, 'REF1', 'Diag 1', 'active'), (2, 'REF2', 'Diag 2', 'active') "
+            "(1, 'REF1', 'Diag 1', 1), (2, 'REF2', 'Diag 2', 1) "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
             "reference_id = EXCLUDED.reference_id, package_name = EXCLUDED.package_name, status = EXCLUDED.status"
         )
@@ -965,7 +965,7 @@ async def test_public_onboard_uses_engagement_type_and_its_defaults(async_client
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
-            "(1, 'PK1', 'Package 1', 'active'), (2, 'PK2', 'Package 2', 'active') "
+            "(1, 'PK1', 'Package 1', 1), (2, 'PK2', 'Package 2', 1) "
             "ON CONFLICT (package_id) DO UPDATE SET "
             "package_code = EXCLUDED.package_code, display_name = EXCLUDED.display_name, status = EXCLUDED.status"
         )
@@ -973,7 +973,7 @@ async def test_public_onboard_uses_engagement_type_and_its_defaults(async_client
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) VALUES "
-            "(1, 'REF1', 'Diag 1', 'active'), (2, 'REF2', 'Diag 2', 'active') "
+            "(1, 'REF1', 'Diag 1', 1), (2, 'REF2', 'Diag 2', 1) "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
             "reference_id = EXCLUDED.reference_id, package_name = EXCLUDED.package_name, status = EXCLUDED.status"
         )
@@ -1074,14 +1074,14 @@ async def test_public_onboard_diagnostic_package_id_overrides_platform_default(a
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
-            "(1, 'PK1', 'Package 1', 'active') "
+            "(1, 'PK1', 'Package 1', 1) "
             "ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) VALUES "
-            "(1, 'REF1', 'Diag Default', 'active'), (2, 'REF2', 'Diag Override', 'active') "
+            "(1, 'REF1', 'Diag Default', 1), (2, 'REF2', 'Diag Override', 1) "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
             "reference_id = EXCLUDED.reference_id, package_name = EXCLUDED.package_name, status = EXCLUDED.status"
         )
@@ -1145,14 +1145,14 @@ async def test_public_onboard_omitted_diagnostic_package_id_uses_platform_defaul
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
-            "(1, 'PK1', 'Package 1', 'active') "
+            "(1, 'PK1', 'Package 1', 1) "
             "ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) VALUES "
-            "(1, 'REF1', 'Diag Default', 'active'), (2, 'REF2', 'Diag Other', 'active') "
+            "(1, 'REF1', 'Diag Default', 1), (2, 'REF2', 'Diag Other', 1) "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
             "reference_id = EXCLUDED.reference_id, package_name = EXCLUDED.package_name, status = EXCLUDED.status"
         )
@@ -1213,14 +1213,14 @@ async def test_public_onboard_rejects_inactive_diagnostic_package_id(async_clien
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
-            "(1, 'PK1', 'Package 1', 'active') "
+            "(1, 'PK1', 'Package 1', 1) "
             "ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) VALUES "
-            "(1, 'REF1', 'Diag Default', 'active'), (99, 'REF99', 'Diag Inactive', 'inactive') "
+            "(1, 'REF1', 'Diag Default', 1), (99, 'REF99', 'Diag Inactive', 'inactive') "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
             "reference_id = EXCLUDED.reference_id, package_name = EXCLUDED.package_name, status = EXCLUDED.status"
         )
@@ -1273,13 +1273,13 @@ async def test_public_onboard_rejects_unknown_engagement_type(async_client, test
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PK1', 'Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.commit()
@@ -1304,13 +1304,13 @@ async def test_public_onboard_rejects_inactive_engagement_type(async_client, tes
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PK1', 'Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
@@ -1350,7 +1350,7 @@ async def test_public_onboard_fails_when_fallback_packages_inactive(async_client
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.commit()
@@ -1374,19 +1374,19 @@ async def test_engagement_onboard_rejects_invalid_department_slug(async_client, 
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PK1', 'Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO organizations (organization_id, name, status, departments) "
-            "VALUES (8101, 'Dept Org', 'active', "
+            "VALUES (8101, 'Dept Org', 1, "
             "'[{\"department\": \"Sales\", \"slug\": \"sales\"}]'::json)"
         )
     )
@@ -1417,13 +1417,13 @@ async def test_engagement_onboard_rejects_department_without_organization(async_
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PK1', 'Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
@@ -1453,19 +1453,19 @@ async def test_engagement_onboard_me_returns_tokens_and_logs_in(async_client, te
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PK1', 'Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO organizations (organization_id, name, status, departments) "
-            "VALUES (8101, 'Onboard Me Org', 'active', "
+            "VALUES (8101, 'Onboard Me Org', 1, "
             "'[{\"department\": \"HR\", \"slug\": \"hr\"}]'::json)"
         )
     )
@@ -1573,13 +1573,13 @@ async def test_engagement_onboard_me_inactive_engagement_issues_no_tokens(
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PK1', 'Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
@@ -1614,13 +1614,13 @@ async def _seed_onboard_packages(test_db_session) -> None:
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PK1', 'Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
 
@@ -1634,7 +1634,7 @@ async def test_engagement_onboard_rejects_same_camp_no_across_engagements(
     await test_db_session.execute(
         text(
             "INSERT INTO organizations (organization_id, name, status, departments) "
-            "VALUES (8801, 'Same Camp Org', 'active', "
+            "VALUES (8801, 'Same Camp Org', 1, "
             "'[{\"department\": \"HR\", \"slug\": \"hr\"}]'::json)"
         )
     )
@@ -1691,7 +1691,7 @@ async def test_engagement_onboard_allows_different_camp_no(
     await test_db_session.execute(
         text(
             "INSERT INTO organizations (organization_id, name, status, departments) "
-            "VALUES (8802, 'Diff Camp Org', 'active', "
+            "VALUES (8802, 'Diff Camp Org', 1, "
             "'[{\"department\": \"HR\", \"slug\": \"hr\"}]'::json)"
         )
     )
@@ -1798,7 +1798,7 @@ async def test_engagement_onboard_same_engagement_still_already_enrolled(
     await test_db_session.execute(
         text(
             "INSERT INTO organizations (organization_id, name, status, departments) "
-            "VALUES (8803, 'Dup Eng Org', 'active', "
+            "VALUES (8803, 'Dup Eng Org', 1, "
             "'[{\"department\": \"HR\", \"slug\": \"hr\"}]'::json)"
         )
     )
@@ -1841,19 +1841,19 @@ async def test_engagement_onboard_logs_metsights_integration_sync(async_client, 
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status) "
-            "VALUES (8801, 'PK8801', 'Mets Pro', '2', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (8801, 'PK8801', 'Mets Pro', '2', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO organizations (organization_id, name, status) "
-            "VALUES (8801, 'Mets Org', 'active')"
+            "VALUES (8801, 'Mets Org', 1)"
         )
     )
     await test_db_session.execute(

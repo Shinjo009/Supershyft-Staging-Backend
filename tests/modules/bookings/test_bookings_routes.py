@@ -94,7 +94,7 @@ async def _seed_healthians_diagnostic_package(
         text(
             "INSERT INTO diagnostic_package "
             "(diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, price, external_package_id, complementary_consultation) "
-            "VALUES (:id, 'REF-H', 'Healthians Package', 'healthians', 'active', 500, 101, CAST(:cc AS json)) "
+            "VALUES (:id, 'REF-H', 'Healthians Package', 'healthians', 1, 500, 101, CAST(:cc AS json)) "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
             "diagnostic_provider = EXCLUDED.diagnostic_provider, "
             "external_package_id = EXCLUDED.external_package_id, status = EXCLUDED.status, "
@@ -899,12 +899,12 @@ async def test_book_bio_ai_applies_defaults_assigns_assistants_and_notifies(
     await _seed_healthians_diagnostic_package(test_db_session)
 
     await test_db_session.execute(
-        text("INSERT INTO users (user_id, age, phone, status) VALUES (940030, 30, '9400300000', 'active')")
+        text("INSERT INTO users (user_id, age, phone, status) VALUES (940030, 30, '9400300000', 1)")
     )
     await test_db_session.execute(
         text(
             "INSERT INTO employee (employee_id, user_id, role, status) "
-            "VALUES (940110, 940030, 'onboarding_assistant', 'active')"
+            "VALUES (940110, 940030, 'onboarding_assistant', 1)"
         )
     )
     await _seed_book_finalize_platform_defaults(test_db_session, assistant_employee_ids="940110")

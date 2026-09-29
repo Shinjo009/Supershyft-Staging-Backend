@@ -34,14 +34,14 @@ async def test_book_bio_ai_creates_booking_without_payment(async_client, test_db
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status) "
-            "VALUES (1, 'PK1', 'Package', '1', 'active') ON CONFLICT (package_id) DO UPDATE SET "
+            "VALUES (1, 'PK1', 'Package', '1', 1) ON CONFLICT (package_id) DO UPDATE SET "
             "assessment_type_code = EXCLUDED.assessment_type_code, status = EXCLUDED.status"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status, price) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active', 1500) ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
+            "VALUES (1, 'REF1', 'Diag Package', 1, 1500) ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
             "status = EXCLUDED.status, price = EXCLUDED.price"
         )
     )
@@ -120,13 +120,13 @@ async def test_book_bio_ai_diagnostic_package_override(async_client, test_db_ses
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PK1', 'Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status, price) VALUES "
-            "(1, 'REF1', 'Diag 1', 'active', 500), (2, 'REF2', 'Diag 2', 'active', 800) "
+            "(1, 'REF1', 'Diag 1', 1, 500), (2, 'REF2', 'Diag 2', 1, 800) "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
             "reference_id = EXCLUDED.reference_id, package_name = EXCLUDED.package_name, "
             "status = EXCLUDED.status, price = EXCLUDED.price"
@@ -196,14 +196,14 @@ async def test_book_bio_ai_forbidden_unrelated_user(async_client, test_db_sessio
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status) "
-            "VALUES (1, 'PK1', 'Package', '1', 'active') ON CONFLICT (package_id) DO UPDATE SET "
+            "VALUES (1, 'PK1', 'Package', '1', 1) ON CONFLICT (package_id) DO UPDATE SET "
             "assessment_type_code = EXCLUDED.assessment_type_code, status = EXCLUDED.status"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status, price) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active', 1500) ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
+            "VALUES (1, 'REF1', 'Diag Package', 1, 1500) ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
             "status = EXCLUDED.status, price = EXCLUDED.price"
         )
     )
@@ -246,14 +246,14 @@ async def test_book_bio_ai_employee_can_book_for_user(async_client, test_db_sess
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status) "
-            "VALUES (1, 'PK1', 'Package', '1', 'active') ON CONFLICT (package_id) DO UPDATE SET "
+            "VALUES (1, 'PK1', 'Package', '1', 1) ON CONFLICT (package_id) DO UPDATE SET "
             "assessment_type_code = EXCLUDED.assessment_type_code, status = EXCLUDED.status"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status, price) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active', 1500) ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
+            "VALUES (1, 'REF1', 'Diag Package', 1, 1500) ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
             "status = EXCLUDED.status, price = EXCLUDED.price"
         )
     )
@@ -288,7 +288,7 @@ async def test_book_bio_ai_employee_can_book_for_user(async_client, test_db_sess
 
     await test_db_session.execute(
         text(
-            "INSERT INTO employee (employee_id, user_id, role, status) VALUES (915099, 915030, 'admin', 'active') "
+            "INSERT INTO employee (employee_id, user_id, role, status) VALUES (915099, 915030, 'admin', 1) "
             "ON CONFLICT (employee_id) DO UPDATE SET user_id = EXCLUDED.user_id, role = EXCLUDED.role, status = EXCLUDED.status"
         )
     )

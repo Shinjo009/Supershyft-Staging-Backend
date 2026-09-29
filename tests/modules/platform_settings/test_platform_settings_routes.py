@@ -109,7 +109,7 @@ async def test_patch_b2c_defaults_persists_and_get_returns(async_client, test_db
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
-            "(1, 'P1', 'One', 'active'), (2, 'P2', 'Two', 'active') "
+            "(1, 'P1', 'One', 1), (2, 'P2', 'Two', 1) "
             "ON CONFLICT (package_id) DO UPDATE SET "
             "package_code = EXCLUDED.package_code, display_name = EXCLUDED.display_name, status = EXCLUDED.status"
         )
@@ -117,7 +117,7 @@ async def test_patch_b2c_defaults_persists_and_get_returns(async_client, test_db
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'R1', 'D1', 'p', 'active'), (2, 'R2', 'D2', 'p', 'active') "
+            "VALUES (1, 'R1', 'D1', 'p', 1), (2, 'R2', 'D2', 'p', 1) "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
             "reference_id = EXCLUDED.reference_id, package_name = EXCLUDED.package_name, "
             "diagnostic_provider = EXCLUDED.diagnostic_provider, status = EXCLUDED.status"
@@ -164,7 +164,7 @@ async def test_patch_b2c_defaults_rejects_inactive_package(async_client, test_db
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
-            "(1, 'P1', 'One', 'active') "
+            "(1, 'P1', 'One', 1) "
             "ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
         )
     )
@@ -179,7 +179,7 @@ async def test_patch_b2c_defaults_rejects_inactive_package(async_client, test_db
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'R1', 'D1', 'p', 'active') "
+            "VALUES (1, 'R1', 'D1', 'p', 1) "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
         )
     )
@@ -202,14 +202,14 @@ async def test_patch_b2c_defaults_rejects_fitprint_without_profile_creation(asyn
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'P1', 'One', 'active') ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
+            "VALUES (1, 'P1', 'One', 1) ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package "
             "(diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'R1', 'D1', 'p', 'active') "
+            "VALUES (1, 'R1', 'D1', 'p', 1) "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
         )
     )
@@ -253,13 +253,13 @@ async def test_patch_default_onboarding_assistants_persists(async_client, test_d
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
-            "(1, 'P1', 'One', 'active') ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
+            "(1, 'P1', 'One', 1) ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'R1', 'D1', 'p', 'active') ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
+            "VALUES (1, 'R1', 'D1', 'p', 1) ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
         )
     )
     await test_db_session.commit()
@@ -345,13 +345,13 @@ async def test_patch_support_query_notification_persists(async_client, test_db_s
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
-            "(1, 'P1', 'One', 'active') ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
+            "(1, 'P1', 'One', 1) ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'R1', 'D1', 'p', 'active') ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
+            "VALUES (1, 'R1', 'D1', 'p', 1) ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
         )
     )
     await test_db_session.commit()
@@ -429,14 +429,14 @@ async def test_b2c_defaults_include_custom_engagement_type(async_client, test_db
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
-            "(1, 'P1', 'One', 'active') "
+            "(1, 'P1', 'One', 1) "
             "ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'R1', 'D1', 'p', 'active') "
+            "VALUES (1, 'R1', 'D1', 'p', 1) "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
         )
     )
@@ -474,14 +474,14 @@ async def test_b2c_defaults_allow_null_diagnostic_package(async_client, test_db_
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
-            "(1, 'P1', 'One', 'active') "
+            "(1, 'P1', 'One', 1) "
             "ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'R1', 'D1', 'p', 'active') "
+            "VALUES (1, 'R1', 'D1', 'p', 1) "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
         )
     )

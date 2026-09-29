@@ -180,7 +180,7 @@ async def test_copy_responses_skips_vitals_and_blood_categories(test_db_session)
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, status) "
-            "VALUES (:uid, 30, '9200100000', 'active') ON CONFLICT (user_id) DO NOTHING"
+            "VALUES (:uid, 30, '9200100000', 1) ON CONFLICT (user_id) DO NOTHING"
         ),
         {"uid": user_id},
     )

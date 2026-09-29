@@ -24,7 +24,7 @@ async def _seed_cancel_fixture(test_db_session, *, engagement_id: int, participa
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PKG1', 'Test Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PKG1', 'Test Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     existing_diag = await test_db_session.get(DiagnosticPackage, 60)

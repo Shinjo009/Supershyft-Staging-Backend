@@ -20,15 +20,15 @@ async def _seed_onboard_packages(test_db_session, *, assessment_package_id: int 
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (:pid, :code, 'Onboard Q Package', 'active') "
-            "ON CONFLICT (package_id) DO UPDATE SET status = 'active'"
+            "VALUES (:pid, :code, 'Onboard Q Package', 1) "
+            "ON CONFLICT (package_id) DO UPDATE SET status = 1"
         ),
         {"pid": assessment_package_id, "code": f"ONB_Q_{assessment_package_id}"},
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     by_type = {

@@ -36,13 +36,13 @@ async def _seed_running_engagement(test_db_session, *, engagement_id: int = 9301
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'Test Diagnostic', 'test_provider', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status) "
-            "VALUES (:pid, 'METSIGHTS_PRO', 'Metsights Pro', '2', 'active') "
+            "VALUES (:pid, 'METSIGHTS_PRO', 'Metsights Pro', '2', 1) "
             "ON CONFLICT (package_id) DO UPDATE SET "
             "package_code = EXCLUDED.package_code, "
             "assessment_type_code = EXCLUDED.assessment_type_code, "
@@ -89,7 +89,7 @@ async def test_list_assessment_packages_accepts_participant_user_jwt(async_clien
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, first_name, last_name, age, phone, status) "
-            "VALUES (5301, 'Riya', 'Sharma', 33, '+919876543211', 'active')"
+            "VALUES (5301, 'Riya', 'Sharma', 33, '+919876543211', 1)"
         )
     )
     await test_db_session.execute(
@@ -115,7 +115,7 @@ async def test_list_assessment_packages_rejects_non_participant_user(async_clien
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, first_name, last_name, age, phone, status) "
-            "VALUES (5302, 'Other', 'User', 40, '+919876543212', 'active')"
+            "VALUES (5302, 'Other', 'User', 40, '+919876543212', 1)"
         )
     )
     await test_db_session.commit()
@@ -135,7 +135,7 @@ async def test_add_assessment_package_accepts_employee_jwt(async_client, test_db
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, first_name, last_name, age, phone, status) "
-            "VALUES (5303, 'Sam', 'Lee', 28, '+919876543213', 'active')"
+            "VALUES (5303, 'Sam', 'Lee', 28, '+919876543213', 1)"
         )
     )
     await test_db_session.execute(

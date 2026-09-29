@@ -32,7 +32,7 @@ async def _seed_push_engagement(test_db_session, *, engagement_id: int = 9701, p
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'Test Diagnostic', 'test_provider', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     test_db_session.add(
@@ -369,7 +369,7 @@ async def test_submit_legacy_creates_integration_sync_logs(async_client, test_db
             text(
                 "SELECT status, api_endpoint_url, response_payload "
                 "FROM integration_sync_logs WHERE provider = 'metsights' "
-                "AND user_id = :uid AND status = 'success'"
+                "AND user_id = :uid AND status = 2"
             ),
             {"uid": uid},
         )

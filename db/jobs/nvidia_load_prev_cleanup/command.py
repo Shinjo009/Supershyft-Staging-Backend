@@ -645,7 +645,7 @@ async def apply_plan(
         await conn.execute(
             """
             UPDATE assessment_category_progress
-            SET status = 'incomplete', completed_at = NULL
+            SET status = 2, completed_at = NULL
             WHERE id = $1
             """,
             r.progress_id,

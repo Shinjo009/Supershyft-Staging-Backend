@@ -19,6 +19,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from core.config import settings
+from db.column_types import STATUS_ASSESSMENT_CATEGORY_PROGRESS, label_to_status_code
 from db.engine import create_job_engine, job_session_factory
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,7 @@ async def _ensure_category_progress(
         {"iid": assessment_instance_id, "cid": category_id},
     )
     row = existing.first()
+    status_code = label_to_status_code(STATUS_ASSESSMENT_CATEGORY_PROGRESS, status)
     mark_complete = status == "complete"
     if row is None:
         await db.execute(
@@ -117,7 +119,7 @@ async def _ensure_category_progress(
                 INSERT INTO assessment_category_progress
                     (assessment_instance_id, category_id, status, is_submitted, completed_at)
                 VALUES (
-                    :iid, :cid, CAST(:status AS varchar), :submitted,
+                    :iid, :cid, :status_code, :submitted,
                     CASE WHEN :mark_complete THEN NOW() ELSE NULL END
                 )
                 """
@@ -125,7 +127,7 @@ async def _ensure_category_progress(
             {
                 "iid": assessment_instance_id,
                 "cid": category_id,
-                "status": status,
+                "status_code": status_code,
                 "submitted": is_submitted,
                 "mark_complete": mark_complete,
             },
@@ -136,7 +138,7 @@ async def _ensure_category_progress(
         text(
             """
             UPDATE assessment_category_progress
-            SET status = CAST(:status AS varchar),
+            SET status = :status_code,
                 is_submitted = CASE WHEN :submitted THEN true ELSE is_submitted END,
                 completed_at = CASE
                     WHEN :mark_complete THEN COALESCE(completed_at, NOW())
@@ -149,7 +151,7 @@ async def _ensure_category_progress(
         {
             "iid": assessment_instance_id,
             "cid": category_id,
-            "status": status,
+            "status_code": status_code,
             "submitted": is_submitted,
             "mark_complete": mark_complete,
         },
@@ -530,7 +532,7 @@ async def _step2_backfill_is_submitted(
                     text(
                         """
                         UPDATE assessment_instances
-                        SET status = 'completed', completed_at = COALESCE(completed_at, NOW())
+                        SET status = 2, completed_at = COALESCE(completed_at, NOW())
                         WHERE assessment_instance_id = :iid
                         """
                     ),

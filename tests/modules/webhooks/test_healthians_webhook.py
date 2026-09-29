@@ -192,7 +192,7 @@ async def _seed_diagnostic_package(test_db_session, *, diagnostic_package_id: in
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, bookings_count) "
-            "VALUES (:did, :ref, :pname, 'Healthians', 'active', 0) ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (:did, :ref, :pname, 'Healthians', 1, 0) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         ),
         {"did": diagnostic_package_id, "ref": f"REF{diagnostic_package_id}", "pname": "Diag"},
     )

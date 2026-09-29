@@ -9,6 +9,7 @@ from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Index, Int
 from sqlalchemy.dialects.postgresql import JSONB
 
 from db.base import Base
+from db.column_types import export_format_enum, export_source_kind_enum, export_type_enum
 
 
 class ExportLog(Base):
@@ -38,9 +39,9 @@ class ExportLog(Base):
     actor_name = Column(String, nullable=False)
     actor_role = Column(String, nullable=False)
     reason = Column(Text, nullable=False)
-    export_type = Column(String(64), nullable=False)
-    export_format = Column(String(16), nullable=False)
-    source_kind = Column(String(32), nullable=False)
+    export_type = Column(export_type_enum, nullable=False)
+    export_format = Column(export_format_enum, nullable=False)
+    source_kind = Column(export_source_kind_enum, nullable=False)
     source_id = Column(String(64), nullable=True)
     row_count = Column(Integer, nullable=True)
     details = Column(JSONB, nullable=True)

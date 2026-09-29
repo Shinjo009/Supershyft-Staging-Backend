@@ -30,14 +30,14 @@ async def _seed_assessment_and_diagnostic_packages(test_db_session):
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status) "
-            "VALUES (901, 'MB', 'Met Basic', '1', 'active'), (902, 'MP', 'Met Pro', '2', 'active') "
+            "VALUES (901, 'MB', 'Met Basic', '1', 1), (902, 'MP', 'Met Pro', '2', 1) "
             "ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (17, 'MEN', 'Men Peak Performance', 'active'), (24, 'WMN', 'Women Peak Performance', 'active') "
+            "VALUES (17, 'MEN', 'Men Peak Performance', 1), (24, 'WMN', 'Women Peak Performance', 1) "
             "ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
@@ -278,7 +278,7 @@ async def test_import_metsights_profiles_skips_existing_record_id(async_client, 
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, first_name, last_name, age, phone, status, is_participant, relationship) "
-            "VALUES (9904, 'Other', 'User', 30, '9904000000000', 'active', true, 'self') "
+            "VALUES (9904, 'Other', 'User', 30, '9904000000000', 1, true, 'self') "
             "ON CONFLICT (user_id) DO NOTHING"
         )
     )
@@ -286,14 +286,14 @@ async def test_import_metsights_profiles_skips_existing_record_id(async_client, 
         text(
             "INSERT INTO engagements (engagement_id, engagement_name, engagement_code, engagement_type, "
             "assessment_package_id, diagnostic_package_id, city, slot_duration, start_date, end_date, status, organization_id) "
-            "VALUES (99040, 'Prior', 'CODE99040', 'bio_ai', 902, 24, 'X', 20, '2026-02-01', '2026-02-01', 'active', 0, NULL) "
+            "VALUES (99040, 'Prior', 'CODE99040', 'bio_ai', 902, 24, 'X', 20, '2026-02-01', '2026-02-01', 1, 0, NULL) "
             "ON CONFLICT (engagement_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_instances (user_id, engagement_id, package_id, status, metsights_record_id, assigned_at) "
-            "VALUES (9904, 99040, 902, 'active', 'RECDUP', NOW()) "
+            "VALUES (9904, 99040, 902, 1, 'RECDUP', NOW()) "
         )
     )
     await test_db_session.commit()

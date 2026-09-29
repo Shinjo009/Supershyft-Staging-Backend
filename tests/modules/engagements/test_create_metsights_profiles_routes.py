@@ -26,7 +26,7 @@ async def _seed_engagement(test_db_session, *, engagement_id: int = 9101):
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'Test Diagnostic', 'test_provider', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
@@ -54,7 +54,7 @@ async def _seed_participant(
             "INSERT INTO users (user_id, first_name, last_name, age, phone, email, gender, date_of_birth, "
             "status, metsights_profile_id) "
             "VALUES (:uid, 'Riya', 'Sharma', 33, '+919876543210', 'riya@example.com', 'Female', "
-            "'1992-06-15', 'active', :pid)"
+            "'1992-06-15', 1, :pid)"
         ),
         {"uid": user_id, "pid": metsights_profile_id},
     )
@@ -162,7 +162,7 @@ async def test_create_metsights_profiles_fails_missing_fields(async_client, test
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, first_name, last_name, age, phone, status) "
-            "VALUES (5103, '', 'Sharma', 33, '+919876543211', 'active')"
+            "VALUES (5103, '', 'Sharma', 33, '+919876543211', 1)"
         )
     )
     await test_db_session.execute(

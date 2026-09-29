@@ -10,6 +10,7 @@ from __future__ import annotations
 from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, Integer, String, Text, func
 
 from db.base import Base
+from db.column_types import ActiveInactiveArchivedStatus
 
 
 class Industry(Base):
@@ -48,7 +49,7 @@ class Organization(Base):
     bd_employee_id = Column(Integer, ForeignKey("employee.employee_id"))
     departments = Column(JSON, nullable=True)
     industry_key = Column(String(100), ForeignKey("industries.industry_key"), nullable=True)
-    status = Column(String)
+    status = Column(ActiveInactiveArchivedStatus, nullable=True)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     created_employee_id = Column(Integer, ForeignKey("employee.employee_id"))

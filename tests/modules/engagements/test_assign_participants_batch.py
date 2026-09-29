@@ -69,7 +69,7 @@ async def _seed_assessment_package(test_db_session, *, package_id: int = 1):
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (:pid, 'PKG1', 'Test Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (:pid, 'PKG1', 'Test Package', 1) ON CONFLICT (package_id) DO NOTHING"
         ),
         {"pid": package_id},
     )
@@ -86,7 +86,7 @@ async def _seed_engagement(
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'Test Diagnostic', 'test_provider', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     pkg_sql = "NULL" if assessment_package_id is None else str(int(assessment_package_id))
@@ -135,13 +135,13 @@ async def test_assign_participants_batch_skips_already_assigned(async_client, te
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, email, status) "
-            "VALUES (5001, 30, '+919876543210', 'user5001@example.com', 'active')"
+            "VALUES (5001, 30, '+919876543210', 'user5001@example.com', 1)"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_instances (user_id, engagement_id, package_id, status, metsights_record_id, assigned_at) "
-            "VALUES (5001, 9001, 1, 'active', 'EXISTING1', NOW())"
+            "VALUES (5001, 9001, 1, 1, 'EXISTING1', NOW())"
         )
     )
     await test_db_session.commit()
@@ -200,7 +200,7 @@ async def test_assign_participants_batch_assigns_without_email_via_phone_and_rec
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, email, status, metsights_profile_id) "
-            "VALUES (5013, 30, '7042729798', 'sushma.alt@example.com', 'active', :pid)"
+            "VALUES (5013, 30, '7042729798', 'sushma.alt@example.com', 1, :pid)"
         ),
         {"pid": METSIGHTS_PROFILE_ID},
     )
@@ -235,14 +235,14 @@ async def test_assign_participants_batch_picks_user_whose_profile_has_record(asy
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, email, status, metsights_profile_id, parent_id, relationship) "
-            "VALUES (5010, 30, '+919988887777', 'alice@example.com', 'active', :other_pid, NULL, 'self')"
+            "VALUES (5010, 30, '+919988887777', 'alice@example.com', 1, :other_pid, NULL, 'self')"
         ),
         {"other_pid": OTHER_METSIGHTS_PROFILE_ID},
     )
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, email, status, metsights_profile_id, parent_id, relationship) "
-            "VALUES (5011, 30, '+919988887777', 'bob@example.com', 'active', :pid, 5010, 'child')"
+            "VALUES (5011, 30, '+919988887777', 'bob@example.com', 1, :pid, 5010, 'child')"
         ),
         {"pid": METSIGHTS_PROFILE_ID},
     )
@@ -286,7 +286,7 @@ async def test_assign_participants_batch_record_not_found_does_not_enroll(async_
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, email, status, metsights_profile_id) "
-            "VALUES (5012, 30, '+919977776666', 'user5012@example.com', 'active', :pid)"
+            "VALUES (5012, 30, '+919977776666', 'user5012@example.com', 1, :pid)"
         ),
         {"pid": METSIGHTS_PROFILE_ID},
     )
@@ -330,7 +330,7 @@ async def test_assign_participants_batch_happy_path_enrolls_and_assigns(async_cl
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, email, status, metsights_profile_id) "
-            "VALUES (5002, 30, '+919876543211', 'user5002@example.com', 'active', :pid)"
+            "VALUES (5002, 30, '+919876543211', 'user5002@example.com', 1, :pid)"
         ),
         {"pid": METSIGHTS_PROFILE_ID},
     )
@@ -389,7 +389,7 @@ async def test_assign_participants_batch_already_enrolled_still_assigns(async_cl
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, email, status, metsights_profile_id) "
-            "VALUES (5003, 30, '+919876543212', 'user5003@example.com', 'active', :pid)"
+            "VALUES (5003, 30, '+919876543212', 'user5003@example.com', 1, :pid)"
         ),
         {"pid": METSIGHTS_PROFILE_ID},
     )
@@ -432,7 +432,7 @@ async def test_assign_participants_batch_sets_profile_on_metsights_when_user_lin
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, email, status, metsights_profile_id) "
-            "VALUES (5004, 30, '+919876543213', 'user5004@example.com', 'active', :pid)"
+            "VALUES (5004, 30, '+919876543213', 'user5004@example.com', 1, :pid)"
         ),
         {"pid": METSIGHTS_PROFILE_ID},
     )

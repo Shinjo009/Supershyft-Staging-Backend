@@ -27,13 +27,13 @@ async def _seed_dependencies(test_db_session) -> None:
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PKG1', 'Test Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PKG1', 'Test Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'Test Diagnostic', 'test_provider', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     for service_key, channel, webhook_path, require_session in (
@@ -494,7 +494,7 @@ async def test_consultation_remainder_sends_again_on_later_consultation_day(
     dispatched_at = datetime(2026, 6, 10, 9, 0, tzinfo=_IST).astimezone(timezone.utc)
     await test_db_session.execute(
         text(
-            "UPDATE notifications SET status = 'sent', dispatched_at = :ts, completed_at = :ts "
+            "UPDATE notifications SET status = 2, dispatched_at = :ts, completed_at = :ts "
             "WHERE engagement_id = 9805"
         ),
         {"ts": dispatched_at},

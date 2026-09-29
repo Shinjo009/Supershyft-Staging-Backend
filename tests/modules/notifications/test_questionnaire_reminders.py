@@ -22,14 +22,14 @@ async def _seed_dependencies(test_db_session) -> None:
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status) "
-            "VALUES (1, 'METSIGHTS_BASIC', 'Metsights Basic', '1', 'active') "
+            "VALUES (1, 'METSIGHTS_BASIC', 'Metsights Basic', '1', 1) "
             "ON CONFLICT (package_id) DO UPDATE SET assessment_type_code = EXCLUDED.assessment_type_code"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'Test Diagnostic', 'test_provider', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
@@ -166,7 +166,7 @@ async def _insert_assessment_instance(
         text(
             "INSERT INTO assessment_instances "
             "(assessment_instance_id, user_id, package_id, engagement_id, status, metsights_record_id) "
-            "VALUES (:aid, :uid, 1, :eid, 'active', :record_id)"
+            "VALUES (:aid, :uid, 1, :eid, 1, :record_id)"
         ),
         {
             "aid": assessment_instance_id,

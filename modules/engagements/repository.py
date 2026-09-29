@@ -1794,7 +1794,7 @@ class EngagementsRepository:
                     SELECT 1
                     FROM participant_blood_bookings pbb
                     WHERE pbb.engagement_participant_id = ep.engagement_participant_id
-                      AND pbb.status = 'active'
+                      AND pbb.status = 1
                       AND pbb.relation <> 'resample'
                       AND pbb.blood_report_raw IS NOT NULL
                       AND pbb.diagnostic_report_url IS NOT NULL

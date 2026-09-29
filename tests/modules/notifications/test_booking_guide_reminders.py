@@ -22,13 +22,13 @@ async def _seed_dependencies(test_db_session) -> None:
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PKG1', 'Test Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PKG1', 'Test Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'Test Diagnostic', 'test_provider', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     for service_key, channel, webhook_path in (
@@ -155,14 +155,14 @@ async def _insert_assistant(
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, status) "
-            f"VALUES ({user_id}, 30, '{user_id}000000000', 'active') "
+            f"VALUES ({user_id}, 30, '{user_id}000000000', 1) "
             "ON CONFLICT (user_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO employee (employee_id, user_id, role, status) "
-            f"VALUES ({employee_id}, {user_id}, '{role}', 'active') "
+            f"VALUES ({employee_id}, {user_id}, '{role}', 1) "
             "ON CONFLICT (employee_id) DO NOTHING"
         )
     )

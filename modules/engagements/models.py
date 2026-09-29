@@ -26,8 +26,14 @@ from sqlalchemy.sql import func
 from sqlalchemy.types import JSON
 
 from db.base import Base
-from modules.engagements.blood_booking_enums import BloodBookingRelation, BloodBookingStatus
-from modules.engagements.enums import BloodCollectionType, ConsultationMode, EngagementKind, EngagementStatus
+from db.column_types import (
+    BloodBookingStatusColumn,
+    EngagementStatusColumn,
+    STATUS_BLOOD_BOOKING,
+    status_server_default,
+)
+from modules.engagements.blood_booking_enums import BloodBookingRelation
+from modules.engagements.enums import BloodCollectionType, ConsultationMode, EngagementKind
 
 _blood_booking_relation = SAEnum(
     BloodBookingRelation,
@@ -35,14 +41,6 @@ _blood_booking_relation = SAEnum(
     values_callable=lambda obj: [e.value for e in obj],
     create_type=False,
 )
-_blood_booking_status = SAEnum(
-    BloodBookingStatus,
-    name="blood_booking_status_enum",
-    values_callable=lambda obj: [e.value for e in obj],
-    create_type=False,
-)
-
-
 _engagement_kind = SAEnum(
     EngagementKind,
     name="engagement_kind",
@@ -106,7 +104,7 @@ class Engagement(Base):
     slot_duration = Column(Integer)
     start_date = Column(Date)
     end_date = Column(Date)
-    status = Column(String)
+    status = Column(EngagementStatusColumn, nullable=True)
     create_profile_on_metsights = Column(Boolean, nullable=False, default=False, server_default="false")
     enroll_for_fitprint_full = Column(Boolean, nullable=False, default=False, server_default="false")
     load_prev_assessment_questionnaires = Column(Boolean, nullable=False, default=False, server_default="false")
@@ -201,9 +199,10 @@ class ParticipantBloodBooking(Base):
     )
     parent_booking_id = Column(String, nullable=True)
     status = Column(
-        _blood_booking_status,
+        BloodBookingStatusColumn,
         nullable=False,
-        server_default=BloodBookingStatus.active.value,
+        default="active",
+        server_default=status_server_default("active", STATUS_BLOOD_BOOKING),
     )
     diagnostic_report_url = Column(Text, nullable=True)
     blood_parameters = Column(JSON, nullable=True)

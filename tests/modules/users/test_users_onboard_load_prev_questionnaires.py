@@ -19,22 +19,22 @@ async def _seed_org_and_packages(test_db_session, *, package_id: int = 9101):
         text(
             "INSERT INTO assessment_packages "
             "(package_id, package_code, display_name, status, assessment_type_code) "
-            "VALUES (:pid, :code, 'Load Prev Package', 'active', '1') "
+            "VALUES (:pid, :code, 'Load Prev Package', 1, '1') "
             "ON CONFLICT (package_id) DO UPDATE SET "
-            "assessment_type_code = EXCLUDED.assessment_type_code, status = 'active'"
+            "assessment_type_code = EXCLUDED.assessment_type_code, status = 1"
         ),
         {"pid": package_id, "code": f"LOAD_PREV_{package_id}"},
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
-            "VALUES (1, 'REF1', 'Diag Package', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO organizations (organization_id, name, status, departments) "
-            "VALUES (8101, 'Load Prev Org', 'active', "
+            "VALUES (8101, 'Load Prev Org', 1, "
             "'[{\"department\": \"HR\", \"slug\": \"hr\"}]'::json) "
             "ON CONFLICT (organization_id) DO NOTHING"
         )
@@ -175,7 +175,7 @@ async def test_engagement_onboard_load_prev_false_does_not_copy(async_client, te
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, status, first_name, last_name, email) "
-            "VALUES (91001, 30, '7777000101', 'active', 'Load', 'Prev', 'load.prev@example.com') "
+            "VALUES (91001, 30, '7777000101', 1, 'Load', 'Prev', 'load.prev@example.com') "
             "ON CONFLICT (user_id) DO NOTHING"
         )
     )
@@ -257,7 +257,7 @@ async def test_engagement_onboard_load_prev_true_copies_from_prior_basic(async_c
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, status, first_name, last_name, email) "
-            "VALUES (91002, 30, '7777000102', 'active', 'Load', 'Prev', 'load.prev2@example.com') "
+            "VALUES (91002, 30, '7777000102', 1, 'Load', 'Prev', 'load.prev2@example.com') "
             "ON CONFLICT (user_id) DO NOTHING"
         )
     )
@@ -324,7 +324,7 @@ async def test_engagement_onboard_load_prev_ignores_fitprint_only_prior(async_cl
         text(
             "INSERT INTO assessment_packages "
             "(package_id, package_code, display_name, status, assessment_type_code) "
-            "VALUES (:pid, 'FITPRINT_ONLY', 'FitPrint', 'active', '7') "
+            "VALUES (:pid, 'FITPRINT_ONLY', 'FitPrint', 1, '7') "
             "ON CONFLICT (package_id) DO UPDATE SET assessment_type_code = '7'"
         ),
         {"pid": fitprint_package_id},
@@ -356,7 +356,7 @@ async def test_engagement_onboard_load_prev_ignores_fitprint_only_prior(async_cl
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, status, first_name, last_name, email) "
-            "VALUES (91003, 30, '7777000103', 'active', 'Load', 'Prev', 'load.prev3@example.com') "
+            "VALUES (91003, 30, '7777000103', 1, 'Load', 'Prev', 'load.prev3@example.com') "
             "ON CONFLICT (user_id) DO NOTHING"
         )
     )
@@ -468,7 +468,7 @@ async def test_engagement_onboard_load_prev_skips_vitals_and_blood_categories(
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, status, first_name, last_name, email) "
-            "VALUES (91100, 30, '7777000110', 'active', 'Load', 'Prev', 'load.prev4@example.com') "
+            "VALUES (91100, 30, '7777000110', 1, 'Load', 'Prev', 'load.prev4@example.com') "
             "ON CONFLICT (user_id) DO NOTHING"
         )
     )

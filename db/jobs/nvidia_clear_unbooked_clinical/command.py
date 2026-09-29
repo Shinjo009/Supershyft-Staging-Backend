@@ -145,7 +145,7 @@ COUNT_PROGRESS_BY_GROUP_SQL = text(
     SELECT
         clinical_group,
         count(*) AS progress_rows,
-        count(*) FILTER (WHERE lower(coalesce(status, '')) = 'complete') AS complete_rows,
+        count(*) FILTER (WHERE status = 1) AS complete_rows,
         count(*) FILTER (WHERE is_submitted) AS submitted_rows
     FROM clinical_progress
     GROUP BY clinical_group
@@ -167,7 +167,7 @@ RESET_PROGRESS_SQL = text(
         WHERE qc.category_key = ANY(:clinical_keys)
     )
     UPDATE assessment_category_progress acp
-    SET status = 'incomplete',
+    SET status = 2,
         is_submitted = false,
         completed_at = NULL
     FROM clinical_progress cp

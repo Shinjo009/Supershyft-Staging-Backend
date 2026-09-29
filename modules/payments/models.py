@@ -6,6 +6,17 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, St
 from sqlalchemy.dialects.postgresql import JSON
 
 from db.base import Base
+from db.column_types import (
+    BookingStatusColumn,
+    OrderStatusColumn,
+    PaymentStatusColumn,
+    STATUS_BOOKING,
+    STATUS_ORDER,
+    booking_entity_type_enum,
+    booking_type_enum,
+    currency_code_enum,
+    status_server_default,
+)
 
 
 class Booking(Base):
@@ -19,14 +30,22 @@ class Booking(Base):
 
     booking_id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
-    entity_type = Column(String, nullable=False)
+    entity_type = Column(booking_entity_type_enum, nullable=False)
     entity_id = Column(Integer, nullable=False)
     entity_name = Column(String, nullable=False)
     amount_paise = Column(Integer, nullable=False)
-    currency = Column(String, nullable=False, server_default=text("'INR'"))
-    booking_type = Column(String, nullable=True)
+    currency = Column(
+        currency_code_enum,
+        nullable=False,
+        server_default=text("'INR'::currency_code_enum"),
+    )
+    booking_type = Column(booking_type_enum, nullable=True)
     metadata_ = Column("metadata", JSON, nullable=True)
-    status = Column(String, nullable=False, server_default=text("'pending'"))
+    status = Column(
+        BookingStatusColumn,
+        nullable=False,
+        server_default=status_server_default("pending", STATUS_BOOKING),
+    )
     booked_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
@@ -55,8 +74,16 @@ class Order(Base):
     user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
     razorpay_order_id = Column(String, nullable=False, unique=True)
     amount_paise = Column(Integer, nullable=False)
-    currency = Column(String, nullable=False, server_default=text("'INR'"))
-    status = Column(String, nullable=False, server_default=text("'created'"))
+    currency = Column(
+        currency_code_enum,
+        nullable=False,
+        server_default=text("'INR'::currency_code_enum"),
+    )
+    status = Column(
+        OrderStatusColumn,
+        nullable=False,
+        server_default=status_server_default("created", STATUS_ORDER),
+    )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
@@ -79,8 +106,12 @@ class Payment(Base):
     razorpay_order_id = Column(String, nullable=False)
     razorpay_signature = Column(String, nullable=True)
     amount_paise = Column(Integer, nullable=False)
-    currency = Column(String, nullable=False, server_default=text("'INR'"))
-    status = Column(String, nullable=False)
+    currency = Column(
+        currency_code_enum,
+        nullable=False,
+        server_default=text("'INR'::currency_code_enum"),
+    )
+    status = Column(PaymentStatusColumn, nullable=False)
     payment_method = Column(String, nullable=True)
     signature_verified = Column(Boolean, nullable=False, server_default=text("false"))
     failure_reason = Column(String, nullable=True)

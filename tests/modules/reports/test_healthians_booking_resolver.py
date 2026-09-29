@@ -45,7 +45,7 @@ async def _seed_participant_context(
     await db.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, bookings_count) "
-            "VALUES (:pid, :ref, :pname, :provider, 'active', 0) "
+            "VALUES (:pid, :ref, :pname, :provider, 1, 0) "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET diagnostic_provider = EXCLUDED.diagnostic_provider"
         ),
         {
@@ -70,7 +70,7 @@ async def _seed_participant_context(
     await db.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status) "
-            "VALUES (901, 'P50101', 'MetSights Pro', '1', 'active') "
+            "VALUES (901, 'P50101', 'MetSights Pro', '1', 1) "
             "ON CONFLICT (package_id) DO NOTHING"
         )
     )

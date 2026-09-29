@@ -33,7 +33,7 @@ async def _seed_packages_for_engagement(test_db_session, *, package_id: int):
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (:pid, :pcode, :dname, 'active') ON CONFLICT (package_id) DO UPDATE SET "
+            "VALUES (:pid, :pcode, :dname, 1) ON CONFLICT (package_id) DO UPDATE SET "
             "package_code = EXCLUDED.package_code, display_name = EXCLUDED.display_name, status = EXCLUDED.status"
         ),
         {"pid": package_id, "pcode": f"PKG{package_id}", "dname": f"Package {package_id}"},
@@ -41,7 +41,7 @@ async def _seed_packages_for_engagement(test_db_session, *, package_id: int):
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, bookings_count) "
-            "VALUES (:did, :ref, :pname, 'test_provider', 'active', 0) ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
+            "VALUES (:did, :ref, :pname, 'test_provider', 1, 0) ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
             "reference_id = EXCLUDED.reference_id, package_name = EXCLUDED.package_name, "
             "diagnostic_provider = EXCLUDED.diagnostic_provider, status = EXCLUDED.status"
         ),

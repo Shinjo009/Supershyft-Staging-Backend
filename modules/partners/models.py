@@ -7,6 +7,12 @@ import enum
 from sqlalchemy import CheckConstraint, Column, DateTime, Index, Integer, String, func
 
 from db.base import Base
+from db.column_types import (
+    ActiveInactiveArchivedStatus,
+    STATUS_ACTIVE_INACTIVE_ARCHIVED,
+    partner_role_enum,
+    status_server_default,
+)
 
 
 class PartnerRole(str, enum.Enum):
@@ -22,10 +28,6 @@ class Partner(Base):
             "(phone IS NOT NULL AND btrim(phone) <> '') OR (email IS NOT NULL AND btrim(email) <> '')",
             name="ck_partners_phone_or_email",
         ),
-        CheckConstraint(
-            "role IN ('phlebo', 'expert', 'organization_manager')",
-            name="ck_partners_role",
-        ),
         Index("ix_partners_phone", "phone", unique=True),
         Index("ix_partners_email", "email", unique=True),
         Index("ix_partners_role", "role"),
@@ -36,8 +38,13 @@ class Partner(Base):
     name = Column(String, nullable=False)
     phone = Column(String, nullable=True)
     email = Column(String, nullable=True)
-    role = Column(String, nullable=False)
-    status = Column(String, nullable=False, server_default="active", default="active")
+    role = Column(partner_role_enum, nullable=False)
+    status = Column(
+        ActiveInactiveArchivedStatus,
+        nullable=False,
+        default="active",
+        server_default=status_server_default("active", STATUS_ACTIVE_INACTIVE_ARCHIVED),
+    )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),

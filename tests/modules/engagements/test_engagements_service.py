@@ -15,13 +15,13 @@ async def test_enroll_user_in_engagement_creates_participant_row(test_db_session
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PKG1', 'Test Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PKG1', 'Test Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'Test Diagnostic', 'test_provider', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
@@ -46,7 +46,7 @@ async def test_enroll_user_in_engagement_creates_participant_row(test_db_session
     await test_db_session.commit()
 
     await test_db_session.execute(
-        text("INSERT INTO users (user_id, age, phone, status) VALUES (1001, 30, '9999999999', 'active')")
+        text("INSERT INTO users (user_id, age, phone, status) VALUES (1001, 30, '9999999999', 1)")
     )
     await test_db_session.commit()
 
@@ -74,13 +74,13 @@ async def test_enroll_user_in_engagement_explicit_booked_by(test_db_session):
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PKG1', 'Test Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PKG1', 'Test Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'Test Diagnostic', 'test_provider', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
@@ -105,7 +105,7 @@ async def test_enroll_user_in_engagement_explicit_booked_by(test_db_session):
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, status) VALUES "
-            "(1002, 30, '9999999998', 'active'), (1003, 40, '9999999997', 'active')"
+            "(1002, 30, '9999999998', 1), (1003, 40, '9999999997', 1)"
         )
     )
     await test_db_session.commit()
@@ -140,13 +140,13 @@ async def test_get_data_completeness_tracks_pdf_json_and_values_separately(test_
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PKG1', 'Test Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PKG1', 'Test Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'Test Diagnostic', 'test_provider', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
@@ -171,9 +171,9 @@ async def test_get_data_completeness_tracks_pdf_json_and_values_separately(test_
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, status, first_name, last_name) VALUES "
-            "(1101, 30, '9111111111', 'active', 'Ada', 'Lovelace'), "
-            "(1102, 31, '9222222222', 'active', 'Alan', 'Turing'), "
-            "(1103, 32, '9333333333', 'active', 'Grace', 'Hopper')"
+            "(1101, 30, '9111111111', 1, 'Ada', 'Lovelace'), "
+            "(1102, 31, '9222222222', 1, 'Alan', 'Turing'), "
+            "(1103, 32, '9333333333', 1, 'Grace', 'Hopper')"
         )
     )
     await test_db_session.execute(
@@ -233,13 +233,13 @@ async def test_list_engagements_data_completeness_summary_rollup(test_db_session
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
-            "VALUES (1, 'PKG1', 'Test Package', 'active') ON CONFLICT (package_id) DO NOTHING"
+            "VALUES (1, 'PKG1', 'Test Package', 1) ON CONFLICT (package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'Test Diagnostic', 'test_provider', 'active') ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
@@ -264,9 +264,9 @@ async def test_list_engagements_data_completeness_summary_rollup(test_db_session
     await test_db_session.execute(
         text(
             "INSERT INTO users (user_id, age, phone, status) VALUES "
-            "(1201, 30, '9111111101', 'active'), "
-            "(1202, 31, '9111111102', 'active'), "
-            "(1203, 32, '9111111103', 'active')"
+            "(1201, 30, '9111111101', 1), "
+            "(1202, 31, '9111111102', 1), "
+            "(1203, 32, '9111111103', 1)"
         )
     )
     await test_db_session.execute(
