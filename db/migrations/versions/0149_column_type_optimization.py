@@ -223,7 +223,7 @@ def upgrade() -> None:
                 "internal",
             ],
         ),
-        ("user_gender_enum", ["male", "female"]),
+        ("user_gender_enum", ["male", "female", "Male", "Female"]),
         (
             "user_relationship_enum",
             ["self", "spouse", "child", "sibling", "parent", "grandparent", "other"],
@@ -563,7 +563,7 @@ def upgrade() -> None:
         "users",
         "gender",
         "user_gender_enum",
-        ["male", "female"],
+        ["male", "female", "Male", "Female"],
         nullable=True,
         server_default=None,
     )

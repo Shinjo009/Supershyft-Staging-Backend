@@ -241,6 +241,8 @@ class IntegrationProvider(str, enum.Enum):
 class UserGender(str, enum.Enum):
     male = "male"
     female = "female"
+    male_capitalized = "Male"
+    female_capitalized = "Female"
 
 
 class UserRelationship(str, enum.Enum):
