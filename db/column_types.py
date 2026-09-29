@@ -204,6 +204,7 @@ def _pg_enum(enum_cls: type[enum.Enum], name: str) -> SAEnum:
 
 class DiagnosticProvider(str, enum.Enum):
     healthians = "healthians"
+    healthians_legacy = "Healthians"  # exact casing stored on some rows
 
 
 class DiagnosticCollectionType(str, enum.Enum):

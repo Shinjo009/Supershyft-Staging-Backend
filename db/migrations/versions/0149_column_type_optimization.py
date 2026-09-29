@@ -206,7 +206,7 @@ def upgrade() -> None:
 
     # --- Create PostgreSQL enum types ---
     enum_defs: list[tuple[str, list[str]]] = [
-        ("diagnostic_provider_enum", ["healthians"]),
+        ("diagnostic_provider_enum", ["healthians", "Healthians"]),
         ("diagnostic_collection_type_enum", ["home_collection", "centre_visit"]),
         ("gender_suitability_enum", ["male", "female", "both"]),
         ("package_for_enum", ["public", "camp"]),
@@ -473,7 +473,7 @@ def upgrade() -> None:
         "diagnostic_package",
         "diagnostic_provider",
         "diagnostic_provider_enum",
-        ["healthians"],
+        ["healthians", "Healthians"],
         nullable=True,
         server_default=None,
     )
