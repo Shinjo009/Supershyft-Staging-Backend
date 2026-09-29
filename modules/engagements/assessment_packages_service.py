@@ -36,6 +36,10 @@ from modules.assessments.repository import AssessmentsRepository
 from modules.assessments.service import AssessmentsService
 from modules.audit.service import AuditService
 from modules.employee.service import EmployeeContext
+from modules.engagements.metsights_pro_validation import (
+    METSIGHTS_PRO_PACKAGE_CODE,
+    ensure_metsights_pro_allowed_for_engagement,
+)
 from modules.engagements.repository import EngagementsRepository
 from modules.engagements.schemas import PUSH_QUESTIONNAIRE_CATEGORY_KEYS
 from modules.metsights.service import MetsightsService
@@ -234,6 +238,16 @@ class EngagementAssessmentPackagesService:
                 status_code=422,
                 error_code="INVALID_STATE",
                 message="Assessment package is not active",
+            )
+
+        if code == METSIGHTS_PRO_PACKAGE_CODE:
+            await ensure_metsights_pro_allowed_for_engagement(
+                db,
+                engagement_type_id=int(engagement.engagement_type),
+                assessment_package_id=int(package.package_id),
+                diagnostic_package_id=engagement.diagnostic_package_id,
+                diagnostic_package_id_male=engagement.diagnostic_package_id_male,
+                diagnostic_package_id_female=engagement.diagnostic_package_id_female,
             )
 
         await self._ensure_participant_or_employee(

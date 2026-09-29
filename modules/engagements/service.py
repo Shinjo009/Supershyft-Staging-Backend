@@ -46,6 +46,7 @@ from modules.engagements.participant_list_filters import (
     filters_are_active,
     parse_participant_list_filters,
 )
+from modules.engagements.metsights_pro_validation import ensure_metsights_pro_allowed_for_engagement
 from modules.engagements.repository import EngagementsRepository
 from modules.engagements.slot_availability import (
     build_public_slot_detail,
@@ -555,6 +556,15 @@ class EngagementsService:
         )
         await self._validate_consultation_expert_types(db, prepared_slot_detail)
 
+        await ensure_metsights_pro_allowed_for_engagement(
+            db,
+            engagement_type_id=int(payload.engagement_type),
+            assessment_package_id=payload.assessment_package_id,
+            diagnostic_package_id=payload.diagnostic_package_id,
+            diagnostic_package_id_male=payload.diagnostic_package_id_male,
+            diagnostic_package_id_female=payload.diagnostic_package_id_female,
+        )
+
         # Use provided engagement_code or generate a unique one.
         if payload.engagement_code:
             code = payload.engagement_code.strip()
@@ -1019,6 +1029,15 @@ class EngagementsService:
 
         if payload.start_date > payload.end_date:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+
+        await ensure_metsights_pro_allowed_for_engagement(
+            db,
+            engagement_type_id=int(payload.engagement_type),
+            assessment_package_id=payload.assessment_package_id,
+            diagnostic_package_id=payload.diagnostic_package_id,
+            diagnostic_package_id_male=payload.diagnostic_package_id_male,
+            diagnostic_package_id_female=payload.diagnostic_package_id_female,
+        )
 
         # Validate that the organization exists when one is provided (B2C engagements have no org).
         if payload.organization_id is not None and self._organizations_repository is not None:

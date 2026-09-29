@@ -766,6 +766,33 @@ class DiagnosticsRepository:
             )
         await db.flush()
 
+    async def list_distinct_parameter_keys_for_package(
+        self,
+        db: AsyncSession,
+        *,
+        package_id: int,
+    ) -> set[str]:
+        result = await db.execute(
+            select(distinct(HealthParameter.parameter_key))
+            .select_from(DiagnosticPackageTestGroup)
+            .join(
+                DiagnosticTestGroupTest,
+                DiagnosticTestGroupTest.group_id == DiagnosticPackageTestGroup.group_id,
+            )
+            .join(HealthParameter, HealthParameter.test_id == DiagnosticTestGroupTest.test_id)
+            .where(DiagnosticPackageTestGroup.diagnostic_package_id == package_id)
+            .where(HealthParameter.parameter_key.isnot(None))
+        )
+        keys: set[str] = set()
+        for row in result.all():
+            raw = row[0]
+            if raw is None:
+                continue
+            text = str(raw).strip()
+            if text:
+                keys.add(text.lower())
+        return keys
+
     async def get_package_test_groups(
         self,
         db: AsyncSession,
