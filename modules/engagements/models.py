@@ -33,7 +33,12 @@ from db.column_types import (
     status_server_default,
 )
 from modules.engagements.blood_booking_enums import BloodBookingRelation
-from modules.engagements.enums import BloodCollectionType, ConsultationMode, EngagementKind
+from modules.engagements.enums import (
+    BloodCollectionType,
+    ConsultationMode,
+    EngagementKind,
+    EngagementStatus,
+)
 
 _blood_booking_relation = SAEnum(
     BloodBookingRelation,
