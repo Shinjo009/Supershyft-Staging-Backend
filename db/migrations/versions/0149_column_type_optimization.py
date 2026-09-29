@@ -72,6 +72,7 @@ def _convert_varchar_status(
     _assert_allowed_strings(connection, table, column, list(mapping.keys()))
     for ck in drop_checks:
         op.execute(text(f'ALTER TABLE "{table}" DROP CONSTRAINT IF EXISTS "{ck}"'))
+    op.execute(text(f'ALTER TABLE "{table}" ALTER COLUMN "{column}" DROP DEFAULT'))
     case_sql = _status_case_sql(column, mapping)
     op.execute(
         text(
@@ -110,6 +111,7 @@ def _convert_to_enum(
     _assert_allowed_strings(connection, table, column, list(values))
     for ck in drop_checks:
         op.execute(text(f'ALTER TABLE "{table}" DROP CONSTRAINT IF EXISTS "{ck}"'))
+    op.execute(text(f'ALTER TABLE "{table}" ALTER COLUMN "{column}" DROP DEFAULT'))
     op.execute(
         text(
             f'ALTER TABLE "{table}" ALTER COLUMN "{column}" TYPE {enum_name} '
@@ -153,6 +155,7 @@ def _convert_enum_status_to_smallint(
         raise RuntimeError(f"Cannot convert {table}.status: unexpected enum values {bad!r}")
     case_parts = [f"WHEN status::text = '{label}' THEN {code}" for label, code in mapping.items()]
     case_sql = f"CASE {' '.join(case_parts)} ELSE NULL END"
+    op.execute(text(f'ALTER TABLE "{table}" ALTER COLUMN "{column}" DROP DEFAULT'))
     op.execute(
         text(
             f'ALTER TABLE "{table}" ALTER COLUMN "{column}" TYPE smallint '
