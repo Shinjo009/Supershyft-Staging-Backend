@@ -105,6 +105,7 @@ STATUS_SUPPORT_TICKET: dict[str, int] = {
 
 STATUS_ASSESSMENT_INSTANCE: dict[str, int] = {
     "active": 1,
+    "complete": 2,  # legacy prod rows; stored as same code as completed
     "completed": 2,
 }
 

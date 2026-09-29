@@ -200,7 +200,8 @@ def upgrade() -> None:
     payment_status = {"success": 1, "failed": 2}
     reports_sync_status = {"idle": 1, "in_progress": 2, "failed": 3}
     support_ticket_status = {"open": 1, "resolved": 2, "closed": 3}
-    assessment_instance_status = {"active": 1, "completed": 2}
+    # Prod legacy rows used "complete" on assessment_instances (not category progress).
+    assessment_instance_status = {"active": 1, "complete": 2, "completed": 2}
     assessment_progress_status = {"complete": 1, "incomplete": 2}
     blood_booking_status = {"active": 1, "superseded": 2, "cancelled": 3}
 
