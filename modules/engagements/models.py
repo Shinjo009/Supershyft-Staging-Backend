@@ -173,7 +173,9 @@ class ParticipantBloodBooking(Base):
             "uq_pbb_booking_id",
             "booking_id",
             unique=True,
-            postgresql_where=text("booking_id IS NOT NULL AND btrim(booking_id) <> ''"),
+            postgresql_where=text(
+                "booking_id IS NOT NULL AND btrim(booking_id) <> '' AND status = 1"
+            ),
         ),
         Index(
             "ix_pbb_cabin_slot_occupancy",

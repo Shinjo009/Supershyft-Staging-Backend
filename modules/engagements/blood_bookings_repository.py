@@ -65,6 +65,24 @@ class BloodBookingsRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_active_by_booking_id(
+        self,
+        db: AsyncSession,
+        *,
+        booking_id: str,
+    ) -> ParticipantBloodBooking | None:
+        bid = (booking_id or "").strip()
+        if not bid:
+            return None
+        result = await db.execute(
+            select(ParticipantBloodBooking)
+            .where(ParticipantBloodBooking.booking_id == bid)
+            .where(ParticipantBloodBooking.status == BloodBookingStatus.active.value)
+            .order_by(ParticipantBloodBooking.id.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def list_for_participant(
         self,
         db: AsyncSession,

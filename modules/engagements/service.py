@@ -34,6 +34,10 @@ from modules.employee.access_control import (
 )
 from modules.employee.models import EmployeeRole
 from modules.employee.service import EmployeeContext
+from modules.engagements.blood_booking_id_validation import (
+    booking_id_integrity_app_error,
+    ensure_active_booking_id_available,
+)
 from modules.engagements.camp_no import compute_camp_no
 from modules.engagements.consultation_booking_validation import (
     effective_consultation_mode,
@@ -1757,8 +1761,20 @@ class EngagementsService:
                 stripped = str(raw_booking_id).strip()
                 normalized_booking_id = stripped or None
             row = await get_or_create_current(db, participant)
+            await ensure_active_booking_id_available(
+                db,
+                booking_id=normalized_booking_id,
+                exclude_pbb_id=int(row.id),
+            )
             row.booking_id = normalized_booking_id
             db.add(row)
+            try:
+                await db.flush()
+            except IntegrityError as exc:
+                mapped = booking_id_integrity_app_error(exc)
+                if mapped is not None:
+                    raise mapped from exc
+                raise
             response["booking_id"] = normalized_booking_id
 
         schedule_fields = {"engagement_date", "slot_start_time", "blood_collection_cabin"}
@@ -1871,15 +1887,7 @@ class EngagementsService:
         )
         data = payload.model_dump()
         booking_id = (data.get("booking_id") or "").strip() or None
-        repo = BloodBookingsRepository()
-        if booking_id:
-            existing = await repo.get_by_booking_id(db, booking_id=booking_id)
-            if existing is not None:
-                raise AppError(
-                    status_code=409,
-                    error_code="BOOKING_ID_EXISTS",
-                    message="This booking ID is already used on another collection",
-                )
+        await ensure_active_booking_id_available(db, booking_id=booking_id, exclude_pbb_id=None)
         row = ParticipantBloodBooking(
             engagement_participant_id=participant.engagement_participant_id,
             relation=data["relation"],
@@ -1893,7 +1901,13 @@ class EngagementsService:
             parent_booking_id=(data.get("parent_booking_id") or "").strip() or None,
         )
         db.add(row)
-        await db.flush()
+        try:
+            await db.flush()
+        except IntegrityError as exc:
+            mapped = booking_id_integrity_app_error(exc)
+            if mapped is not None:
+                raise mapped from exc
+            raise
         await self._require_audit_service().log_event(
             db,
             action="EMPLOYEE_CREATE_BLOOD_BOOKING",
@@ -1934,14 +1948,11 @@ class EngagementsService:
         updates = payload.model_dump(exclude_unset=True)
         if "booking_id" in updates:
             bid = (updates["booking_id"] or "").strip() or None
-            if bid:
-                existing = await repo.get_by_booking_id(db, booking_id=bid)
-                if existing is not None and existing.id != row.id:
-                    raise AppError(
-                        status_code=409,
-                        error_code="BOOKING_ID_EXISTS",
-                        message="This booking ID is already used on another collection",
-                    )
+            await ensure_active_booking_id_available(
+                db,
+                booking_id=bid,
+                exclude_pbb_id=int(row.id),
+            )
             row.booking_id = bid
         for field in (
             "relation",
@@ -1959,7 +1970,13 @@ class EngagementsService:
                     val = (val or "").strip() or None if val is not None else None
                 setattr(row, field, val)
         db.add(row)
-        await db.flush()
+        try:
+            await db.flush()
+        except IntegrityError as exc:
+            mapped = booking_id_integrity_app_error(exc)
+            if mapped is not None:
+                raise mapped from exc
+            raise
         await self._require_audit_service().log_event(
             db,
             action="EMPLOYEE_UPDATE_BLOOD_BOOKING",
@@ -1996,6 +2013,7 @@ class EngagementsService:
 
         if row.blood_parameters is not None or (row.diagnostic_report_url or "").strip():
             row.status = BloodBookingStatus.cancelled.value
+            row.booking_id = None
             db.add(row)
             await db.flush()
             action = "cancelled"
