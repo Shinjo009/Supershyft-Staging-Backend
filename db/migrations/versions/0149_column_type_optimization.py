@@ -1,7 +1,7 @@
 """Optimize status (smallint) and closed-set columns (PostgreSQL enums).
 
 Revision ID: 0149_column_type_optimization
-Revises: 0148_merge_dx_pkg_addresses
+Revises: 0148_sdb_description, 0148_merge_dx_pkg_addresses
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from sqlalchemy.dialects import postgresql
 
 
 revision = "0149_column_type_optimization"
-down_revision = "0148_merge_dx_pkg_addresses"
+down_revision = ("0148_sdb_description", "0148_merge_dx_pkg_addresses")
 branch_labels = None
 depends_on = None
 
