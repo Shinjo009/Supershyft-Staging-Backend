@@ -23,6 +23,7 @@ from modules.engagements.blood_booking_enums import BloodBookingRelation, BloodB
 from modules.engagements.models import (
     Engagement,
     EngagementParticipant,
+    EngagementType,
     OnboardingAssistantAssignment,
     ParticipantBloodBooking,
 )
@@ -401,6 +402,14 @@ async def _upsert_diagnostic_packages(
         row.status = seed.status
 
 
+async def _engagement_type_id(session: AsyncSession, code: str) -> int | None:
+    return (
+        await session.execute(
+            select(EngagementType.id).where(EngagementType.code == code).limit(1)
+        )
+    ).scalar_one_or_none()
+
+
 async def _upsert_engagements(session: AsyncSession, engagements: Iterable[SeedEngagement]) -> None:
     for seed in engagements:
         row = await session.get(Engagement, seed.engagement_id)
@@ -412,7 +421,7 @@ async def _upsert_engagements(session: AsyncSession, engagements: Iterable[SeedE
         row.organization_id = seed.organization_id
         row.camp_no = compute_camp_no(seed.organization_id, seed.start_date)
         row.engagement_code = seed.engagement_code
-        row.engagement_type = seed.engagement_type
+        row.engagement_type = await _engagement_type_id(session, seed.engagement_type)
         row.assessment_package_id = seed.assessment_package_id
         row.diagnostic_package_id = seed.diagnostic_package_id
         row.city = seed.city
