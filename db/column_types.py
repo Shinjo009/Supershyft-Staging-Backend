@@ -140,9 +140,12 @@ class StatusLabel(TypeDecorator[int]):
                 return value
             raise ValueError(f"Unknown status code: {value}")
         label = value if isinstance(value, str) else str(value)
-        if label not in self._label_to_code:
+        code = self._label_to_code.get(label)
+        if code is None:
+            code = self._label_to_code.get(label.lower())
+        if code is None:
             raise ValueError(f"Unknown status label: {label}")
-        return self._label_to_code[label]
+        return code
 
     def process_result_value(self, value: int | None, dialect: Any) -> str | None:
         if value is None:

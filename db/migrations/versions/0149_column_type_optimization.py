@@ -431,6 +431,19 @@ def upgrade() -> None:
         nullable=False,
         server_default_code=1,
     )
+    inspector = inspect(connection)
+    if _table_exists(inspector, "assessment_instances"):
+        # Legacy prod rows used "complete" (any casing) on instances, not "completed".
+        connection.execute(
+            text(
+                """
+                UPDATE assessment_instances
+                SET status = 'completed'
+                WHERE status IS NOT NULL
+                  AND btrim(lower(status::text)) = 'complete'
+                """
+            )
+        )
     _convert_varchar_status(
         connection,
         "assessment_instances",
