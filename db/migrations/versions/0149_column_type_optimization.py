@@ -179,6 +179,7 @@ def upgrade() -> None:
         "running": 3,
         "completed": 4,
         "cancelled": 5,
+        "published": 6,
     }
     integration_sync_status = {"pending": 1, "success": 2, "failed": 3, "skipped": 4}
     notification_status = {"pending": 1, "sent": 2, "failed": 3}

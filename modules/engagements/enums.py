@@ -37,3 +37,4 @@ class EngagementStatus(str, enum.Enum):
     running = "running"
     completed = "completed"
     cancelled = "cancelled"
+    published = "published"  # legacy rows only

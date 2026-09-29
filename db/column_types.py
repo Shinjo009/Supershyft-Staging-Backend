@@ -25,6 +25,7 @@ STATUS_ENGAGEMENT: dict[str, int] = {
     "running": 3,
     "completed": 4,
     "cancelled": 5,
+    "published": 6,  # legacy staging/production rows; keep label in API responses
 }
 
 STATUS_INTEGRATION_SYNC: dict[str, int] = {
