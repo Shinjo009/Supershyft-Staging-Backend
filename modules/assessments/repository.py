@@ -344,7 +344,7 @@ class AssessmentsRepository:
         result = await db.execute(
             select(AssessmentPackage)
             .where(AssessmentPackage.assessment_type_code == tc)
-            .where(func.lower(AssessmentPackage.status) == "active")
+            .where(AssessmentPackage.status == "active")
             .order_by(AssessmentPackage.package_id.asc())
             .limit(1)
         )

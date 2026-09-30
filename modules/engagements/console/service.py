@@ -22,6 +22,7 @@ from modules.diagnostics.healthians.sync_log import (
     persist_healthians_sync_log_isolated,
 )
 from modules.diagnostics.models import DiagnosticPackage
+from modules.metsights.service import outbound_last_name
 from modules.engagements.diagnostic_package_resolution import (
     engagement_has_diagnostic_package,
     healthians_gender_code,
@@ -581,15 +582,15 @@ class ConsoleService:
             )
 
         first_name = (user.first_name or "").strip()
-        last_name = (user.last_name or "").strip()
+        last_name = outbound_last_name(user.last_name)
         phone_raw = (user.phone or "").strip()
         gender = _to_healthians_gender(user.gender)
         dob = _format_healthians_dob(user)
-        if not first_name or not last_name or not phone_raw or gender is None or (user.age is None and dob is None):
+        if not first_name or not phone_raw or gender is None or (user.age is None and dob is None):
             raise AppError(
                 status_code=422,
                 error_code="INCOMPLETE_PARTICIPANT_PROFILE",
-                message="Participant profile is missing required fields (name, phone, gender, age or date of birth)",
+                message="Participant profile is missing required fields (first name, phone, gender, age or date of birth)",
             )
 
         diagnostic_package = await self._diagnostic_package_for_participant(
@@ -1468,15 +1469,15 @@ class ConsoleService:
             raise AppError(status_code=404, error_code="USER_NOT_FOUND", message="User does not exist")
 
         first_name = (user.first_name or "").strip()
-        last_name = (user.last_name or "").strip()
+        last_name = outbound_last_name(user.last_name)
         phone_raw = (user.phone or "").strip()
         gender = _to_healthians_gender(user.gender)
         dob = _format_healthians_dob(user)
-        if not first_name or not last_name or not phone_raw or gender is None or (user.age is None and dob is None):
+        if not first_name or not phone_raw or gender is None or (user.age is None and dob is None):
             raise AppError(
                 status_code=422,
                 error_code="INCOMPLETE_PARTICIPANT_PROFILE",
-                message="Participant profile is missing required fields (name, phone, gender, age or date of birth)",
+                message="Participant profile is missing required fields (first name, phone, gender, age or date of birth)",
             )
 
         phone = to_healthians_mobile(phone_raw)

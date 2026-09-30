@@ -16,6 +16,12 @@ from modules.metsights.schemas import MetsightsEnvelope, MetsightsProfilesPage
 logger = logging.getLogger(__name__)
 
 
+def outbound_last_name(raw: str | None) -> str:
+    """Last name sent to MetSights/Healthians when the user record has none."""
+    value = (raw or "").strip()
+    return value or "-"
+
+
 def _normalize_phone_digits(raw: str | None) -> str:
     return "".join(ch for ch in str(raw or "") if ch.isdigit())
 
@@ -799,13 +805,13 @@ class MetsightsService:
             )
 
         safe_first = (first_name or "").strip()
-        safe_last = (last_name or "").strip()
+        safe_last = outbound_last_name(last_name)
         safe_phone = (phone or "").strip()
         safe_gender = (gender or "").strip()
         safe_email = (email or "").strip() if email is not None else None
         safe_dob = (date_of_birth or "").strip() if date_of_birth is not None else None
 
-        if not safe_first or not safe_last or not safe_phone or not safe_gender:
+        if not safe_first or not safe_phone or not safe_gender:
             raise AppError(status_code=422, error_code="INVALID_STATE", message="Missing required profile fields")
 
         existing_id = await self._find_best_existing_profile_id(
@@ -992,7 +998,7 @@ class MetsightsService:
         self._require_api_key()
         safe_engagement_id = (engagement_id or "").strip()
         safe_first = (first_name or "").strip()
-        safe_last = (last_name or "").strip()
+        safe_last = outbound_last_name(last_name)
         safe_phone = (phone or "").strip()
         safe_gender = (gender or "").strip()
         safe_email = (email or "").strip() if email is not None else None
@@ -1000,7 +1006,7 @@ class MetsightsService:
 
         if not safe_engagement_id:
             raise AppError(status_code=422, error_code="INVALID_STATE", message="Metsights engagement id is missing")
-        if not safe_first or not safe_last or not safe_phone or not safe_gender:
+        if not safe_first or not safe_phone or not safe_gender:
             raise AppError(status_code=422, error_code="INVALID_STATE", message="Missing required profile fields")
 
         payload: dict[str, Any] = {

@@ -11,7 +11,12 @@ import pytest
 from core.config import settings
 from modules.assessments.models import AssessmentPackage
 from modules.diagnostics.models import DiagnosticPackage
-from modules.engagements.models import BloodCollectionType, Engagement, EngagementParticipant
+from modules.engagements.models import (
+    BloodCollectionType,
+    Engagement,
+    EngagementParticipant,
+    ParticipantBloodBooking,
+)
 from modules.users.models import User
 from tests.helpers.auth import employee_auth_header, seed_employee
 
@@ -548,6 +553,115 @@ async def test_console_home_collection_book_flow(async_client, test_db_session, 
     assert participant.booking_id == "1715623000"
     assert participant.healthians_zone_id == "77"
     assert participant.blood_collection_time_slot_id == "STM96002"
+
+
+@pytest.mark.asyncio
+async def test_console_home_collection_book_allows_blank_last_name(
+    async_client, test_db_session, monkeypatch
+):
+    """Missing last name should not block Healthians booking; outbound name uses '-'."""
+    monkeypatch.setattr(settings, "HEALTHIANS_CHECKSUM_KEY", "test-checksum-key")
+
+    existing_diag = await test_db_session.get(DiagnosticPackage, 52)
+    if existing_diag is None:
+        test_db_session.add(
+            DiagnosticPackage(
+                diagnostic_package_id=52,
+                reference_id="REF52",
+                package_name="Healthians Home",
+                diagnostic_provider="healthians",
+                external_package_id=2003,
+                original_price=999,
+                status="active",
+                bookings_count=0,
+            )
+        )
+
+    await seed_employee(test_db_session, employee_id=612, role="admin", commit=False)
+
+    existing_eng = await test_db_session.get(Engagement, 7104)
+    if existing_eng is None:
+        test_db_session.add(
+            Engagement(
+                engagement_id=7104,
+                engagement_name="Home Collection No Last",
+                engagement_code="HOME7104",
+                engagement_type=None,
+                assessment_package_id=1,
+                diagnostic_package_id=52,
+                status="running",
+                start_date=date.today(),
+                end_date=date.today(),
+                city="Chennai",
+                blood_collection_type=BloodCollectionType.home_collection,
+            )
+        )
+
+    test_db_session.add(
+        User(
+            user_id=93113,
+            age=38,
+            phone="9311300000",
+            email="kanmani@example.com",
+            status="active",
+            first_name="Kanmani",
+            last_name=None,
+            gender="female",
+            relationship="self",
+        )
+    )
+    await test_db_session.flush()
+
+    test_db_session.add(
+        EngagementParticipant(
+            engagement_participant_id=96003,
+            engagement_id=7104,
+            user_id=93113,
+            booked_by_user_id=93113,
+            healthians_zone_id="88",
+            latitude=12.97,
+            longitude=77.59,
+            address="E802 Test",
+            pincode="600097",
+            sub_locality="",
+            landmark="",
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        ParticipantBloodBooking(
+            engagement_participant_id=96003,
+            collection_date=date.today(),
+            collection_time=time(7, 30),
+            collection_time_slot_id="STM96003",
+        )
+    )
+    await test_db_session.commit()
+
+    auth = _auth_header(612)
+    base = "/engagements/7104/console/participants/93113/book-home-collection"
+    mock_create_booking = AsyncMock(
+        return_value={
+            "status": True,
+            "message": "Booking created",
+            "booking_id": "1715623999",
+            "lead_id": 101,
+        }
+    )
+
+    with patch(
+        "modules.engagements.console.service.healthians_client.create_booking_v3",
+        mock_create_booking,
+    ):
+        with patch(
+            "modules.engagements.console.service.healthians_client.get_access_token",
+            AsyncMock(return_value="token"),
+        ):
+            book_resp = await async_client.post(f"{base}/book", headers=auth)
+
+    assert book_resp.status_code == 200
+    booking_payload = mock_create_booking.await_args.args[1]
+    assert booking_payload["customer"][0]["customer_name"] == "KANMANI -"
 
 
 @pytest.mark.asyncio

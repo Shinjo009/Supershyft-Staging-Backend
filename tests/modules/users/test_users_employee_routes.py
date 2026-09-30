@@ -281,6 +281,90 @@ async def test_employee_update_metsights_profile_id(async_client, test_db_sessio
 
 
 @pytest.mark.asyncio
+async def test_employee_retry_metsights_profile_creates_when_missing(async_client, test_db_session, monkeypatch):
+    from modules.metsights.service import MetsightsService
+
+    test_db_session.add(User(age=30, user_id=9005, phone="9005000000", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=10004,
+            name="Employee 10004",
+            phone="0000010004",
+            email="employee10004@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    test_db_session.add(
+        User(
+            age=38,
+            user_id=9315,
+            phone="9315000000",
+            status="active",
+            first_name="Kanmani R",
+            last_name=None,
+            gender="female",
+            metsights_profile_id=None,
+        )
+    )
+    await test_db_session.commit()
+
+    captured: dict = {}
+
+    async def _get_or_create_profile_id(self, **kwargs):
+        captured.update(kwargs)
+        return "ms-retry-9315"
+
+    monkeypatch.setattr(MetsightsService, "get_or_create_profile_id", _get_or_create_profile_id)
+
+    response = await async_client.post(
+        "/users/9315/retry-metsights-profile",
+        headers=_auth_header(10004),
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["metsights_profile_id"] == "ms-retry-9315"
+    assert captured.get("last_name") == "-"
+
+    row = await test_db_session.get(User, 9315)
+    assert row is not None
+    assert row.metsights_profile_id == "ms-retry-9315"
+
+
+@pytest.mark.asyncio
+async def test_employee_retry_metsights_profile_returns_existing(async_client, test_db_session):
+    test_db_session.add(User(age=30, user_id=9005, phone="9005000000", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=10004,
+            name="Employee 10004",
+            phone="0000010004",
+            email="employee10004@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    test_db_session.add(
+        User(
+            age=30,
+            user_id=9316,
+            phone="9316000000",
+            status="active",
+            metsights_profile_id="already-there",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.post(
+        "/users/9316/retry-metsights-profile",
+        headers=_auth_header(10004),
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["metsights_profile_id"] == "already-there"
+
+
+@pytest.mark.asyncio
 async def test_employee_update_metsights_profile_id_rejects_duplicate(async_client, test_db_session):
     test_db_session.add(User(age=30, user_id=9005, phone="9005000000", status="active"))
     await test_db_session.flush()

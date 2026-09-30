@@ -83,6 +83,7 @@ from modules.platform_settings.repository import PlatformSettingsRepository
 from modules.organizations.service import validate_participant_department_for_organization
 from modules.questionnaire.repository import QuestionnaireRepository
 from modules.reports.repository import ReportsRepository
+from modules.metsights.service import outbound_last_name
 from modules.users.models import User
 from modules.users.repository import UsersRepository
 
@@ -4384,13 +4385,13 @@ class EngagementsService:
                 continue
 
             first_name = (user.first_name or "").strip()
-            last_name = (user.last_name or "").strip()
+            last_name = outbound_last_name(user.last_name)
             gender = _to_metsights_gender(user.gender)
             phone = _normalize_phone_for_metsights(user.phone) or (user.phone or "").strip()
             dob = user.date_of_birth.isoformat() if user.date_of_birth is not None else None
             email = (user.email or "").strip() if user.email else None
 
-            if not first_name or not last_name or not phone or gender is None:
+            if not first_name or not phone or gender is None:
                 base["status"] = "error"
                 base["reason"] = "missing_required_user_fields"
                 failed += 1

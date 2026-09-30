@@ -24,7 +24,7 @@ from core.exceptions import AppError
 from db.transaction import release_request_transaction
 from modules.employee.models import Employee
 from modules.audit.service import AuditService
-from modules.metsights.service import MetsightsService
+from modules.metsights.service import MetsightsService, outbound_last_name
 from modules.metsights.integration_logging import MetsightsSyncContext
 from modules.metsights.sync_service import (
     _normalize_metsights_type_code,
@@ -1459,11 +1459,11 @@ class UsersService:
             return
 
         first_name = (user.first_name or "").strip()
-        last_name = (user.last_name or "").strip()
+        last_name = outbound_last_name(user.last_name)
         phone = (user.phone or "").strip()
         gender = self._to_metsights_gender(user.gender)
 
-        if not first_name or not last_name or not phone or gender is None:
+        if not first_name or not phone or gender is None:
             return
 
         dob = user.date_of_birth.isoformat() if user.date_of_birth is not None else None
@@ -1524,10 +1524,10 @@ class UsersService:
 
         engagement_metsights_id = (engagement.metsights_engagement_id or "").strip()
         first_name = (user.first_name or "").strip()
-        last_name = (user.last_name or "").strip()
+        last_name = outbound_last_name(user.last_name)
         phone = self._normalize_phone_for_metsights(user.phone)
         gender = self._to_metsights_gender(user.gender)
-        if not first_name or not last_name or not phone or gender is None:
+        if not first_name or not phone or gender is None:
             logger.warning(
                 "Metsights profile creation skipped for user_id=%s engagement_id=%s: missing required user fields",
                 user.user_id,
@@ -1791,6 +1791,118 @@ class UsersService:
         await self._audit_service.log_event(
             db,
             action="EMPLOYEE_UPDATE_USER_METSIGHTS_PROFILE_ID",
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=None,
+            session_id=None,
+        )
+
+        return updated
+
+    async def retry_metsights_profile_by_employee(
+        self,
+        db: AsyncSession,
+        *,
+        employee,
+        user_id: int,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> User:
+        self._ensure_employee_access(employee)
+
+        user = await self._repository.get_user_by_id(db, user_id)
+        if user is None:
+            raise AppError(status_code=404, error_code="USER_NOT_FOUND", message="User does not exist")
+
+        existing_id = (user.metsights_profile_id or "").strip()
+        if existing_id:
+            return user
+
+        if self._metsights_service is None:
+            raise AppError(
+                status_code=503,
+                error_code="EXTERNAL_SERVICE_UNAVAILABLE",
+                message="Metsights integration is not configured",
+            )
+
+        first_name = (user.first_name or "").strip()
+        last_name = outbound_last_name(user.last_name)
+        phone = (user.phone or "").strip()
+        gender = self._to_metsights_gender(user.gender)
+        if not first_name or not phone or gender is None:
+            raise AppError(
+                status_code=422,
+                error_code="INVALID_STATE",
+                message="User must have first name, phone, and gender before creating a Metsights profile",
+            )
+
+        dob = user.date_of_birth.isoformat() if user.date_of_birth is not None else None
+        if not dob and user.age is None:
+            raise AppError(
+                status_code=422,
+                error_code="INVALID_STATE",
+                message="User must have date of birth or age before creating a Metsights profile",
+            )
+
+        email = (user.email or "").strip() if user.email else None
+        normalized_phone = self._normalize_phone_for_metsights(phone)
+        candidate_phones = [phone]
+        if normalized_phone and normalized_phone != phone:
+            candidate_phones.insert(0, normalized_phone)
+
+        profile_id: str | None = None
+        last_error: str | None = None
+        for candidate_phone in candidate_phones:
+            try:
+                profile_id = await self._metsights_service.get_or_create_profile_id(
+                    first_name=first_name,
+                    last_name=last_name,
+                    phone=candidate_phone,
+                    email=email,
+                    gender=gender,
+                    date_of_birth=dob,
+                    age=user.age,
+                )
+                if profile_id:
+                    break
+            except AppError as exc:
+                last_error = exc.message or exc.error_code or "metsights_error"
+                raise
+            except Exception as exc:
+                last_error = str(exc)
+
+        if not profile_id:
+            raise AppError(
+                status_code=503,
+                error_code="EXTERNAL_SERVICE_UNAVAILABLE",
+                message=last_error or "Metsights profile creation failed",
+            )
+
+        updated = await self._repository.update_user_partial(
+            db, user_id, {"metsights_profile_id": profile_id}
+        )
+        if updated is None:
+            raise AppError(status_code=404, error_code="USER_NOT_FOUND", message="User does not exist")
+
+        if self._engagements_service is not None:
+            result = await db.execute(
+                select(EngagementParticipant).where(EngagementParticipant.user_id == user_id)
+            )
+            for participant in result.scalars().all():
+                await self._engagements_service.update_participant_sync_flags(
+                    db,
+                    participant=participant,
+                    is_profile_created_on_metsights=True,
+                )
+
+        if self._audit_service is None:
+            raise RuntimeError("Audit service is required")
+
+        await self._audit_service.log_event(
+            db,
+            action="EMPLOYEE_RETRY_METSIGHTS_PROFILE",
             endpoint=endpoint,
             ip_address=ip_address,
             user_agent=user_agent,

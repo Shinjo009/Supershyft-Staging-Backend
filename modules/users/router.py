@@ -954,6 +954,32 @@ async def employee_update_metsights_profile_id(
     )
 
 
+@router.post("/{user_id}/retry-metsights-profile")
+async def employee_retry_metsights_profile(
+    user_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    users_service: UsersService = Depends(get_users_service),
+):
+    user = await users_service.retry_metsights_profile_by_employee(
+        db,
+        employee=employee,
+        user_id=user_id,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+
+    return success_response(
+        {
+            "user_id": user.user_id,
+            "metsights_profile_id": user.metsights_profile_id,
+        }
+    )
+
+
 @router.put("/{user_id}")
 async def employee_update_user(
     user_id: int,
