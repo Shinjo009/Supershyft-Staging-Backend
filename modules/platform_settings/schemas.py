@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from common.validation import OptionalChecklistText, PositiveIntId
 from modules.engagements.models import BloodCollectionType
+from modules.geocoding.enums import GeocodingProvider
 
 
 class B2cOnboardingTypeDefaults(BaseModel):
@@ -83,3 +84,11 @@ class SupportQueryNotificationRead(BaseModel):
 
 class SupportQueryNotificationUpdate(BaseModel):
     default_support_query_notification: OptionalChecklistText = None
+
+
+class GeocodingProviderSettingsRead(BaseModel):
+    geocoding_provider: GeocodingProvider = GeocodingProvider.google
+
+
+class GeocodingProviderSettingsUpdate(BaseModel):
+    geocoding_provider: GeocodingProvider

@@ -7,6 +7,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 from db.base import Base
 from modules.engagements.enums import BloodCollectionType, EngagementKind
+from modules.geocoding.enums import GeocodingProvider
 
 
 _engagement_kind = SAEnum(
@@ -21,6 +22,15 @@ _engagement_kind = SAEnum(
 _blood_collection_type = SAEnum(
     BloodCollectionType,
     name="blood_collection_type_enum",
+    native_enum=True,
+    values_callable=lambda obj: [e.value for e in obj],
+    validate_strings=True,
+    create_type=False,
+)
+
+_geocoding_provider = SAEnum(
+    GeocodingProvider,
+    name="geocoding_provider",
     native_enum=True,
     values_callable=lambda obj: [e.value for e in obj],
     validate_strings=True,
@@ -56,5 +66,11 @@ class PlatformSettings(Base):
     b2c_onboarding_by_engagement_type = Column(JSONB, nullable=True)
     default_onboarding_assistant_employee_ids = Column(String(500), nullable=True)
     default_support_query_notification = Column(String(500), nullable=True)
+    geocoding_provider = Column(
+        _geocoding_provider,
+        nullable=False,
+        default=GeocodingProvider.google,
+        server_default=GeocodingProvider.google.value,
+    )
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
     updated_by_user_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)

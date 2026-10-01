@@ -504,3 +504,95 @@ async def test_b2c_defaults_allow_null_diagnostic_package(async_client, test_db_
     assert response.status_code == 200
     consultation = response.json()["data"]["defaults_by_engagement_type"]["consultation"]
     assert consultation["diagnostic_package_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_get_geocoding_provider_defaults_to_google(async_client, test_db_session):
+    uid = 9113
+    test_db_session.add(User(user_id=uid, age=30, phone="91130000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=9113,
+            name="Employee 9113",
+            phone="0000009113",
+            email="employee9113@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    await test_db_session.execute(text("DELETE FROM platform_settings"))
+    await test_db_session.commit()
+
+    response = await async_client.get("/platform-settings/geocoding-provider", headers=_auth_header(uid))
+    assert response.status_code == 200
+    assert response.json()["data"]["geocoding_provider"] == "google"
+
+
+@pytest.mark.asyncio
+async def test_patch_geocoding_provider_persists(async_client, test_db_session):
+    uid = 9114
+    test_db_session.add(User(user_id=uid, age=30, phone="91140000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=9114,
+            name="Employee 9114",
+            phone="0000009114",
+            email="employee9114@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
+            "(1, 'P1', 'One', 1) "
+            "ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
+            "VALUES (1, 'R1', 'D1', 'p', 1) "
+            "ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.patch(
+        "/platform-settings/geocoding-provider",
+        headers=_auth_header(uid),
+        json={"geocoding_provider": "nominatim"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["geocoding_provider"] == "nominatim"
+
+    get_response = await async_client.get("/platform-settings/geocoding-provider", headers=_auth_header(uid))
+    assert get_response.status_code == 200
+    assert get_response.json()["data"]["geocoding_provider"] == "nominatim"
+
+
+@pytest.mark.asyncio
+async def test_patch_geocoding_provider_rejects_invalid(async_client, test_db_session):
+    uid = 9115
+    test_db_session.add(User(user_id=uid, age=30, phone="91150000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=9115,
+            name="Employee 9115",
+            phone="0000009115",
+            email="employee9115@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.patch(
+        "/platform-settings/geocoding-provider",
+        headers=_auth_header(uid),
+        json={"geocoding_provider": "bing"},
+    )
+    assert response.status_code == 422

@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.engagements.models import BloodCollectionType, EngagementKind
+from modules.geocoding.enums import GeocodingProvider
 from modules.platform_settings.models import PlatformSettings
 
 _PLATFORM_SETTINGS_PK = 1
@@ -214,6 +215,41 @@ class PlatformSettingsRepository:
         existing.updated_by_user_id = updated_by_user_id
         await db.flush()
         return existing
+
+    async def upsert_geocoding_provider(
+        self,
+        db: AsyncSession,
+        *,
+        geocoding_provider: GeocodingProvider,
+        updated_by_user_id: int | None,
+        assessment_package_id: int,
+        diagnostic_package_id: int,
+    ) -> PlatformSettings:
+        existing = await self.get_by_id(db)
+        if existing is None:
+            row = PlatformSettings(
+                settings_id=_PLATFORM_SETTINGS_PK,
+                b2c_default_assessment_package_id=assessment_package_id,
+                b2c_default_diagnostic_package_id=diagnostic_package_id,
+                geocoding_provider=geocoding_provider,
+                updated_by_user_id=updated_by_user_id,
+            )
+            db.add(row)
+            await db.flush()
+            return row
+
+        existing.geocoding_provider = geocoding_provider
+        existing.updated_by_user_id = updated_by_user_id
+        await db.flush()
+        return existing
+
+    async def resolve_geocoding_provider(self, db: AsyncSession) -> GeocodingProvider:
+        row = await self.get_by_id(db)
+        if row is None or row.geocoding_provider is None:
+            return GeocodingProvider.google
+        if isinstance(row.geocoding_provider, GeocodingProvider):
+            return row.geocoding_provider
+        return GeocodingProvider(str(row.geocoding_provider))
 
     async def resolve_default_onboarding_assistant_employee_ids(self, db: AsyncSession) -> list[int]:
         row = await self.get_by_id(db)

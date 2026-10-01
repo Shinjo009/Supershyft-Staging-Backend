@@ -1296,14 +1296,17 @@ class EngagementsService:
         Default assistants come from platform_settings.default_onboarding_assistant_employee_ids.
 
         When location fields are incomplete and an address (or address parts) is
-        available, missing fields are filled via Nominatim. Geocode failures are
-        ignored so engagement creation is never blocked.
+        available, missing fields are filled via the configured geocoding provider
+        (with fallback). Geocode failures are ignored so engagement creation is
+        never blocked.
         """
         from modules.geocoding.client import enrich_location_fields
+        from modules.platform_settings.repository import PlatformSettingsRepository
 
         name_part = (user_first_name or "user").strip() or "user"
         engagement_name = f"{name_part}-{engagement_date.isoformat()}"
 
+        primary = await PlatformSettingsRepository().resolve_geocoding_provider(db)
         location = await enrich_location_fields(
             address=address,
             sub_locality=sub_locality,
@@ -1314,6 +1317,7 @@ class EngagementsService:
             country=country,
             latitude=latitude,
             longitude=longitude,
+            primary=primary,
         )
 
         engagement = Engagement(

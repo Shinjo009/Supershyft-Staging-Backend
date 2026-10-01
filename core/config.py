@@ -170,6 +170,9 @@ class Settings:
     RAZORPAY_KEY_ID: str = os.getenv("RAZORPAY_KEY_ID", "")
     RAZORPAY_KEY_SECRET: str = os.getenv("RAZORPAY_KEY_SECRET", "")
 
+    # Google Maps Geocoding API (server-side; used when geocoding_provider=google)
+    GOOGLE_MAPS_API_KEY: str = os.getenv("GOOGLE_MAPS_API_KEY", "")
+
     # Trusted proxy list (comma-separated IPs). When set, X-Forwarded-For is
     # only trusted if the TCP peer is in this list; otherwise request.client.host
     # is used. Leave empty to always use request.client.host.

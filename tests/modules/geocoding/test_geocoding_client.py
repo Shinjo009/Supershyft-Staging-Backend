@@ -1,4 +1,4 @@
-"""Unit tests for Nominatim mapping and location enrichment."""
+"""Unit tests for Nominatim/Google mapping, fallback, and location enrichment."""
 
 from __future__ import annotations
 
@@ -7,9 +7,12 @@ import pytest
 from modules.geocoding.client import (
     enrich_location_fields,
     location_fields_complete,
+    map_google_result,
     map_nominatim_result,
     merge_location_fields,
+    search_places_with_fallback,
 )
+from modules.geocoding.enums import GeocodingProvider
 
 
 def test_map_nominatim_result_maps_expected_fields():
@@ -37,6 +40,29 @@ def test_map_nominatim_result_maps_expected_fields():
     assert mapped["country"] == "India"
     assert mapped["latitude"] == pytest.approx(19.1083663)
     assert mapped["longitude"] == pytest.approx(72.8788727)
+
+
+def test_map_google_result_maps_expected_fields():
+    mapped = map_google_result(
+        {
+            "formatted_address": "Bengaluru, Karnataka 560001, India",
+            "address_components": [
+                {"long_name": "Bengaluru", "short_name": "Bengaluru", "types": ["locality", "political"]},
+                {"long_name": "Karnataka", "short_name": "KA", "types": ["administrative_area_level_1", "political"]},
+                {"long_name": "560001", "short_name": "560001", "types": ["postal_code"]},
+                {"long_name": "India", "short_name": "IN", "types": ["country", "political"]},
+            ],
+            "geometry": {"location": {"lat": 12.9765944, "lng": 77.5992708}},
+        }
+    )
+    assert mapped["display_name"] == "Bengaluru, Karnataka 560001, India"
+    assert mapped["address"] == "Bengaluru, Karnataka 560001, India"
+    assert mapped["city"] == "Bengaluru"
+    assert mapped["pincode"] == "560001"
+    assert mapped["state"] == "Karnataka"
+    assert mapped["country"] == "India"
+    assert mapped["latitude"] == pytest.approx(12.9765944)
+    assert mapped["longitude"] == pytest.approx(77.5992708)
 
 
 def test_location_fields_complete_requires_all_fields():
@@ -87,9 +113,10 @@ async def test_enrich_location_fields_skips_geocode_when_complete(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_enrich_location_fields_fills_missing_from_geocode(monkeypatch):
-    async def _fake_search(query: str, *, limit: int = 3):
+    async def _fake_search(query: str, *, limit: int = 3, primary=GeocodingProvider.google):
         assert "Marol" in query
         assert limit == 1
+        assert primary == GeocodingProvider.google
         return [
             {
                 "display_name": "Marol Naka, Mumbai",
@@ -112,3 +139,78 @@ async def test_enrich_location_fields_fills_missing_from_geocode(monkeypatch):
     assert result["landmark"] == "Marol Naka"
     assert result["pincode"] == "400072"
     assert result["latitude"] == pytest.approx(19.1)
+
+
+_SAMPLE_PLACE = {
+    "display_name": "Bengaluru, Karnataka 560001, India",
+    "address": "Bengaluru, Karnataka 560001, India",
+    "sub_locality": None,
+    "landmark": None,
+    "city": "Bengaluru",
+    "pincode": "560001",
+    "state": "Karnataka",
+    "country": "India",
+    "latitude": 12.9765944,
+    "longitude": 77.5992708,
+}
+
+
+@pytest.mark.asyncio
+async def test_fallback_primary_success_no_fallback(monkeypatch):
+    async def _google(*_a, **_k):
+        return [_SAMPLE_PLACE]
+
+    async def _nominatim(*_a, **_k):
+        raise AssertionError("Nominatim should not be called")
+
+    monkeypatch.setattr("modules.geocoding.client.search_google", _google)
+    monkeypatch.setattr("modules.geocoding.client.search_nominatim", _nominatim)
+
+    results, meta = await search_places_with_fallback("Bangalore 560001", primary=GeocodingProvider.google)
+    assert len(results) == 1
+    assert meta == {"geocoding_provider": "google", "geocoding_fallback_used": False}
+
+
+@pytest.mark.asyncio
+async def test_fallback_primary_empty_uses_secondary(monkeypatch):
+    async def _google(*_a, **_k):
+        return []
+
+    async def _nominatim(*_a, **_k):
+        return [_SAMPLE_PLACE]
+
+    monkeypatch.setattr("modules.geocoding.client.search_google", _google)
+    monkeypatch.setattr("modules.geocoding.client.search_nominatim", _nominatim)
+
+    results, meta = await search_places_with_fallback("Bangalore 560001", primary=GeocodingProvider.google)
+    assert len(results) == 1
+    assert meta == {"geocoding_provider": "nominatim", "geocoding_fallback_used": True}
+
+
+@pytest.mark.asyncio
+async def test_fallback_nominatim_primary_falls_back_to_google(monkeypatch):
+    async def _google(*_a, **_k):
+        return [_SAMPLE_PLACE]
+
+    async def _nominatim(*_a, **_k):
+        return []
+
+    monkeypatch.setattr("modules.geocoding.client.search_google", _google)
+    monkeypatch.setattr("modules.geocoding.client.search_nominatim", _nominatim)
+
+    results, meta = await search_places_with_fallback("Bangalore 560001", primary=GeocodingProvider.nominatim)
+    assert len(results) == 1
+    assert meta == {"geocoding_provider": "google", "geocoding_fallback_used": True}
+
+
+@pytest.mark.asyncio
+async def test_fallback_both_empty(monkeypatch):
+    async def _empty(*_a, **_k):
+        return []
+
+    monkeypatch.setattr("modules.geocoding.client.search_google", _empty)
+    monkeypatch.setattr("modules.geocoding.client.search_nominatim", _empty)
+
+    results, meta = await search_places_with_fallback("nowhere", primary=GeocodingProvider.google)
+    assert results == []
+    assert meta == {"geocoding_provider": "google", "geocoding_fallback_used": True}

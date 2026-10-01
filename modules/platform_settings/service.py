@@ -18,6 +18,7 @@ from modules.employee.service import EmployeeContext
 from modules.engagements.models import BloodCollectionType, EngagementKind
 from modules.engagements.service import DEFAULT_B2C_DIAGNOSTIC_PACKAGE_ID
 from modules.audit.service import AuditService
+from modules.geocoding.enums import GeocodingProvider
 from modules.notifications.repository import NotificationsRepository
 from modules.platform_settings.repository import (
     PlatformSettingsRepository,
@@ -33,6 +34,8 @@ from modules.platform_settings.schemas import (
     DefaultOnboardingAssistantsUpdate,
     EngagementNotificationDefaultsRead,
     EngagementNotificationDefaultsUpdate,
+    GeocodingProviderSettingsRead,
+    GeocodingProviderSettingsUpdate,
     SupportQueryNotificationRead,
     SupportQueryNotificationUpdate,
 )
@@ -494,3 +497,42 @@ class PlatformSettingsService:
             )
 
         return await self.get_support_query_notification(db)
+
+    async def get_geocoding_provider(self, db: AsyncSession) -> GeocodingProviderSettingsRead:
+        provider = await self._repository.resolve_geocoding_provider(db)
+        return GeocodingProviderSettingsRead(geocoding_provider=provider)
+
+    async def resolve_geocoding_provider(self, db: AsyncSession) -> GeocodingProvider:
+        return await self._repository.resolve_geocoding_provider(db)
+
+    async def update_geocoding_provider(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        payload: GeocodingProviderSettingsUpdate,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> GeocodingProviderSettingsRead:
+        a_id, d_id = await self.resolve_b2c_default_package_ids(db)
+        await self._repository.upsert_geocoding_provider(
+            db,
+            geocoding_provider=payload.geocoding_provider,
+            updated_by_user_id=None,
+            assessment_package_id=a_id,
+            diagnostic_package_id=d_id,
+        )
+
+        if self._audit_service is not None:
+            await self._audit_service.log_event(
+                db,
+                action="EMPLOYEE_UPDATE_GEOCODING_PROVIDER",
+                endpoint=endpoint,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                user_id=None,
+                session_id=None,
+            )
+
+        return await self.get_geocoding_provider(db)

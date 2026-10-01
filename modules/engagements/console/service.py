@@ -1167,9 +1167,13 @@ class ConsoleService:
 
         engagement_participant_id = participant.engagement_participant_id
 
+        from modules.platform_settings.repository import PlatformSettingsRepository
+
+        primary = await PlatformSettingsRepository().resolve_geocoding_provider(db)
+
         await release_request_transaction(db)
 
-        results = await search_places(f"{city.strip()} {pincode.strip()}", limit=1)
+        results = await search_places(f"{city.strip()} {pincode.strip()}", limit=1, primary=primary)
         geocoded = results[0] if results else {}
         latitude = geocoded.get("latitude")
         longitude = geocoded.get("longitude")

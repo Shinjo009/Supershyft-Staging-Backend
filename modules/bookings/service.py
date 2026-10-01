@@ -90,8 +90,11 @@ async def _safe_log_healthians_call(db: AsyncSession, **kwargs: Any) -> None:
         logger.exception("Failed to persist Healthians sync log")
 
 
-async def _geocode_for_booking(query: str) -> dict[str, Any]:
-    results = await search_places(query, limit=1)
+async def _geocode_for_booking(db: AsyncSession, query: str) -> dict[str, Any]:
+    from modules.platform_settings.repository import PlatformSettingsRepository
+
+    primary = await PlatformSettingsRepository().resolve_geocoding_provider(db)
+    results = await search_places(query, limit=1, primary=primary)
     if not results:
         return {}
     return results[0]
@@ -192,7 +195,7 @@ async def check_service_availability(
             results.append({"user_id": user_id, "status": "error", "message": "Diagnostic provider is not Healthians"})
             continue
 
-        geocoded = await _geocode_for_booking(f"{city.strip()} {pincode.strip()}")
+        geocoded = await _geocode_for_booking(db, f"{city.strip()} {pincode.strip()}")
         latitude = geocoded.get("latitude")
         longitude = geocoded.get("longitude")
         if latitude is None or longitude is None:
@@ -665,7 +668,7 @@ async def resolve_public_location_context(
     engagement_code: str | None = None,
 ) -> dict[str, Any]:
     """Geocode an address and resolve Healthians zone_id (read-only)."""
-    geocoded = await _geocode_for_booking(f"{city.strip()} {pincode.strip()}")
+    geocoded = await _geocode_for_booking(db, f"{city.strip()} {pincode.strip()}")
     latitude = geocoded.get("latitude")
     longitude = geocoded.get("longitude")
     if latitude is None or longitude is None:
@@ -765,7 +768,7 @@ async def public_check_service_availability(
     if not _is_healthians(pkg):
         return {"status": "error", "message": "Diagnostic provider is not Healthians"}
 
-    geocoded = await _geocode_for_booking(f"{city.strip()} {pincode.strip()}")
+    geocoded = await _geocode_for_booking(db, f"{city.strip()} {pincode.strip()}")
     latitude = geocoded.get("latitude")
     longitude = geocoded.get("longitude")
     if latitude is None or longitude is None:
@@ -800,7 +803,7 @@ async def code_check_service_availability(
             "message": "Diagnostic provider is not Healthians",
         }
 
-    geocoded = await _geocode_for_booking(f"{city.strip()} {pincode.strip()}")
+    geocoded = await _geocode_for_booking(db, f"{city.strip()} {pincode.strip()}")
     latitude = geocoded.get("latitude")
     longitude = geocoded.get("longitude")
     if latitude is None or longitude is None:
@@ -916,7 +919,7 @@ async def _fetch_available_slots_for_engagement(
     longitude = engagement.longitude
     pincode = engagement.pincode or ""
     if latitude is None or longitude is None:
-        geocoded = await _geocode_for_booking(f"{(engagement.city or '').strip()} {pincode.strip()}")
+        geocoded = await _geocode_for_booking(db, f"{(engagement.city or '').strip()} {pincode.strip()}")
         latitude = geocoded.get("latitude")
         longitude = geocoded.get("longitude")
         if latitude is None or longitude is None:
