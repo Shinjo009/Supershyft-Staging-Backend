@@ -49,7 +49,8 @@ class BloodParameterTrendResponse(BaseModel):
 
 
 class AllBloodParameterTrendValue(BaseModel):
-    parameter: str
+    parameter_name: str
+    parameter_key: str
     unit: str | None = None
     value: float
 

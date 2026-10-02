@@ -15,7 +15,8 @@ from modules.assessments.models import AssessmentInstance, AssessmentPackage
 from modules.assessments.repository import AssessmentsRepository
 from modules.audit.repository import AuditRepository
 from modules.audit.service import AuditService
-from modules.engagements.models import Engagement, EngagementParticipant
+from modules.engagements.blood_booking_enums import BloodBookingRelation, BloodBookingStatus
+from modules.engagements.models import Engagement, EngagementParticipant, ParticipantBloodBooking
 from modules.diagnostics.models import DiagnosticPackage
 from modules.diagnostics.schemas import (
     HealthParameterResponse,
@@ -189,6 +190,12 @@ class _FakeDiagnosticsService:
     async def get_health_parameter_by_parameter_key(self, db, *, parameter_key: str):
         return None
 
+    async def list_parameters(self, db, *, parameter_type=None):
+        tests: list[HealthParameterResponse] = []
+        for group in self._payload.groups:
+            tests.extend(group.tests)
+        return tests
+
 
 class _HealthiansDiagnosticsService(_FakeDiagnosticsService):
     def __init__(self):
@@ -282,7 +289,7 @@ async def _seed_assessment(
     engagement_id: int,
     record_id: str | None,
     diagnostic_package_id: int = 1,
-    diagnostic_provider: str = "test_provider",
+    diagnostic_provider: str = "healthians",
     participant_booking_id: str | None = None,
     user_gender: str = "male",
     package_code: str | None = None,
@@ -359,17 +366,52 @@ async def _seed_assessment(
         )
     )
     if participant_booking_id is not None:
+        ep_id = assessment_id + 100000
         test_db_session.add(
             EngagementParticipant(
-                engagement_participant_id=assessment_id + 100000,
+                engagement_participant_id=ep_id,
                 engagement_id=engagement_id,
                 user_id=user_id,
-                engagement_date=date(2026, 1, 1),
-                slot_start_time=time(10, 0),
+            )
+        )
+        await test_db_session.flush()
+        test_db_session.add(
+            ParticipantBloodBooking(
+                engagement_participant_id=ep_id,
                 booking_id=participant_booking_id,
+                relation=BloodBookingRelation.primary.value,
+                status=BloodBookingStatus.active.value,
             )
         )
     await test_db_session.commit()
+
+
+async def _seed_participant_blood_params(
+    test_db_session,
+    *,
+    engagement_participant_id: int,
+    engagement_id: int,
+    user_id: int,
+    blood_parameters: dict,
+):
+    test_db_session.add(
+        EngagementParticipant(
+            engagement_participant_id=engagement_participant_id,
+            engagement_id=engagement_id,
+            user_id=user_id,
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        ParticipantBloodBooking(
+            engagement_participant_id=engagement_participant_id,
+            relation=BloodBookingRelation.primary.value,
+            status=BloodBookingStatus.active.value,
+            blood_parameters=blood_parameters,
+            collected_at=datetime.now(timezone.utc),
+        )
+    )
+    await test_db_session.flush()
 
 
 @pytest.mark.asyncio
@@ -1265,12 +1307,6 @@ async def test_get_all_blood_parameter_trends_returns_grouped_by_engagement(
             user_id=3861,
             engagement_id=4861,
             assessment_instance_id=98061,
-            blood_parameters={
-                "ldl/hdl_cholestrol": 2.56,
-                "ldl/hdl_cholestrol_unit": "Ratio",
-                "triglycerides": 58.5,
-                "triglycerides_unit": "mg/dL",
-            },
         )
     )
     test_db_session.add(
@@ -1279,13 +1315,31 @@ async def test_get_all_blood_parameter_trends_returns_grouped_by_engagement(
             user_id=3861,
             engagement_id=4862,
             assessment_instance_id=98062,
-            blood_parameters={
-                "ldl/hdl_cholestrol": 2.41,
-                "ldl/hdl_cholestrol_unit": "Ratio",
-                "triglycerides": 62.3,
-                "triglycerides_unit": "mg/dL",
-            },
         )
+    )
+    await _seed_participant_blood_params(
+        test_db_session,
+        engagement_participant_id=93861,
+        engagement_id=4861,
+        user_id=3861,
+        blood_parameters={
+            "ldl/hdl_cholestrol": 2.56,
+            "ldl/hdl_cholestrol_unit": "Ratio",
+            "triglycerides": 58.5,
+            "triglycerides_unit": "mg/dL",
+        },
+    )
+    await _seed_participant_blood_params(
+        test_db_session,
+        engagement_participant_id=93862,
+        engagement_id=4862,
+        user_id=3861,
+        blood_parameters={
+            "ldl/hdl_cholestrol": 2.41,
+            "ldl/hdl_cholestrol_unit": "Ratio",
+            "triglycerides": 62.3,
+            "triglycerides_unit": "mg/dL",
+        },
     )
     test_db_session.add(
         ReportsUserSyncState(
@@ -1307,16 +1361,36 @@ async def test_get_all_blood_parameter_trends_returns_grouped_by_engagement(
             "date": "2026-07-09",
             "engagement_id": 4861,
             "data_points": [
-                {"parameter": "ldl/hdl_cholestrol", "unit": "Ratio", "value": 2.56},
-                {"parameter": "triglycerides", "unit": "mg/dL", "value": 58.5},
+                {
+                    "parameter_name": "LDL/HDL Cholestrol",
+                    "parameter_key": "ldl/hdl_cholestrol",
+                    "unit": "Ratio",
+                    "value": 2.56,
+                },
+                {
+                    "parameter_name": "Triglycerides",
+                    "parameter_key": "triglycerides",
+                    "unit": "mg/dL",
+                    "value": 58.5,
+                },
             ],
         },
         {
             "date": "2026-07-10",
             "engagement_id": 4862,
             "data_points": [
-                {"parameter": "ldl/hdl_cholestrol", "unit": "Ratio", "value": 2.41},
-                {"parameter": "triglycerides", "unit": "mg/dL", "value": 62.3},
+                {
+                    "parameter_name": "LDL/HDL Cholestrol",
+                    "parameter_key": "ldl/hdl_cholestrol",
+                    "unit": "Ratio",
+                    "value": 2.41,
+                },
+                {
+                    "parameter_name": "Triglycerides",
+                    "parameter_key": "triglycerides",
+                    "unit": "mg/dL",
+                    "value": 62.3,
+                },
             ],
         },
     ]
@@ -1366,12 +1440,6 @@ async def test_get_all_blood_parameter_trends_dedupes_pro_and_fitprint_per_engag
             user_id=user_id,
             engagement_id=engagement_id,
             assessment_instance_id=pro_id,
-            blood_parameters={
-                "esr_automated": 23.0,
-                "esr_automated_unit": "mm/1st hour",
-                "albumin": 4.0,
-                "albumin_unit": "g/dL",
-            },
         )
     )
     test_db_session.add(
@@ -1380,11 +1448,19 @@ async def test_get_all_blood_parameter_trends_dedupes_pro_and_fitprint_per_engag
             user_id=user_id,
             engagement_id=engagement_id,
             assessment_instance_id=fitprint_id,
-            blood_parameters={
-                "esr_automated": 99.0,
-                "esr_automated_unit": "mm/1st hour",
-            },
         )
+    )
+    await _seed_participant_blood_params(
+        test_db_session,
+        engagement_participant_id=238061,
+        engagement_id=engagement_id,
+        user_id=user_id,
+        blood_parameters={
+            "esr_automated": 23.0,
+            "esr_automated_unit": "mm/1st hour",
+            "albumin": 4.0,
+            "albumin_unit": "g/dL",
+        },
     )
     test_db_session.add(
         ReportsUserSyncState(
@@ -1405,8 +1481,18 @@ async def test_get_all_blood_parameter_trends_dedupes_pro_and_fitprint_per_engag
     assert payload[0]["date"] == "2026-09-01"
     assert payload[0]["engagement_id"] == engagement_id
     assert payload[0]["data_points"] == [
-        {"parameter": "albumin", "unit": "g/dL", "value": 4.0},
-        {"parameter": "esr_automated", "unit": "mm/1st hour", "value": 23.0},
+        {
+            "parameter_name": "Albumin",
+            "parameter_key": "albumin",
+            "unit": "g/dL",
+            "value": 4.0,
+        },
+        {
+            "parameter_name": "ESR Automated",
+            "parameter_key": "esr_automated",
+            "unit": "mm/1st hour",
+            "value": 23.0,
+        },
     ]
 
 
@@ -1428,7 +1514,6 @@ async def test_get_all_blood_parameter_trends_returns_empty_when_no_points(
             user_id=3871,
             engagement_id=4871,
             assessment_instance_id=98071,
-            blood_parameters=None,
         )
     )
     test_db_session.add(
@@ -1467,8 +1552,14 @@ async def test_get_all_blood_parameter_trends_stale_returns_cached_and_meta(
             user_id=3881,
             engagement_id=4881,
             assessment_instance_id=98081,
-            blood_parameters={"albumin": 3.9, "albumin_unit": "g/dL"},
         )
+    )
+    await _seed_participant_blood_params(
+        test_db_session,
+        engagement_participant_id=93881,
+        engagement_id=4881,
+        user_id=3881,
+        blood_parameters={"albumin": 3.9, "albumin_unit": "g/dL"},
     )
     await test_db_session.commit()
 
@@ -1492,7 +1583,12 @@ async def test_get_all_blood_parameter_trends_stale_returns_cached_and_meta(
     assert len(body["data"]) == 1
     assert body["data"][0]["engagement_id"] == 4881
     assert body["data"][0]["data_points"] == [
-        {"parameter": "albumin", "unit": "g/dL", "value": 3.9},
+        {
+            "parameter_name": "albumin",
+            "parameter_key": "albumin",
+            "unit": "g/dL",
+            "value": 3.9,
+        },
     ]
     assert body["meta"]["is_stale"] is True
     assert body["meta"]["sync_status"] == "in_progress"
