@@ -149,10 +149,10 @@ async def test_code_check_service_availability_uses_engagement_package(async_cli
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package "
-            "(diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, price, external_package_id) "
-            "VALUES (2, 'REF-H2', 'Healthians Package 2', 'healthians', 1, 500, 102) "
+            "(diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, price, external_package_code) "
+            "VALUES (2, 'REF-H2', 'Healthians Package 2', 'healthians', 1, 500, '102') "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
-            "diagnostic_provider = EXCLUDED.diagnostic_provider, external_package_id = EXCLUDED.external_package_id"
+            "diagnostic_provider = EXCLUDED.diagnostic_provider, external_package_code = EXCLUDED.external_package_code"
         )
     )
     await test_db_session.commit()
@@ -270,10 +270,10 @@ async def test_code_available_slots_uses_engagement_package(async_client, test_d
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package "
-            "(diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, price, external_package_id) "
-            "VALUES (2, 'REF-H2', 'Healthians Package 2', 'healthians', 1, 500, 102) "
+            "(diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, price, external_package_code) "
+            "VALUES (2, 'REF-H2', 'Healthians Package 2', 'healthians', 1, 500, '102') "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
-            "diagnostic_provider = EXCLUDED.diagnostic_provider, external_package_id = EXCLUDED.external_package_id"
+            "diagnostic_provider = EXCLUDED.diagnostic_provider, external_package_code = EXCLUDED.external_package_code"
         )
     )
     await test_db_session.commit()

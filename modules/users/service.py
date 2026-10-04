@@ -3260,6 +3260,7 @@ class UsersService:
             db,
             city=city,
             pincode=pincode,
+            diagnostic_package_id=diagnostic_package_id,
         )
         if location.get("status") != "success":
             raise AppError(
@@ -3287,7 +3288,9 @@ class UsersService:
             create_profile_on_metsights=onboarding_defaults.create_profile_on_metsights,
             enroll_for_fitprint_full=onboarding_defaults.enroll_for_fitprint_full,
         )
-        engagement.healthians_zone_id = location["zone_id"]
+        zone_id = location.get("zone_id")
+        if zone_id is not None and str(zone_id).strip():
+            engagement.healthians_zone_id = str(zone_id).strip()
         engagement.status = "draft"
         await db.flush()
 
@@ -3384,12 +3387,14 @@ class UsersService:
 
         from modules.bookings import service as booking_service
 
+        diagnostic_package_id = int(engagement.diagnostic_package_id) if engagement.diagnostic_package_id else None
         location = await booking_service.resolve_public_location_context(
             db,
             city=city,
             pincode=pincode,
             engagement_id=int(engagement.engagement_id),
             engagement_code=engagement.engagement_code,
+            diagnostic_package_id=diagnostic_package_id,
         )
         if location.get("status") != "success":
             raise AppError(
@@ -3397,6 +3402,14 @@ class UsersService:
                 error_code="NOT_SERVICEABLE",
                 message=location.get("message", "This location is not serviceable."),
             )
+
+        zone_id = location.get("zone_id")
+        if zone_id is not None and str(zone_id).strip():
+            engagement.healthians_zone_id = str(zone_id).strip()
+        if engagement.latitude is None:
+            engagement.latitude = location.get("latitude")
+        if engagement.longitude is None:
+            engagement.longitude = location.get("longitude")
 
         consultations = _validate_requested_consultations(
             payload.consultations,

@@ -22,6 +22,8 @@ from modules.diagnostics.healthians.sync_log import (
     persist_healthians_sync_log_isolated,
 )
 from modules.diagnostics.models import DiagnosticPackage
+from modules.diagnostics.orange_health.booking_helpers import is_orange_health
+from modules.engagements.console import home_collection_orange
 from modules.metsights.service import outbound_last_name
 from modules.engagements.diagnostic_package_resolution import (
     engagement_has_diagnostic_package,
@@ -331,7 +333,24 @@ class ConsoleService:
         return self._metsights_sync_service
 
     @staticmethod
-    def _engagement_to_console_dict(engagement: Engagement, *, participant_count: int) -> dict:
+    async def _engagement_to_console_dict(
+        self,
+        db: AsyncSession,
+        engagement: Engagement,
+        *,
+        participant_count: int,
+    ) -> dict:
+        diagnostic_provider: str | None = None
+        if engagement.diagnostic_package_id:
+            pkg = (
+                await db.execute(
+                    select(DiagnosticPackage).where(
+                        DiagnosticPackage.diagnostic_package_id == engagement.diagnostic_package_id
+                    )
+                )
+            ).scalar_one_or_none()
+            if pkg is not None:
+                diagnostic_provider = pkg.diagnostic_provider
         return {
             "engagement_id": engagement.engagement_id,
             "engagement_name": engagement.engagement_name,
@@ -342,6 +361,7 @@ class ConsoleService:
             "participant_count": participant_count,
             "blood_collection_type": engagement.blood_collection_type.value if engagement.blood_collection_type else None,
             "consultation_mode": engagement.consultation_mode.value if engagement.consultation_mode else None,
+            "diagnostic_provider": diagnostic_provider,
         }
 
     async def list_console_engagements(
@@ -411,13 +431,16 @@ class ConsoleService:
             db,
             engagement_ids=engagement_ids,
         )
-        return [
-            self._engagement_to_console_dict(
-                e,
-                participant_count=counts_by_id.get(int(e.engagement_id), 0),
+        items: list[dict] = []
+        for e in engagements:
+            items.append(
+                await self._engagement_to_console_dict(
+                    db,
+                    e,
+                    participant_count=counts_by_id.get(int(e.engagement_id), 0),
+                )
             )
-            for e in engagements
-        ]
+        return items
 
     async def get_engagement_for_console(
         self,
@@ -447,7 +470,9 @@ class ConsoleService:
             engagement_id=engagement_id,
             participant_department_slugs=department_slugs,
         )
-        return self._engagement_to_console_dict(engagement, participant_count=participant_count)
+        return await self._engagement_to_console_dict(
+            db, engagement, participant_count=participant_count
+        )
 
     async def list_participants_for_console(
         self,
@@ -599,7 +624,7 @@ class ConsoleService:
             user_gender=user.gender,
         )
         provider = (diagnostic_package.diagnostic_provider or "").strip()
-        if engagement.external_camp_id is None or diagnostic_package.external_package_id is None:
+        if engagement.external_camp_id is None or not (diagnostic_package.external_package_code or "").strip():
             raise AppError(
                 status_code=422,
                 error_code="MISSING_DIAGNOSTIC_CONFIG",
@@ -628,7 +653,9 @@ class ConsoleService:
         external_camp_id = engagement.external_camp_id
         engagement_sub_locality = (engagement.sub_locality or "").strip()
         engagement_address = (engagement.address or "").strip()
-        external_package_id = diagnostic_package.external_package_id
+        from modules.diagnostics.external_codes import healthians_package_deal_id
+
+        package_deal_id = healthians_package_deal_id(diagnostic_package.external_package_code)
         engagement_participant_id = participant.engagement_participant_id
         trimmed_barcode = barcode.strip()
 
@@ -730,7 +757,7 @@ class ConsoleService:
             "camp_id": external_camp_id,
             "slot": {"slot_id": ""},
             "sample_collected": "y",
-            "package": [{"deal_id": [f"package_{external_package_id}"]}],
+            "package": [{"deal_id": [package_deal_id]}],
             "customer_calling_number": phone,
             "billing_cust_name": customer_name,
             "gender": gender,
@@ -1074,13 +1101,28 @@ class ConsoleService:
                 error_code="INVALID_STATE",
                 message="Diagnostic package does not exist",
             )
-        if (pkg.diagnostic_provider or "").strip().lower() != "healthians":
+        provider = (pkg.diagnostic_provider or "").strip().lower()
+        if provider not in ("healthians", "orange_health"):
             raise AppError(
                 status_code=422,
                 error_code="INVALID_DIAGNOSTIC_PROVIDER",
-                message="Diagnostic provider is not Healthians",
+                message="Diagnostic provider is not supported for home collection",
             )
         return pkg
+
+    async def _load_home_collection_package_for_engagement(
+        self,
+        db: AsyncSession,
+        engagement: Engagement,
+        *,
+        user_id: int,
+    ) -> DiagnosticPackage:
+        user = await self._users_repository.get_user_by_id(db, user_id=user_id)
+        return await self._diagnostic_package_for_participant(
+            db,
+            engagement,
+            user_gender=user.gender if user is not None else None,
+        )
 
     async def _load_healthians_package_for_engagement(
         self,
@@ -1163,7 +1205,7 @@ class ConsoleService:
         elif await has_active_booking(db, participant):
             raise AppError(status_code=409, error_code="BOOKING_ALREADY_EXISTS", message="A booking already exists for this participant")
 
-        pkg = await self._load_healthians_package_for_engagement(db, engagement, user_id=user_id)
+        pkg = await self._load_home_collection_package_for_engagement(db, engagement, user_id=user_id)
 
         engagement_participant_id = participant.engagement_participant_id
 
@@ -1192,6 +1234,17 @@ class ConsoleService:
         participant.longitude = longitude
         await db.flush()
         await db.commit()
+
+        if is_orange_health(pkg):
+            participant = await self._reload_participant(db, engagement_participant_id)
+            return await home_collection_orange.check_serviceability(
+                db,
+                engagement_id=engagement_id,
+                user_id=user_id,
+                participant=participant,
+                latitude=float(latitude),
+                longitude=float(longitude),
+            )
 
         lat = str(latitude)
         lng = str(longitude)
@@ -1267,14 +1320,25 @@ class ConsoleService:
         if participant.latitude is None or participant.longitude is None or not (participant.pincode or "").strip():
             raise AppError(status_code=422, error_code="MISSING_LOCATION", message="Service availability has not been checked yet")
 
-        pkg = await self._load_healthians_package_for_engagement(db, engagement, user_id=user_id)
+        pkg = await self._load_home_collection_package_for_engagement(db, engagement, user_id=user_id)
+
+        if is_orange_health(pkg):
+            return await home_collection_orange.fetch_slots(
+                db,
+                engagement_id=engagement_id,
+                user_id=user_id,
+                participant=participant,
+                blood_collection_date=blood_collection_date,
+            )
 
         user_result = await db.execute(select(User).where(User.user_id == user_id))
         user = user_result.scalar_one_or_none()
         has_female = 1 if user and (user.gender or "").strip().lower().startswith("f") else 0
 
         amount = float(pkg.original_price) if pkg.original_price else 0
-        external_package_id = pkg.external_package_id or 0
+        from modules.diagnostics.external_codes import healthians_package_deal_id
+
+        deal_id = healthians_package_deal_id(pkg.external_package_code)
 
         payload: dict[str, Any] = {
             "slot_date": blood_collection_date.isoformat(),
@@ -1285,7 +1349,7 @@ class ConsoleService:
             "get_ppmc_slots": 0,
             "has_female_patient": has_female,
             "amount": amount,
-            "package": [{"deal_id": [f"package_{external_package_id}"]}],
+            "package": [{"deal_id": [deal_id]}],
         }
 
         await release_request_transaction(db)
@@ -1362,7 +1426,18 @@ class ConsoleService:
         if participant is None:
             raise AppError(status_code=404, error_code="PARTICIPANT_NOT_FOUND", message="Participant is not enrolled in this engagement")
 
-        pkg = await self._load_healthians_package_for_engagement(db, engagement, user_id=user_id)
+        pkg = await self._load_home_collection_package_for_engagement(db, engagement, user_id=user_id)
+
+        if is_orange_health(pkg):
+            return await home_collection_orange.lock_slot(
+                db,
+                participant=participant,
+                blood_collection_date=blood_collection_date,
+                blood_collection_time_slot_id=blood_collection_time_slot_id,
+                blood_collection_time_slot=blood_collection_time_slot,
+                engagement_id=engagement_id,
+                user_id=user_id,
+            )
 
         vendor_billing_user_id = str(participant.booked_by_user_id)
         engagement_participant_id = participant.engagement_participant_id
@@ -1435,6 +1510,7 @@ class ConsoleService:
         partner=None,
         engagement_id: int,
         user_id: int,
+        partner_notes: str | None = None,
     ) -> dict:
         await ensure_console_access(db, engagement_id, repository=self._repository, employee=employee, partner=partner)
 
@@ -1463,14 +1539,33 @@ class ConsoleService:
         if not sched["blood_collection_time_slot_id"]:
             raise AppError(status_code=422, error_code="SLOT_NOT_LOCKED", message="Blood collection slot is not locked")
 
-        pkg = await self._load_healthians_package_for_engagement(db, engagement, user_id=user_id)
-
-        if not settings.HEALTHIANS_CHECKSUM_KEY:
-            raise AppError(status_code=500, error_code="CONFIG_ERROR", message="Healthians checksum key is not configured")
+        pkg = await self._load_home_collection_package_for_engagement(db, engagement, user_id=user_id)
 
         user = await self._users_repository.get_user_by_id(db, user_id=user_id)
         if user is None:
             raise AppError(status_code=404, error_code="USER_NOT_FOUND", message="User does not exist")
+
+        if is_orange_health(pkg):
+            await self._ensure_assessment_instances_for_participant(
+                db,
+                engagement=engagement,
+                user_id=user_id,
+                ip_address="",
+                user_agent="engagement-console",
+                endpoint=f"/engagements/{engagement_id}/console/participants/{user_id}/book-home-collection/book",
+            )
+            return await home_collection_orange.create_booking(
+                db,
+                engagement_id=engagement_id,
+                user_id=user_id,
+                participant=participant,
+                user=user,
+                pkg=pkg,
+                partner_notes=partner_notes or "",
+            )
+
+        if not settings.HEALTHIANS_CHECKSUM_KEY:
+            raise AppError(status_code=500, error_code="CONFIG_ERROR", message="Healthians checksum key is not configured")
 
         first_name = (user.first_name or "").strip()
         last_name = outbound_last_name(user.last_name)
@@ -1495,7 +1590,9 @@ class ConsoleService:
         customer_name = f"{first_name} {last_name}".strip().upper()
         relation = (user.relationship or "self").strip() or "self"
         vendor_billing_user_id = str(participant.booked_by_user_id)
-        external_package_id = pkg.external_package_id or 0
+        from modules.diagnostics.external_codes import healthians_package_deal_id
+
+        deal_id = healthians_package_deal_id(pkg.external_package_code)
         slot_id = sched["blood_collection_time_slot_id"] or ""
         engagement_participant_id = participant.engagement_participant_id
 
@@ -1511,7 +1608,7 @@ class ConsoleService:
                 "email": (user.email or "").strip(),
             }],
             "slot": {"slot_id": slot_id},
-            "package": [{"deal_id": [f"package_{external_package_id}"]}],
+            "package": [{"deal_id": [deal_id]}],
             "customer_calling_number": phone,
             "billing_cust_name": customer_name,
             "gender": gender,

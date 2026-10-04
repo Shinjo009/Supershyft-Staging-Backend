@@ -33,7 +33,7 @@ class CanonicalBloodParameterValue(BaseModel):
     machine_value: float | None = None
     lower_range: float | None = None
     higher_range: float | None = None
-    external_parameter_id: int | None = None
+    external_parameter_code: str | None = None
     provider_test_name: str | None = None
 
 

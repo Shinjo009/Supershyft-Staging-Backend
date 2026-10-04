@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 
 class HealthiansConstituentsRequest(BaseModel):
-    external_package_id: int = Field(..., gt=0)
+    external_package_code: str = Field(..., min_length=1)
 
 
 class HealthiansConstituent(BaseModel):

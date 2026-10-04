@@ -30,6 +30,26 @@ async def healthians_webhook(
     return success_response(result)
 
 
+@router.post("/orange-health")
+async def orange_health_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    service: WebhooksReceiverService = Depends(get_webhooks_receiver_service),
+    x_oh_signature: str | None = Header(None, alias="x-oh-signature"),
+    x_oh_event_id: str | None = Header(None, alias="x-oh-event-id"),
+):
+    raw_body = await request.body()
+    result = await service.handle_orange_health_webhook(
+        db,
+        raw_body=raw_body,
+        api_endpoint_url=str(request.url.path),
+        signature=x_oh_signature,
+        x_oh_event_id=x_oh_event_id,
+    )
+    await db.commit()
+    return success_response(result)
+
+
 @router.post("/aurae")
 async def aurae_webhook(
     payload: AuraeWebhookPayload,

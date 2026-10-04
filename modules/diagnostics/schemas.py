@@ -45,7 +45,7 @@ class DiagnosticPackageCreate(BaseModel):
     package_name: SafeDisplayName
     package_image: Optional[str] = None
     diagnostic_provider: Optional[str] = None
-    external_package_id: Optional[int] = None
+    external_package_code: Optional[str] = None
     custom: bool = False
     report_duration_hours: Optional[int] = None
     collection_type: Optional[str] = None
@@ -71,7 +71,7 @@ class DiagnosticPackageUpdate(BaseModel):
     package_name: OptionalSafeDisplayName = None
     package_image: Optional[str] = None
     diagnostic_provider: Optional[str] = None
-    external_package_id: Optional[int] = None
+    external_package_code: Optional[str] = None
     report_duration_hours: Optional[int] = None
     collection_type: Optional[str] = None
     health_areas_covered: OptionalSafeText = None
@@ -100,7 +100,7 @@ class DiagnosticPackageResponse(BaseModel):
     package_name: str
     package_image: Optional[str] = None
     diagnostic_provider: Optional[str] = None
-    external_package_id: Optional[int] = None
+    external_package_code: Optional[str] = None
     created_by_user_id: Optional[int] = None
     no_of_tests: Optional[int] = None
     report_duration_hours: Optional[int] = None
@@ -188,7 +188,7 @@ class TagResponse(BaseModel):
 class HealthParameterCreate(BaseModel):
     parameter_type: ParameterType = ParameterType.TEST
     test_name: SafeDisplayName
-    external_parameter_id: Optional[int] = None
+    external_parameter_code: Optional[str] = None
     parameter_key: OptionalParameterKey = None
     unit: Optional[str] = None
     meaning: OptionalSafeText = None
@@ -221,7 +221,7 @@ class HealthParameterCreate(BaseModel):
 class HealthParameterUpdate(BaseModel):
     parameter_type: Optional[ParameterType] = None
     test_name: OptionalSafeDisplayName = None
-    external_parameter_id: Optional[int] = None
+    external_parameter_code: Optional[str] = None
     parameter_key: OptionalParameterKey = None
     unit: Optional[str] = None
     meaning: OptionalSafeText = None
@@ -257,7 +257,7 @@ class HealthParameterResponse(BaseModel):
     test_id: int
     parameter_type: ParameterType
     test_name: str
-    external_parameter_id: Optional[int] = None
+    external_parameter_code: Optional[str] = None
     parameter_key: Optional[str] = None
     unit: Optional[str] = None
     meaning: Optional[str] = None
@@ -416,7 +416,7 @@ class DiagnosticPackageListItem(BaseModel):
     package_image: Optional[str] = None
     diagnostic_provider: Optional[str] = None
     display_order: Optional[int] = None
-    external_package_id: Optional[int] = None
+    external_package_code: Optional[str] = None
     no_of_tests: Optional[int] = None
     report_duration_hours: Optional[int] = None
     collection_type: Optional[str] = None

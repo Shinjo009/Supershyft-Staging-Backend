@@ -131,6 +131,7 @@ def test_every_category_has_configurable_tasks():
         ("POST", "/users"),
         ("POST", "/auth/verify-otp"),
         ("POST", "/webhooks/healthians"),
+        ("POST", "/webhooks/orange-health"),
         ("GET", "/checklist/my-tasks"),
         ("POST", "/support/tickets"),
         ("GET", "/experts/portal/me"),

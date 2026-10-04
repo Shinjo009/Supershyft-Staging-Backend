@@ -153,6 +153,14 @@ class Settings:
         os.getenv("HEALTHIANS_WEBHOOK_FORWARD_TIMEOUT_SECONDS", "15")
     )
 
+    # Orange Health Partner API
+    ORANGE_HEALTH_BASE_URL: str = os.getenv(
+        "ORANGE_HEALTH_BASE_URL",
+        "https://sandbox-partner-api.orangehealth.dev",
+    )
+    ORANGE_HEALTH_API_KEY: str = os.getenv("ORANGE_HEALTH_API_KEY", "")
+    ORANGE_HEALTH_WEBHOOK_SECRET: str = os.getenv("ORANGE_HEALTH_WEBHOOK_SECRET", "")
+
     # Aurae Face Scan (VIFC) partner API
     AURAE_BASE_URL: str = os.getenv("AURAE_BASE_URL", "")
     AURAE_API_KEY: str = os.getenv("AURAE_API_KEY", "")

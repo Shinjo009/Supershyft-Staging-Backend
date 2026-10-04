@@ -286,11 +286,11 @@ class BloodParametersReadService:
         blood_parameters: Any,
         *,
         parameter_key: str,
-        external_parameter_id: int | None = None,
+        external_parameter_code: str | None = None,
         healthians_parameter_id: int | None = None,
     ) -> tuple[float | None, str | None]:
         # Accept legacy kwarg name during transition.
-        external_pid = external_parameter_id if external_parameter_id is not None else healthians_parameter_id
+        external_pid = external_parameter_code if external_parameter_code is not None else healthians_parameter_id
 
         if is_grouped_blood_parameters(blood_parameters):
             for group in blood_parameters:
@@ -492,8 +492,8 @@ class BloodParametersReadService:
             tests: list[BloodParameterTestInReportResponse] = []
             for test in group.tests:
                 entry = None
-                if test.external_parameter_id is not None:
-                    entry = dd_lookup.get(str(test.external_parameter_id))
+                if test.external_parameter_code is not None:
+                    entry = dd_lookup.get(str(test.external_parameter_code))
                 value = machine_value = unit = lower_range = higher_range = None
                 provider_test_name = test.test_name
                 if entry is not None:

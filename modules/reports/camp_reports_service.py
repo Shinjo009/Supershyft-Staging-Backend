@@ -3138,7 +3138,7 @@ class CampReportsService:
         value = None
         lower_range = None
         higher_range = None
-        external_pid = test.external_parameter_id
+        external_pid = test.external_parameter_code
         if external_pid is None:
             return None, None, None
         for entry in blood_params["digital_data"]:

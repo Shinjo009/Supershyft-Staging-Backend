@@ -30,6 +30,8 @@ from db.column_types import (
     BloodBookingStatusColumn,
     EngagementStatusColumn,
     STATUS_BLOOD_BOOKING,
+    blood_booking_provider_status_enum,
+    diagnostic_provider_enum,
     status_server_default,
 )
 from modules.engagements.blood_booking_enums import BloodBookingRelation
@@ -211,6 +213,12 @@ class ParticipantBloodBooking(Base):
         default="active",
         server_default=status_server_default("active", STATUS_BLOOD_BOOKING),
     )
+    diagnostic_provider = Column(diagnostic_provider_enum, nullable=True)
+    request_id = Column(String, nullable=True)
+    token = Column(String, nullable=True)
+    order_id = Column(BigInteger, nullable=True)
+    alnum_order_id = Column(String, nullable=True)
+    provider_status = Column(blood_booking_provider_status_enum, nullable=True)
     diagnostic_report_url = Column(Text, nullable=True)
     blood_parameters = Column(JSON, nullable=True)
     blood_report_raw = Column(JSON, nullable=True)

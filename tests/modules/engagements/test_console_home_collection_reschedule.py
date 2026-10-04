@@ -37,7 +37,7 @@ async def _seed_home_reschedule_fixture(test_db_session):
                 reference_id="REF62",
                 package_name="Healthians Home",
                 diagnostic_provider="healthians",
-                external_package_id=2004,
+                external_package_code=2004,
                 original_price=999,
                 status="active",
                 bookings_count=0,

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends
 from common.responses import success_response
 from core.exceptions import AppError
 from modules.diagnostics.healthians import client as healthians_client
+from modules.diagnostics.external_codes import healthians_product_deal_type_id
 from modules.diagnostics.healthians.schemas import (
     HealthiansConstituent,
     HealthiansConstituentsRequest,
@@ -29,9 +30,8 @@ async def get_healthians_constituents(
 ):
     try:
         token = await healthians_client.get_access_token()
-        product = await healthians_client.get_product_details(
-            token, payload.external_package_id
-        )
+        deal_type_id = healthians_product_deal_type_id(payload.external_package_code)
+        product = await healthians_client.get_product_details(token, deal_type_id)
     except Exception as exc:
         logger.exception("Healthians API error")
         is_blocked = "403" in str(exc) or "blocked" in str(exc).lower()

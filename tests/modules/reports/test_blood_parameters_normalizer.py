@@ -18,7 +18,7 @@ class _TestRow:
     test_name: str
     parameter_key: str | None
     unit: str | None
-    external_parameter_id: int | None
+    external_parameter_code: int | None
 
 
 @dataclass
@@ -53,7 +53,7 @@ def test_build_grouped_from_healthians_matches_package_structure():
                     test_name="Haemoglobin",
                     parameter_key="haemoglobin",
                     unit="g/dL",
-                    external_parameter_id=1018,
+                    external_parameter_code=1018,
                 )
             ],
         )
@@ -76,7 +76,7 @@ def test_build_grouped_from_healthians_matches_package_structure():
     assert test["lower_range"] == 12.0
     assert test["higher_range"] == 15.0
     assert test["provider_test_name"] == "Hemoglobin Hb"
-    assert "external_parameter_id" not in test
+    assert "external_parameter_code" not in test
     assert "healthians_parameter_id" not in test
 
 
@@ -92,7 +92,7 @@ def test_build_grouped_includes_unmatched_tests_with_null_values():
                     test_name="Haemoglobin",
                     parameter_key="haemoglobin",
                     unit="g/dL",
-                    external_parameter_id=55,
+                    external_parameter_code=55,
                 )
             ],
         )
@@ -144,7 +144,7 @@ def test_build_grouped_from_healthians_parses_inequality_prefixed_value():
                     test_name="CA-19.9",
                     parameter_key="ca_19_9",
                     unit="U/mL",
-                    external_parameter_id=541,
+                    external_parameter_code=541,
                 )
             ],
         )

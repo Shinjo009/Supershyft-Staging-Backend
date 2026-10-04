@@ -29,8 +29,12 @@ class HomeCollectionAvailableSlotsRequest(BaseModel):
 
 class HomeCollectionLockRequest(BaseModel):
     blood_collection_date: date
-    blood_collection_time_slot_id: str = Field(min_length=1, max_length=50)
-    blood_collection_time_slot: str = Field(min_length=1, max_length=50)
+    blood_collection_time_slot_id: str = Field(min_length=1, max_length=80)
+    blood_collection_time_slot: str = Field(min_length=1, max_length=80)
+
+
+class HomeCollectionBookRequest(BaseModel):
+    partner_notes: Optional[str] = Field(default=None, max_length=500)
 
 
 class HomeCollectionRescheduleRequest(BaseModel):

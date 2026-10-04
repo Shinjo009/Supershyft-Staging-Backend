@@ -2527,7 +2527,7 @@ class ReportsService:
         hp = await self._diagnostics_service.get_health_parameter_by_parameter_key(
             db, parameter_key=parameter_key,
         )
-        external_pid: int | None = hp.external_parameter_id if hp is not None else None
+        external_pid: str | None = hp.external_parameter_code if hp is not None else None
 
         from modules.reports.blood_parameters_schemas import (
             is_grouped_blood_parameters,
@@ -2587,7 +2587,7 @@ class ReportsService:
                 numeric_value, entry_unit = await self._blood_read_service.extract_provider_parameter(
                     blood_parameters,
                     parameter_key=parameter_key,
-                    external_parameter_id=external_pid,
+                    external_parameter_code=external_pid,
                 )
                 if (
                     numeric_value is None

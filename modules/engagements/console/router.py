@@ -14,6 +14,7 @@ from modules.engagements.console.schemas import (
     ConsoleParticipantBookRequest,
     HomeCollectionAvailableSlotsRequest,
     HomeCollectionCheckServiceabilityRequest,
+    HomeCollectionBookRequest,
     HomeCollectionLockRequest,
     HomeCollectionRescheduleRequest,
 )
@@ -318,6 +319,7 @@ async def lock_home_collection_slot(
 async def book_home_collection(
     engagement_id: int,
     user_id: int,
+    payload: HomeCollectionBookRequest | None = None,
     db: AsyncSession = Depends(get_db),
     actor: ConsoleActor = Depends(get_console_actor),
     console_service: ConsoleService = Depends(get_console_service),
@@ -327,6 +329,7 @@ async def book_home_collection(
         employee=actor.employee, partner=actor.partner,
         engagement_id=engagement_id,
         user_id=user_id,
+        partner_notes=payload.partner_notes if payload else None,
     )
     await db.commit()
     return success_response(data)

@@ -343,6 +343,7 @@ async def public_lock_slot(
     payload: PublicLockSlotRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    platform_settings_service: PlatformSettingsService = Depends(get_platform_settings_service_readonly),
 ):
     result = await booking_service.public_lock_slot(
         db,
@@ -352,6 +353,7 @@ async def public_lock_slot(
         blood_collection_date=payload.blood_collection_date,
         blood_collection_time_slot_id=payload.blood_collection_time_slot_id,
         blood_collection_time_slot=payload.blood_collection_time_slot,
+        platform_settings_service=platform_settings_service,
     )
     await db.commit()
     return success_response(result)

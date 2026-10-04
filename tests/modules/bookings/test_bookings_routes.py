@@ -93,11 +93,11 @@ async def _seed_healthians_diagnostic_package(
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package "
-            "(diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, price, external_package_id, complementary_consultation) "
-            "VALUES (:id, 'REF-H', 'Healthians Package', 'healthians', 1, 500, 101, CAST(:cc AS json)) "
+            "(diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, price, external_package_code, complementary_consultation) "
+            "VALUES (:id, 'REF-H', 'Healthians Package', 'healthians', 1, 500, '101', CAST(:cc AS json)) "
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
             "diagnostic_provider = EXCLUDED.diagnostic_provider, "
-            "external_package_id = EXCLUDED.external_package_id, status = EXCLUDED.status, "
+            "external_package_code = EXCLUDED.external_package_code, status = EXCLUDED.status, "
             "complementary_consultation = EXCLUDED.complementary_consultation"
         ),
         {

@@ -38,14 +38,14 @@ async def test_console_cancel_booking_success(async_client, test_db_session):
                 reference_id="REF50",
                 package_name="Healthians Camp",
                 diagnostic_provider="healthians",
-                external_package_id=1001,
+                external_package_code=1001,
                 status="active",
                 bookings_count=0,
             )
         )
     else:
         existing_diag.diagnostic_provider = "healthians"
-        existing_diag.external_package_id = 1001
+        existing_diag.external_package_code = 1001
     await seed_employee(test_db_session, employee_id=501, role="admin", commit=False)
 
     existing_eng = await test_db_session.get(Engagement, 7001)

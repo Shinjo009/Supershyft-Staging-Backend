@@ -14,9 +14,12 @@ from common.phone import to_healthians_mobile
 from core.config import settings
 from core.exceptions import AppError
 from db.transaction import release_request_transaction
+from modules.bookings import orange_health_flow
+from modules.diagnostics.external_codes import healthians_package_deal_id
 from modules.diagnostics.healthians import client as healthians_client
 from modules.diagnostics.healthians.sync_log import log_healthians_call
 from modules.diagnostics.models import DiagnosticPackage
+from modules.diagnostics.orange_health.booking_helpers import is_orange_health
 from modules.engagements.blood_bookings_access import (
     apply_schedule,
     current_booking_id,
@@ -44,6 +47,10 @@ logger = logging.getLogger(__name__)
 
 def _is_healthians(pkg: DiagnosticPackage) -> bool:
     return (pkg.diagnostic_provider or "").strip().lower() == "healthians"
+
+
+def _is_orange_health(pkg: DiagnosticPackage) -> bool:
+    return is_orange_health(pkg)
 
 
 async def _get_diagnostic_package(db: AsyncSession, package_id: int) -> DiagnosticPackage:
@@ -196,9 +203,8 @@ async def check_service_availability(
     engagements_service: EngagementsService,
     booked_by_user_id: int,
 ) -> list[dict[str, Any]]:
-    """Check Healthians serviceability and create draft engagements for serviceable members."""
+    """Check provider serviceability and create draft engagements for serviceable members."""
     results: list[dict[str, Any]] = []
-    access_token = await _get_healthians_token()
 
     for member in members:
         user_id = member["user_id"]
@@ -209,8 +215,8 @@ async def check_service_availability(
         pincode = member["pincode"]
 
         pkg = await _get_diagnostic_package(db, diagnostic_package_id)
-        if not _is_healthians(pkg):
-            results.append({"user_id": user_id, "status": "error", "message": "Diagnostic provider is not Healthians"})
+        if not (_is_healthians(pkg) or _is_orange_health(pkg)):
+            results.append({"user_id": user_id, "status": "error", "message": "Diagnostic provider is not supported"})
             continue
 
         geocoded = await _geocode_for_booking(
@@ -274,9 +280,35 @@ async def check_service_availability(
         await db.flush()
         await db.commit()
 
+        if _is_orange_health(pkg):
+            oh_result = await orange_health_flow.check_serviceability_at_location(
+                db,
+                latitude=float(latitude),
+                longitude=float(longitude),
+                engagement_id=int(engagement.engagement_id),
+            )
+            if oh_result.get("status") != "success":
+                engagement.status = "cancelled"
+                await db.flush()
+                results.append({
+                    "user_id": user_id,
+                    "engagement_id": engagement.engagement_id,
+                    "status": "error",
+                    "message": oh_result.get("message", "Location is not serviceable"),
+                })
+                continue
+            results.append({
+                "user_id": user_id,
+                "engagement_id": engagement.engagement_id,
+                "status": "success",
+                "message": oh_result.get("message", "Serviceable"),
+            })
+            continue
+
         lat = str(latitude)
         lng = str(longitude)
         zipcode = pincode
+        access_token = await _get_healthians_token()
 
         try:
             resp = await healthians_client.check_serviceability_by_location_v2(
@@ -343,9 +375,8 @@ async def get_available_slots(
     *,
     members: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Fetch available slots from Healthians for drafted engagements."""
+    """Fetch available slots for drafted engagements."""
     results: list[dict[str, Any]] = []
-    access_token = await _get_healthians_token()
 
     for member in members:
         user_id = member["user_id"]
@@ -379,8 +410,39 @@ async def get_available_slots(
             continue
 
         pkg = await _get_diagnostic_package(db, engagement.diagnostic_package_id)
+        if _is_orange_health(pkg):
+            if engagement.latitude is None or engagement.longitude is None:
+                results.append({
+                    "user_id": user_id,
+                    "engagement_id": engagement_id,
+                    "status": "error",
+                    "message": "Missing location on engagement",
+                })
+                continue
+            slot_resp = await orange_health_flow.fetch_slots_for_location(
+                db,
+                blood_collection_date=blood_collection_date,
+                latitude=float(engagement.latitude),
+                longitude=float(engagement.longitude),
+                engagement_id=engagement_id,
+            )
+            if slot_resp.get("status") != "success":
+                results.append({
+                    "user_id": user_id,
+                    "engagement_id": engagement_id,
+                    "status": "error",
+                    "message": slot_resp.get("message", "Failed to fetch slots"),
+                })
+                continue
+            results.append({
+                "user_id": user_id,
+                "engagement_id": engagement_id,
+                "status": "success",
+                "slots": slot_resp.get("slots") or [],
+            })
+            continue
         if not _is_healthians(pkg):
-            results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": "Not a Healthians package"})
+            results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": "Not a supported package"})
             continue
 
         user_result = await db.execute(select(User).where(User.user_id == user_id))
@@ -388,7 +450,8 @@ async def get_available_slots(
         has_female = 1 if user and (user.gender or "").strip().lower().startswith("f") else 0
 
         amount = float(pkg.original_price) if pkg.original_price else 0
-        external_package_id = pkg.external_package_id or 0
+        deal_id = healthians_package_deal_id(pkg.external_package_code)
+        access_token = await _get_healthians_token()
 
         payload = {
             "slot_date": blood_collection_date.isoformat(),
@@ -399,7 +462,7 @@ async def get_available_slots(
             "get_ppmc_slots": 0,
             "has_female_patient": has_female,
             "amount": amount,
-            "package": [{"deal_id": [f"package_{external_package_id}"]}],
+            "package": [{"deal_id": [deal_id]}],
         }
 
         await release_request_transaction(db)
@@ -459,9 +522,8 @@ async def lock_slots(
     *,
     members: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Freeze slots on Healthians and update participant records."""
+    """Freeze or confirm slots and update participant records."""
     results: list[dict[str, Any]] = []
-    access_token = await _get_healthians_token()
 
     for member in members:
         user_id = member["user_id"]
@@ -499,13 +561,33 @@ async def lock_slots(
             continue
 
         pkg = await _get_diagnostic_package(db, engagement.diagnostic_package_id)
+        if _is_orange_health(pkg):
+            try:
+                await orange_health_flow.lock_slot_local(
+                    db,
+                    participant=participant,
+                    blood_collection_date=blood_collection_date,
+                    slot_id=slot_id,
+                    slot_time_label=blood_collection_time_slot,
+                )
+            except Exception as exc:
+                results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": str(exc)})
+                continue
+            results.append({
+                "user_id": user_id,
+                "engagement_id": engagement_id,
+                "status": "success",
+                "message": "Slot confirmed",
+            })
+            continue
         if not _is_healthians(pkg):
-            results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": "Not a Healthians package"})
+            results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": "Not a supported package"})
             continue
 
         vendor_billing_user_id = str(participant.booked_by_user_id)
 
         await release_request_transaction(db)
+        access_token = await _get_healthians_token()
 
         try:
             resp = await healthians_client.freeze_slot_v1(
@@ -691,13 +773,32 @@ async def resolve_public_location_context(
     pincode: str,
     engagement_id: int | None = None,
     engagement_code: str | None = None,
+    diagnostic_package_id: int | None = None,
 ) -> dict[str, Any]:
-    """Geocode an address and resolve Healthians zone_id (read-only)."""
-    geocoded = await _geocode_for_booking(db, city=city, pincode=pincode)
+    """Geocode an address; resolve Healthians zone_id unless package is Orange Health."""
+    geocoded = await _geocode_for_booking(
+        db,
+        city=city,
+        pincode=pincode,
+        engagement_id=engagement_id,
+    )
     latitude = geocoded.get("latitude")
     longitude = geocoded.get("longitude")
     if latitude is None or longitude is None:
         return {"status": "error", "message": "Could not geocode address"}
+
+    if diagnostic_package_id is not None:
+        pkg = await _get_diagnostic_package(db, diagnostic_package_id)
+        if _is_orange_health(pkg):
+            return {
+                "status": "success",
+                "latitude": latitude,
+                "longitude": longitude,
+                "zone_id": None,
+                "state": geocoded.get("state"),
+                "country": geocoded.get("country"),
+                "diagnostic_provider": "orange_health",
+            }
 
     zone_id, zone_error = await _resolve_healthians_zone_id(
         db,
@@ -790,9 +891,6 @@ async def public_check_service_availability(
     """Public B2C serviceability check — read-only; does not create engagements."""
     diagnostic_package_id = await _resolve_b2c_default_diagnostic_package_id(db, platform_settings_service)
     pkg = await _get_diagnostic_package(db, diagnostic_package_id)
-    if not _is_healthians(pkg):
-        return {"status": "error", "message": "Diagnostic provider is not Healthians"}
-
     geocoded = await _geocode_for_booking(
         db,
         address_line=address_line,
@@ -804,6 +902,15 @@ async def public_check_service_availability(
     longitude = geocoded.get("longitude")
     if latitude is None or longitude is None:
         return {"status": "error", "message": "Could not geocode address"}
+
+    if _is_orange_health(pkg):
+        return await orange_health_flow.check_serviceability_at_location(
+            db,
+            latitude=float(latitude),
+            longitude=float(longitude),
+        )
+    if not _is_healthians(pkg):
+        return {"status": "error", "message": "Diagnostic provider is not supported"}
 
     return await _check_healthians_serviceability_at_location(
         db,
@@ -827,13 +934,6 @@ async def code_check_service_availability(
     diagnostic_package_id = int(engagement.diagnostic_package_id)
 
     pkg = await _get_diagnostic_package(db, diagnostic_package_id)
-    if not _is_healthians(pkg):
-        return {
-            "engagement_code": engagement.engagement_code,
-            "status": "error",
-            "message": "Diagnostic provider is not Healthians",
-        }
-
     geocoded = await _geocode_for_booking(
         db,
         address_line=address_line,
@@ -849,6 +949,21 @@ async def code_check_service_availability(
             "engagement_code": engagement.engagement_code,
             "status": "error",
             "message": "Could not geocode address",
+        }
+
+    if _is_orange_health(pkg):
+        return await orange_health_flow.check_serviceability_at_location(
+            db,
+            latitude=float(latitude),
+            longitude=float(longitude),
+            engagement_id=int(engagement.engagement_id),
+            engagement_code=engagement.engagement_code,
+        )
+    if not _is_healthians(pkg):
+        return {
+            "engagement_code": engagement.engagement_code,
+            "status": "error",
+            "message": "Diagnostic provider is not supported",
         }
 
     return await _check_healthians_serviceability_at_location(
@@ -879,11 +994,22 @@ async def _fetch_available_slots_for_location(
         result["engagement_code"] = engagement_code
 
     pkg = await _get_diagnostic_package(db, diagnostic_package_id)
+    if _is_orange_health(pkg):
+        if latitude is None or longitude is None:
+            return {**result, "status": "error", "message": "Missing location"}
+        return await orange_health_flow.fetch_slots_for_location(
+            db,
+            blood_collection_date=blood_collection_date,
+            latitude=float(latitude),
+            longitude=float(longitude),
+            engagement_id=engagement_id,
+            engagement_code=engagement_code,
+        )
     if not _is_healthians(pkg):
-        return {**result, "status": "error", "message": "Not a Healthians package"}
+        return {**result, "status": "error", "message": "Not a supported diagnostic package"}
 
     amount = float(pkg.original_price) if pkg.original_price else 0
-    external_package_id = pkg.external_package_id or 0
+    deal_id = healthians_package_deal_id(pkg.external_package_code)
     payload = {
         "slot_date": blood_collection_date.isoformat(),
         "zone_id": str(zone_id or ""),
@@ -893,7 +1019,7 @@ async def _fetch_available_slots_for_location(
         "get_ppmc_slots": 0,
         "has_female_patient": 0,
         "amount": amount,
-        "package": [{"deal_id": [f"package_{external_package_id}"]}],
+        "package": [{"deal_id": [deal_id]}],
     }
 
     access_token = await _get_healthians_token()
@@ -974,6 +1100,18 @@ async def _fetch_available_slots_for_engagement(
                 "message": "Could not geocode address",
             }
 
+    package_id = int(engagement.diagnostic_package_id)
+    pkg = await _get_diagnostic_package(db, package_id)
+    if _is_orange_health(pkg):
+        return await orange_health_flow.fetch_slots_for_location(
+            db,
+            blood_collection_date=blood_collection_date,
+            latitude=float(latitude),
+            longitude=float(longitude),
+            engagement_id=int(engagement.engagement_id),
+            engagement_code=engagement_code,
+        )
+
     zone_id = str(engagement.healthians_zone_id or "").strip()
     if not zone_id:
         zone_id, zone_error = await _resolve_healthians_zone_id(
@@ -1011,7 +1149,12 @@ async def public_get_available_slots(
 ) -> dict[str, Any]:
     """Stateless public B2C available slots (no engagement required)."""
     diagnostic_package_id = await _resolve_b2c_default_diagnostic_package_id(db, platform_settings_service)
-    location = await resolve_public_location_context(db, city=city, pincode=pincode)
+    location = await resolve_public_location_context(
+        db,
+        city=city,
+        pincode=pincode,
+        diagnostic_package_id=diagnostic_package_id,
+    )
     if location.get("status") != "success":
         return location
 
@@ -1052,6 +1195,7 @@ async def code_get_available_slots(
         pincode=pincode,
         engagement_id=int(engagement.engagement_id),
         engagement_code=engagement_code_value,
+        diagnostic_package_id=int(engagement.diagnostic_package_id),
     )
     if location.get("status") != "success":
         return {
@@ -1062,7 +1206,7 @@ async def code_get_available_slots(
     return await _fetch_available_slots_for_location(
         db,
         blood_collection_date=blood_collection_date,
-        zone_id=str(location["zone_id"]),
+        zone_id=str(location.get("zone_id") or ""),
         latitude=location["latitude"],
         longitude=location["longitude"],
         pincode=pincode,
@@ -1147,11 +1291,42 @@ async def public_lock_slot(
     blood_collection_date: date,
     blood_collection_time_slot_id: str,
     blood_collection_time_slot: str,
+    platform_settings_service: PlatformSettingsService | None = None,
 ) -> dict[str, Any]:
-    """Stateless public B2C slot lock — resolves zone from address, then freezes slot."""
-    location = await resolve_public_location_context(db, city=city, pincode=pincode)
+    """Stateless public B2C slot lock — Healthians freeze or Orange local confirm."""
+    diagnostic_package_id: int | None = None
+    if platform_settings_service is not None:
+        diagnostic_package_id = await _resolve_b2c_default_diagnostic_package_id(
+            db, platform_settings_service
+        )
+    location = await resolve_public_location_context(
+        db,
+        city=city,
+        pincode=pincode,
+        diagnostic_package_id=diagnostic_package_id,
+    )
     if location.get("status") != "success":
         return location
+
+    if diagnostic_package_id is not None:
+        pkg = await _get_diagnostic_package(db, diagnostic_package_id)
+        if _is_orange_health(pkg):
+            try:
+                from modules.diagnostics.orange_health.booking_helpers import parse_orange_slot_time
+
+                parse_orange_slot_time(
+                    blood_collection_time_slot_id
+                    if "T" in blood_collection_time_slot_id
+                    else blood_collection_time_slot
+                )
+            except ValueError as exc:
+                return {"status": "error", "message": str(exc)}
+            return {
+                "status": "success",
+                "message": "Slot confirmed",
+                "slot_id": blood_collection_time_slot_id,
+                "diagnostic_provider": "orange_health",
+            }
 
     vendor_billing_user_id = await _resolve_vendor_billing_user_id(db, user_id)
     freeze_result = await _freeze_healthians_slot(
@@ -1182,6 +1357,11 @@ async def ensure_engagement_zone_from_location(
     if str(engagement.healthians_zone_id or "").strip():
         return None
 
+    if engagement.diagnostic_package_id:
+        pkg = await _get_diagnostic_package(db, int(engagement.diagnostic_package_id))
+        if _is_orange_health(pkg):
+            return None
+
     city = (engagement.city or "").strip()
     pincode = (engagement.pincode or "").strip()
     if not city or not pincode:
@@ -1197,12 +1377,21 @@ async def ensure_engagement_zone_from_location(
         pincode=pincode,
         engagement_id=int(engagement.engagement_id),
         engagement_code=engagement.engagement_code,
+        diagnostic_package_id=int(engagement.diagnostic_package_id) if engagement.diagnostic_package_id else None,
     )
     if location.get("status") != "success":
         return {
             "engagement_code": engagement.engagement_code,
             **location,
         }
+
+    if location.get("zone_id") is None:
+        if engagement.latitude is None:
+            engagement.latitude = location["latitude"]
+        if engagement.longitude is None:
+            engagement.longitude = location["longitude"]
+        await db.flush()
+        return None
 
     engagement.healthians_zone_id = location["zone_id"]
     if engagement.latitude is None:
@@ -1236,6 +1425,7 @@ async def code_lock_slot(
         pincode=pincode,
         engagement_id=int(engagement.engagement_id),
         engagement_code=engagement_code_value,
+        diagnostic_package_id=int(engagement.diagnostic_package_id) if engagement.diagnostic_package_id else None,
     )
     if location.get("status") != "success":
         return {
@@ -1251,22 +1441,63 @@ async def code_lock_slot(
         }
 
     pkg = await _get_diagnostic_package(db, engagement.diagnostic_package_id)
-    if not _is_healthians(pkg):
-        return {
-            "engagement_code": engagement_code_value,
-            "status": "error",
-            "message": "Not a Healthians package",
-        }
-
     engagement.address = address_line
     engagement.landmark = landmark
     engagement.city = city
     engagement.pincode = pincode
-    engagement.healthians_zone_id = location["zone_id"]
     if engagement.latitude is None:
         engagement.latitude = location["latitude"]
     if engagement.longitude is None:
         engagement.longitude = location["longitude"]
+
+    if _is_orange_health(pkg):
+        participant_result = await db.execute(
+            select(EngagementParticipant)
+            .where(EngagementParticipant.engagement_id == engagement.engagement_id)
+            .where(EngagementParticipant.user_id == user_id)
+            .order_by(EngagementParticipant.engagement_participant_id.desc())
+            .limit(1)
+        )
+        participant = participant_result.scalar_one_or_none()
+        if participant is None:
+            return {"engagement_code": engagement_code_value, "status": "error", "message": "User is not a participant"}
+        try:
+            await orange_health_flow.lock_slot_local(
+                db,
+                participant=participant,
+                blood_collection_date=blood_collection_date,
+                slot_id=blood_collection_time_slot_id,
+                slot_time_label=blood_collection_time_slot,
+            )
+        except Exception as exc:
+            return {"engagement_code": engagement_code_value, "status": "error", "message": str(exc)}
+        engagement.draft_slot_id = blood_collection_time_slot_id
+        engagement.draft_slot_date = blood_collection_date
+        try:
+            from modules.diagnostics.orange_health.booking_helpers import parse_orange_slot_time
+
+            engagement.draft_slot_time = parse_orange_slot_time(
+                blood_collection_time_slot_id
+                if "T" in blood_collection_time_slot_id
+                else blood_collection_time_slot
+            )
+        except ValueError as exc:
+            return {"engagement_code": engagement_code_value, "status": "error", "message": str(exc)}
+        await db.flush()
+        return {
+            "engagement_code": engagement_code_value,
+            "status": "success",
+            "message": "Slot confirmed",
+        }
+
+    if not _is_healthians(pkg):
+        return {
+            "engagement_code": engagement_code_value,
+            "status": "error",
+            "message": "Not a supported diagnostic package",
+        }
+
+    engagement.healthians_zone_id = location["zone_id"]
 
     vendor_billing_user_id = await _resolve_vendor_billing_user_id(db, user_id)
     freeze_result = await _freeze_healthians_slot(
@@ -1344,8 +1575,8 @@ async def _validate_locked_draft_for_pay(
         raise AppError(status_code=422, error_code="SLOT_NOT_LOCKED", message="Blood collection time is not set")
 
     pkg = await _get_diagnostic_package(db, engagement.diagnostic_package_id)
-    if not _is_healthians(pkg):
-        raise AppError(status_code=422, error_code="INVALID_PROVIDER", message="Not a Healthians package")
+    if not (_is_healthians(pkg) or _is_orange_health(pkg)):
+        raise AppError(status_code=422, error_code="INVALID_PROVIDER", message="Not a supported diagnostic package")
     if (pkg.status or "").strip().lower() != "active":
         raise AppError(status_code=422, error_code="PACKAGE_INACTIVE", message="Diagnostic package is not active")
 
@@ -1515,9 +1746,9 @@ async def create_healthians_booking_after_payment(
     allow_active_engagement_status: bool = False,
     preserve_engagement_status: bool = False,
 ) -> list[dict[str, Any]]:
-    """After payment succeeds, create Healthians booking for each member using their drafted engagement."""
+    """After payment succeeds, create provider booking for each member using their drafted engagement."""
     results: list[dict[str, Any]] = []
-    access_token = await _get_healthians_token()
+    access_token: str | None = None
 
     for member in members:
         user_id = member["user_id"]
@@ -1589,8 +1820,37 @@ async def create_healthians_booking_after_payment(
             continue
 
         pkg = await _get_diagnostic_package(db, package_id)
+        if _is_orange_health(pkg):
+            oh_result = await orange_health_flow.create_booking_for_member(
+                db,
+                engagement_id=engagement_id,
+                user_id=user_id,
+                participant=participant,
+                engagement=engagement,
+                user=user,
+                pkg=pkg,
+                partner_notes="",
+            )
+            if oh_result.get("status") == "success":
+                base_type_id = await _resolve_engagement_type_id(db, engagement_type_code) if engagement_type_code else None
+                await _apply_complementary_consultation(db, engagement, pkg, base_type_id)
+                if not preserve_engagement_status:
+                    engagement.status = "scheduled"
+                if engagements_service is not None and engagement.organization_id is None:
+                    coll_row = await get_current_row(db, participant)
+                    sched_after = read_schedule_from_row(coll_row)
+                    await engagements_service.apply_b2c_defaults_and_notify_after_booking(
+                        db,
+                        engagement=engagement,
+                        user=user,
+                        collection_date=sched_after.get("engagement_date"),
+                        collection_time=sched_after.get("slot_start_time"),
+                    )
+                await db.flush()
+            results.append(oh_result)
+            continue
         if not _is_healthians(pkg):
-            results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": "Not a Healthians package"})
+            results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": "Not a supported package"})
             continue
 
         full_name = f"{(user.first_name or '').strip()} {(user.last_name or '').strip()}".strip() or "User"
@@ -1606,7 +1866,7 @@ async def create_healthians_booking_after_payment(
         if user.date_of_birth:
             dob = user.date_of_birth.strftime("%d/%m/%Y")
 
-        external_package_id = pkg.external_package_id or 0
+        deal_id = healthians_package_deal_id(pkg.external_package_code)
         coll_row = await get_current_row(db, participant)
         sched = read_schedule_from_row(coll_row)
         slot_id = sched["blood_collection_time_slot_id"] or ""
@@ -1633,7 +1893,7 @@ async def create_healthians_booking_after_payment(
                 "gender": gender_code,
             }],
             "slot": {"slot_id": slot_id},
-            "package": [{"deal_id": [f"package_{external_package_id}"]}],
+            "package": [{"deal_id": [deal_id]}],
             "customer_calling_number": phone,
             "billing_cust_name": full_name.upper(),
             "gender": gender_code,
@@ -1656,6 +1916,9 @@ async def create_healthians_booking_after_payment(
         }
 
         await release_request_transaction(db)
+
+        if access_token is None:
+            access_token = await _get_healthians_token()
 
         try:
             resp = await healthians_client.create_booking_v3(
@@ -1745,6 +2008,12 @@ async def _get_healthians_package_for_engagement(
         user_gender=user.gender if user is not None else None,
     )
     pkg = await _get_diagnostic_package(db, package_id)
+    if _is_orange_health(pkg):
+        raise AppError(
+            status_code=422,
+            error_code="UNSUPPORTED_PROVIDER",
+            message="Cancel and reschedule are not supported for Orange Health bookings yet",
+        )
     if not _is_healthians(pkg):
         raise AppError(
             status_code=422,

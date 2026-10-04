@@ -18,7 +18,7 @@ class PackageTestRow(Protocol):
     test_name: str
     parameter_key: str | None
     unit: str | None
-    external_parameter_id: int | None
+    external_parameter_code: str | None
 
 
 class PackageGroupRow(Protocol):
@@ -85,7 +85,7 @@ def build_grouped_from_healthians(
         tests: list[GroupedBloodParameterTest] = []
         for test in group.tests:
             entry: dict[str, Any] | None = None
-            external_pid = test.external_parameter_id
+            external_pid = test.external_parameter_code
             if external_pid is not None:
                 entry = dd_lookup.get(str(external_pid))
 
@@ -256,8 +256,10 @@ def read_canonical_parameters(blob: Any) -> dict[str, dict[str, Any]]:
             if not isinstance(v, dict):
                 continue
             # Accept both old and new key names in stored JSON.
-            if "external_parameter_id" not in v and "healthians_parameter_id" in v:
-                v = {**v, "external_parameter_id": v.get("healthians_parameter_id")}
+            if "external_parameter_code" not in v and "healthians_parameter_id" in v:
+                v = {**v, "external_parameter_code": str(v.get("healthians_parameter_id"))}
+            if "external_parameter_code" not in v and "external_parameter_id" in v:
+                v = {**v, "external_parameter_code": str(v.get("external_parameter_id"))}
             result[str(k)] = v
         return result
 

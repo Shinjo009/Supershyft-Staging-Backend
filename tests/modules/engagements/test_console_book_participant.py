@@ -47,14 +47,14 @@ async def test_console_book_participant_uses_engagement_external_camp_id(async_c
                 reference_id="REF51",
                 package_name="Healthians Camp",
                 diagnostic_provider="healthians",
-                external_package_id=2002,
+                external_package_code=2002,
                 status="active",
                 bookings_count=0,
             )
         )
     else:
         existing_diag.diagnostic_provider = "healthians"
-        existing_diag.external_package_id = 2002
+        existing_diag.external_package_code = 2002
 
     await seed_employee(test_db_session, employee_id=601, role="admin", commit=False)
 
@@ -193,14 +193,14 @@ async def test_console_book_participant_sync_collection_to_now(async_client, tes
                 reference_id="REF51",
                 package_name="Healthians Camp",
                 diagnostic_provider="healthians",
-                external_package_id=2002,
+                external_package_code=2002,
                 status="active",
                 bookings_count=0,
             )
         )
     else:
         existing_diag.diagnostic_provider = "healthians"
-        existing_diag.external_package_id = 2002
+        existing_diag.external_package_code = 2002
 
     await seed_employee(test_db_session, employee_id=602, role="admin", commit=False)
 
@@ -351,7 +351,7 @@ async def test_console_home_collection_book_flow(async_client, test_db_session, 
                 reference_id="REF52",
                 package_name="Healthians Home",
                 diagnostic_provider="healthians",
-                external_package_id=2003,
+                external_package_code=2003,
                 original_price=999,
                 status="active",
                 bookings_count=0,
@@ -359,7 +359,7 @@ async def test_console_home_collection_book_flow(async_client, test_db_session, 
         )
     else:
         existing_diag.diagnostic_provider = "healthians"
-        existing_diag.external_package_id = 2003
+        existing_diag.external_package_code = 2003
         existing_diag.original_price = 999
 
     await seed_employee(test_db_session, employee_id=611, role="admin", commit=False)
@@ -570,7 +570,7 @@ async def test_console_home_collection_book_allows_blank_last_name(
                 reference_id="REF52",
                 package_name="Healthians Home",
                 diagnostic_provider="healthians",
-                external_package_id=2003,
+                external_package_code=2003,
                 original_price=999,
                 status="active",
                 bookings_count=0,
@@ -689,14 +689,14 @@ async def test_console_book_persists_barcode_when_healthians_fails(
                 reference_id="REF51",
                 package_name="Healthians Camp",
                 diagnostic_provider="healthians",
-                external_package_id=2002,
+                external_package_code=2002,
                 status="active",
                 bookings_count=0,
             )
         )
     else:
         existing_diag.diagnostic_provider = "healthians"
-        existing_diag.external_package_id = 2002
+        existing_diag.external_package_code = 2002
 
     await seed_employee(test_db_session, employee_id=621, role="admin", commit=False)
 

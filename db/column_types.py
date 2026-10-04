@@ -217,6 +217,11 @@ class DiagnosticProvider(str, enum.Enum):
     healthians = "healthians"
     healthians_legacy = "Healthians"  # exact casing stored on some rows
     health_labs = "HealthLabs"  # sample seed / legacy label
+    orange_health = "orange_health"
+
+
+class BloodBookingProviderStatus(str, enum.Enum):
+    scheduled = "Scheduled"
 
 
 class DiagnosticCollectionType(str, enum.Enum):
@@ -250,6 +255,7 @@ class IntegrationProvider(str, enum.Enum):
     internal = "internal"
     google_maps = "google_maps"
     nominatim = "nominatim"
+    orange_health = "orange_health"
 
 
 class UserGender(str, enum.Enum):
@@ -392,6 +398,9 @@ class ChecklistAudience(str, enum.Enum):
 
 
 diagnostic_provider_enum = _pg_enum(DiagnosticProvider, "diagnostic_provider_enum")
+blood_booking_provider_status_enum = _pg_enum(
+    BloodBookingProviderStatus, "blood_booking_provider_status_enum"
+)
 diagnostic_collection_type_enum = _pg_enum(DiagnosticCollectionType, "diagnostic_collection_type_enum")
 gender_suitability_enum = _pg_enum(GenderSuitability, "gender_suitability_enum")
 package_for_enum = _pg_enum(PackageFor, "package_for_enum")

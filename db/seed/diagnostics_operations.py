@@ -147,7 +147,11 @@ async def _apply_health_parameter_row(session: AsyncSession, raw: dict[str, str 
         _bool_cell(imp_hp) if imp_hp is not None and str(imp_hp).strip() != "" else False
     )
     row.gender_suitability = _str_or_none(raw.get("gender_suitability"))
-    row.external_parameter_id = _int(raw.get("external_parameter_id"))
+    ext_param = raw.get("external_parameter_code")
+    if ext_param is None or str(ext_param).strip() == "":
+        row.external_parameter_code = None
+    else:
+        row.external_parameter_code = str(ext_param).strip()
 
     def _txt(key: str) -> str | None:
         v = raw.get(key)
@@ -169,7 +173,7 @@ class SeedDiagPackage:
     reference_id: str | None
     package_name: str
     diagnostic_provider: str | None
-    external_package_id: int | None
+    external_package_code: str | None
     status: str | None
     created_at: datetime | None
     report_duration_hours: int | None
@@ -244,7 +248,7 @@ async def upsert_diagnostic_packages(
         row.reference_id = seed.reference_id
         row.package_name = seed.package_name
         row.diagnostic_provider = seed.diagnostic_provider
-        row.external_package_id = seed.external_package_id
+        row.external_package_code = seed.external_package_code
         row.status = seed.status or "active"
         if seed.created_at is not None:
             row.created_at = seed.created_at
@@ -309,7 +313,11 @@ async def upsert_diagnostic_packages_from_csv(session: AsyncSession, csv_path: P
             row.reference_id = _str_or_none(raw.get("reference_id"))
             row.package_name = (raw.get("package_name") or "").strip() or row.package_name
             row.diagnostic_provider = _str_or_none(raw.get("diagnostic_provider"))
-            row.external_package_id = _int(raw.get("external_package_id"))
+            ext_pkg = raw.get("external_package_code")
+            if ext_pkg is None or str(ext_pkg).strip() == "":
+                row.external_package_code = None
+            else:
+                row.external_package_code = str(ext_pkg).strip()
             st = raw.get("status")
             row.status = st.strip() if st and str(st).strip() else "active"
             created = _parse_created_at(raw.get("created_at"))

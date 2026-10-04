@@ -39,7 +39,7 @@ async def _seed_reschedule_fixture(
                 reference_id="REF61",
                 package_name="Healthians Home",
                 diagnostic_provider="healthians",
-                external_package_id=1002,
+                external_package_code=1002,
                 status="active",
                 bookings_count=0,
             )

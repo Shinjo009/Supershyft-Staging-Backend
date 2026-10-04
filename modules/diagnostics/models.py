@@ -44,7 +44,7 @@ class DiagnosticPackage(Base):
     package_name = Column(String, nullable=False)
     package_image = Column(String, nullable=True)
     diagnostic_provider = Column(diagnostic_provider_enum, nullable=True)
-    external_package_id = Column(Integer, nullable=True)
+    external_package_code = Column(String, nullable=True)
     created_by_user_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
     report_duration_hours = Column(Integer)
     collection_type = Column(diagnostic_collection_type_enum, nullable=True)
@@ -277,7 +277,7 @@ class HealthParameter(Base):
     original_price = Column(Numeric(10, 2))
     is_most_popular = Column(Boolean, nullable=False, default=False, server_default="false")
     gender_suitability = Column(gender_suitability_enum, nullable=True)
-    external_parameter_id = Column(Integer, nullable=True)
+    external_parameter_code = Column(String, nullable=True)
 
     low_risk_lower_range_male = Column(Numeric(12, 4), nullable=True)
     low_risk_higher_range_male = Column(Numeric(12, 4), nullable=True)

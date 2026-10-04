@@ -35,14 +35,14 @@ async def _seed_cancel_fixture(test_db_session, *, engagement_id: int, participa
                 reference_id="REF60",
                 package_name="Healthians Home",
                 diagnostic_provider="healthians",
-                external_package_id=1001,
+                external_package_code=1001,
                 status="active",
                 bookings_count=0,
             )
         )
     else:
         existing_diag.diagnostic_provider = "healthians"
-        existing_diag.external_package_id = 1001
+        existing_diag.external_package_code = 1001
     existing_eng = await test_db_session.get(Engagement, engagement_id)
     if existing_eng is None:
         test_db_session.add(

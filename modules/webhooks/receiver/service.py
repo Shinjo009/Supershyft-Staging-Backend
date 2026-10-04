@@ -22,6 +22,13 @@ from modules.diagnostics.healthians.sync_log import (
     finalize_healthians_sync_log_isolated,
     persist_healthians_sync_log_isolated,
 )
+from modules.diagnostics.orange_health.sync_log import persist_orange_health_sync_log_isolated
+from modules.diagnostics.orange_health.webhook_payload import (
+    build_sync_log_request_payload,
+    parse_orange_health_webhook_body,
+    resolve_webhook_engagement_context,
+)
+from modules.diagnostics.orange_health.webhook_verify import verify_orange_health_webhook_signature
 from modules.engagement_notifications.repository import EngagementNotificationsRepository
 from modules.engagements.blood_bookings_access import get_current_row, read_schedule_from_row
 from modules.engagements.blood_bookings_repository import BloodBookingsRepository
@@ -908,3 +915,45 @@ class WebhooksReceiverService:
         )
 
         return response_data
+
+    async def handle_orange_health_webhook(
+        self,
+        db: AsyncSession,
+        *,
+        raw_body: bytes,
+        api_endpoint_url: str,
+        signature: str | None,
+        x_oh_event_id: str | None,
+    ) -> dict[str, Any]:
+        """Verify signature, log webhook to integration_sync_logs only."""
+        verify_orange_health_webhook_signature(
+            raw_body,
+            signature,
+            settings.ORANGE_HEALTH_WEBHOOK_SECRET,
+        )
+
+        body = parse_orange_health_webhook_body(raw_body)
+        engagement_id, user_id = await resolve_webhook_engagement_context(db, body)
+        request_payload = build_sync_log_request_payload(
+            body=body,
+            x_oh_event_id=x_oh_event_id,
+        )
+        event_name = str(request_payload.get("event") or "").strip()
+        event_id = str(request_payload.get("x_oh_event_id") or "").strip()
+
+        await release_request_transaction(db)
+
+        sync_log_id = await persist_orange_health_sync_log_isolated(
+            engagement_id=engagement_id,
+            user_id=user_id,
+            api_url=api_endpoint_url,
+            request_payload=request_payload,
+            status="success",
+        )
+
+        return {
+            "received": True,
+            "sync_log_id": sync_log_id,
+            "event": event_name or None,
+            "x_oh_event_id": event_id or None,
+        }

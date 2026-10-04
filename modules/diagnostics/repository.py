@@ -207,7 +207,7 @@ class DiagnosticsRepository:
             package_name=f"{original.package_name} copy",
             package_image=original.package_image,
             diagnostic_provider=original.diagnostic_provider,
-            external_package_id=original.external_package_id,
+            external_package_code=original.external_package_code,
             created_by_user_id=original.created_by_user_id,
             report_duration_hours=original.report_duration_hours,
             collection_type=original.collection_type,
