@@ -83,23 +83,47 @@ def _google_component(components: list[dict[str, Any]], *types: str) -> str | No
     return None
 
 
+def _google_street_address_line(components: list[dict[str, Any]]) -> str | None:
+    street_number = _google_component(components, "street_number")
+    route = _google_component(components, "route")
+    parts = [part for part in (street_number, route) if part]
+    if parts:
+        return " ".join(parts)
+    return None
+
+
 def map_google_result(item: dict[str, Any]) -> dict[str, Any]:
     """Map a Google Geocoding API result to engagement location fields."""
     components = item.get("address_components") if isinstance(item.get("address_components"), list) else []
     geometry = item.get("geometry") if isinstance(item.get("geometry"), dict) else {}
     location = geometry.get("location") if isinstance(geometry.get("location"), dict) else {}
     formatted = _first_non_empty(item.get("formatted_address"))
+    address_line = _first_non_empty(_google_street_address_line(components), formatted)
+
+    sub_locality = _google_component(
+        components,
+        "sublocality_level_1",
+        "sublocality",
+        "neighborhood",
+        "sublocality_level_2",
+        "sublocality_level_3",
+    )
+    landmark = _first_non_empty(
+        _google_component(
+            components,
+            "premise",
+            "point_of_interest",
+            "establishment",
+            "subpremise",
+        ),
+        _google_component(components, "neighborhood", "sublocality_level_1"),
+    )
 
     return {
         "display_name": formatted,
-        "address": formatted,
-        "sub_locality": _google_component(
-            components,
-            "sublocality_level_1",
-            "sublocality",
-            "neighborhood",
-        ),
-        "landmark": _google_component(components, "premise", "point_of_interest", "establishment"),
+        "address": address_line,
+        "sub_locality": sub_locality,
+        "landmark": landmark,
         "city": _google_component(
             components,
             "locality",
@@ -264,6 +288,67 @@ async def search_places(
     """Search places with provider fallback. Returns mapped suggestions only."""
     results, _meta = await search_places_with_fallback(query, limit=limit, primary=primary)
     return results
+
+
+def build_booking_geocode_queries(
+    *,
+    address_line: str | None = None,
+    landmark: str | None = None,
+    city: str | None = None,
+    pincode: str | None = None,
+) -> tuple[str, str]:
+    """Return (google_query, nominatim_query) for B2C/booking geocoding."""
+    city_s = (city or "").strip()
+    pincode_s = (pincode or "").strip()
+    nominatim_query = f"{city_s} {pincode_s}".strip()
+
+    google_parts = [
+        (address_line or "").strip(),
+        (landmark or "").strip(),
+        city_s,
+        pincode_s,
+    ]
+    google_query = ", ".join(part for part in google_parts if part)
+
+    return google_query, nominatim_query
+
+
+async def search_places_for_booking(
+    *,
+    address_line: str | None = None,
+    landmark: str | None = None,
+    city: str | None = None,
+    pincode: str | None = None,
+    primary: GeocodingProvider = GeocodingProvider.google,
+    limit: int = 1,
+) -> list[dict[str, Any]]:
+    """Geocode for booking: Google uses full address; Nominatim uses city+pincode only.
+
+    On provider fallback, the secondary provider uses its own query shape (not the primary's).
+    """
+    google_query, nominatim_query = build_booking_geocode_queries(
+        address_line=address_line,
+        landmark=landmark,
+        city=city,
+        pincode=pincode,
+    )
+    primary_provider = primary if isinstance(primary, GeocodingProvider) else GeocodingProvider(primary)
+    secondary = _other_provider(primary_provider)
+
+    if primary_provider == GeocodingProvider.google:
+        primary_query, secondary_query = google_query, nominatim_query
+    else:
+        primary_query, secondary_query = nominatim_query, google_query
+
+    if primary_query:
+        primary_results = await _search_provider(primary_provider, primary_query, limit=limit)
+        if primary_results:
+            return primary_results
+
+    if secondary_query:
+        return await _search_provider(secondary, secondary_query, limit=limit)
+
+    return []
 
 
 def _is_present(value: Any) -> bool:

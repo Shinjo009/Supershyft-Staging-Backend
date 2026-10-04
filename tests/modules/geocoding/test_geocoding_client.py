@@ -5,11 +5,13 @@ from __future__ import annotations
 import pytest
 
 from modules.geocoding.client import (
+    build_booking_geocode_queries,
     enrich_location_fields,
     location_fields_complete,
     map_google_result,
     map_nominatim_result,
     merge_location_fields,
+    search_places_for_booking,
     search_places_with_fallback,
 )
 from modules.geocoding.enums import GeocodingProvider
@@ -63,6 +65,103 @@ def test_map_google_result_maps_expected_fields():
     assert mapped["country"] == "India"
     assert mapped["latitude"] == pytest.approx(12.9765944)
     assert mapped["longitude"] == pytest.approx(77.5992708)
+
+
+def test_build_booking_geocode_queries_google_vs_nominatim():
+    google_q, nominatim_q = build_booking_geocode_queries(
+        address_line="C/401, Sundar nagar",
+        landmark="Veera Desai Road",
+        city="Mumbai",
+        pincode="400053",
+    )
+    assert google_q == "C/401, Sundar nagar, Veera Desai Road, Mumbai, 400053"
+    assert nominatim_q == "Mumbai 400053"
+
+
+@pytest.mark.asyncio
+async def test_search_places_for_booking_google_primary_uses_full_address_on_fallback_nominatim(
+    monkeypatch,
+):
+    calls: list[tuple[str, str]] = []
+
+    async def _google(query: str, *, limit: int = 3):
+        calls.append(("google", query))
+        return []
+
+    async def _nominatim(query: str, *, limit: int = 3):
+        calls.append(("nominatim", query))
+        return [{"latitude": 19.1, "longitude": 72.8}]
+
+    monkeypatch.setattr("modules.geocoding.client.search_google", _google)
+    monkeypatch.setattr("modules.geocoding.client.search_nominatim", _nominatim)
+
+    results = await search_places_for_booking(
+        address_line="C/401",
+        landmark="Park",
+        city="Mumbai",
+        pincode="400053",
+        primary=GeocodingProvider.google,
+    )
+    assert len(results) == 1
+    assert calls == [
+        ("google", "C/401, Park, Mumbai, 400053"),
+        ("nominatim", "Mumbai 400053"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_search_places_for_booking_nominatim_primary_uses_city_pincode(monkeypatch):
+    calls: list[tuple[str, str]] = []
+
+    async def _google(query: str, *, limit: int = 3):
+        calls.append(("google", query))
+        return [{"latitude": 19.1, "longitude": 72.8}]
+
+    async def _nominatim(query: str, *, limit: int = 3):
+        calls.append(("nominatim", query))
+        return []
+
+    monkeypatch.setattr("modules.geocoding.client.search_google", _google)
+    monkeypatch.setattr("modules.geocoding.client.search_nominatim", _nominatim)
+
+    await search_places_for_booking(
+        address_line="C/401",
+        landmark="Park",
+        city="Mumbai",
+        pincode="400053",
+        primary=GeocodingProvider.nominatim,
+    )
+    assert calls[0] == ("nominatim", "Mumbai 400053")
+    assert calls[1] == ("google", "C/401, Park, Mumbai, 400053")
+
+
+def test_map_google_result_street_level_address_line_and_landmark():
+    mapped = map_google_result(
+        {
+            "formatted_address": "123 MG Road, Saki Naka, Mumbai, Maharashtra 400072, India",
+            "address_components": [
+                {"long_name": "123", "short_name": "123", "types": ["street_number"]},
+                {"long_name": "MG Road", "short_name": "MG Rd", "types": ["route"]},
+                {
+                    "long_name": "Phoenix Marketcity",
+                    "short_name": "Phoenix Marketcity",
+                    "types": ["point_of_interest", "establishment"],
+                },
+                {"long_name": "Saki Naka", "short_name": "Saki Naka", "types": ["sublocality_level_1", "political"]},
+                {"long_name": "Mumbai", "short_name": "Mumbai", "types": ["locality", "political"]},
+                {"long_name": "Maharashtra", "short_name": "MH", "types": ["administrative_area_level_1", "political"]},
+                {"long_name": "400072", "short_name": "400072", "types": ["postal_code"]},
+                {"long_name": "India", "short_name": "IN", "types": ["country", "political"]},
+            ],
+            "geometry": {"location": {"lat": 19.1083663, "lng": 72.8788727}},
+        }
+    )
+    assert mapped["display_name"] == "123 MG Road, Saki Naka, Mumbai, Maharashtra 400072, India"
+    assert mapped["address"] == "123 MG Road"
+    assert mapped["sub_locality"] == "Saki Naka"
+    assert mapped["landmark"] == "Phoenix Marketcity"
+    assert mapped["city"] == "Mumbai"
+    assert mapped["pincode"] == "400072"
 
 
 def test_location_fields_complete_requires_all_fields():

@@ -350,7 +350,11 @@ async def test_check_service_availability_creates_engagement_before_healthians(
     healthians_resp = {"status": True, "data": {"zone_id": "440"}, "message": "Serviceable"}
 
     with (
-        patch("modules.bookings.service.search_places", new_callable=AsyncMock, return_value=geocode_result) as mock_geocode,
+        patch(
+            "modules.bookings.service.search_places_for_booking",
+            new_callable=AsyncMock,
+            return_value=geocode_result,
+        ) as mock_geocode,
         patch("modules.bookings.service.healthians_client.get_access_token", new_callable=AsyncMock, return_value="tok"),
         patch(
             "modules.bookings.service.healthians_client.check_serviceability_by_location_v2",
@@ -371,7 +375,10 @@ async def test_check_service_availability_creates_engagement_before_healthians(
     assert member["zone_id"] == "440"
     mock_check.assert_awaited_once()
     mock_geocode.assert_awaited_once()
-    assert mock_geocode.await_args.args[0] == "Mumbai 400001"
+    assert mock_geocode.await_args.kwargs["address_line"] == "Flat 12, Green Park"
+    assert mock_geocode.await_args.kwargs["landmark"] == "Near Mall"
+    assert mock_geocode.await_args.kwargs["city"] == "Mumbai"
+    assert mock_geocode.await_args.kwargs["pincode"] == "400001"
     assert mock_geocode.await_args.kwargs["limit"] == 1
     assert mock_geocode.await_args.kwargs["primary"].value == "google"
 
