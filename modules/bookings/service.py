@@ -97,6 +97,8 @@ async def _geocode_for_booking(
     landmark: str | None = None,
     city: str | None = None,
     pincode: str | None = None,
+    engagement_id: int | None = None,
+    user_id: int | None = None,
 ) -> dict[str, Any]:
     from modules.platform_settings.repository import PlatformSettingsRepository
 
@@ -108,6 +110,8 @@ async def _geocode_for_booking(
         pincode=pincode,
         primary=primary,
         limit=1,
+        engagement_id=engagement_id,
+        user_id=user_id,
     )
     if not results:
         return {}
@@ -215,6 +219,7 @@ async def check_service_availability(
             landmark=landmark,
             city=city,
             pincode=pincode,
+            user_id=user_id,
         )
         latitude = geocoded.get("latitude")
         longitude = geocoded.get("longitude")
@@ -835,6 +840,7 @@ async def code_check_service_availability(
         landmark=landmark,
         city=city,
         pincode=pincode,
+        engagement_id=int(engagement.engagement_id),
     )
     latitude = geocoded.get("latitude")
     longitude = geocoded.get("longitude")
@@ -957,6 +963,7 @@ async def _fetch_available_slots_for_engagement(
             landmark=engagement.landmark,
             city=engagement.city,
             pincode=pincode,
+            engagement_id=int(engagement.engagement_id),
         )
         latitude = geocoded.get("latitude")
         longitude = geocoded.get("longitude")

@@ -84,11 +84,11 @@ async def test_search_places_for_booking_google_primary_uses_full_address_on_fal
 ):
     calls: list[tuple[str, str]] = []
 
-    async def _google(query: str, *, limit: int = 3):
+    async def _google(query: str, *, limit: int = 3, **kwargs):
         calls.append(("google", query))
         return []
 
-    async def _nominatim(query: str, *, limit: int = 3):
+    async def _nominatim(query: str, *, limit: int = 3, **kwargs):
         calls.append(("nominatim", query))
         return [{"latitude": 19.1, "longitude": 72.8}]
 
@@ -113,11 +113,11 @@ async def test_search_places_for_booking_google_primary_uses_full_address_on_fal
 async def test_search_places_for_booking_nominatim_primary_uses_city_pincode(monkeypatch):
     calls: list[tuple[str, str]] = []
 
-    async def _google(query: str, *, limit: int = 3):
+    async def _google(query: str, *, limit: int = 3, **kwargs):
         calls.append(("google", query))
         return [{"latitude": 19.1, "longitude": 72.8}]
 
-    async def _nominatim(query: str, *, limit: int = 3):
+    async def _nominatim(query: str, *, limit: int = 3, **kwargs):
         calls.append(("nominatim", query))
         return []
 
@@ -212,7 +212,7 @@ async def test_enrich_location_fields_skips_geocode_when_complete(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_enrich_location_fields_fills_missing_from_geocode(monkeypatch):
-    async def _fake_search(query: str, *, limit: int = 3, primary=GeocodingProvider.google):
+    async def _fake_search(query: str, *, limit: int = 3, primary=GeocodingProvider.google, **kwargs):
         assert "Marol" in query
         assert limit == 1
         assert primary == GeocodingProvider.google

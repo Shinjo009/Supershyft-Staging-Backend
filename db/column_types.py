@@ -248,6 +248,8 @@ class IntegrationProvider(str, enum.Enum):
     bio_ai_reports = "bio_ai_reports"
     nutrition_api = "nutrition_api"
     internal = "internal"
+    google_maps = "google_maps"
+    nominatim = "nominatim"
 
 
 class UserGender(str, enum.Enum):

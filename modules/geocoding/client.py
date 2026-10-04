@@ -9,6 +9,14 @@ import httpx
 
 from core.config import settings
 from modules.geocoding.enums import GeocodingProvider
+from modules.geocoding.sync_log import (
+    PROVIDER_GOOGLE_MAPS,
+    PROVIDER_NOMINATIM,
+    begin_geocode_sync_log,
+    complete_geocode_sync_log,
+    summarize_google_geocode_response,
+    summarize_nominatim_geocode_response,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +146,13 @@ def map_google_result(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def search_nominatim(query: str, *, limit: int = 3) -> list[dict[str, Any]]:
+async def search_nominatim(
+    query: str,
+    *,
+    limit: int = 3,
+    engagement_id: int | None = None,
+    user_id: int | None = None,
+) -> list[dict[str, Any]]:
     """Search Nominatim and return mapped place suggestions.
 
     Never raises — returns an empty list on failure.
@@ -148,7 +162,7 @@ async def search_nominatim(query: str, *, limit: int = 3) -> list[dict[str, Any]
         return []
 
     limit = max(1, min(int(limit), 10))
-    params = {
+    request_payload = {
         "q": q,
         "format": "json",
         "addressdetails": 1,
@@ -156,16 +170,35 @@ async def search_nominatim(query: str, *, limit: int = 3) -> list[dict[str, Any]
     }
     headers = {"User-Agent": USER_AGENT}
 
+    sync_log_id = await begin_geocode_sync_log(
+        provider=PROVIDER_NOMINATIM,
+        api_url=NOMINATIM_SEARCH_URL,
+        request_payload=request_payload,
+        engagement_id=engagement_id,
+        user_id=user_id,
+    )
+
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_SECONDS) as client:
-            response = await client.get(NOMINATIM_SEARCH_URL, params=params, headers=headers)
+            response = await client.get(NOMINATIM_SEARCH_URL, params=request_payload, headers=headers)
             response.raise_for_status()
             payload = response.json()
-    except Exception:
+    except Exception as exc:
+        await complete_geocode_sync_log(
+            sync_log_id,
+            status="failed",
+            error_message=str(exc)[:2000] or "Nominatim search failed",
+        )
         logger.warning("Nominatim search failed for query=%r", q, exc_info=True)
         return []
 
     if not isinstance(payload, list):
+        await complete_geocode_sync_log(
+            sync_log_id,
+            status="failed",
+            response_payload=summarize_nominatim_geocode_response(payload),
+            error_message="Nominatim response was not a list",
+        )
         return []
 
     results: list[dict[str, Any]] = []
@@ -173,10 +206,25 @@ async def search_nominatim(query: str, *, limit: int = 3) -> list[dict[str, Any]
         if not isinstance(item, dict):
             continue
         results.append(map_nominatim_result(item))
+
+    await complete_geocode_sync_log(
+        sync_log_id,
+        status="success",
+        response_payload={
+            **summarize_nominatim_geocode_response(payload),
+            "mapped_results_count": len(results),
+        },
+    )
     return results
 
 
-async def search_google(query: str, *, limit: int = 3) -> list[dict[str, Any]]:
+async def search_google(
+    query: str,
+    *,
+    limit: int = 3,
+    engagement_id: int | None = None,
+    user_id: int | None = None,
+) -> list[dict[str, Any]]:
     """Search Google Geocoding API and return mapped place suggestions.
 
     Never raises — returns an empty list on failure or missing API key.
@@ -185,33 +233,75 @@ async def search_google(query: str, *, limit: int = 3) -> list[dict[str, Any]]:
     if not q:
         return []
 
+    limit = max(1, min(int(limit), 10))
+    request_payload = {"address": q, "limit": limit}
+
     api_key = (settings.GOOGLE_MAPS_API_KEY or "").strip()
     if not api_key:
+        sync_log_id = await begin_geocode_sync_log(
+            provider=PROVIDER_GOOGLE_MAPS,
+            api_url=GOOGLE_GEOCODE_URL,
+            request_payload=request_payload,
+            engagement_id=engagement_id,
+            user_id=user_id,
+        )
+        await complete_geocode_sync_log(
+            sync_log_id,
+            status="failed",
+            error_message="GOOGLE_MAPS_API_KEY is not configured",
+        )
         logger.warning("Google geocode skipped: GOOGLE_MAPS_API_KEY is not configured")
         return []
 
-    limit = max(1, min(int(limit), 10))
-    params = {
-        "address": q,
-        "key": api_key,
-    }
+    sync_log_id = await begin_geocode_sync_log(
+        provider=PROVIDER_GOOGLE_MAPS,
+        api_url=GOOGLE_GEOCODE_URL,
+        request_payload=request_payload,
+        engagement_id=engagement_id,
+        user_id=user_id,
+    )
 
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_SECONDS) as client:
-            response = await client.get(GOOGLE_GEOCODE_URL, params=params)
+            response = await client.get(
+                GOOGLE_GEOCODE_URL,
+                params={"address": q, "key": api_key},
+            )
             response.raise_for_status()
             payload = response.json()
-    except Exception:
+    except Exception as exc:
+        await complete_geocode_sync_log(
+            sync_log_id,
+            status="failed",
+            error_message=str(exc)[:2000] or "Google geocode search failed",
+        )
         logger.warning("Google geocode search failed for query=%r", q, exc_info=True)
         return []
 
     if not isinstance(payload, dict):
+        await complete_geocode_sync_log(
+            sync_log_id,
+            status="failed",
+            error_message="Google geocode response was not an object",
+        )
         return []
 
     status = str(payload.get("status") or "").upper()
     if status == "ZERO_RESULTS":
+        await complete_geocode_sync_log(
+            sync_log_id,
+            status="success",
+            response_payload=summarize_google_geocode_response(payload),
+        )
         return []
     if status != "OK":
+        error_message = str(payload.get("error_message") or f"Google geocode status={status}")
+        await complete_geocode_sync_log(
+            sync_log_id,
+            status="failed",
+            response_payload=summarize_google_geocode_response(payload),
+            error_message=error_message[:2000],
+        )
         logger.warning(
             "Google geocode non-OK status=%s for query=%r error_message=%r",
             status,
@@ -222,6 +312,12 @@ async def search_google(query: str, *, limit: int = 3) -> list[dict[str, Any]]:
 
     raw_results = payload.get("results")
     if not isinstance(raw_results, list):
+        await complete_geocode_sync_log(
+            sync_log_id,
+            status="failed",
+            response_payload=summarize_google_geocode_response(payload),
+            error_message="Google geocode results missing or invalid",
+        )
         return []
 
     results: list[dict[str, Any]] = []
@@ -229,6 +325,15 @@ async def search_google(query: str, *, limit: int = 3) -> list[dict[str, Any]]:
         if not isinstance(item, dict):
             continue
         results.append(map_google_result(item))
+
+    await complete_geocode_sync_log(
+        sync_log_id,
+        status="success",
+        response_payload={
+            **summarize_google_geocode_response(payload),
+            "mapped_results_count": len(results),
+        },
+    )
     return results
 
 
@@ -237,10 +342,22 @@ async def _search_provider(
     query: str,
     *,
     limit: int,
+    engagement_id: int | None = None,
+    user_id: int | None = None,
 ) -> list[dict[str, Any]]:
     if provider == GeocodingProvider.google:
-        return await search_google(query, limit=limit)
-    return await search_nominatim(query, limit=limit)
+        return await search_google(
+            query,
+            limit=limit,
+            engagement_id=engagement_id,
+            user_id=user_id,
+        )
+    return await search_nominatim(
+        query,
+        limit=limit,
+        engagement_id=engagement_id,
+        user_id=user_id,
+    )
 
 
 def _other_provider(primary: GeocodingProvider) -> GeocodingProvider:
@@ -254,19 +371,33 @@ async def search_places_with_fallback(
     *,
     limit: int = 3,
     primary: GeocodingProvider = GeocodingProvider.google,
+    engagement_id: int | None = None,
+    user_id: int | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Try primary provider, then the other on empty/error. Returns (results, meta)."""
     primary_provider = primary if isinstance(primary, GeocodingProvider) else GeocodingProvider(primary)
     secondary = _other_provider(primary_provider)
 
-    primary_results = await _search_provider(primary_provider, query, limit=limit)
+    primary_results = await _search_provider(
+        primary_provider,
+        query,
+        limit=limit,
+        engagement_id=engagement_id,
+        user_id=user_id,
+    )
     if primary_results:
         return primary_results, {
             "geocoding_provider": primary_provider.value,
             "geocoding_fallback_used": False,
         }
 
-    secondary_results = await _search_provider(secondary, query, limit=limit)
+    secondary_results = await _search_provider(
+        secondary,
+        query,
+        limit=limit,
+        engagement_id=engagement_id,
+        user_id=user_id,
+    )
     if secondary_results:
         return secondary_results, {
             "geocoding_provider": secondary.value,
@@ -284,9 +415,17 @@ async def search_places(
     *,
     limit: int = 3,
     primary: GeocodingProvider = GeocodingProvider.google,
+    engagement_id: int | None = None,
+    user_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Search places with provider fallback. Returns mapped suggestions only."""
-    results, _meta = await search_places_with_fallback(query, limit=limit, primary=primary)
+    results, _meta = await search_places_with_fallback(
+        query,
+        limit=limit,
+        primary=primary,
+        engagement_id=engagement_id,
+        user_id=user_id,
+    )
     return results
 
 
@@ -321,6 +460,8 @@ async def search_places_for_booking(
     pincode: str | None = None,
     primary: GeocodingProvider = GeocodingProvider.google,
     limit: int = 1,
+    engagement_id: int | None = None,
+    user_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Geocode for booking: Google uses full address; Nominatim uses city+pincode only.
 
@@ -341,12 +482,24 @@ async def search_places_for_booking(
         primary_query, secondary_query = nominatim_query, google_query
 
     if primary_query:
-        primary_results = await _search_provider(primary_provider, primary_query, limit=limit)
+        primary_results = await _search_provider(
+            primary_provider,
+            primary_query,
+            limit=limit,
+            engagement_id=engagement_id,
+            user_id=user_id,
+        )
         if primary_results:
             return primary_results
 
     if secondary_query:
-        return await _search_provider(secondary, secondary_query, limit=limit)
+        return await _search_provider(
+            secondary,
+            secondary_query,
+            limit=limit,
+            engagement_id=engagement_id,
+            user_id=user_id,
+        )
 
     return []
 
@@ -411,6 +564,8 @@ async def enrich_location_fields(
     latitude: float | None = None,
     longitude: float | None = None,
     primary: GeocodingProvider = GeocodingProvider.google,
+    engagement_id: int | None = None,
+    user_id: int | None = None,
 ) -> dict[str, Any]:
     """Return location fields, geocoding missing ones from address when needed."""
     fields = {
@@ -441,7 +596,13 @@ async def enrich_location_fields(
     if not query:
         return fields
 
-    results = await search_places(query, limit=1, primary=primary)
+    results = await search_places(
+        query,
+        limit=1,
+        primary=primary,
+        engagement_id=engagement_id,
+        user_id=user_id,
+    )
     if not results:
         return fields
 
