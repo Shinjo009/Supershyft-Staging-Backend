@@ -39,6 +39,17 @@ def _phones_equivalent(left: str | None, right: str | None) -> bool:
     return False
 
 
+def _external_profile_gender_code(gender: str) -> str:
+    g = (gender or "").strip().lower()
+    if g in ("1", "male", "m"):
+        return "1"
+    if g in ("2", "female", "f"):
+        return "2"
+    if g.isdigit() and g in ("1", "2"):
+        return g
+    raise AppError(status_code=422, error_code="INVALID_STATE", message="Invalid gender for MetSights profile")
+
+
 def _profile_name_matches(row: dict[str, Any], *, first_name: str, last_name: str) -> bool:
     row_first = str(row.get("first_name") or "").strip().lower()
     row_last = str(row.get("last_name") or "").strip().lower()
@@ -811,27 +822,12 @@ class MetsightsService:
         safe_email = (email or "").strip() if email is not None else None
         safe_dob = (date_of_birth or "").strip() if date_of_birth is not None else None
 
-        if not safe_first or not safe_phone or not safe_gender:
+        if not safe_gender:
             raise AppError(status_code=422, error_code="INVALID_STATE", message="Missing required profile fields")
 
-        existing_id = await self._find_best_existing_profile_id(
-            first_name=safe_first,
-            last_name=safe_last,
-            phone=safe_phone,
-            email=safe_email,
-            sync_context=sync_context,
-        )
-        if existing_id:
-            return existing_id
-
         payload: dict[str, Any] = {
-            "first_name": safe_first,
-            "last_name": safe_last,
-            "phone": safe_phone,
-            "gender": int(safe_gender),
+            "gender": _external_profile_gender_code(safe_gender),
         }
-        if safe_email:
-            payload["email"] = safe_email
         if safe_dob:
             payload["date_of_birth"] = safe_dob
         elif age is not None:
@@ -870,38 +866,6 @@ class MetsightsService:
                     error_code="EXTERNAL_SERVICE_UNAVAILABLE",
                     message="Metsights authorization failed",
                 ) from exc
-            if status_code == 400:
-                existing_id = await self._find_best_existing_profile_id(
-                    first_name=safe_first,
-                    last_name=safe_last,
-                    phone=safe_phone,
-                    email=safe_email,
-                    sync_context=sync_context,
-                )
-                if existing_id:
-                    return existing_id
-
-                # If email is causing uniqueness conflicts, retry creation without email.
-                if safe_email:
-                    payload_without_email = dict(payload)
-                    payload_without_email.pop("email", None)
-                    try:
-                        created_wo_email = await tracked_metsights_call(
-                            sync_context,
-                            api_url=metsights_api_url("profiles/"),
-                            request_payload=dict(payload_without_email),
-                            operation=lambda: self._client.create_profile(data=payload_without_email),
-                            reraise=False,
-                        )
-                        if created_wo_email is None:
-                            raise ValueError("profile creation without email failed")
-                        envelope = MetsightsEnvelope.model_validate(created_wo_email)
-                        data = envelope.data if isinstance(envelope.data, dict) else {}
-                        profile_id = str(data.get("id") or "").strip()
-                        if profile_id:
-                            return profile_id
-                    except Exception:
-                        pass
             raise AppError(
                 status_code=503,
                 error_code="EXTERNAL_SERVICE_UNAVAILABLE",
@@ -1074,12 +1038,12 @@ class MetsightsService:
         self,
         *,
         profile_id: str,
-        assessment_type_code: str,
+        subscription_id: str,
         sync_context: MetsightsSyncContext | None = None,
     ) -> str:
         safe_profile_id = (profile_id or "").strip()
-        safe_type_code = (assessment_type_code or "").strip()
-        if not safe_profile_id or not safe_type_code:
+        safe_subscription_id = (subscription_id or "").strip()
+        if not safe_profile_id or not safe_subscription_id:
             raise AppError(status_code=422, error_code="INVALID_STATE", message="Missing Metsights record inputs")
         if not settings.METSIGHTS_API_KEY:
             raise AppError(
@@ -1088,11 +1052,11 @@ class MetsightsService:
                 message="Metsights integration is not configured",
             )
 
-        record_payload = {"assessment_type": safe_type_code}
+        record_payload = {"subscription_id": safe_subscription_id}
         try:
             payload = await tracked_metsights_call(
                 sync_context,
-                api_url=metsights_api_url(f"profiles/{safe_profile_id}/records/"),
+                api_url=metsights_api_url(f"profiles/{safe_profile_id}/records"),
                 request_payload=dict(record_payload),
                 operation=lambda: self._client.create_profile_record(
                     profile_id=safe_profile_id,

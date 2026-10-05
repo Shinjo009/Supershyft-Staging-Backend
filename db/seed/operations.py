@@ -113,6 +113,7 @@ async def upsert_assessment_packages(
                     package_code=seed.package_code,
                     display_name=seed.display_name,
                     assessment_type_code=seed.assessment_type_code,
+                    subscription_id=seed.subscription_id,
                     status=seed.status,
                 )
             )
@@ -120,6 +121,7 @@ async def upsert_assessment_packages(
             existing.package_code = seed.package_code
             existing.display_name = seed.display_name
             existing.assessment_type_code = seed.assessment_type_code
+            existing.subscription_id = seed.subscription_id
             existing.status = seed.status
 
 

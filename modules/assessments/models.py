@@ -28,6 +28,7 @@ class AssessmentPackage(Base):
     package_code = Column(String)
     display_name = Column(String)
     assessment_type_code = Column(String, nullable=True)
+    subscription_id = Column(String, nullable=True)
     status = Column(ActiveInactiveArchivedStatus, nullable=True)
 
 

@@ -193,6 +193,7 @@ def all_column_specs() -> list[ColumnSpec]:
         ("package_code", SanitizeKind.SLUG_KEY, True),
         ("display_name", SanitizeKind.SAFE_DISPLAY_NAME, True),
         ("assessment_type_code", SanitizeKind.SLUG_KEY, True),
+        ("subscription_id", SanitizeKind.SLUG_KEY, False),
         ("status", SanitizeKind.STATUS_STR, True),
     ):
         add("assessment_packages", col, kind, ("package_id",), required=req)

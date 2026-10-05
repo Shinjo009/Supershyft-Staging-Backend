@@ -580,6 +580,22 @@ def _find_closest_choice(invalid_value: str, allowed: set[str]) -> str:
 
 
 def _normalize_metsights_type_code(record_row: dict[str, Any]) -> str | None:
+    subscription = record_row.get("subscription")
+    if isinstance(subscription, dict):
+        assessment = subscription.get("assessment")
+        if isinstance(assessment, dict):
+            nested_code = str(assessment.get("assessment_type_code") or "").strip()
+            if nested_code in ("1", "2", "7"):
+                return nested_code
+            nested_name = str(assessment.get("assessment_type") or assessment.get("name") or "").strip()
+            if nested_name:
+                low = nested_name.lower()
+                if "fitprint" in low or "fitness print" in low:
+                    return "7"
+                if "pro" in low:
+                    return "2"
+                if "basic" in low or "essentials" in low:
+                    return "1"
     code = str(record_row.get("assessment_code") or "").strip().upper()
     if code in _ASSESSMENT_CODE_TO_TYPE_CODE:
         return _ASSESSMENT_CODE_TO_TYPE_CODE[code]

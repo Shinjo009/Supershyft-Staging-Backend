@@ -56,6 +56,7 @@ async def create_assessment_package(
         package_code=payload.package_code,
         display_name=payload.display_name,
         assessment_type_code=payload.assessment_type_code,
+        subscription_id=payload.subscription_id,
         status=payload.status,
         ip_address=_client_ip(request),
         user_agent=request.headers.get("User-Agent", "unknown"),
@@ -94,6 +95,7 @@ async def list_assessment_packages(
                 "package_code": package.package_code,
                 "display_name": package.display_name,
                 "assessment_type_code": package.assessment_type_code,
+                "subscription_id": package.subscription_id,
                 "status": package.status,
             }
         )
@@ -116,6 +118,7 @@ async def get_assessment_package_details(
             "package_code": package.package_code,
             "display_name": package.display_name,
             "assessment_type_code": package.assessment_type_code,
+            "subscription_id": package.subscription_id,
             "status": package.status,
         }
     )
@@ -137,6 +140,7 @@ async def update_assessment_package_details(
         package_code=payload.package_code,
         display_name=payload.display_name,
         assessment_type_code=payload.assessment_type_code,
+        subscription_id=payload.subscription_id,
         ip_address=_client_ip(request),
         user_agent=request.headers.get("User-Agent", "unknown"),
         endpoint=str(request.url.path),

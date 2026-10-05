@@ -90,6 +90,7 @@ def _package_to_dict(package: AssessmentPackage) -> dict[str, Any]:
         "package_code": package.package_code,
         "display_name": package.display_name,
         "assessment_type_code": package.assessment_type_code,
+        "subscription_id": package.subscription_id,
         "status": package.status,
     }
 
@@ -260,6 +261,7 @@ class EngagementAssessmentPackagesService:
         package_id = int(package.package_id)
         package_code = package.package_code
         assessment_type_code = (package.assessment_type_code or "").strip()
+        subscription_id = (package.subscription_id or "").strip()
 
         participant_ids = await self._engagements.list_distinct_participant_ids_for_engagement(
             db,
@@ -284,7 +286,7 @@ class EngagementAssessmentPackagesService:
                 # Snapshot before release_request_transaction expires ORM attrs.
                 existing_instance_id = int(existing.assessment_instance_id)
                 existing_rid = (existing.metsights_record_id or "").strip()
-                if not existing_rid and assessment_type_code:
+                if not existing_rid and subscription_id:
                     user = await self._users.get_user_by_id(db, participant_id)
                     profile_id = (getattr(user, "metsights_profile_id", None) or "").strip() if user else ""
                     if profile_id:
@@ -292,7 +294,7 @@ class EngagementAssessmentPackagesService:
                             await release_request_transaction(db)
                             new_rid = await self._metsights.create_record_for_profile(
                                 profile_id=profile_id,
-                                assessment_type_code=assessment_type_code,
+                                subscription_id=subscription_id,
                             )
                             if new_rid:
                                 await self._assessments_repo.set_metsights_record_id(
@@ -336,12 +338,12 @@ class EngagementAssessmentPackagesService:
             profile_id = (getattr(user, "metsights_profile_id", None) or "").strip() if user else ""
 
             metsights_record_id: str | None = None
-            if profile_id and assessment_type_code:
+            if profile_id and subscription_id:
                 try:
                     await release_request_transaction(db)
                     metsights_record_id = await self._metsights.create_record_for_profile(
                         profile_id=profile_id,
-                        assessment_type_code=assessment_type_code,
+                        subscription_id=subscription_id,
                     )
                 except AppError as exc:
                     errors.append(
@@ -790,11 +792,12 @@ class EngagementAssessmentPackagesService:
 
         package_code = package.package_code
         assessment_type_code = (package.assessment_type_code or "").strip()
-        if not assessment_type_code:
+        subscription_id = (package.subscription_id or "").strip()
+        if not subscription_id:
             raise AppError(
                 status_code=422,
                 error_code="INVALID_STATE",
-                message="Assessment package has no Metsights assessment type",
+                message="Assessment package is missing MetSights subscription_id",
             )
 
         instances = await self._assessments_repo.list_instances_for_engagement_and_package(
@@ -852,7 +855,7 @@ class EngagementAssessmentPackagesService:
                 await release_request_transaction(db)
                 record_id = await self._metsights.create_record_for_profile(
                     profile_id=profile_id,
-                    assessment_type_code=assessment_type_code,
+                    subscription_id=subscription_id,
                 )
                 await self._assessments_repo.set_metsights_record_id(
                     db,

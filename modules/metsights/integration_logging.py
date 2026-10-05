@@ -28,9 +28,9 @@ class MetsightsSyncContext:
 
 
 def metsights_api_url(path: str) -> str:
-    base = settings.METSIGHTS_BASE_URL.rstrip("/")
-    suffix = path.lstrip("/")
-    return f"{base}/{suffix}"
+    from modules.metsights.client import _metsights_url
+
+    return _metsights_url(path)
 
 
 async def tracked_metsights_call(

@@ -7,6 +7,7 @@ from datetime import timedelta
 import pytest
 from sqlalchemy import text
 
+from core.config import settings
 from modules.metsights.service import MetsightsService
 from modules.users.models import User
 from tests.helpers.auth import employee_auth_header, make_employee, seed_employee, user_auth_header
@@ -32,9 +33,12 @@ async def _seed_engagement_with_package(test_db_session, *, engagement_id: int =
     )
     await test_db_session.execute(
         text(
-            "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status) "
-            "VALUES (:pid, 'METSIGHTS_PRO', 'Metsights Pro', '2', 1) "
-            "ON CONFLICT (package_id) DO UPDATE SET assessment_type_code = EXCLUDED.assessment_type_code"
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, "
+            "subscription_id, status) "
+            "VALUES (:pid, 'METSIGHTS_PRO', 'Metsights Pro', '2', "
+            "'01975457-778f-064b-78a5-6990afec7881', 1) "
+            "ON CONFLICT (package_id) DO UPDATE SET assessment_type_code = EXCLUDED.assessment_type_code, "
+            "subscription_id = EXCLUDED.subscription_id"
         ),
         {"pid": package_id},
     )
@@ -86,9 +90,9 @@ async def test_connect_metsights_records_links_existing_instances(async_client, 
     )
     await test_db_session.commit()
 
-    async def _create_record_for_profile(self, *, profile_id: str, assessment_type_code: str):
+    async def _create_record_for_profile(self, *, profile_id: str, subscription_id: str, **kwargs):
         assert profile_id == METSIGHTS_PROFILE_ID
-        assert assessment_type_code == "2"
+        assert subscription_id == "01975457-778f-064b-78a5-6990afec7881"
         return NEW_RECORD_ID
 
     monkeypatch.setattr(MetsightsService, "create_record_for_profile", _create_record_for_profile)

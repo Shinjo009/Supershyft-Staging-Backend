@@ -55,6 +55,7 @@ class AssessmentPackagesService:
         package_code: str,
         display_name: str,
         assessment_type_code: str,
+        subscription_id: str | None,
         status: str,
         ip_address: str,
         user_agent: str,
@@ -65,6 +66,7 @@ class AssessmentPackagesService:
         code = _normalize(package_code)
         name = _normalize(display_name)
         type_code = _normalize(assessment_type_code)
+        sub_id = _normalize(subscription_id) or None
         status_value = _normalize_status(status)
 
         if not code or not name or not type_code:
@@ -81,6 +83,7 @@ class AssessmentPackagesService:
             package_code=code,
             display_name=name,
             assessment_type_code=type_code,
+            subscription_id=sub_id,
             status=status_value,
         )
         package = await self._repository.create_package(db, package)
@@ -175,6 +178,7 @@ class AssessmentPackagesService:
         package_code: str,
         display_name: str,
         assessment_type_code: str,
+        subscription_id: str | None,
         ip_address: str,
         user_agent: str,
         endpoint: str,
@@ -184,6 +188,7 @@ class AssessmentPackagesService:
         code = _normalize(package_code)
         name = _normalize(display_name)
         type_code = _normalize(assessment_type_code)
+        sub_id = _normalize(subscription_id) or None
 
         if not code or not name or not type_code:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
@@ -199,6 +204,7 @@ class AssessmentPackagesService:
         package.package_code = code
         package.display_name = name
         package.assessment_type_code = type_code
+        package.subscription_id = sub_id
         package = await self._repository.update_package(db, package)
 
         audit = self._require_audit_service()

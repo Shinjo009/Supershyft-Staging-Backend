@@ -43,6 +43,7 @@ class SeedAssessmentPackage:
     display_name: str
     assessment_type_code: str
     status: str
+    subscription_id: str | None = None
 
 
 @dataclass(frozen=True)

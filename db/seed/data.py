@@ -104,9 +104,10 @@ DEFAULT_ASSESSMENT_PACKAGES: tuple[SeedAssessmentPackage, ...] = (
     SeedAssessmentPackage(
         package_id=1,
         package_code="METSIGHTS_BASIC",
-        display_name="Metsights Basic",
+        display_name="MetSights Essentials",
         assessment_type_code="1",
         status="active",
+        subscription_id="01975457-63d4-c3eb-52f7-15bd67a7da7a",
     ),
     SeedAssessmentPackage(
         package_id=2,
@@ -114,6 +115,7 @@ DEFAULT_ASSESSMENT_PACKAGES: tuple[SeedAssessmentPackage, ...] = (
         display_name="Metsights Pro",
         assessment_type_code="2",
         status="active",
+        subscription_id="01975457-778f-064b-78a5-6990afec7881",
     ),
     SeedAssessmentPackage(
         package_id=3,
@@ -121,6 +123,7 @@ DEFAULT_ASSESSMENT_PACKAGES: tuple[SeedAssessmentPackage, ...] = (
         display_name="FitPrint Full",
         assessment_type_code="7",
         status="active",
+        subscription_id="01975457-d2fb-54af-8795-55933c580979",
     ),
 )
 

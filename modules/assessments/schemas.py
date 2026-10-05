@@ -81,6 +81,7 @@ class AssessmentPackageCreateRequest(BaseModel):
     package_code: PackageCode
     display_name: SafeDisplayName
     assessment_type_code: SlugKey
+    subscription_id: Optional[str] = Field(default=None, max_length=64)
     status: StatusStr = "active"
 
 
@@ -88,6 +89,7 @@ class AssessmentPackageUpdateRequest(BaseModel):
     package_code: PackageCode
     display_name: SafeDisplayName
     assessment_type_code: SlugKey
+    subscription_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class AssessmentPackageCategoriesAddRequest(BaseModel):
@@ -103,6 +105,7 @@ class AssessmentPackageListItem(BaseModel):
     package_code: Optional[str] = None
     display_name: Optional[str] = None
     assessment_type_code: Optional[str] = None
+    subscription_id: Optional[str] = None
     status: Optional[str] = None
 
 

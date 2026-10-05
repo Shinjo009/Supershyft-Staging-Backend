@@ -19,7 +19,7 @@ async def test_get_report_pdf_fitprint_uses_fitness_reports_path_only(monkeypatc
     client = MetsightsClient()
     calls: list[str] = []
 
-    async def _fake_get(self, url, headers=None):
+    async def _fake_get(url, headers=None):
         calls.append(url)
         response = MagicMock()
         response.status_code = 200
@@ -42,7 +42,7 @@ async def test_get_report_pdf_fitprint_uses_fitness_reports_path_only(monkeypatc
         payload = await client.get_report_pdf(record_id="FITPRINT01", assessment_type_code="7")
 
     assert len(calls) == 1
-    assert calls[0].endswith("/reports/fitness-reports/FITPRINT01/pdf/")
+    assert calls[0].endswith("/external/reports/fitness/FITPRINT01/pdf/")
     assert "fitness" in payload["data"]["file"]
 
 
@@ -55,7 +55,7 @@ async def test_get_report_pdf_metabolic_uses_reports_path_only(monkeypatch):
     client = MetsightsClient()
     calls: list[str] = []
 
-    async def _fake_get(self, url, headers=None):
+    async def _fake_get(url, headers=None):
         calls.append(url)
         response = MagicMock()
         response.status_code = 200
@@ -75,4 +75,4 @@ async def test_get_report_pdf_metabolic_uses_reports_path_only(monkeypatch):
         await client.get_report_pdf(record_id="METPRO01", assessment_type_code="2")
 
     assert len(calls) == 1
-    assert calls[0].endswith("/reports/METPRO01/pdf/")
+    assert calls[0].endswith("/external/reports/metsights/METPRO01/pdf/")

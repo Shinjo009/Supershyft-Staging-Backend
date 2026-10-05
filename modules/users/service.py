@@ -1243,13 +1243,18 @@ class UsersService:
         if profile_id and self._metsights_service is not None:
             try:
                 await release_request_transaction(db)
-                fitprint_record_id = await self._metsights_service.create_record_for_profile(
-                    profile_id=profile_id,
-                    assessment_type_code="7",
-                )
                 fitprint_package = await self._assessments_service.get_package_by_assessment_type_code(
                     db,
                     assessment_type_code="7",
+                )
+                fitprint_sub = (
+                    (getattr(fitprint_package, "subscription_id", None) or "").strip() if fitprint_package else ""
+                )
+                if not fitprint_sub:
+                    raise RuntimeError("FitPrint package is missing MetSights subscription_id")
+                fitprint_record_id = await self._metsights_service.create_record_for_profile(
+                    profile_id=profile_id,
+                    subscription_id=fitprint_sub,
                 )
                 if fitprint_package is not None and fitprint_record_id:
                     await self._assessments_service.ensure_instance_assigned(
@@ -1277,12 +1282,12 @@ class UsersService:
         if profile_id and self._metsights_service is not None:
             try:
                 package = await self._assessments_service.get_package_by_id(db, assessment_package_id)
-                assessment_type_code = (getattr(package, "assessment_type_code", None) or "").strip() if package else ""
-                if assessment_type_code:
+                subscription_id = (getattr(package, "subscription_id", None) or "").strip() if package else ""
+                if subscription_id:
                     await release_request_transaction(db)
                     metsights_record_id = await self._metsights_service.create_record_for_profile(
                         profile_id=profile_id,
-                        assessment_type_code=assessment_type_code,
+                        subscription_id=subscription_id,
                     )
             except Exception as exc:
                 logger.warning(
@@ -2422,9 +2427,12 @@ class UsersService:
                 if fitprint_package is None:
                     raise RuntimeError("Active FitPrint Full assessment package is missing")
                 await release_request_transaction(db)
+                fitprint_sub = (getattr(fitprint_package, "subscription_id", None) or "").strip()
+                if not fitprint_sub:
+                    raise RuntimeError("FitPrint package is missing MetSights subscription_id")
                 fitprint_record_id = await self._metsights_service.create_record_for_profile(
                     profile_id=profile_id,
-                    assessment_type_code="7",
+                    subscription_id=fitprint_sub,
                 )
                 await self._assessments_service.ensure_instance_assigned(
                     db,
@@ -2457,12 +2465,12 @@ class UsersService:
         ):
             try:
                 package = await self._assessments_service.get_package_by_id(db, engagement.assessment_package_id)
-                assessment_type_code = (getattr(package, "assessment_type_code", None) or "").strip() if package else ""
-                if assessment_type_code:
+                subscription_id = (getattr(package, "subscription_id", None) or "").strip() if package else ""
+                if subscription_id:
                     await release_request_transaction(db)
                     record_id = await self._metsights_service.create_record_for_profile(
                         profile_id=profile_id,
-                        assessment_type_code=assessment_type_code,
+                        subscription_id=subscription_id,
                     )
                     assessment_instance = await self._assessments_service.ensure_instance_assigned(
                         db,
@@ -2859,15 +2867,23 @@ class UsersService:
 
                 if bool(engagement.enroll_for_fitprint_full):
                     await release_request_transaction(db)
-                    fitprint_record_id = await self._metsights_service.create_record_for_profile(
-                        profile_id=profile_id,
-                        assessment_type_code="7",
-                        sync_context=sync_context,
-                    )
                     fitprint_package = await self._assessments_service.get_package_by_assessment_type_code(
                         db,
                         assessment_type_code="7",
                     )
+                    fitprint_sub = (
+                        (getattr(fitprint_package, "subscription_id", None) or "").strip()
+                        if fitprint_package is not None
+                        else ""
+                    )
+                    if fitprint_sub:
+                        fitprint_record_id = await self._metsights_service.create_record_for_profile(
+                            profile_id=profile_id,
+                            subscription_id=fitprint_sub,
+                            sync_context=sync_context,
+                        )
+                    else:
+                        fitprint_record_id = None
                     if fitprint_package is not None:
                         await self._assessments_service.ensure_instance_assigned(
                             db,
@@ -2895,15 +2911,15 @@ class UsersService:
         if profile_id:
             try:
                 package = await self._assessments_service.get_package_by_id(db, engagement.assessment_package_id)
-                primary_type_code = (
-                    (getattr(package, "assessment_type_code", None) or "").strip() if package is not None else ""
+                primary_subscription_id = (
+                    (getattr(package, "subscription_id", None) or "").strip() if package is not None else ""
                 )
                 primary_record_id: str | None = None
-                if primary_type_code:
+                if primary_subscription_id:
                     await release_request_transaction(db)
                     primary_record_id = await self._metsights_service.create_record_for_profile(
                         profile_id=profile_id,
-                        assessment_type_code=primary_type_code,
+                        subscription_id=primary_subscription_id,
                         sync_context=sync_context,
                     )
                 if primary_record_id and assessment_instance is not None:
@@ -2938,13 +2954,13 @@ class UsersService:
         ):
             try:
                 package = await self._assessments_service.get_package_by_id(db, engagement.assessment_package_id)
-                assessment_type_code = (getattr(package, "assessment_type_code", None) or "").strip() if package else ""
+                subscription_id = (getattr(package, "subscription_id", None) or "").strip() if package else ""
                 profile_id = (user.metsights_profile_id or "").strip()
-                if profile_id and assessment_type_code:
+                if profile_id and subscription_id:
                     await release_request_transaction(db)
                     record_id = await self._metsights_service.create_record_for_profile(
                         profile_id=profile_id,
-                        assessment_type_code=assessment_type_code,
+                        subscription_id=subscription_id,
                         sync_context=sync_context,
                     )
                     assessment_instance = await self._assessments_service.ensure_instance_assigned(
