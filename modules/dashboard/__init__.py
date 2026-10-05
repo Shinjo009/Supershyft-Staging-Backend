@@ -1,0 +1,1 @@
+"""Admin dashboard aggregate endpoints."""

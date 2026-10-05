@@ -320,11 +320,16 @@ async def list_engagements_data_completeness_summary(
     sort_dir: str | None = None,
     limit: int = Query(default=100, ge=1, le=500),
     date: date | None = None,
+    include_participant_issues: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
     engagements_service: EngagementsService = Depends(get_engagements_service),
 ):
-    """Rollup and per-engagement data completeness for filtered engagements."""
+    """Rollup and per-engagement data completeness for filtered engagements.
+
+    Pass ``include_participant_issues=true`` to also return flat participant
+    issue rows (missing blood slot, questionnaire, blood report, or Bio-AI report).
+    """
     data = await engagements_service.list_engagements_data_completeness_summary(
         db,
         employee=employee,
@@ -339,6 +344,7 @@ async def list_engagements_data_completeness_summary(
         sort_by=sort_by,
         sort_dir=sort_dir,
         limit=limit,
+        include_participant_issues=include_participant_issues,
     )
     return success_response(data)
 

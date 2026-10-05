@@ -1673,9 +1673,19 @@ class UsersService:
     async def get_participant_metsights_stats_for_employee(self, db: AsyncSession, *, employee) -> dict:
         self._ensure_employee_access(employee)
         with_profile, total_participants = await self._repository.count_participant_metsights_stats(db)
+        year_counts = await self._repository.count_users_created_by_year(db)
+        yearly_totals: list[dict] = []
+        if year_counts:
+            by_year = dict(year_counts)
+            running = 0
+            for year in range(min(by_year), max(by_year) + 1):
+                added = by_year.get(year, 0)
+                running += added
+                yearly_totals.append({"year": year, "new_users": added, "total_users": running})
         return {
             "with_metsights_profile": with_profile,
             "total_participants": total_participants,
+            "yearly_totals": yearly_totals,
         }
 
     async def list_duplicate_phone_users_for_employee(self, db: AsyncSession, *, employee) -> list[list[User]]:

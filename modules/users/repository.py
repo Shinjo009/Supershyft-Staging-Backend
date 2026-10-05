@@ -9,7 +9,7 @@ from typing import Optional
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import asc, delete, desc, func, or_, select, update
+from sqlalchemy import Integer, asc, cast, delete, desc, extract, func, or_, select, update
 
 from common.listing import apply_sort, ilike_pattern, normalize_sort_dir
 from sqlalchemy.dialects.postgresql import insert
@@ -117,6 +117,24 @@ class UsersRepository:
         with_profile_result = await db.execute(with_profile_query)
         with_profile = int(with_profile_result.scalar_one())
         return with_profile, total_participants
+
+    async def count_users_created_by_year(self, db: AsyncSession) -> list[tuple[int, int]]:
+        year_expr = cast(extract("year", User.created_at), Integer)
+        rows = (
+            await db.execute(
+                select(year_expr.label("y"), func.count().label("count"))
+                .where(User.created_at.is_not(None))
+                .group_by(year_expr)
+                .order_by(year_expr.asc())
+            )
+        ).all()
+        out: list[tuple[int, int]] = []
+        for row in rows:
+            y = row.y
+            if y is None:
+                continue
+            out.append((int(y), int(row.count)))
+        return out
 
     async def count_users_with_metsights_profile_id(self, db: AsyncSession) -> int:
         query = (

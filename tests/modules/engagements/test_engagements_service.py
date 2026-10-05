@@ -316,3 +316,98 @@ async def test_list_engagements_data_completeness_summary_rollup(test_db_session
     assert by_id[9021]["summary"]["total_participants"] == 1
     assert by_id[9021]["summary"]["bio_ai_report"] == 1
     assert by_id[9021]["summary"]["bio_ai_json"] == 1
+    assert "participant_issues" not in data
+
+
+@pytest.mark.asyncio
+async def test_list_engagements_data_completeness_summary_includes_participant_issues(test_db_session):
+    await test_db_session.execute(
+        text(
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
+            "VALUES (1, 'PKG1', 'Test Package', 1) ON CONFLICT (package_id) DO NOTHING"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO diagnostic_package (diagnostic_package_id, package_name, diagnostic_provider, status) "
+            "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO notification_services "
+            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail) "
+            "VALUES ('booking-alert-whatsapp', 'Booking Alert', 'whatsapp', 'booking-alert', true, false, false, false) "
+            "ON CONFLICT (service_key) DO NOTHING"
+        )
+    )
+    await test_db_session.commit()
+
+    await test_db_session.execute(
+        text(
+            "INSERT INTO engagements (engagement_id, engagement_name, engagement_code, engagement_type, "
+            "assessment_package_id, diagnostic_package_id, city, slot_duration, start_date, end_date, status, "
+            "organization_id, onboarding_notification) VALUES "
+            "(9030, 'Issues Camp', 'ENG9030', 'bio_ai', 1, 1, 'BLR', 20, '2026-02-01', '2026-02-01', 'running', NULL, 'booking-alert-whatsapp')"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO users (user_id, age, phone, status, first_name, last_name) VALUES "
+            "(1301, 30, '9444444401', 1, 'No', 'Slot'), "
+            "(1302, 31, '9444444402', 1, 'Has', 'Slot')"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO engagement_participants "
+            "(engagement_participant_id, engagement_id, user_id, booked_by_user_id) VALUES "
+            "(90301, 9030, 1301, 1301), "
+            "(90302, 9030, 1302, 1302)"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO participant_blood_bookings "
+            "(id, engagement_participant_id, relation, status, booking_id, diagnostic_report_url) "
+            "VALUES (903021, 90302, 'primary', 1, 'BK-1302', 'https://supershyft.com/reports/AbCdEfGhIjKlMnOp.pdf')"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO individual_health_report "
+            "(report_id, user_id, engagement_id, report_url, reports) VALUES "
+            "(903002, 1302, 9030, 'https://example.com/bio-1302.pdf', CAST(:bio_json AS jsonb))"
+        ),
+        {"bio_json": '{"metabolic_score": 80}'},
+    )
+    await test_db_session.commit()
+
+    service = EngagementsService(EngagementsRepository())
+    data = await service.list_engagements_data_completeness_summary(
+        test_db_session,
+        employee=EmployeeContext(employee_id=1, role="admin"),
+        organization_id=None,
+        camp_no=None,
+        status="running",
+        city="BLR",
+        on_date=None,
+        search=None,
+        engagement_type=None,
+        audience="b2c",
+        include_participant_issues=True,
+    )
+
+    issues = data["participant_issues"]
+    by_user_type = {(row["user_id"], row["issue_type"]) for row in issues}
+    assert (1301, "missing_blood_slot") in by_user_type
+    assert (1301, "missing_questionnaire") in by_user_type
+    assert (1301, "missing_blood_report") in by_user_type
+    assert (1301, "missing_bio_ai_report") in by_user_type
+    assert (1302, "missing_blood_report") not in by_user_type
+    assert (1302, "missing_bio_ai_report") not in by_user_type
+    assert (1302, "missing_blood_slot") not in by_user_type
+    slot_issue = next(row for row in issues if row["user_id"] == 1301 and row["issue_type"] == "missing_blood_slot")
+    assert slot_issue["participant_name"] == "No Slot"
+    assert slot_issue["engagement_id"] == 9030
+    assert slot_issue["engagement_name"] == "Issues Camp"
