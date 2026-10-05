@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from core.exceptions import AppError
@@ -144,6 +144,28 @@ def is_upcoming_slot(date_str: str | None, slot_str: str | None, *, now: datetim
         return False
     current = now or datetime.now()
     return when >= current
+
+
+def consultation_dashboard_status(
+    *,
+    done: bool,
+    date_str: str | None,
+    slot_str: str | None,
+    session_duration_mins: int,
+    now: datetime | None = None,
+) -> str:
+    """Dashboard status for an assigned consultation: completed, live_now, or upcoming."""
+    if done:
+        return "completed"
+    when = consultation_datetime(date_str, slot_str)
+    if when is None:
+        return "upcoming"
+    current = now or datetime.now()
+    duration = session_duration_mins if session_duration_mins > 0 else 30
+    end = when + timedelta(minutes=duration)
+    if when <= current < end:
+        return "live_now"
+    return "upcoming"
 
 
 def booking_to_api_preference(booking: Any) -> dict[str, Any]:
