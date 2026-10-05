@@ -269,6 +269,8 @@ def context_has_capability(employee, category: str, action: PermissionAction) ->
 def _excluded(path: str, method: str) -> bool:
     if path in {"/health", "/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}:
         return True
+    if path.startswith("/admin/dashboard"):
+        return True
     if path.startswith(("/auth", "/webhooks", "/media", "/pdf-upload", "/payment-test")):
         return True
     if path.startswith("/experts/portal"):

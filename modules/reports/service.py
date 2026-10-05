@@ -2676,6 +2676,49 @@ class ReportsService:
                 values[key] = pair
         return values
 
+    async def _blood_parameter_display_name_map(
+        self,
+        db: AsyncSession,
+    ) -> dict[str, str]:
+        """Map lowercased parameter_key → test_name from health_parameters.
+
+        Prefer METRIC over TEST when both exist for the same key.
+        """
+        rows = await self._diagnostics_service.list_parameters(db)
+        name_by_key: dict[str, str] = {}
+        # Process TEST first, then METRIC so METRIC overwrites duplicates.
+        ordered = sorted(
+            rows,
+            key=lambda row: (
+                0
+                if str(getattr(row.parameter_type, "value", row.parameter_type)).lower()
+                == "metric"
+                else 1
+            ),
+            reverse=True,
+        )
+        for row in ordered:
+            key = (row.parameter_key or "").strip().lower()
+            name = (row.test_name or "").strip()
+            if key and name:
+                name_by_key[key] = name
+        return name_by_key
+
+    @staticmethod
+    def _all_trend_data_points(
+        values: dict[str, tuple[float, str | None]],
+        name_by_key: dict[str, str],
+    ) -> list[dict[str, Any]]:
+        return [
+            {
+                "parameter_name": name_by_key.get(key.lower(), key),
+                "parameter_key": key,
+                "unit": unit,
+                "value": value,
+            }
+            for key, (value, unit) in sorted(values.items())
+        ]
+
     async def _build_all_blood_parameter_trends_payload(
         self,
         db: AsyncSession,
@@ -2686,6 +2729,7 @@ class ReportsService:
             db,
             user_id=user_id,
         )
+        name_by_key = await self._blood_parameter_display_name_map(db)
 
         def _trend_type_priority(type_code: str | None) -> int:
             code = (type_code or "").strip()
@@ -2739,19 +2783,11 @@ class ReportsService:
                 continue
 
             seen_engagement_ids.add(engagement_id)
-            data_points = [
-                {
-                    "parameter": key,
-                    "unit": unit,
-                    "value": value,
-                }
-                for key, (value, unit) in sorted(values.items())
-            ]
             engagements.append(
                 {
                     "date": date_value,
                     "engagement_id": engagement_id,
-                    "data_points": data_points,
+                    "data_points": self._all_trend_data_points(values, name_by_key),
                 }
             )
 
@@ -2775,19 +2811,11 @@ class ReportsService:
             if not values:
                 continue
             seen_engagement_ids.add(engagement_id)
-            data_points = [
-                {
-                    "parameter": key,
-                    "unit": unit,
-                    "value": value,
-                }
-                for key, (value, unit) in sorted(values.items())
-            ]
             engagements.append(
                 {
                     "date": date_value,
                     "engagement_id": engagement_id,
-                    "data_points": data_points,
+                    "data_points": self._all_trend_data_points(values, name_by_key),
                 }
             )
 

@@ -212,6 +212,46 @@ def _parse_status_filter(status: str | None) -> list[str] | None:
     return normalized_values
 
 
+def _participant_display_name(first_name, last_name, user_id: int) -> str:
+    parts = [str(first_name or "").strip(), str(last_name or "").strip()]
+    name = " ".join(part for part in parts if part)
+    return name or f"User #{user_id}"
+
+
+def _participant_issues_from_completeness(engagement, participants: list[dict]) -> list[dict]:
+    """Flatten missing blood slot, questionnaire, blood report, and Bio-AI report issues."""
+    issues: list[dict] = []
+    engagement_id = int(engagement.engagement_id)
+    for participant in participants:
+        user_id = int(participant["user_id"])
+        base = {
+            "user_id": user_id,
+            "participant_name": _participant_display_name(
+                participant.get("first_name"),
+                participant.get("last_name"),
+                user_id,
+            ),
+            "engagement_id": engagement_id,
+            "engagement_name": engagement.engagement_name,
+            "engagement_code": engagement.engagement_code,
+        }
+        if not participant.get("has_booking_id"):
+            issues.append({**base, "issue_type": "missing_blood_slot", "status": "missing"})
+        if participant.get("questionnaire_state") != "filled":
+            issues.append(
+                {
+                    **base,
+                    "issue_type": "missing_questionnaire",
+                    "status": participant.get("questionnaire_state") or "not_started",
+                }
+            )
+        if not participant.get("has_blood_report"):
+            issues.append({**base, "issue_type": "missing_blood_report", "status": "missing"})
+        if not participant.get("has_bio_ai_report"):
+            issues.append({**base, "issue_type": "missing_bio_ai_report", "status": "missing"})
+    return issues
+
+
 def _normalize_phone_for_metsights(raw: str | None) -> str | None:
     value = (raw or "").strip().replace(" ", "").replace("-", "")
     if not value:
@@ -3360,8 +3400,14 @@ class EngagementsService:
         sort_by: str | None = None,
         sort_dir: str | None = None,
         limit: int = 100,
+        include_participant_issues: bool = False,
     ) -> dict:
-        """Return rollup + per-engagement completeness summaries for filtered engagements."""
+        """Return rollup + per-engagement completeness summaries for filtered engagements.
+
+        When ``include_participant_issues`` is true, also return a flat
+        ``participant_issues`` list for missing blood slots, questionnaires,
+        blood reports, and Bio-AI reports.
+        """
         ensure_admin(employee)
 
         if limit < 1 or limit > 500:
@@ -3404,12 +3450,24 @@ class EngagementsService:
             "questionnaire_not_started": 0,
         }
         engagement_rows: list[dict] = []
+        participant_issues: list[dict] = []
 
         for engagement in engagements:
-            summary = await self._summarize_engagement_data_completeness(
-                db,
-                engagement_id=int(engagement.engagement_id),
-            )
+            if include_participant_issues:
+                payload = await self._build_engagement_data_completeness_payload(
+                    db,
+                    engagement_id=int(engagement.engagement_id),
+                    include_participants=True,
+                )
+                summary = payload["summary"]
+                participant_issues.extend(
+                    _participant_issues_from_completeness(engagement, payload.get("participants") or [])
+                )
+            else:
+                summary = await self._summarize_engagement_data_completeness(
+                    db,
+                    engagement_id=int(engagement.engagement_id),
+                )
             engagement_rows.append(
                 {
                     "engagement_id": int(engagement.engagement_id),
@@ -3432,7 +3490,10 @@ class EngagementsService:
             rollup["questionnaire_not_started"] += summary["questionnaire_not_started"]
 
         rollup["engagement_count"] = len(engagement_rows)
-        return {"rollup": rollup, "engagements": engagement_rows}
+        result: dict = {"rollup": rollup, "engagements": engagement_rows}
+        if include_participant_issues:
+            result["participant_issues"] = participant_issues
+        return result
 
     async def _summarize_engagement_data_completeness(
         self,
