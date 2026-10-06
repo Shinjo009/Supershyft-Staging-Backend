@@ -517,9 +517,13 @@ class DiscountService:
     async def reports_summary(self, db: AsyncSession) -> dict[str, Any]:
         rows, total = await self.repository.list_codes(db, limit=200, offset=0)
         abuse_events = await abuse.count_abuse_events_24h(db)
+        code_ids = [row.discount_code_id for row in rows]
+        stats_by_id = await self.repository.usage_stats_for_codes(db, code_ids)
         summaries = []
         for row in rows:
-            stats = await self.repository.usage_stats(db, row.discount_code_id)
+            stats = stats_by_id.get(row.discount_code_id) or await self.repository.usage_stats(
+                db, row.discount_code_id
+            )
             summaries.append(
                 {
                     "discount_code_id": row.discount_code_id,

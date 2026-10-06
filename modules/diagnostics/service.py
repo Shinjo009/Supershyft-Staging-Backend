@@ -185,11 +185,9 @@ class DiagnosticsService:
             display_order=row.display_order,
         )
 
-    def _package_filter_chip_responses(self, package: DiagnosticPackage) -> list[PackageFilterChipResponse]:
-        links = sorted(
-            [ln for ln in package.filter_chip_links if ln.diagnostic_package_id is not None],
-            key=lambda ln: (ln.display_order is None, ln.display_order or 0, ln.link_id),
-        )
+    def _filter_chip_responses_from_links(
+        self, links: list
+    ) -> list[PackageFilterChipResponse]:
         out: list[PackageFilterChipResponse] = []
         for link in links:
             chip = link.filter_chip
@@ -204,6 +202,13 @@ class DiagnosticsService:
                 )
             )
         return out
+
+    def _package_filter_chip_responses(self, package: DiagnosticPackage) -> list[PackageFilterChipResponse]:
+        links = sorted(
+            [ln for ln in package.filter_chip_links if ln.diagnostic_package_id is not None],
+            key=lambda ln: (ln.display_order is None, ln.display_order or 0, ln.link_id),
+        )
+        return self._filter_chip_responses_from_links(links)
 
     def _to_reason_response(self, row: DiagnosticPackageReason) -> ReasonResponse:
         return ReasonResponse(
@@ -399,15 +404,16 @@ class DiagnosticsService:
         )
         pkg_ids = [r.diagnostic_package_id for r in rows]
         counts = await self._repository.count_distinct_tests_for_packages(db, package_ids=pkg_ids)
+        tags_by_pkg = await self._repository.list_tags_for_package_ids(db, package_ids=pkg_ids)
+        chip_links_by_pkg = await self._repository.list_filter_chip_links_for_package_ids(
+            db, package_ids=pkg_ids
+        )
         items: list[DiagnosticPackageListItem] = []
         for row in rows:
             price = float(row.price) if row.price is not None else None
             original_price = float(row.original_price) if row.original_price is not None else None
             min_price = float(row.min_price) if row.min_price is not None else None
-            tags = sorted(
-                list(row.tags),
-                key=lambda t: (t.display_order is None, t.display_order or 0, t.tag_id),
-            )
+            tags = tags_by_pkg.get(int(row.diagnostic_package_id), [])
             n_tests = counts.get(row.diagnostic_package_id, 0)
             items.append(
                 DiagnosticPackageListItem(
@@ -430,7 +436,9 @@ class DiagnosticsService:
                     package_for=row.package_for,
                     status=row.status,
                     tags=[self._to_tag_response(tag_row) for tag_row in tags],
-                    filter_chips=self._package_filter_chip_responses(row),
+                    filter_chips=self._filter_chip_responses_from_links(
+                        chip_links_by_pkg.get(int(row.diagnostic_package_id), [])
+                    ),
                 )
             )
         return items
@@ -613,6 +621,58 @@ class DiagnosticsService:
         await self._require_audit_service().log_event(
             db,
             action="EMPLOYEE_REORDER_DIAGNOSTIC_PACKAGES",
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=None,
+            session_id=None,
+        )
+        return {"reordered": True}
+
+    async def reorder_filter_chips(
+        self,
+        db,
+        *,
+        employee: EmployeeContext,
+        filter_chip_ids: list[int],
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> dict:
+        self._ensure_employee_access(employee)
+        await self._repository.reorder_filter_chips(db, filter_chip_ids=filter_chip_ids)
+        await self._require_audit_service().log_event(
+            db,
+            action="EMPLOYEE_REORDER_DIAGNOSTIC_FILTER_CHIPS",
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=None,
+            session_id=None,
+        )
+        return {"reordered": True}
+
+    async def reorder_package_reasons(
+        self,
+        db,
+        *,
+        employee: EmployeeContext,
+        package_id: int,
+        reason_ids: list[int],
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> dict:
+        self._ensure_employee_access(employee)
+        pkg = await self._repository.get_package_by_id(db, package_id=package_id)
+        if pkg is None:
+            raise AppError(status_code=404, error_code="PACKAGE_NOT_FOUND", message="Package does not exist")
+        await self._repository.reorder_package_reasons(
+            db, package_id=package_id, reason_ids=reason_ids
+        )
+        await self._require_audit_service().log_event(
+            db,
+            action="EMPLOYEE_REORDER_DIAGNOSTIC_PACKAGE_REASONS",
             endpoint=endpoint,
             ip_address=ip_address,
             user_agent=user_agent,

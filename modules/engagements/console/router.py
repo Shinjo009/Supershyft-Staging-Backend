@@ -61,6 +61,38 @@ async def get_engagement_for_console(
     return success_response(data)
 
 
+@router.get("/{engagement_id}/console/bootstrap")
+async def get_engagement_console_bootstrap(
+    engagement_id: int,
+    page: int = 1,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+    actor: ConsoleActor = Depends(get_console_actor),
+    console_service: ConsoleService = Depends(get_console_service),
+):
+    if page < 1 or limit < 1 or limit > 100:
+        raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+
+    engagement = await console_service.get_engagement_for_console(
+        db,
+        employee=actor.employee,
+        partner=actor.partner,
+        engagement_id=engagement_id,
+    )
+    participants, total = await console_service.list_participants_for_console(
+        db,
+        employee=actor.employee,
+        partner=actor.partner,
+        engagement_id=engagement_id,
+        page=page,
+        limit=limit,
+    )
+    return success_response(
+        {"engagement": engagement, "participants": participants},
+        meta={"page": page, "limit": limit, "total": total},
+    )
+
+
 @router.get("/{engagement_id}/console/participants")
 async def get_console_participants(
     engagement_id: int,

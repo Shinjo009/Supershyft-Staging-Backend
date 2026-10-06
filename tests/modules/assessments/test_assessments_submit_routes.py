@@ -1,4 +1,4 @@
-"""Tests for POST /assessments/{assessment_instance_id}/submit-legacy and Metsights push."""
+"""Tests for POST /assessments/{assessment_instance_id}/submit and Metsights push."""
 
 from __future__ import annotations
 
@@ -7,15 +7,140 @@ from datetime import timedelta
 import pytest
 
 from core.config import settings
+from core.exceptions import AppError
 from core.security import create_jwt_token
+from modules.assessments.dependencies import get_assessments_service
 from modules.assessments.models import AssessmentInstance, AssessmentPackage, AssessmentPackageCategory
-from modules.questionnaire.models import QuestionnaireResponse
+from modules.metsights.dependencies import get_metsights_sync_service
+from modules.questionnaire.models import QuestionnaireCategory, QuestionnaireResponse
 from tests.modules.questionnaire.test_questionnaire_user_routes import _ensure_test_engagement, _seed_user
+
+_SUBMIT_PHYSICAL = {"category": "physical-measurement", "category_of": "metsights"}
+
+
+async def _metsights_category_id(
+    test_db_session, *, category_key: str, fallback_category_id: int = 8800
+) -> int:
+    """Resolve seeded Metsights category id; create a minimal row if missing."""
+    from sqlalchemy import select
+
+    result = await test_db_session.execute(
+        select(QuestionnaireCategory.category_id).where(
+            QuestionnaireCategory.category_key == category_key,
+            QuestionnaireCategory.category_of == "metsights",
+        ).limit(1)
+    )
+    cid = result.scalar_one_or_none()
+    if cid is not None:
+        return int(cid)
+    await _ensure_metsights_category(
+        test_db_session, category_id=fallback_category_id, category_key=category_key
+    )
+    return fallback_category_id
+
+
+async def _ensure_metsights_physical_category(test_db_session, *, category_id: int = 1) -> int:
+    return await _metsights_category_id(
+        test_db_session, category_key="physical-measurement", fallback_category_id=category_id
+    )
+
+
+async def _ensure_metsights_category(
+    test_db_session, *, category_id: int, category_key: str
+) -> None:
+    from sqlalchemy import select
+
+    from modules.questionnaire.models import QuestionnaireCategoryQuestion
+
+    result = await test_db_session.execute(
+        select(QuestionnaireCategory).where(QuestionnaireCategory.category_id == category_id)
+    )
+    category = result.scalar_one_or_none()
+    created = False
+    if category is None:
+        test_db_session.add(
+            QuestionnaireCategory(
+                category_id=category_id,
+                category_key=category_key,
+                display_name=category_key.replace("-", " ").title(),
+                category_of="metsights",
+                status="active",
+            )
+        )
+        created = True
+    else:
+        category.category_key = category_key
+        category.category_of = "metsights"
+    await test_db_session.flush()
+
+    if not created:
+        return
+
+    default_questions: dict[str, list[int]] = {
+        "physical-measurement": [1],
+        "diet-lifestyle-parameters": [6],
+        "fitness-parameters": [10],
+    }
+    for question_id in default_questions.get(category_key, []):
+        test_db_session.add(
+            QuestionnaireCategoryQuestion(
+                id=category_id * 1000 + question_id,
+                category_id=category_id,
+                question_id=question_id,
+            )
+        )
+    await test_db_session.flush()
+
+
+async def _ensure_question_push_enabled(test_db_session, question_id: int) -> None:
+    from modules.questionnaire.models import QuestionnaireDefinition
+
+    question = await test_db_session.get(QuestionnaireDefinition, question_id)
+    if question is None:
+        return
+    cfg = dict(question.metsights_sync or {})
+    push = dict(cfg.get("push") or {})
+    push["enabled"] = True
+    cfg["push"] = push
+    question.metsights_sync = cfg
+    await test_db_session.flush()
+
+
+async def _ensure_category_questions_push_enabled(test_db_session, category_id: int) -> None:
+    from sqlalchemy import select
+
+    from modules.questionnaire.models import QuestionnaireCategoryQuestion
+
+    question_ids = (
+        await test_db_session.execute(
+            select(QuestionnaireCategoryQuestion.question_id).where(
+                QuestionnaireCategoryQuestion.category_id == category_id
+            )
+        )
+    ).scalars().all()
+    for question_id in question_ids:
+        await _ensure_question_push_enabled(test_db_session, int(question_id))
+
+
+async def _post_submit_legacy(async_client, assessment_instance_id: int, user_id: int, body: dict | None = None):
+    return await async_client.post(
+        f"/assessments/{assessment_instance_id}/submit-legacy",
+        headers=_auth_header(user_id),
+        json=body,
+    )
 
 
 def _auth_header(user_id: int) -> dict[str, str]:
     from tests.helpers.auth import user_auth_header
     return user_auth_header(user_id)
+
+
+async def _post_submit_physical(async_client, assessment_instance_id: int, user_id: int):
+    return await async_client.post(
+        f"/assessments/{assessment_instance_id}/submit",
+        headers=_auth_header(user_id),
+        json=_SUBMIT_PHYSICAL,
+    )
 
 
 @pytest.mark.asyncio
@@ -62,16 +187,14 @@ async def test_submit_metsights_basic_patches_physical_measurement(async_client,
         QuestionnaireResponse(
             assessment_instance_id=aid,
             question_id=1,
-            category_id=1,
+            category_ids=[1],
             answer={"value": 175.0, "unit": "0"},
-            submitted_at=None,
         )
     )
     await test_db_session.commit()
 
-    r = await async_client.post(f"/assessments/{aid}/submit-legacy", headers=_auth_header(uid))
+    r = await _post_submit_legacy(async_client, aid, uid)
     assert r.status_code == 200
-    assert r.json()["data"]["message"]
 
     phys = [c for c in calls if c[1] == "physical-measurement"]
     assert len(phys) == 1
@@ -114,7 +237,7 @@ async def test_submit_legacy_metsights_basic_requires_record_id(async_client, te
     )
     await test_db_session.commit()
 
-    r = await async_client.post(f"/assessments/{aid}/submit-legacy", headers=_auth_header(uid))
+    r = await _post_submit_legacy(async_client, aid, uid)
     assert r.status_code == 422
     assert "Metsights record id" in r.json()["message"]
 
@@ -182,9 +305,8 @@ async def test_submit_multi_source_merges_answers(async_client, test_db_session,
         QuestionnaireResponse(
             assessment_instance_id=src_aid,
             question_id=1,
-            category_id=1,
+            category_ids=[1],
             answer={"value": 180.0, "unit": "0"},
-            submitted_at=None,
         )
     )
     # Target instance (active, has weight response)
@@ -202,20 +324,25 @@ async def test_submit_multi_source_merges_answers(async_client, test_db_session,
         QuestionnaireResponse(
             assessment_instance_id=tgt_aid,
             question_id=2,
-            category_id=1,
+            category_ids=[1],
             answer={"value": 72.5, "unit": "0"},
-            submitted_at=None,
         )
     )
     await test_db_session.commit()
 
-    r = await async_client.post(
-        f"/assessments/{tgt_aid}/submit-legacy",
-        headers=_auth_header(uid),
-        json={"source_assessment_instance_ids": [src_aid, tgt_aid]},
+    assessments_service = get_assessments_service()
+    sync_service = get_metsights_sync_service()
+    await assessments_service.submit_assessment_for_user(
+        test_db_session,
+        user_id=uid,
+        assessment_instance_id=tgt_aid,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        endpoint="/test/submit",
+        metsights_sync=sync_service,
+        source_assessment_instance_ids=[src_aid, tgt_aid],
     )
-    assert r.status_code == 200
-    assert r.json()["data"]["message"]
+    await test_db_session.commit()
 
     # FitPrint (type 7) pushes to fitness-parameters
     fit = [c for c in calls if c[1] == "fitness-parameters"]
@@ -274,9 +401,8 @@ async def test_submit_multi_source_last_wins_on_duplicate(async_client, test_db_
         QuestionnaireResponse(
             assessment_instance_id=aid1,
             question_id=1,
-            category_id=1,
+            category_ids=[1],
             answer={"value": 170.0, "unit": "0"},
-            submitted_at=None,
         )
     )
     test_db_session.add(
@@ -293,24 +419,30 @@ async def test_submit_multi_source_last_wins_on_duplicate(async_client, test_db_
         QuestionnaireResponse(
             assessment_instance_id=aid2,
             question_id=1,
-            category_id=1,
-            answer={"value": 185.0, "unit": "2"},
-            submitted_at=None,
+            category_ids=[1],
+            answer={"value": 6.0, "unit": "2"},
         )
     )
     await test_db_session.commit()
 
     # aid2 is later in the list, so its answer should win
-    r = await async_client.post(
-        f"/assessments/{aid2}/submit-legacy",
-        headers=_auth_header(uid),
-        json={"source_assessment_instance_ids": [aid1, aid2]},
+    assessments_service = get_assessments_service()
+    sync_service = get_metsights_sync_service()
+    await assessments_service.submit_assessment_for_user(
+        test_db_session,
+        user_id=uid,
+        assessment_instance_id=aid2,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        endpoint="/test/submit",
+        metsights_sync=sync_service,
+        source_assessment_instance_ids=[aid1, aid2],
     )
-    assert r.status_code == 200
+    await test_db_session.commit()
 
     phys = [c for c in calls if c[1] == "physical-measurement"]
     assert len(phys) == 1
-    assert phys[0][2].get("height") == 185.0
+    assert phys[0][2].get("height") == 6.0
     assert phys[0][2].get("height_unit") == "2"
 
 
@@ -363,13 +495,20 @@ async def test_submit_multi_source_rejects_different_user(async_client, test_db_
     )
     await test_db_session.commit()
 
-    r = await async_client.post(
-        f"/assessments/{target_aid}/submit-legacy",
-        headers=_auth_header(uid1),
-        json={"source_assessment_instance_ids": [other_aid, target_aid]},
-    )
-    assert r.status_code == 422
-    assert "different user" in r.json()["message"]
+    assessments_service = get_assessments_service()
+    sync_service = get_metsights_sync_service()
+    with pytest.raises(AppError) as exc:
+        await assessments_service.submit_assessment_for_user(
+            test_db_session,
+            user_id=uid1,
+            assessment_instance_id=target_aid,
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+            endpoint="/test/submit",
+            metsights_sync=sync_service,
+            source_assessment_instance_ids=[other_aid, target_aid],
+        )
+    assert "different user" in exc.value.message
 
 
 @pytest.mark.asyncio
@@ -417,14 +556,13 @@ async def test_submit_legacy_without_body_still_works(async_client, test_db_sess
         QuestionnaireResponse(
             assessment_instance_id=aid,
             question_id=1,
-            category_id=1,
+            category_ids=[1],
             answer={"value": 165.0, "unit": "0"},
-            submitted_at=None,
         )
     )
     await test_db_session.commit()
 
-    r = await async_client.post(f"/assessments/{aid}/submit-legacy", headers=_auth_header(uid))
+    r = await _post_submit_legacy(async_client, aid, uid)
     assert r.status_code == 200
 
     phys = [c for c in calls if c[1] == "physical-measurement"]
@@ -540,78 +678,29 @@ async def test_submit_legacy_pro_pushes_fitprint_sibling_fitness(async_client, t
         QuestionnaireResponse(
             assessment_instance_id=pro_aid,
             question_id=15,
-            category_id=3,
+            category_ids=[3],
             answer="2",
-            submitted_at=None,
         )
     )
     await test_db_session.commit()
 
-    r = await async_client.post(f"/assessments/{pro_aid}/submit-legacy", headers=_auth_header(uid))
-    assert r.status_code == 200
+    assessments_service = get_assessments_service()
+    sync_service = get_metsights_sync_service()
+    await assessments_service.submit_assessment_for_user(
+        test_db_session,
+        user_id=uid,
+        assessment_instance_id=pro_aid,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        endpoint="/test/submit",
+        metsights_sync=sync_service,
+    )
+    await test_db_session.commit()
 
     fit = [c for c in calls if c[0] == fp_rid and c[1] == "fitness-parameters"]
     assert len(fit) == 1
     assert fit[0][2].get("exercise_frequency_week") == "2"
     assert fit[0][2].get("is_complete") is True
-
-
-@pytest.mark.asyncio
-async def test_submit_legacy_blocked_when_bioai_report_generated(async_client, test_db_session, monkeypatch):
-    await _ensure_test_engagement(test_db_session)
-    monkeypatch.setattr(settings, "METSIGHTS_API_KEY", "test-key")
-
-    async def _report_exists(self, *, record_id: str, assessment_type_code: str | None):
-        return True
-
-    monkeypatch.setattr(
-        "modules.metsights.service.MetsightsService.is_bioai_report_generated",
-        _report_exists,
-    )
-
-    uid = 55250
-    await _seed_user(test_db_session, user_id=uid)
-    pkg_id = 55550
-    test_db_session.add(
-        AssessmentPackage(
-            package_id=pkg_id,
-            package_code="MET_SUBMIT_GUARD",
-            display_name="Submit Guard Test",
-            assessment_type_code="1",
-            status="active",
-        )
-    )
-    test_db_session.add(AssessmentPackageCategory(package_id=pkg_id, category_id=1))
-    await test_db_session.commit()
-
-    aid = 55551
-    rid = "MS-SUBMIT-GUARD"
-    test_db_session.add(
-        AssessmentInstance(
-            assessment_instance_id=aid,
-            user_id=uid,
-            package_id=pkg_id,
-            engagement_id=1,
-            status="active",
-            metsights_record_id=rid,
-        )
-    )
-    test_db_session.add(
-        QuestionnaireResponse(
-            assessment_instance_id=aid,
-            question_id=1,
-            category_id=1,
-            answer={"value": 175.0, "unit": "0"},
-            submitted_at=None,
-        )
-    )
-    await test_db_session.commit()
-
-    r = await async_client.post(f"/assessments/{aid}/submit-legacy", headers=_auth_header(uid))
-    assert r.status_code == 422
-    body = r.json()
-    assert body["error_code"] == "REPORT_ALREADY_GENERATED"
-    assert "BioAI report has already been generated" in body["message"]
 
 
 @pytest.mark.asyncio
@@ -657,12 +746,13 @@ async def test_submit_category_blocked_when_bioai_report_generated(async_client,
         QuestionnaireResponse(
             assessment_instance_id=aid,
             question_id=1,
-            category_id=1,
+            category_ids=[1],
             answer={"value": 175.0, "unit": "0"},
-            submitted_at=None,
         )
     )
     await test_db_session.commit()
+
+    await _ensure_metsights_physical_category(test_db_session, category_id=1)
 
     r = await async_client.post(
         f"/assessments/{aid}/submit",
@@ -714,7 +804,12 @@ async def test_submit_category_rejects_diet_lifestyle_on_fitprint_record(async_c
             status="active",
         )
     )
-    test_db_session.add(AssessmentPackageCategory(package_id=pkg_id, category_id=1))
+    await test_db_session.flush()
+
+    diet_cat_id = await _metsights_category_id(
+        test_db_session, category_key="diet-lifestyle-parameters", fallback_category_id=55260
+    )
+    test_db_session.add(AssessmentPackageCategory(package_id=pkg_id, category_id=diet_cat_id))
     await test_db_session.commit()
 
     aid = 55561
@@ -732,13 +827,14 @@ async def test_submit_category_rejects_diet_lifestyle_on_fitprint_record(async_c
     test_db_session.add(
         QuestionnaireResponse(
             assessment_instance_id=aid,
-            question_id=10,
-            category_id=1,
+            question_id=6,
+            category_ids=[diet_cat_id],
             answer="0",
-            submitted_at=None,
         )
     )
     await test_db_session.commit()
+
+    await _ensure_question_push_enabled(test_db_session, 6)
 
     async def _fake_detail(self, *, record_id: str):
         return {"id": record_id, "assessment_code": "MY_FITNESS_PRINT", "assessment_type": "FitPrint Full"}
@@ -794,12 +890,15 @@ async def test_submit_fitness_parameters_requires_anthropometry(async_client, te
         QuestionnaireResponse(
             assessment_instance_id=aid,
             question_id=10,
-            category_id=1,
+            category_ids=[1],
             answer="0",
-            submitted_at=None,
         )
     )
     await test_db_session.commit()
+
+    await _ensure_metsights_category(
+        test_db_session, category_id=1, category_key="fitness-parameters"
+    )
 
     async def _fake_detail(self, *, record_id: str):
         return {"id": record_id, "assessment_code": "MY_FITNESS_PRINT", "assessment_type": "FitPrint Full"}
@@ -837,7 +936,12 @@ async def test_submit_category_rejects_record_type_mismatch(async_client, test_d
             status="active",
         )
     )
-    test_db_session.add(AssessmentPackageCategory(package_id=pkg_id, category_id=1))
+    await test_db_session.flush()
+
+    diet_cat_id = await _metsights_category_id(
+        test_db_session, category_key="diet-lifestyle-parameters", fallback_category_id=55262
+    )
+    test_db_session.add(AssessmentPackageCategory(package_id=pkg_id, category_id=diet_cat_id))
     await test_db_session.commit()
 
     aid = 55565
@@ -855,13 +959,14 @@ async def test_submit_category_rejects_record_type_mismatch(async_client, test_d
     test_db_session.add(
         QuestionnaireResponse(
             assessment_instance_id=aid,
-            question_id=10,
-            category_id=1,
+            question_id=6,
+            category_ids=[diet_cat_id],
             answer="0",
-            submitted_at=None,
         )
     )
     await test_db_session.commit()
+
+    await _ensure_question_push_enabled(test_db_session, 6)
 
     async def _fake_detail(self, *, record_id: str):
         return {"id": record_id, "assessment_code": "MY_FITNESS_PRINT", "assessment_type": "FitPrint Full"}

@@ -351,6 +351,14 @@ class ReorderPackagesRequest(BaseModel):
     package_ids: list[int] = Field(min_length=1)
 
 
+class ReorderFilterChipsRequest(BaseModel):
+    filter_chip_ids: list[int] = Field(min_length=1)
+
+
+class ReorderPackageReasonsRequest(BaseModel):
+    reason_ids: list[int] = Field(min_length=1)
+
+
 class AssignGroupsToPackageResponse(BaseModel):
     diagnostic_package_id: int
     added_group_ids: list[int] = Field(default_factory=list)

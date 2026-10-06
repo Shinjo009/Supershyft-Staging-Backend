@@ -21,8 +21,21 @@ from modules.checklists.models import (
 
 class ChecklistsRepository:
     async def get_all_templates(self, db: AsyncSession) -> list[ChecklistTemplate]:
-        res = await db.execute(select(ChecklistTemplate).order_by(ChecklistTemplate.template_id.desc()))
+        q = select(ChecklistTemplate).order_by(ChecklistTemplate.template_id.desc())
+        res = await db.execute(q)
         return list(res.scalars().all())
+
+    async def count_items_by_template_ids(
+        self, db: AsyncSession, template_ids: list[int]
+    ) -> dict[int, int]:
+        if not template_ids:
+            return {}
+        result = await db.execute(
+            select(ChecklistTemplateItem.template_id, func.count())
+            .where(ChecklistTemplateItem.template_id.in_(template_ids))
+            .group_by(ChecklistTemplateItem.template_id)
+        )
+        return {int(template_id): int(count) for template_id, count in result.all()}
 
     async def get_template_by_id(self, db: AsyncSession, template_id: int) -> ChecklistTemplate | None:
         q = (
@@ -106,6 +119,20 @@ class ChecklistsRepository:
         if item is None:
             return
         await db.delete(item)
+        await db.flush()
+
+    async def reorder_template_items(
+        self, db: AsyncSession, *, template_id: int, item_ids: list[int]
+    ) -> None:
+        for index, item_id in enumerate(item_ids, start=1):
+            await db.execute(
+                update(ChecklistTemplateItem)
+                .where(
+                    ChecklistTemplateItem.item_id == item_id,
+                    ChecklistTemplateItem.template_id == template_id,
+                )
+                .values(display_order=index)
+            )
         await db.flush()
 
     async def checklist_exists(self, db: AsyncSession, engagement_id: int, template_id: int) -> bool:
@@ -279,3 +306,20 @@ class ChecklistsRepository:
             q = q.where(EngagementChecklistTask.status == status_filter)
         res = await db.execute(q)
         return list(res.all())
+
+    async def count_my_tasks(
+        self,
+        db: AsyncSession,
+        *,
+        employee_id: int,
+        status_filter: str | None = None,
+    ) -> int:
+        q = (
+            select(func.count())
+            .select_from(EngagementChecklistTask)
+            .where(EngagementChecklistTask.assigned_employee_id == employee_id)
+        )
+        if status_filter is not None:
+            q = q.where(EngagementChecklistTask.status == status_filter)
+        result = await db.execute(q)
+        return int(result.scalar_one() or 0)

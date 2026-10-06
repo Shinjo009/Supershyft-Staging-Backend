@@ -7,6 +7,7 @@ Business rules:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 import string
@@ -789,6 +790,105 @@ class EngagementsService:
         ensure_admin(employee)
         types, cities = await self._repository.list_distinct_engagement_types_and_cities(db)
         return {"engagement_types": types, "cities": cities}
+
+    async def get_form_bootstrap(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        packages_service: Any,
+        diagnostics_service: Any,
+        engagement_types_service: Any,
+        expert_types_service: Any,
+        notifications_service: Any,
+        organizations_service: Any,
+    ) -> dict[str, Any]:
+        (
+            engagement_types,
+            org_result,
+            assessment_result,
+            camp_packages,
+            public_packages,
+            notification_services,
+            expert_types,
+        ) = await asyncio.gather(
+            engagement_types_service.list_all(db, is_active=True),
+            organizations_service.list_organizations_for_employee(
+                db,
+                employee=employee,
+                page=1,
+                limit=100,
+                status=None,
+                organization_type=None,
+                bd_employee_id=None,
+                search=None,
+                city=None,
+                country=None,
+                industry_key=None,
+                sort_by=None,
+                sort_dir=None,
+            ),
+            packages_service.list_packages(db, page=1, limit=100, status="active"),
+            diagnostics_service.get_packages(
+                db,
+                gender=None,
+                tag=None,
+                active_only=True,
+                list_type="public_package",
+                package_for="camp",
+            ),
+            diagnostics_service.get_packages(
+                db,
+                gender=None,
+                tag=None,
+                active_only=True,
+                list_type="public_package",
+                package_for="public",
+            ),
+            notifications_service.list_services(db),
+            expert_types_service.list_expert_types(db),
+        )
+        org_rows, _org_total = org_result
+        assessment_rows, _ = assessment_result
+        organizations = [
+            {
+                "organization_id": organization.organization_id,
+                "name": organization.name,
+                "organization_type": organization.organization_type,
+                "logo": organization.logo,
+                "city": organization.city,
+                "status": organization.status,
+            }
+            for organization, _industry in org_rows
+        ]
+        diagnostic_by_id = {p.diagnostic_package_id: p for p in camp_packages + public_packages}
+        return {
+            "engagement_types": [item.model_dump(mode="json") for item in engagement_types],
+            "organizations": organizations,
+            "assessment_packages": [
+                {
+                    "package_id": p.package_id,
+                    "package_code": p.package_code,
+                    "display_name": p.display_name,
+                    "assessment_type_code": p.assessment_type_code,
+                    "subscription_id": p.subscription_id,
+                    "status": p.status,
+                }
+                for p in assessment_rows
+            ],
+            "diagnostic_packages": [p.model_dump(mode="json") for p in diagnostic_by_id.values()],
+            "notification_services": [
+                {
+                    "service_key": svc.service_key,
+                    "display_name": svc.display_name,
+                    "is_active": svc.is_active,
+                }
+                for svc in notification_services
+            ],
+            "expert_types": [
+                {"id": row.id, "type_key": row.type_key, "type": row.type} for row in expert_types
+            ],
+        }
 
     async def resolve_healthians_zone_for_employee(
         self,
@@ -3452,42 +3552,73 @@ class EngagementsService:
         engagement_rows: list[dict] = []
         participant_issues: list[dict] = []
 
-        for engagement in engagements:
-            if include_participant_issues:
-                payload = await self._build_engagement_data_completeness_payload(
-                    db,
-                    engagement_id=int(engagement.engagement_id),
-                    include_participants=True,
-                )
+        if include_participant_issues:
+            payloads = await asyncio.gather(
+                *[
+                    self._build_engagement_data_completeness_payload(
+                        db,
+                        engagement_id=int(engagement.engagement_id),
+                        include_participants=True,
+                    )
+                    for engagement in engagements
+                ]
+            )
+            for engagement, payload in zip(engagements, payloads, strict=True):
                 summary = payload["summary"]
                 participant_issues.extend(
                     _participant_issues_from_completeness(engagement, payload.get("participants") or [])
                 )
-            else:
-                summary = await self._summarize_engagement_data_completeness(
-                    db,
-                    engagement_id=int(engagement.engagement_id),
+                engagement_rows.append(
+                    {
+                        "engagement_id": int(engagement.engagement_id),
+                        "engagement_name": engagement.engagement_name,
+                        "engagement_code": engagement.engagement_code,
+                        "city": engagement.city,
+                        "status": engagement.status,
+                        "organization_id": engagement.organization_id,
+                        "summary": summary,
+                    }
                 )
-            engagement_rows.append(
-                {
-                    "engagement_id": int(engagement.engagement_id),
-                    "engagement_name": engagement.engagement_name,
-                    "engagement_code": engagement.engagement_code,
-                    "city": engagement.city,
-                    "status": engagement.status,
-                    "organization_id": engagement.organization_id,
-                    "summary": summary,
-                }
+                rollup["total_participants"] += summary["total_participants"]
+                rollup["with_booking_id"] += summary["with_booking_id"]
+                rollup["blood_report"] += summary["blood_report"]
+                rollup["blood_values"] += summary["blood_values"]
+                rollup["bio_ai_report"] += summary["bio_ai_report"]
+                rollup["bio_ai_json"] += summary["bio_ai_json"]
+                rollup["questionnaire_filled"] += summary["questionnaire_filled"]
+                rollup["questionnaire_partially_filled"] += summary["questionnaire_partially_filled"]
+                rollup["questionnaire_not_started"] += summary["questionnaire_not_started"]
+        else:
+            summaries = await asyncio.gather(
+                *[
+                    self._summarize_engagement_data_completeness(
+                        db,
+                        engagement_id=int(engagement.engagement_id),
+                    )
+                    for engagement in engagements
+                ]
             )
-            rollup["total_participants"] += summary["total_participants"]
-            rollup["with_booking_id"] += summary["with_booking_id"]
-            rollup["blood_report"] += summary["blood_report"]
-            rollup["blood_values"] += summary["blood_values"]
-            rollup["bio_ai_report"] += summary["bio_ai_report"]
-            rollup["bio_ai_json"] += summary["bio_ai_json"]
-            rollup["questionnaire_filled"] += summary["questionnaire_filled"]
-            rollup["questionnaire_partially_filled"] += summary["questionnaire_partially_filled"]
-            rollup["questionnaire_not_started"] += summary["questionnaire_not_started"]
+            for engagement, summary in zip(engagements, summaries, strict=True):
+                engagement_rows.append(
+                    {
+                        "engagement_id": int(engagement.engagement_id),
+                        "engagement_name": engagement.engagement_name,
+                        "engagement_code": engagement.engagement_code,
+                        "city": engagement.city,
+                        "status": engagement.status,
+                        "organization_id": engagement.organization_id,
+                        "summary": summary,
+                    }
+                )
+                rollup["total_participants"] += summary["total_participants"]
+                rollup["with_booking_id"] += summary["with_booking_id"]
+                rollup["blood_report"] += summary["blood_report"]
+                rollup["blood_values"] += summary["blood_values"]
+                rollup["bio_ai_report"] += summary["bio_ai_report"]
+                rollup["bio_ai_json"] += summary["bio_ai_json"]
+                rollup["questionnaire_filled"] += summary["questionnaire_filled"]
+                rollup["questionnaire_partially_filled"] += summary["questionnaire_partially_filled"]
+                rollup["questionnaire_not_started"] += summary["questionnaire_not_started"]
 
         rollup["engagement_count"] = len(engagement_rows)
         result: dict = {"rollup": rollup, "engagements": engagement_rows}

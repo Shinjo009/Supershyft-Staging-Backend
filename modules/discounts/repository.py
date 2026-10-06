@@ -366,3 +366,50 @@ class DiscountRepository:
             "total_discount_paise": int(discount_sum or 0),
             "revenue_after_discount_paise": int(revenue or 0),
         }
+
+    async def usage_stats_for_codes(
+        self, db: AsyncSession, discount_code_ids: list[int]
+    ) -> dict[int, dict[str, Any]]:
+        if not discount_code_ids:
+            return {}
+        ids = list(dict.fromkeys(int(i) for i in discount_code_ids))
+        committed = await db.execute(
+            select(
+                DiscountUsage.discount_code_id,
+                func.count(DiscountUsage.usage_id),
+                func.coalesce(func.sum(DiscountUsage.discount_paise), 0),
+                func.coalesce(func.sum(DiscountUsage.final_paise), 0),
+            )
+            .where(
+                DiscountUsage.discount_code_id.in_(ids),
+                DiscountUsage.status == "committed",
+            )
+            .group_by(DiscountUsage.discount_code_id)
+        )
+        reserved = await db.execute(
+            select(DiscountUsage.discount_code_id, func.count(DiscountUsage.usage_id))
+            .where(
+                DiscountUsage.discount_code_id.in_(ids),
+                DiscountUsage.status == "reserved",
+            )
+            .group_by(DiscountUsage.discount_code_id)
+        )
+        reserved_by_id = {int(row[0]): int(row[1] or 0) for row in reserved.all()}
+        out: dict[int, dict[str, Any]] = {
+            i: {
+                "committed_uses": 0,
+                "reserved_uses": reserved_by_id.get(i, 0),
+                "total_discount_paise": 0,
+                "revenue_after_discount_paise": 0,
+            }
+            for i in ids
+        }
+        for code_id, uses, discount_sum, revenue in committed.all():
+            cid = int(code_id)
+            out[cid] = {
+                "committed_uses": int(uses or 0),
+                "reserved_uses": reserved_by_id.get(cid, 0),
+                "total_discount_paise": int(discount_sum or 0),
+                "revenue_after_discount_paise": int(revenue or 0),
+            }
+        return out

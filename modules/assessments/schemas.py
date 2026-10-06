@@ -77,6 +77,10 @@ class MetsightsImportRequest(BaseModel):
     reload: int = Field(default=0)
 
 
+class MetsightsBatchImportRequest(BaseModel):
+    categories: list[MetsightsImportRequest] = Field(..., min_length=1, max_length=50)
+
+
 class AssessmentPackageCreateRequest(BaseModel):
     package_code: PackageCode
     display_name: SafeDisplayName
@@ -107,6 +111,7 @@ class AssessmentPackageListItem(BaseModel):
     assessment_type_code: Optional[str] = None
     subscription_id: Optional[str] = None
     status: Optional[str] = None
+    category_count: int = 0
 
 
 class AssessmentPackageDetailsResponse(AssessmentPackageListItem):

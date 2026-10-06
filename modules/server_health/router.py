@@ -57,6 +57,27 @@ async def list_server_health_history(
     )
 
 
+@router.get("/overview")
+async def get_server_health_overview(
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    service: ServerHealthService = Depends(get_server_health_service),
+):
+    if limit < 1 or limit > 500:
+        raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+
+    current = await service.get_current_status(employee, db)
+    items, total = await service.list_history(employee, limit=limit, run_from=None, run_to=None)
+    return success_response(
+        {
+            "current": current.model_dump() if current is not None else None,
+            "history": [item.model_dump() for item in items],
+        },
+        meta={"limit": limit, "total": total},
+    )
+
+
 @router.post("/metrics")
 async def ingest_server_health_metrics(
     payload: ServerHealthMetricsIn,

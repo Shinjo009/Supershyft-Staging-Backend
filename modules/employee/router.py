@@ -38,6 +38,8 @@ from modules.employee.schemas import (
 )
 from modules.employee.permissions import TASK_CATALOG
 from modules.employee.service import EmployeeContext, EmployeeService
+from modules.checklists.dependencies import get_checklists_service
+from modules.checklists.service import ChecklistsService
 from modules.employee.access_control import ensure_admin
 from modules.users.dependencies import get_users_service
 from modules.users.schemas import EmployeeCreateUserRequest
@@ -159,8 +161,13 @@ async def employee_auth_me(
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
     employee_service: EmployeeService = Depends(get_employee_service),
+    checklists_service: ChecklistsService = Depends(get_checklists_service),
 ):
     row = await employee_service.get_employee_row_for_self(db, employee_id=employee.employee_id)
+    pending_task_count = await checklists_service.count_pending_tasks_for_employee(
+        db,
+        employee_id=employee.employee_id,
+    )
     body: dict = {
         "employee_id": row.employee_id,
         "name": row.name,
@@ -168,6 +175,7 @@ async def employee_auth_me(
         "email": row.email,
         "role": row.role,
         "status": row.status,
+        "pending_task_count": pending_task_count,
     }
     permissions = _employee_permissions_payload(employee)
     if permissions is not None:

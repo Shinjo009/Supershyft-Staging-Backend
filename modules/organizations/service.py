@@ -289,6 +289,22 @@ class OrganizationsService:
             "updated_employee_id": organization.updated_employee_id,
         }
 
+    async def contact_partner_labels_for_contact_ids(
+        self, db, *, contact_person_user_ids
+    ) -> dict[str, dict[str, str | None]]:
+        labels: dict[str, dict[str, str | None]] = {}
+        for partner_id in iter_contact_person_user_ids(contact_person_user_ids):
+            if str(partner_id) in labels:
+                continue
+            partner = await self._partners_repository.get_by_id(db, partner_id)
+            if partner is None:
+                continue
+            labels[str(partner_id)] = {
+                "name": partner.name,
+                "phone": mask_phone(partner.phone) if partner.phone else None,
+            }
+        return labels
+
     async def list_organizations_for_employee(
         self,
         db,
@@ -765,6 +781,7 @@ class OrganizationsService:
                         "count": len(camp_cities),
                         "cities": camp_cities,
                     },
+                    "report_initialized": len(reported_slugs) > 0,
                 }
             )
         return result

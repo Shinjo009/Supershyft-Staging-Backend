@@ -22,6 +22,7 @@ from modules.discounts.schemas import (
     DiscountValidateRequest,
 )
 from modules.discounts.service import DiscountService
+from modules.discounts import abuse
 from modules.employee.dependencies import get_current_employee
 from modules.employee.service import EmployeeContext
 
@@ -110,7 +111,14 @@ async def list_discounts(
     service: DiscountService = Depends(get_discount_service),
 ):
     data = await service.list_codes(db, status=status, search=search, limit=limit, offset=offset)
-    return success_response(data)
+    reports_summary = await service.reports_summary(db)
+    return success_response(
+        data,
+        meta={
+            "abuse_events_24h": reports_summary.get("abuse_events_24h", 0),
+            "reports_summary": reports_summary,
+        },
+    )
 
 
 @router.post("")

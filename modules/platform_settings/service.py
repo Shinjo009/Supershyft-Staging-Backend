@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from sqlalchemy import select
@@ -536,3 +537,26 @@ class PlatformSettingsService:
             )
 
         return await self.get_geocoding_provider(db)
+
+    async def get_settings_bootstrap(self, db: AsyncSession, *, engagement_types_service) -> dict[str, Any]:
+        """Core platform settings reads for admin Settings page initial load."""
+        (
+            b2c_defaults,
+            onboarding_assistants,
+            support_query_notification,
+            geocoding_provider,
+            engagement_types,
+        ) = await asyncio.gather(
+            self.get_b2c_onboarding_defaults(db),
+            self.get_default_onboarding_assistants(db),
+            self.get_support_query_notification(db),
+            self.get_geocoding_provider(db),
+            engagement_types_service.list_all(db, is_active=True),
+        )
+        return {
+            "b2c_onboarding": b2c_defaults.model_dump(mode="json"),
+            "default_onboarding_assistants": onboarding_assistants.model_dump(),
+            "support_query_notification": support_query_notification.model_dump(),
+            "geocoding_provider": geocoding_provider.model_dump(mode="json"),
+            "engagement_types": [item.model_dump(mode="json") for item in engagement_types],
+        }

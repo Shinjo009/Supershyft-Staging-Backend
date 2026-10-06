@@ -98,11 +98,11 @@ from modules.uploads.router import router as uploads_router
 from modules.notifications.router import router as notifications_router
 from modules.webhooks.router import router as webhooks_router
 from modules.server_health.router import router as server_health_router
+from modules.dashboard.router import router as dashboard_router
 from modules.diagnostics.router import router as diagnostics_router
 from modules.support.router import router as support_router
 from modules.audit.router import router as audit_router
 from modules.geocoding.router import router as geocode_router
-from modules.admin_temp.router import router as admin_temp_router
 from modules.engagement_types.router import router as engagement_types_router
 from modules.notification_events.router import router as notification_events_router
 from modules.engagement_notifications.router import router as engagement_notifications_router
@@ -111,6 +111,9 @@ from modules.diagnostics.healthians.router import router as healthians_router
 from modules.integrations.router import router as integrations_router
 from modules.employee.permissions import authorize_inferior_admin_request
 from modules.export_logs.router import router as export_logs_router
+from modules.discounts.router import router as discounts_router
+from modules.db_health.router import router as db_health_router
+from modules.uploads.user_pdf_router import router as user_pdf_upload_router
 
 
 def _project_root() -> Path:
@@ -385,15 +388,18 @@ async def fastapi_app(
     app.include_router(experts_portal_router)
     app.include_router(experts_router)
     app.include_router(uploads_router)
+    app.include_router(user_pdf_upload_router)
     app.include_router(notifications_router)
     app.include_router(webhooks_router)
     app.include_router(integrations_router)
     app.include_router(server_health_router)
+    app.include_router(dashboard_router)
     app.include_router(diagnostics_router)
     app.include_router(support_router)
     app.include_router(audit_router)
     app.include_router(geocode_router)
-    app.include_router(admin_temp_router)
+    app.include_router(db_health_router)
+    app.include_router(discounts_router)
     app.include_router(engagement_types_router)
     app.include_router(notification_events_router)
     app.include_router(engagement_notifications_router)

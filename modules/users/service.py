@@ -179,9 +179,27 @@ class UsersService:
             return f"+91{digits}"
         return f"+{digits}" if digits else None
 
+    async def _protected_user_ids(self, db: AsyncSession) -> set[int]:
+        from modules.employee.repository import EmployeeRepository
+
+        employee_row = await EmployeeRepository().get_by_id(db, _ALWAYS_ACTIVE_EMPLOYEE_ID)
+        if employee_row is None:
+            return set()
+        phone = (employee_row.phone or "").strip()
+        if not phone:
+            return set()
+        user = await self._repository.get_user_by_phone(db, phone)
+        if user is None:
+            normalized = self._normalize_phone_for_metsights(phone)
+            if normalized and normalized != phone:
+                user = await self._repository.get_user_by_phone(db, normalized)
+        if user is None:
+            return set()
+        return {int(user.user_id)}
+
     async def _is_protected_employee_user(self, db: AsyncSession, user_id: int) -> bool:
-        # Employees are no longer linked to users; retention of this hook is a no-op.
-        return False
+        protected = await self._protected_user_ids(db)
+        return int(user_id) in protected
 
     """Users service layer."""
 
@@ -1675,9 +1693,16 @@ class UsersService:
 
         return users, total
 
-    async def get_participant_metsights_stats_for_employee(self, db: AsyncSession, *, employee) -> dict:
+    async def get_participant_metsights_counts_for_employee(self, db: AsyncSession, *, employee) -> dict:
         self._ensure_employee_access(employee)
         with_profile, total_participants = await self._repository.count_participant_metsights_stats(db)
+        return {
+            "with_metsights_profile": with_profile,
+            "total_participants": total_participants,
+        }
+
+    async def get_participant_metsights_stats_for_employee(self, db: AsyncSession, *, employee) -> dict:
+        counts = await self.get_participant_metsights_counts_for_employee(db, employee=employee)
         year_counts = await self._repository.count_users_created_by_year(db)
         yearly_totals: list[dict] = []
         if year_counts:
@@ -1687,11 +1712,7 @@ class UsersService:
                 added = by_year.get(year, 0)
                 running += added
                 yearly_totals.append({"year": year, "new_users": added, "total_users": running})
-        return {
-            "with_metsights_profile": with_profile,
-            "total_participants": total_participants,
-            "yearly_totals": yearly_totals,
-        }
+        return {**counts, "yearly_totals": yearly_totals}
 
     async def list_duplicate_phone_users_for_employee(self, db: AsyncSession, *, employee) -> list[list[User]]:
         self._ensure_employee_access(employee)

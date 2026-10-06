@@ -17,6 +17,7 @@ from modules.notifications.repository import NotificationsRepository
 from modules.notifications.service import NotificationsService
 from modules.platform_settings.repository import PlatformSettingsRepository
 from modules.support.schemas import SupportTicketCreate, SupportTicketStatusUpdate
+from modules.dashboard.service import ticket_status_counts
 from modules.support.service import SupportService
 from modules.support.repository import SupportRepository
 
@@ -86,6 +87,7 @@ async def list_tickets(
 ):
     _ = employee
     tickets = await support_service.list_tickets(db, status_filter=status)
+    status_counts = await ticket_status_counts(db)
 
     return success_response(
         [
@@ -98,7 +100,8 @@ async def list_tickets(
                 "created_at": ticket.created_at,
             }
             for ticket in tickets
-        ]
+        ],
+        meta={"status_counts": status_counts},
     )
 
 

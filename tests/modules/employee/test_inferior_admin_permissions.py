@@ -65,7 +65,6 @@ def test_catalog_contract_has_exact_seventeen_categories():
         ("POST", "/diagnostic-packages", "diagnostics", PermissionAction.edit),
         ("PATCH", "/diagnostic-test-groups/{group_id}/tests/order", "diagnostics", PermissionAction.edit),
         ("GET", "/audit/integration-sync-logs", "system_monitoring", PermissionAction.view),
-        ("POST", "/admin-temp/sync-questionnaire-seed", "system_monitoring", PermissionAction.edit),
         ("GET", "/partners", "partners", PermissionAction.view),
         ("POST", "/partners", "partners", PermissionAction.edit),
         ("GET", "/discounts", "discounts", PermissionAction.view),
@@ -308,19 +307,6 @@ async def test_permission_is_checked_before_resource_lookup(async_client, test_d
     response = await async_client.get("/users/999999", headers=_headers(9703))
     assert response.status_code == 403
     assert response.json()["error_code"] == "PERMISSION_DENIED"
-
-
-@pytest.mark.asyncio
-async def test_admin_temp_rejects_ordinary_authenticated_user(async_client, test_db_session):
-    test_db_session.add(
-        User(user_id=9704, phone="7000097040", age=30, status="active")
-    )
-    await test_db_session.commit()
-    response = await async_client.post(
-        "/admin-temp/sync-questionnaire-seed", headers=user_auth_header(9704)
-    )
-    assert response.status_code == 403
-    assert response.json()["error_code"] == "FORBIDDEN"
 
 
 @pytest.mark.asyncio

@@ -120,6 +120,9 @@ class AssessmentPackagesService:
         total = await self._repository.count_packages(db, status=status_value)
         return packages, total
 
+    async def category_counts_for_packages(self, db, *, package_ids: list[int]) -> dict[int, int]:
+        return await self._repository.count_categories_for_packages(db, package_ids=package_ids)
+
     async def get_package_details(
         self,
         db,

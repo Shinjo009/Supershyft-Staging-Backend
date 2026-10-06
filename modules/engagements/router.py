@@ -7,6 +7,7 @@ from datetime import date
 from fastapi import APIRouter, Body, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.listing import PageParamsDep
 from common.responses import success_response
 from core.dependencies import get_current_user
 from core.exceptions import AppError
@@ -18,6 +19,17 @@ from modules.employee.service import EmployeeContext
 from modules.engagement_notifications.schemas import configs_to_api
 from modules.engagements.dependencies import get_engagements_service, get_onboarding_assistants_service
 from modules.engagements.onboarding_assistants_service import OnboardingAssistantsService
+from modules.assessments.dependencies import get_assessment_packages_service
+from modules.assessments.packages_service import AssessmentPackagesService
+from modules.diagnostics.dependencies import get_diagnostics_service
+from modules.diagnostics.service import DiagnosticsService
+from modules.engagement_types.service import EngagementTypesService
+from modules.experts.dependencies import get_expert_types_service
+from modules.experts.service import ExpertTypesService
+from modules.notifications.dependencies import get_notifications_service
+from modules.notifications.service import NotificationsService
+from modules.organizations.dependencies import get_organizations_service
+from modules.organizations.service import OrganizationsService
 from modules.engagements.schemas import (
     AssignParticipantsBatchRequest,
     ConsultationConsentRequest,
@@ -46,6 +58,10 @@ from modules.metsights.dependencies import get_metsights_sync_service
 from modules.metsights.sync_service import MetsightsSyncService
 
 router = APIRouter(prefix="/engagements", tags=["engagements"])
+
+
+def _get_engagement_types_service() -> EngagementTypesService:
+    return EngagementTypesService()
 
 
 def _consultation_filters_from_query(request: Request) -> dict[str, str]:
@@ -234,6 +250,31 @@ async def get_engagement_filter_options(
     return success_response(options)
 
 
+@router.get("/form-bootstrap")
+async def get_engagement_form_bootstrap(
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    engagements_service: EngagementsService = Depends(get_engagements_service),
+    packages_service: AssessmentPackagesService = Depends(get_assessment_packages_service),
+    diagnostics_service: DiagnosticsService = Depends(get_diagnostics_service),
+    engagement_types_service: EngagementTypesService = Depends(_get_engagement_types_service),
+    expert_types_service: ExpertTypesService = Depends(get_expert_types_service),
+    notifications_service: NotificationsService = Depends(get_notifications_service),
+    organizations_service: OrganizationsService = Depends(get_organizations_service),
+):
+    payload = await engagements_service.get_form_bootstrap(
+        db,
+        employee=employee,
+        packages_service=packages_service,
+        diagnostics_service=diagnostics_service,
+        engagement_types_service=engagement_types_service,
+        expert_types_service=expert_types_service,
+        notifications_service=notifications_service,
+        organizations_service=organizations_service,
+    )
+    return success_response(payload)
+
+
 @router.post("/resolve-healthians-zone")
 async def resolve_healthians_zone(
     payload: ResolveHealthiansZoneRequest,
@@ -252,8 +293,7 @@ async def resolve_healthians_zone(
 @router.get("")
 async def list_engagements(
     request: Request,
-    page: int = 1,
-    limit: int = 20,
+    pagination: PageParamsDep,
     org_id: int | None = None,
     camp_no: int | None = None,
     status: str | None = None,
@@ -268,14 +308,11 @@ async def list_engagements(
     employee: EmployeeContext = Depends(get_current_employee),
     engagements_service: EngagementsService = Depends(get_engagements_service),
 ):
-    if page < 1 or limit < 1 or limit > 100:
-        raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
-
     engagements, total, readiness_by_id, counts_by_id = await engagements_service.list_engagements_for_employee(
         db,
         employee=employee,
-        page=page,
-        limit=limit,
+        page=pagination.page,
+        limit=pagination.limit,
         organization_id=org_id,
         camp_no=camp_no,
         status=status,
@@ -289,6 +326,9 @@ async def list_engagements(
     )
 
     slot_details_map = await engagements_service.resolve_slot_details_map(db, engagements)
+    filter_options = await engagements_service.get_engagement_filter_options_for_employee(
+        db, employee=employee
+    )
 
     data = [
         _engagement_to_dict(
@@ -304,7 +344,15 @@ async def list_engagements(
         for engagement in engagements
     ]
 
-    return success_response(data, meta={"page": page, "limit": limit, "total": total})
+    return success_response(
+        data,
+        meta={
+            "page": pagination.page,
+            "limit": pagination.limit,
+            "total": total,
+            "filter_options": filter_options,
+        },
+    )
 
 
 @router.get("/data-completeness-summary")
@@ -620,6 +668,72 @@ async def get_engagement_participant_stats(
         filters=filters,
     )
     return success_response(data, meta={"filters": filters_to_meta(filters)})
+
+
+@router.get("/{engagement_id}/participants/bootstrap")
+async def get_engagement_participants_bootstrap(
+    engagement_id: int,
+    page: int = 1,
+    limit: int = 20,
+    include_expert_types: bool = False,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    engagements_service: EngagementsService = Depends(get_engagements_service),
+    organizations_service: OrganizationsService = Depends(get_organizations_service),
+    expert_types_service: ExpertTypesService = Depends(get_expert_types_service),
+):
+    if page < 1 or limit < 1 or limit > 100:
+        raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+
+    engagement = await engagements_service.get_engagement_details_for_employee(
+        db, employee=employee, engagement_id=engagement_id
+    )
+    org_id = engagement.organization_id
+    organization = None
+    if org_id is not None:
+        org_row, industry = await organizations_service.get_organization_details_for_employee(
+            db,
+            employee=employee,
+            organization_id=org_id,
+        )
+        organization = organizations_service.organization_to_details_dict(org_row, industry)
+
+    booking_dates = await engagements_service.list_booking_dates_for_engagement_id(
+        db, employee=employee, engagement_id=engagement_id
+    )
+    filter_options = await engagements_service.participant_filter_options_for_engagement_id(
+        db, employee=employee, engagement_id=engagement_id
+    )
+    participants, total = await engagements_service.list_participants_for_engagement_id(
+        db,
+        employee=employee,
+        engagement_id=engagement_id,
+        page=page,
+        limit=limit,
+        filters=None,
+    )
+    payload: dict = {
+        "engagement": {
+            "engagement_id": engagement.engagement_id,
+            "engagement_name": engagement.engagement_name,
+            "engagement_code": engagement.engagement_code,
+            "organization_id": engagement.organization_id,
+            "consultations": engagement.consultations,
+            "public_slot_detail": engagement.public_slot_detail,
+            "blood_collection_type": engagement.blood_collection_type,
+            "participant_count": total,
+        },
+        "organization": organization,
+        "booking_dates": booking_dates,
+        "filter_options": filter_options,
+        "participants": participants,
+    }
+    if include_expert_types:
+        types = await expert_types_service.list_expert_types(db)
+        payload["expert_types"] = [
+            {"id": t.id, "type_key": t.type_key, "type": t.type} for t in types
+        ]
+    return success_response(payload, meta={"page": page, "limit": limit, "total": total})
 
 
 @router.get("/{engagement_id}/participants/ids")

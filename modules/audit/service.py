@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.audit.models import DataAuditLog, IntegrationSyncLog
@@ -82,7 +83,47 @@ class AuditService:
             search=search,
             payload_search=payload_search,
         )
-        return [self._serialize_sync_log(row) for row in rows], total
+        serialized = [self._serialize_sync_log(row) for row in rows]
+        await self._embed_sync_log_display_names(db, serialized)
+        return serialized, total
+
+    async def _embed_sync_log_display_names(
+        self, db: AsyncSession, items: list[dict[str, Any]]
+    ) -> None:
+        from modules.engagements.models import Engagement
+        from modules.users.models import User
+
+        user_ids = {int(item["user_id"]) for item in items if item.get("user_id") is not None}
+        engagement_ids = {
+            int(item["engagement_id"]) for item in items if item.get("engagement_id") is not None
+        }
+        user_names: dict[int, str] = {}
+        if user_ids:
+            result = await db.execute(
+                select(User.user_id, User.first_name, User.last_name).where(User.user_id.in_(user_ids))
+            )
+            for uid, first, last in result.all():
+                parts = [str(first or "").strip(), str(last or "").strip()]
+                name = " ".join(p for p in parts if p)
+                user_names[int(uid)] = name or f"User #{uid}"
+        engagement_names: dict[int, str] = {}
+        if engagement_ids:
+            result = await db.execute(
+                select(Engagement.engagement_id, Engagement.engagement_name).where(
+                    Engagement.engagement_id.in_(engagement_ids)
+                )
+            )
+            for eid, ename in result.all():
+                text = (ename or "").strip()
+                engagement_names[int(eid)] = text or f"#{eid}"
+
+        for item in items:
+            uid = item.get("user_id")
+            if uid is not None:
+                item["user_display_name"] = user_names.get(int(uid))
+            eid = item.get("engagement_id")
+            if eid is not None:
+                item["engagement_display_name"] = engagement_names.get(int(eid))
 
     async def list_create_booking_dates_for_engagement(
         self,

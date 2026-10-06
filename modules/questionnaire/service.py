@@ -447,6 +447,49 @@ class QuestionnaireService:
         """Serialize for employee/admin management APIs (raw DB question_type)."""
         return await self._serialize_question(db, row, apply_type_overrides=False)
 
+    async def serialize_question_definitions(
+        self, db: AsyncSession, rows: list[QuestionnaireDefinition]
+    ) -> list[dict]:
+        if not rows:
+            return []
+        question_ids = [int(row.question_id) for row in rows]
+        option_rows = await self._repository.list_options_for_question_ids(db, question_ids=question_ids)
+        options_by_question: dict[int, list] = {}
+        for opt in option_rows:
+            options_by_question.setdefault(int(opt.question_id), []).append(
+                {
+                    "option_value": opt.option_value,
+                    "display_name": opt.display_name,
+                    "tooltip_text": opt.tooltip_text,
+                }
+            )
+
+        out: list[dict] = []
+        for row in rows:
+            question_type = row.question_type
+            if row.question_key and row.question_key in QUESTION_TYPE_OVERRIDES:
+                question_type = QUESTION_TYPE_OVERRIDES[row.question_key]
+            serialized_options = options_by_question.get(int(row.question_id), [])
+            out.append(
+                {
+                    "question_id": row.question_id,
+                    "question_key": row.question_key,
+                    "question_text": row.question_text,
+                    "question_type": question_type,
+                    "is_required": bool(row.is_required),
+                    "is_read_only": bool(row.is_read_only),
+                    "help_text": row.help_text,
+                    "sub_text": row.sub_text,
+                    "options": serialized_options if serialized_options else None,
+                    "visibility_rules": row.visibility_rules,
+                    "prefill_from": row.prefill_from,
+                    "metsights_sync": row.metsights_sync,
+                    "status": row.status,
+                    "created_at": row.created_at,
+                }
+            )
+        return out
+
     def _validate_options_by_type(self, *, question_type: str, options: list[dict[str, str | None]]) -> None:
         if question_type in _CHOICE_TYPES and len(options) == 0:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")

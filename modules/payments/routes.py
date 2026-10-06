@@ -15,6 +15,7 @@ from core.exceptions import AppError
 from db.session import get_db
 from modules.employee.dependencies import get_current_employee
 from modules.employee.service import EmployeeContext
+from modules.dashboard.service import booking_status_totals
 from modules.payments.services import PaymentsService
 
 # Prefix /payments (not /api/payments): dev-admin Vite proxy strips /api from the request path.
@@ -209,7 +210,16 @@ async def list_bookings(
         sort_key=sort_key,
         sort_dir=sort_dir,
     )
-    return success_response(payload)
+    status_counts = await booking_status_totals(db)
+    return success_response(
+        payload,
+        meta={
+            "page": page,
+            "limit": limit,
+            "total": payload.get("total", 0),
+            "status_counts": status_counts,
+        },
+    )
 
 
 @router.get("/booking/{booking_id}/status")
