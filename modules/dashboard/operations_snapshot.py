@@ -19,7 +19,26 @@ from modules.users.models import User
 
 ACTIVE_STATUSES = ("running", "scheduled")
 PAGE_SIZE = 100
+# Dashboard overview must stay fast (proxy/worker timeouts); completeness is expensive per engagement.
+DASHBOARD_PARTICIPANT_ISSUES_LIMIT = 20
 PENDING_PAYMENT_THRESHOLD_MINUTES = 15
+
+
+def empty_operations_snapshot() -> dict[str, Any]:
+    """Fallback when operations block fails or times out."""
+    return {
+        "engagements": {
+            "running_today": [],
+            "running_this_week": [],
+            "org_names": {},
+            "truncated": False,
+        },
+        "participant_issues": [],
+        "pending_payments": [],
+        "failed_notifications": [],
+        "tickets": {"open": []},
+        "serviceability_issues": [],
+    }
 
 
 def _today_iso() -> str:
@@ -275,7 +294,7 @@ async def build_operations_snapshot(
             audience=None,
             sort_by=None,
             sort_dir=None,
-            limit=100,
+            limit=DASHBOARD_PARTICIPANT_ISSUES_LIMIT,
             include_participant_issues=True,
         )
         return list(data.get("participant_issues") or [])

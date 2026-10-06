@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import date, datetime, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.dashboard.operations_snapshot import build_operations_snapshot
+from modules.dashboard.operations_snapshot import (
+    build_operations_snapshot,
+    empty_operations_snapshot,
+)
 from modules.employee.service import EmployeeContext
 from modules.payments.models import Booking
 from modules.engagements.blood_booking_enums import BloodBookingStatus
@@ -17,6 +21,25 @@ from modules.experts.models import ConsultationBooking
 from modules.notifications.models import Notification
 from modules.support.models import SupportTicket
 from modules.users.repository import UsersRepository
+
+logger = logging.getLogger(__name__)
+
+# Keep below typical reverse-proxy read timeouts (often 60s).
+DASHBOARD_OPERATIONS_TIMEOUT_SECONDS = 50.0
+
+
+async def _operations_for_overview(db: AsyncSession, *, employee: EmployeeContext) -> dict:
+    try:
+        return await asyncio.wait_for(
+            build_operations_snapshot(db, employee=employee),
+            timeout=DASHBOARD_OPERATIONS_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        logger.warning("dashboard overview: operations snapshot timed out after %ss", DASHBOARD_OPERATIONS_TIMEOUT_SECONDS)
+        return empty_operations_snapshot()
+    except Exception:
+        logger.exception("dashboard overview: operations snapshot failed")
+        return empty_operations_snapshot()
 
 
 def _year_date_bounds(year: int) -> tuple[date, date]:
@@ -171,7 +194,7 @@ async def build_dashboard_overview(db: AsyncSession, *, employee: EmployeeContex
         booking_status_totals(db),
         ticket_status_counts(db),
         _failed_notifications_count(db),
-        build_operations_snapshot(db, employee=employee),
+        _operations_for_overview(db, employee=employee),
     )
 
     return {
