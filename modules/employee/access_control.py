@@ -113,7 +113,8 @@ def ensure_expert_portal_access(
 ) -> None:
     """Allow admin employees or active expert partners on /experts/portal/*."""
     if partner is not None:
-        role = partner.role.value if isinstance(partner.role, PartnerRole) else str(partner.role or "")
+        role_value = getattr(partner.role, "value", partner.role)
+        role = "" if role_value is None else str(role_value)
         if role == PartnerRole.expert.value and (partner.status or "").lower() == "active":
             return
         raise AppError(

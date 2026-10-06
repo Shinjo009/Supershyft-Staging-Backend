@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -31,6 +31,7 @@ from modules.engagements.slot_info_repository import EngagementSlotInfoRepositor
 from modules.experts.consultation_bookings_repository import ConsultationBookingsRepository
 from modules.experts.consultations import (
     booking_to_api_preference,
+    consultation_dashboard_status,
     is_upcoming_slot,
     normalize_consent,
     normalize_hhmm,
@@ -1371,6 +1372,308 @@ class ExpertAvailabilityService:
 
         items.sort(key=lambda x: (x.get("date") or "", x.get("slot") or ""))
         return items
+
+    _DASHBOARD_REQUESTS_PREVIEW = 5
+    _WEEKDAY_NAMES = (
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+    )
+
+    @staticmethod
+    def _empty_portal_dashboard(*, session_duration_mins: int = 30) -> dict[str, Any]:
+        today = date.today()
+        week_start = today - timedelta(days=today.weekday())
+        days = []
+        for offset in range(7):
+            day = week_start + timedelta(days=offset)
+            days.append(
+                {
+                    "date": day.isoformat(),
+                    "weekday": ExpertAvailabilityService._WEEKDAY_NAMES[offset],
+                    "hours": 0.0,
+                    "count": 0,
+                }
+            )
+        return {
+            "summary": {
+                "requests_waiting": 0,
+                "consultations_today": 0,
+                "consultations_today_completed": 0,
+                "consultations_today_upcoming": 0,
+                "open_camps": 0,
+                "hours_this_week": 0.0,
+            },
+            "todays_consultations": [],
+            "requests_waiting": [],
+            "open_camps": [],
+            "weekly_hours": {
+                "total_hours": 0.0,
+                "completed_count": 0,
+                "upcoming_count": 0,
+                "session_duration_mins": session_duration_mins,
+                "days": days,
+            },
+        }
+
+    @staticmethod
+    def _waiting_minutes(created_at: datetime | None, *, now: datetime) -> int:
+        if created_at is None:
+            return 0
+        now_aware = now if now.tzinfo is not None else datetime.now(timezone.utc)
+        created = created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        delta = now_aware.astimezone(timezone.utc) - created.astimezone(timezone.utc)
+        return max(0, int(delta.total_seconds() // 60))
+
+    @staticmethod
+    def _hours_from_count(count: int, session_duration_mins: int) -> float:
+        return round((count * session_duration_mins) / 60.0, 1)
+
+    async def _next_pending_camp_slot(
+        self,
+        db,
+        *,
+        engagement_id: int,
+        expert_type: str | None = None,
+    ) -> tuple[str | None, str | None]:
+        query = (
+            select(ConsultationBooking)
+            .join(
+                EngagementParticipant,
+                EngagementParticipant.engagement_participant_id
+                == ConsultationBooking.engagement_participant_id,
+            )
+            .where(EngagementParticipant.engagement_id == engagement_id)
+            .where(ConsultationBooking.want.is_(True))
+            .where(ConsultationBooking.done.is_(False))
+        )
+        if expert_type is not None:
+            query = query.where(ConsultationBooking.expert_type == expert_type)
+        query = query.order_by(
+            ConsultationBooking.consultation_date.asc().nulls_last(),
+            ConsultationBooking.consultation_slot.asc().nulls_last(),
+        ).limit(1)
+        result = await db.execute(query)
+        booking = result.scalar_one_or_none()
+        if booking is None:
+            return None, None
+        pref = booking_to_api_preference(booking)
+        date_val = pref.get("date")
+        slot_val = pref.get("slot")
+        return (
+            str(date_val) if date_val else None,
+            str(slot_val) if slot_val else None,
+        )
+
+    async def get_portal_dashboard(
+        self,
+        db,
+        *,
+        employee: EmployeeContext | None = None,
+        partner: Partner | None = None,
+    ) -> dict[str, Any]:
+        ensure_expert_portal_access(employee, partner=partner)
+        expert = await self._resolve_portal_actor_expert(db, employee=employee, partner=partner)
+        if expert is None:
+            return self._empty_portal_dashboard()
+
+        now = datetime.now()
+        today = now.date()
+        session_duration_mins = expert.session_duration_mins or 30
+        if session_duration_mins <= 0:
+            session_duration_mins = 30
+        week_start = today - timedelta(days=today.weekday())
+        week_end = week_start + timedelta(days=6)
+
+        request_result = await db.execute(
+            select(ConsultationBooking, EngagementParticipant, Engagement, User)
+            .join(
+                EngagementParticipant,
+                EngagementParticipant.engagement_participant_id == ConsultationBooking.engagement_participant_id,
+            )
+            .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
+            .join(User, User.user_id == EngagementParticipant.user_id)
+            .where(Engagement.status.in_(("running", "scheduled")))
+            .where(self._online_consultation_engagement_sql_filter())
+            .where(ConsultationBooking.want.is_(True))
+            .where(ConsultationBooking.expert_id.is_(None))
+            .order_by(ConsultationBooking.consultation_id.desc())
+        )
+        request_rows = request_result.all()
+        requests_waiting: list[dict[str, Any]] = []
+        for booking, participant, engagement, user in request_rows[: self._DASHBOARD_REQUESTS_PREVIEW]:
+            pref = booking_to_api_preference(booking)
+            created_at = booking.created_at
+            requests_waiting.append(
+                {
+                    "consultation_id": booking.consultation_id,
+                    "user_id": user.user_id,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "expert_type": booking.expert_type,
+                    "engagement_id": engagement.engagement_id,
+                    "engagement_name": engagement.engagement_name,
+                    "engagement_code": engagement.engagement_code,
+                    "date": pref.get("date"),
+                    "slot": pref.get("slot"),
+                    "created_at": created_at.isoformat() if created_at else None,
+                    "waiting_minutes": self._waiting_minutes(created_at, now=now),
+                }
+            )
+
+        today_result = await db.execute(
+            select(ConsultationBooking, EngagementParticipant, Engagement, User)
+            .join(
+                EngagementParticipant,
+                EngagementParticipant.engagement_participant_id == ConsultationBooking.engagement_participant_id,
+            )
+            .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
+            .join(User, User.user_id == EngagementParticipant.user_id)
+            .where(ConsultationBooking.want.is_(True))
+            .where(ConsultationBooking.expert_id == expert.expert_id)
+            .where(ConsultationBooking.consultation_date == today)
+            .order_by(ConsultationBooking.consultation_slot.asc().nulls_last())
+        )
+        todays_consultations: list[dict[str, Any]] = []
+        today_completed = 0
+        for booking, participant, engagement, user in today_result.all():
+            pref = booking_to_api_preference(booking)
+            date_val = pref.get("date")
+            slot_val = pref.get("slot")
+            status = consultation_dashboard_status(
+                done=bool(booking.done),
+                date_str=str(date_val) if date_val else None,
+                slot_str=str(slot_val) if slot_val else None,
+                session_duration_mins=session_duration_mins,
+                now=now,
+            )
+            if status == "completed":
+                today_completed += 1
+            mode = effective_consultation_mode(engagement).value
+            todays_consultations.append(
+                {
+                    "consultation_id": booking.consultation_id,
+                    "user_id": user.user_id,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "expert_type": booking.expert_type,
+                    "engagement_id": engagement.engagement_id,
+                    "engagement_name": engagement.engagement_name,
+                    "engagement_code": engagement.engagement_code,
+                    "date": date_val,
+                    "slot": slot_val,
+                    "meet_link": booking.meet_link,
+                    "mode": mode,
+                    "done": bool(booking.done),
+                    "status": status,
+                }
+            )
+
+        week_result = await db.execute(
+            select(ConsultationBooking)
+            .where(ConsultationBooking.want.is_(True))
+            .where(ConsultationBooking.expert_id == expert.expert_id)
+            .where(ConsultationBooking.consultation_date >= week_start)
+            .where(ConsultationBooking.consultation_date <= week_end)
+        )
+        week_bookings = list(week_result.scalars().all())
+        counts_by_offset = [0] * 7
+        completed_count = 0
+        upcoming_count = 0
+        for booking in week_bookings:
+            if booking.consultation_date is None:
+                continue
+            offset = (booking.consultation_date - week_start).days
+            if 0 <= offset <= 6:
+                counts_by_offset[offset] += 1
+            if booking.done:
+                completed_count += 1
+            else:
+                upcoming_count += 1
+        days = []
+        for offset in range(7):
+            day = week_start + timedelta(days=offset)
+            count = counts_by_offset[offset]
+            days.append(
+                {
+                    "date": day.isoformat(),
+                    "weekday": self._WEEKDAY_NAMES[offset],
+                    "hours": self._hours_from_count(count, session_duration_mins),
+                    "count": count,
+                }
+            )
+        total_hours = self._hours_from_count(len(week_bookings), session_duration_mins)
+
+        from modules.engagements.repository import EngagementsRepository
+
+        repo = EngagementsRepository()
+        expert_type_filter = expert.expert_type
+        if partner is not None:
+            engagements = await repo.list_running_engagements_for_assigned_partner(
+                db,
+                partner_id=partner.partner_id,
+            )
+        elif employee is not None and (employee.role == EmployeeRole.admin or has_route_admin_scope(employee)):
+            engagements = []
+        else:
+            engagements = []
+        open_camps: list[dict[str, Any]] = []
+        for engagement in engagements:
+            if not self._is_offline_b2b_engagement(engagement):
+                continue
+            pending_count = await self._count_camp_consultation_pending(
+                db,
+                engagement_id=engagement.engagement_id,
+                expert_type=expert_type_filter,
+            )
+            if pending_count <= 0:
+                continue
+            next_date, next_slot = await self._next_pending_camp_slot(
+                db,
+                engagement_id=engagement.engagement_id,
+                expert_type=expert_type_filter,
+            )
+            open_camps.append(
+                {
+                    "engagement_id": engagement.engagement_id,
+                    "engagement_name": engagement.engagement_name,
+                    "engagement_code": engagement.engagement_code,
+                    "start_date": engagement.start_date.isoformat() if engagement.start_date else None,
+                    "end_date": engagement.end_date.isoformat() if engagement.end_date else None,
+                    "camp_no": engagement.camp_no,
+                    "city": engagement.city,
+                    "consultation_pending_count": pending_count,
+                    "next_consultation_date": next_date,
+                    "next_consultation_slot": next_slot,
+                }
+            )
+
+        return {
+            "summary": {
+                "requests_waiting": len(request_rows),
+                "consultations_today": len(todays_consultations),
+                "consultations_today_completed": today_completed,
+                "consultations_today_upcoming": len(todays_consultations) - today_completed,
+                "open_camps": len(open_camps),
+                "hours_this_week": total_hours,
+            },
+            "todays_consultations": todays_consultations,
+            "requests_waiting": requests_waiting,
+            "open_camps": open_camps,
+            "weekly_hours": {
+                "total_hours": total_hours,
+                "completed_count": completed_count,
+                "upcoming_count": upcoming_count,
+                "session_duration_mins": session_duration_mins,
+                "days": days,
+            },
+        }
 
     async def mark_consultation_done(
         self,

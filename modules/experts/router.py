@@ -250,6 +250,16 @@ async def cancel_consultation(
     return success_response(data)
 
 
+@portal_router.get("/dashboard")
+async def portal_get_dashboard(
+    db: AsyncSession = Depends(get_db),
+    actor: ExpertPortalActor = Depends(get_expert_portal_actor),
+    availability_service: ExpertAvailabilityService = Depends(get_availability_service),
+):
+    data = await availability_service.get_portal_dashboard(db, employee=actor.employee, partner=actor.partner)
+    return success_response(data)
+
+
 @portal_router.get("/requests")
 async def portal_list_consultation_requests(
     db: AsyncSession = Depends(get_db),
