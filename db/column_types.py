@@ -378,6 +378,7 @@ class CurrencyCode(str, enum.Enum):
 class ExportTypeEnum(str, enum.Enum):
     participants = "participants"
     database_backup = "database_backup"
+    contact_reveal = "contact_reveal"
 
 
 class ExportFormatEnum(str, enum.Enum):
@@ -390,6 +391,7 @@ class ExportSourceKindEnum(str, enum.Enum):
     organization = "organization"
     camp = "camp"
     system = "system"
+    user = "user"
 
 
 class ChecklistAudience(str, enum.Enum):

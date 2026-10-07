@@ -4,20 +4,15 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.responses import success_response
 from core.exceptions import AppError
-from core.network import get_client_ip
 from db.session import get_db
 from modules.employee.dependencies import get_current_employee
 from modules.employee.service import EmployeeContext
-from modules.export_logs.dependencies import (
-    ExportActor,
-    get_export_actor,
-    get_export_logs_service,
-)
+from modules.export_logs.dependencies import get_export_logs_service
 from modules.export_logs.schemas import ExportLogCreateRequest
 from modules.export_logs.service import ExportLogsService
 
@@ -28,20 +23,14 @@ router = APIRouter(tags=["export-logs"])
 @router.post("/export-logs")
 async def create_export_log(
     payload: ExportLogCreateRequest,
-    request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: ExportActor = Depends(get_export_actor),
+    employee: EmployeeContext = Depends(get_current_employee),
     service: ExportLogsService = Depends(get_export_logs_service),
 ):
     row = await service.create_log(
         db,
         payload=payload,
-        employee_id=actor.employee_id,
-        partner_id=actor.partner_id,
-        actor_name=actor.actor_name,
-        actor_role=actor.actor_role,
-        ip_address=get_client_ip(request),
-        user_agent=request.headers.get("User-Agent", "unknown"),
+        employee_id=employee.employee_id,
     )
     await db.commit()
     return success_response({"export_log_id": row.export_log_id})

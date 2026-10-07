@@ -349,6 +349,8 @@ def _task_for_operation(category: str, path: str, method: str) -> str:
     """Map a classified route to one stable configurable task."""
 
     if category == "users":
+        if "reveal-contact" in path:
+            return "profiles"
         if "participant-journey" in path:
             return "participant_journeys"
         if "metsights" in path:

@@ -53,6 +53,7 @@ def test_catalog_contract_has_exact_seventeen_categories():
     [
         ("GET", "/users/{user_id}", "users", PermissionAction.view),
         ("PUT", "/users/{user_id}", "users", PermissionAction.edit),
+        ("POST", "/users/{user_id}/reveal-contact", "users", PermissionAction.edit),
         ("POST", "/employees/users", "users", PermissionAction.edit),
         ("GET", "/employees", "employees", PermissionAction.view),
         ("GET", "/employees/export-logs", "employees", PermissionAction.view),
@@ -84,6 +85,7 @@ def test_operation_manifest_explicit_classification(method, path, category, acti
     [
         ("GET", "/users/{user_id}", "directory"),
         ("PUT", "/users/{user_id}", "profiles"),
+        ("POST", "/users/{user_id}/reveal-contact", "profiles"),
         ("GET", "/users/{user_id}/participant-journey", "participant_journeys"),
         ("POST", "/diagnostic-packages", "packages"),
         ("PATCH", "/diagnostic-test-groups/{group_id}/tests/order", "tests_groups"),

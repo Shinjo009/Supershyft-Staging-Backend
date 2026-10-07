@@ -10,6 +10,7 @@ from modules.employee.models import (
     PermissionCategory,
 )
 from modules.employee.permissions import PERMISSION_CATEGORY_KEYS
+from modules.users.models import User
 from tests.helpers.auth import (
     employee_auth_header,
     partner_auth_header,
@@ -21,11 +22,11 @@ from tests.helpers.auth import (
 _VALID_PAYLOAD = {
     "reason": "Need camp attendance sheet",
     "export_type": "participants",
-    "export_format": "csv",
-    "source_kind": "engagement",
-    "source_id": "42",
-    "row_count": 4,
     "details": {
+        "export_format": "csv",
+        "exported_participants": [101, 102, 103, 104],
+        "source_kind": "engagement",
+        "source_id": "42",
         "source_name": "Wellness Camp 2026",
         "engagement_name": "Wellness Camp 2026",
     },
@@ -87,17 +88,18 @@ async def test_create_export_log_stores_employee_from_jwt(async_client, test_db_
     assert rows
     row = next(item for item in rows if item["export_log_id"] == export_log_id)
     assert row["employee_id"] == 6102
-    assert row["partner_id"] is None
-    assert row["actor_name"] == "Log Actor"
-    assert row["actor_role"] == "admin"
+    assert row["employee_name"] == "Log Actor"
+    assert row["employee_role"] == "admin"
     assert row["reason"] == "Need camp attendance sheet"
     assert row["export_type"] == "participants"
-    assert row["export_format"] == "csv"
-    assert row["source_kind"] == "engagement"
-    assert row["source_id"] == "42"
-    assert row["row_count"] == 4
+    assert row["details"]["export_format"] == "csv"
+    assert row["details"]["exported_participants"] == [101, 102, 103, 104]
+    assert row["details"]["source_kind"] == "engagement"
+    assert row["details"]["source_id"] == "42"
     assert row["details"]["source_name"] == "Wellness Camp 2026"
     assert row["details"]["engagement_name"] == "Wellness Camp 2026"
+    assert "partner_id" not in row
+    assert "actor_name" not in row
 
 
 @pytest.mark.asyncio
@@ -108,9 +110,11 @@ async def test_list_export_logs_search_matches_source_name(async_client, test_db
         headers=_headers(6106),
         json={
             **_VALID_PAYLOAD,
-            "source_kind": "organization",
-            "source_id": "88",
             "details": {
+                "export_format": "csv",
+                "exported_participants": [],
+                "source_kind": "organization",
+                "source_id": "88",
                 "source_name": "Acme Health Pvt Ltd",
                 "organization_name": "Acme Health Pvt Ltd",
             },
@@ -124,13 +128,13 @@ async def test_list_export_logs_search_matches_source_name(async_client, test_db
     )
     assert listed.status_code == 200
     rows = listed.json()["data"]
-    assert any(row["source_id"] == "88" for row in rows)
+    assert any(row["details"]["source_id"] == "88" for row in rows)
     miss = await async_client.get(
         "/employees/export-logs?search=no-such-org",
         headers=_headers(6106),
     )
     assert miss.status_code == 200
-    assert all(row["source_id"] != "88" for row in miss.json()["data"])
+    assert all(row["details"].get("source_id") != "88" for row in miss.json()["data"])
 
 
 @pytest.mark.asyncio
@@ -189,7 +193,7 @@ async def test_inferior_admin_without_export_logs_cannot_list(async_client, test
 
 
 @pytest.mark.asyncio
-async def test_partner_can_create_export_log(async_client, test_db_session):
+async def test_partner_cannot_create_export_log(async_client, test_db_session):
     partner = await seed_partner(
         test_db_session,
         partner_id=7101,
@@ -202,31 +206,104 @@ async def test_partner_can_create_export_log(async_client, test_db_session):
         headers=partner_auth_header(partner.partner_id),
         json=_VALID_PAYLOAD,
     )
-    assert response.status_code == 200
-
-    await seed_employee(test_db_session, employee_id=6105, role="admin")
-    listed = await async_client.get("/employees/export-logs", headers=_headers(6105))
-    assert listed.status_code == 200
-    row = next(
-        item
-        for item in listed.json()["data"]
-        if item["export_log_id"] == response.json()["data"]["export_log_id"]
-    )
-    assert row["partner_id"] == partner.partner_id
-    assert row["employee_id"] is None
-    assert row["actor_name"] == "Org Manager"
-    assert row["actor_role"] == "organization_manager"
+    assert response.status_code in {401, 403}
 
 
 @pytest.mark.asyncio
 async def test_user_cannot_create_export_log(async_client, test_db_session):
-    from modules.users.models import User
-
     test_db_session.add(User(user_id=8101, phone="8101000000", age=30, status="active"))
     await test_db_session.commit()
     response = await async_client.post(
         "/export-logs",
         headers=user_auth_header(8101),
         json=_VALID_PAYLOAD,
+    )
+    assert response.status_code in {401, 403}
+
+
+@pytest.mark.asyncio
+async def test_reveal_contact_returns_cleartext_and_logs(async_client, test_db_session):
+    await seed_employee(
+        test_db_session,
+        employee_id=6201,
+        role="admin",
+        name="Reveal Actor",
+    )
+    test_db_session.add(
+        User(
+            user_id=8201,
+            phone="9600004773",
+            email="reveal.me@example.com",
+            age=30,
+            status="active",
+            first_name="Reveal",
+            last_name="Target",
+        )
+    )
+    await test_db_session.commit()
+
+    masked = await async_client.get("/users/8201", headers=_headers(6201))
+    assert masked.status_code == 200
+    assert "*" in (masked.json()["data"]["phone"] or "")
+    assert "*" in (masked.json()["data"]["email"] or "")
+
+    response = await async_client.post(
+        "/users/8201/reveal-contact",
+        headers=_headers(6201),
+        json={"reason": "Need to contact participant regarding camp booking"},
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["user_id"] == 8201
+    assert data["phone"] == "9600004773"
+    assert data["email"] == "reveal.me@example.com"
+
+    listed = await async_client.get(
+        "/employees/export-logs?export_type=contact_reveal",
+        headers=_headers(6201),
+    )
+    assert listed.status_code == 200
+    rows = listed.json()["data"]
+    row = next(item for item in rows if item["details"].get("source_id") == "8201")
+    assert row["export_type"] == "contact_reveal"
+    assert row["employee_id"] == 6201
+    assert row["employee_name"] == "Reveal Actor"
+    assert row["reason"] == "Need to contact participant regarding camp booking"
+    assert row["details"]["export_format"] is None
+    assert row["details"]["exported_participants"] == [8201]
+    assert row["details"]["source_kind"] == "user"
+
+
+@pytest.mark.asyncio
+async def test_reveal_contact_requires_reason(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=6202, role="admin")
+    test_db_session.add(User(user_id=8202, phone="9600008202", age=30, status="active"))
+    await test_db_session.commit()
+
+    response = await async_client.post(
+        "/users/8202/reveal-contact",
+        headers=_headers(6202),
+        json={"reason": "ab"},
+    )
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "INVALID_INPUT"
+
+
+@pytest.mark.asyncio
+async def test_partner_cannot_reveal_contact(async_client, test_db_session):
+    partner = await seed_partner(
+        test_db_session,
+        partner_id=7102,
+        role="organization_manager",
+        name="Reveal Partner",
+        phone="9100007102",
+    )
+    test_db_session.add(User(user_id=8203, phone="9600008203", age=30, status="active"))
+    await test_db_session.commit()
+
+    response = await async_client.post(
+        "/users/8203/reveal-contact",
+        headers=partner_auth_header(partner.partner_id),
+        json={"reason": "Need contact details"},
     )
     assert response.status_code in {401, 403}

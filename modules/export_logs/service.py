@@ -15,6 +15,15 @@ from modules.export_logs.repository import ExportLogsRepository
 from modules.export_logs.schemas import ExportLogCreateRequest
 
 
+def _role_value(role: object) -> str:
+    if role is None:
+        return ""
+    value = getattr(role, "value", None)
+    if isinstance(value, str):
+        return value
+    return str(role)
+
+
 class ExportLogsService:
     def __init__(self, repository: ExportLogsRepository):
         self._repository = repository
@@ -24,27 +33,34 @@ class ExportLogsService:
         db: AsyncSession,
         *,
         payload: ExportLogCreateRequest,
-        employee_id: int | None,
-        partner_id: int | None,
-        actor_name: str,
-        actor_role: str,
-        ip_address: str,
-        user_agent: str,
+        employee_id: int,
     ) -> ExportLog:
         log = ExportLog(
             employee_id=employee_id,
-            partner_id=partner_id,
-            actor_name=actor_name,
-            actor_role=actor_role,
             reason=payload.reason,
             export_type=payload.export_type,
-            export_format=payload.export_format,
-            source_kind=payload.source_kind,
-            source_id=payload.source_id,
-            row_count=payload.row_count,
             details=payload.details,
-            ip_address=ip_address,
-            user_agent=user_agent,
+        )
+        return await self._repository.create(db, log)
+
+    async def create_contact_reveal(
+        self,
+        db: AsyncSession,
+        *,
+        employee_id: int,
+        user_id: int,
+        reason: str,
+    ) -> ExportLog:
+        log = ExportLog(
+            employee_id=employee_id,
+            reason=reason,
+            export_type="contact_reveal",
+            details={
+                "export_format": None,
+                "exported_participants": [user_id],
+                "source_kind": "user",
+                "source_id": str(user_id),
+            },
         )
         return await self._repository.create(db, log)
 
@@ -78,24 +94,17 @@ class ExportLogsService:
             created_from=created_from,
             created_to=created_to,
         )
-        return [self._serialize(row) for row in rows], total
+        return [self._serialize(row, name, role) for row, name, role in rows], total
 
     @staticmethod
-    def _serialize(row: ExportLog) -> dict[str, Any]:
+    def _serialize(row: ExportLog, employee_name: str, employee_role: object) -> dict[str, Any]:
         return {
             "export_log_id": row.export_log_id,
             "employee_id": row.employee_id,
-            "partner_id": row.partner_id,
-            "actor_name": row.actor_name,
-            "actor_role": row.actor_role,
+            "employee_name": (employee_name or "").strip() or f"Employee {row.employee_id}",
+            "employee_role": _role_value(employee_role),
             "reason": row.reason,
             "export_type": row.export_type,
-            "export_format": row.export_format,
-            "source_kind": row.source_kind,
-            "source_id": row.source_id,
-            "row_count": row.row_count,
             "details": row.details,
-            "ip_address": row.ip_address,
-            "user_agent": row.user_agent,
             "created_at": row.created_at,
         }
