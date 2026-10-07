@@ -40,6 +40,7 @@ from modules.organizations.repository import OrganizationsRepository
 from modules.organizations.schemas import OrganizationCreateRequest, OrganizationUpdateRequest
 from modules.partners.models import Partner, PartnerRole
 from modules.partners.repository import PartnersRepository
+from modules.partners.role_utils import partner_role_value
 from modules.users.repository import UsersRepository
 
 
@@ -156,7 +157,7 @@ class OrganizationsService:
         partner = await self._partners_repository.get_by_id(db, partner_id)
         if partner is None or (partner.status or "").lower() != "active":
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
-        role = partner.role.value if isinstance(partner.role, PartnerRole) else str(partner.role or "")
+        role = partner_role_value(partner.role)
         if role != PartnerRole.organization_manager.value:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
         return partner_id
@@ -183,7 +184,7 @@ class OrganizationsService:
         existing = await self._partners_repository.get_by_id(db, partner_id)
         if existing is None:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
-        role = existing.role.value if isinstance(existing.role, PartnerRole) else str(existing.role or "")
+        role = partner_role_value(existing.role)
         if role != PartnerRole.organization_manager.value:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
         if (existing.status or "").lower() != "active":

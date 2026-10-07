@@ -19,6 +19,7 @@ from modules.employee.access_control import ensure_expert_portal_access, ensure_
 from modules.employee.models import EmployeeRole
 from modules.employee.service import EmployeeContext
 from modules.partners.models import Partner, PartnerRole
+from modules.partners.role_utils import partner_role_value
 from modules.partners.repository import PartnersRepository
 from modules.engagements.enums import ConsultationMode
 from modules.engagements.consultation_booking_validation import (
@@ -159,7 +160,7 @@ class ExpertsService:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
         if (partner.status or "").lower() != "active":
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
-        role = partner.role.value if isinstance(partner.role, PartnerRole) else str(partner.role or "")
+        role = partner_role_value(partner.role)
         if role != PartnerRole.expert.value:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
         return partner

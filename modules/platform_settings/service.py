@@ -12,6 +12,7 @@ from core.exceptions import AppError
 from modules.assessments.models import AssessmentPackage
 from modules.diagnostics.models import DiagnosticPackage
 from modules.partners.models import PartnerRole
+from modules.partners.role_utils import partner_role_value
 from modules.partners.repository import PartnersRepository
 from modules.employee.models import EmployeeRole
 from modules.employee.repository import EmployeeRepository
@@ -380,7 +381,7 @@ class PlatformSettingsService:
                     error_code="INVALID_ONBOARDING_ASSISTANT",
                     message=f"Partner {raw} is not active",
                 )
-            role = partner.role.value if isinstance(partner.role, PartnerRole) else str(partner.role or "")
+            role = partner_role_value(partner.role)
             if role != PartnerRole.phlebo.value:
                 raise AppError(
                     status_code=422,
@@ -407,7 +408,7 @@ class PlatformSettingsService:
                 DefaultOnboardingAssistantItem(
                     employee_id=partner.partner_id,
                     user_id=partner.partner_id,
-                    role=partner.role.value if isinstance(partner.role, PartnerRole) else str(partner.role),
+                    role=partner_role_value(partner.role),
                     status=partner.status,
                     first_name=parts[0] if parts else "",
                     last_name=parts[1] if len(parts) > 1 else "",

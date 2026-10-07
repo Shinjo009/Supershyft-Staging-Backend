@@ -49,6 +49,7 @@ from modules.engagements.consultation_booking_validation import (
 )
 from modules.engagements.models import BloodCollectionType, ConsultationMode, Engagement, EngagementParticipant, EngagementStatus, OnboardingAssistantAssignment
 from modules.partners.models import PartnerRole
+from modules.partners.role_utils import partner_role_value
 from modules.partners.repository import PartnersRepository
 from modules.engagements.participant_list_filters import (
     ParticipantListFilters,
@@ -1579,7 +1580,7 @@ class EngagementsService:
             if (row.status or "").lower() != "active":
                 logger.warning("Skipping default onboarding assistant %s: partner not active", partner_id)
                 continue
-            role = row.role.value if isinstance(row.role, PartnerRole) else str(row.role or "")
+            role = partner_role_value(row.role)
             if role != PartnerRole.phlebo.value:
                 logger.warning("Skipping default onboarding assistant %s: invalid role", partner_id)
                 continue
