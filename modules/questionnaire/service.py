@@ -15,6 +15,10 @@ from core.exceptions import AppError
 from db.seed.metsights_sync_operations import reset_metsights_sync as run_reset_metsights_sync
 from db.seed.blood_parameters_operations import reload_blood_parameters_questions as run_reload_blood_parameters_questions
 from db.seed.questionnaire_field_config import MAX_MULTI_SELECT_CHOICES, QUESTION_TYPE_OVERRIDES
+from modules.assessments.essentials_vitals import (
+    category_optional_for_essentials_completion,
+    is_metsights_essentials,
+)
 from modules.metsights.anthropometry_validation import validate_scale_answer
 from modules.audit.service import AuditService
 from modules.employee.service import EmployeeContext
@@ -1905,7 +1909,7 @@ class QuestionnaireService:
                 error_code="ASSESSMENT_NOT_FOUND",
                 message="Assessment does not exist",
             )
-        instance, _package = row
+        instance, package = row
 
         current_status = (instance.status or "").lower()
         if current_status == "completed":
@@ -2082,7 +2086,15 @@ class QuestionnaireService:
         if not package_category_ids:
             return
 
+        essentials = is_metsights_essentials(
+            type_code=(package.assessment_type_code if package else None),
+            package_code=(package.package_code if package else None),
+        )
         for category_id in package_category_ids:
+            category = await self._repository.get_category_by_id(db, category_id=category_id)
+            cat_key = (category.category_key or "").strip() if category is not None else ""
+            if essentials and category_optional_for_essentials_completion(cat_key):
+                continue
             if not await self.is_category_complete(
                 db,
                 assessment_instance_id=int(instance.assessment_instance_id),

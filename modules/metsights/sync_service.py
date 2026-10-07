@@ -32,6 +32,11 @@ from db.seed.questionnaire_field_config import (
     RANDOM_SINGLE_FROM_MULTISELECT_FIELDS,
     SCALE_TO_CHOICE_CONVERTERS,
 )
+from modules.assessments.essentials_vitals import (
+    OPTIONAL_VITALS_CATEGORY_KEYS,
+    category_optional_for_essentials_completion,
+    is_metsights_essentials,
+)
 from modules.assessments.models import AssessmentCategoryProgress, AssessmentInstance
 from modules.audit.cron_sync_logging import (
     finalize_integration_sync_log_isolated,
@@ -2128,6 +2133,21 @@ class MetsightsSyncService:
         metsights_payload = _prepare_anthropometry_payload(metsights_payload)
 
         if not metsights_payload:
+            if (
+                is_metsights_essentials(
+                    type_code=local_type_code,
+                    package_code=package_code,
+                )
+                and category_key in OPTIONAL_VITALS_CATEGORY_KEYS
+            ):
+                return {
+                    "assessment_instance_id": assessment_instance_id,
+                    "category": category_key,
+                    "metsights_record_id": mrid,
+                    "status": "skipped",
+                    "reason": "optional_vitals_empty",
+                    "fields_pushed": [],
+                }
             raise AppError(
                 status_code=422,
                 error_code="INVALID_INPUT",
@@ -2573,6 +2593,11 @@ class MetsightsSyncService:
         package_categories = await assessments_repo.list_package_categories(
             db, package_id=package_id,
         )
+        package = await self._assessments.get_package_by_id(db, package_id)
+        essentials = is_metsights_essentials(
+            type_code=(package.assessment_type_code if package else None),
+            package_code=(package.package_code if package else None),
+        )
         now = datetime.now(timezone.utc)
         all_complete = True
 
@@ -2580,6 +2605,7 @@ class MetsightsSyncService:
             cat = await self._questionnaire.get_category_by_id(db, link.category_id)
             if cat is None:
                 continue
+            cat_key = (cat.category_key or "").strip()
 
             all_required_answered = await q_service.is_category_complete(
                 db,
@@ -2618,7 +2644,11 @@ class MetsightsSyncService:
                     if changed:
                         await assessments_repo.update_category_progress(db, progress)
             else:
-                all_complete = False
+                optional_gap = (
+                    essentials and category_optional_for_essentials_completion(cat_key)
+                )
+                if not optional_gap:
+                    all_complete = False
                 if progress is None:
                     # Keep a progress row so admin journey / ops tables can show
                     # Partial when some answers were imported but the category is

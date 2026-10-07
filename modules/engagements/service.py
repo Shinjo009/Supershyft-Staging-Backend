@@ -26,6 +26,10 @@ from common.schedule_cutoff import (
 )
 from core.config import settings
 from core.exceptions import AppError
+from modules.assessments.essentials_vitals import (
+    category_optional_for_essentials_completion,
+    is_metsights_essentials,
+)
 from modules.assessments.repository import AssessmentsRepository
 from modules.assessments.service import AssessmentsService
 from modules.audit.service import AuditService
@@ -3917,6 +3921,19 @@ class EngagementsService:
         for pc in pkg_cat_result.all():
             pkg_categories.setdefault(int(pc.package_id), set()).add(pc.category_key)
 
+        pkg_type_query = select(
+            AssessmentPackage.package_id,
+            AssessmentPackage.assessment_type_code,
+            AssessmentPackage.package_code,
+        ).where(AssessmentPackage.package_id.in_(package_ids))
+        pkg_type_rows = await db.execute(pkg_type_query)
+        pkg_essentials: dict[int, bool] = {}
+        for prow in pkg_type_rows.all():
+            pkg_essentials[int(prow.package_id)] = is_metsights_essentials(
+                type_code=prow.assessment_type_code,
+                package_code=prow.package_code,
+            )
+
         # Also get per-category response counts using category_ids array overlap
         cat_resp_map: dict[int, dict[str, bool]] = {}  # instance_id -> category_key -> has_responses
         for iid in instance_ids:
@@ -4058,7 +4075,10 @@ class EngagementsService:
                             existing["unanswered_required"] = unanswered
 
                 if assigned and cat_status != "complete":
-                    entry["all_assigned_complete"] = False
+                    if pkg_essentials.get(pid) and category_optional_for_essentials_completion(ck):
+                        pass
+                    else:
+                        entry["all_assigned_complete"] = False
 
         participants: list[dict] = []
         summary_filled = 0

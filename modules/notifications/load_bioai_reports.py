@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import settings
 from db.seed.blood_parameters_registry import BLOOD_PARAMETER_CATEGORY_KEY
+from modules.assessments.essentials_vitals import is_metsights_essentials
 from modules.assessments.models import AssessmentInstance, AssessmentPackage
 from modules.audit.cron_sync_logging import tracked_integration_call
 from modules.bioai_report.pdf_registration import register_permanent_bio_ai_report_url
@@ -608,6 +609,7 @@ async def load_bioai_reports(
                         and fetched_url is None
                         and assessments_service is not None
                         and sync_service is not None
+                        and not is_metsights_essentials(type_code=type_code)
                     ):
                         try:
                             recovered = await _try_recover_missing_vitals_bp(
