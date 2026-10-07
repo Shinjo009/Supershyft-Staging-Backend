@@ -13,6 +13,7 @@ import secrets
 import string
 from datetime import date, datetime, time, timedelta, timezone
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -345,6 +346,10 @@ def _participant_enrollment_to_dict(row: tuple, *, consultations: dict[str, Any]
         "blood_collection_time_slot_id": blood_collection_time_slot_id,
         "booked_by_user_id": booked_by_user_id,
     }
+
+
+def _ist_today() -> date:
+    return datetime.now(ZoneInfo("Asia/Kolkata")).date()
 
 
 class EngagementsService:
@@ -2864,6 +2869,27 @@ class EngagementsService:
         return await audit.list_create_booking_dates_for_engagement(
             db,
             engagement_id=engagement_id,
+        )
+
+    async def booking_summary_for_engagement_id(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        engagement_id: int,
+    ) -> dict[str, Any]:
+        """Camp EOD booking counts for one engagement (no double-count of superseded/resample)."""
+
+        ensure_admin(employee)
+        await self._ensure_engagement_exists(db, engagement_id)
+
+        from modules.engagements.blood_bookings_repository import BloodBookingsRepository
+
+        today = _ist_today()
+        return await BloodBookingsRepository().booking_summary_for_engagement(
+            db,
+            engagement_id=engagement_id,
+            today=today,
         )
 
     async def list_participants_for_b2c_engagements(

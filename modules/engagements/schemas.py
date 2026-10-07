@@ -511,6 +511,17 @@ class RemoveReportsForParticipantsRequest(BaseModel):
     user_ids: list[int] = Field(min_length=1, max_length=2000)
 
 
+class EngagementBookingSummary(BaseModel):
+    today_expected_booking_count: int = 0
+    today_pending_booking_count: int = 0
+    today_booking_count: int = 0
+    total_booking_count: int = 0
+    completed_booking_count: int = 0
+    pending_booking_count: int = 0
+    cancelled_booking_count: int = 0
+    as_of_date: date
+
+
 class ParticipantBloodBookingAdminCreate(BaseModel):
     """Manual collection row for admin corrections."""
 
