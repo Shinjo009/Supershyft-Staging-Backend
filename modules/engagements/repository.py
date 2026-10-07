@@ -6,7 +6,7 @@ Only database queries live here.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, time
+from datetime import date, datetime, time
 import re
 
 from sqlalchemy import String, and_, false, func, or_, select, text, update
@@ -510,6 +510,7 @@ class EngagementsRepository:
         booking_id: str,
         engagement_date: date | None = None,
         slot_start_time: time | None = None,
+        collected_at: datetime | None = None,
     ) -> None:
         row = await self._blood_bookings.get_or_create_current_collection(
             db, engagement_participant_id=engagement_participant_id
@@ -520,6 +521,8 @@ class EngagementsRepository:
             row.collection_date = engagement_date
         if slot_start_time is not None:
             row.collection_time = slot_start_time
+        if collected_at is not None:
+            row.collected_at = collected_at
         db.add(row)
         await db.flush()
 

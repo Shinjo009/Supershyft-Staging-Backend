@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import Date, and_, case, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -26,6 +26,29 @@ def current_blood_booking_subquery():
             ParticipantBloodBooking.id.desc(),
         )
     ).subquery("curr_pbb")
+
+
+def countable_blood_booking_subquery():
+    """One EOD-countable row per participant: active preferred over cancelled; no superseded/resample."""
+    return (
+        select(ParticipantBloodBooking)
+        .distinct(ParticipantBloodBooking.engagement_participant_id)
+        .where(
+            ParticipantBloodBooking.status.in_(
+                (BloodBookingStatus.active.value, BloodBookingStatus.cancelled.value)
+            )
+        )
+        .where(ParticipantBloodBooking.relation != BloodBookingRelation.resample.value)
+        .order_by(
+            ParticipantBloodBooking.engagement_participant_id,
+            case(
+                (ParticipantBloodBooking.status == BloodBookingStatus.active.value, 0),
+                else_=1,
+            ),
+            ParticipantBloodBooking.collected_at.desc().nullslast(),
+            ParticipantBloodBooking.id.desc(),
+        )
+    ).subquery("countable_pbb")
 
 
 def _relation_value(relation: BloodBookingRelation | str) -> str:
@@ -371,6 +394,115 @@ class BloodBookingsRepository:
         db.add(row)
         await db.flush()
         return row
+
+    async def booking_summary_for_engagement(
+        self,
+        db: AsyncSession,
+        *,
+        engagement_id: int,
+        today: date,
+    ) -> dict[str, Any]:
+        """Overview booking counts: one countable row per participant for this engagement."""
+        curr = countable_blood_booking_subquery()
+        is_active = curr.c.status == BloodBookingStatus.active.value
+        collection_date = curr.c.collection_date
+        collected_at_ist = cast(func.timezone("Asia/Kolkata", curr.c.collected_at), Date)
+        has_booking_id = and_(
+            curr.c.booking_id.is_not(None),
+            func.btrim(curr.c.booking_id) != "",
+        )
+        missing_booking_id = or_(
+            curr.c.booking_id.is_(None),
+            func.btrim(func.coalesce(curr.c.booking_id, "")) == "",
+        )
+
+        query = (
+            select(
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (and_(is_active, collection_date == today), 1),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("today_expected_booking_count"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                and_(
+                                    is_active,
+                                    collection_date == today,
+                                    missing_booking_id,
+                                ),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("today_pending_booking_count"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (and_(has_booking_id, collected_at_ist == today), 1),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("today_booking_count"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                and_(
+                                    has_booking_id,
+                                    collected_at_ist.is_not(None),
+                                    collected_at_ist <= today,
+                                ),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("total_booking_count"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                and_(
+                                    is_active,
+                                    collection_date.is_not(None),
+                                    collection_date >= today,
+                                ),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("pending_booking_count"),
+            )
+            .select_from(curr)
+            .join(
+                EngagementParticipant,
+                EngagementParticipant.engagement_participant_id == curr.c.engagement_participant_id,
+            )
+            .where(EngagementParticipant.engagement_id == engagement_id)
+        )
+        row = (await db.execute(query)).one()
+        return {
+            "today_expected_booking_count": int(row.today_expected_booking_count or 0),
+            "today_pending_booking_count": int(row.today_pending_booking_count or 0),
+            "today_booking_count": int(row.today_booking_count or 0),
+            "total_booking_count": int(row.total_booking_count or 0),
+            "completed_booking_count": 0,
+            "pending_booking_count": int(row.pending_booking_count or 0),
+            "cancelled_booking_count": 0,
+            "as_of_date": today.isoformat(),
+        }
 
 
 def blood_booking_to_participant_fields(row: ParticipantBloodBooking | None) -> dict[str, Any]:

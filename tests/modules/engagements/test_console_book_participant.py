@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
+from sqlalchemy import select
 
 from core.config import settings
 from modules.assessments.models import AssessmentPackage
@@ -193,14 +194,14 @@ async def test_console_book_participant_sync_collection_to_now(async_client, tes
                 reference_id="REF51",
                 package_name="Healthians Camp",
                 diagnostic_provider="healthians",
-                external_package_code=2002,
+                external_package_code="2002",
                 status="active",
                 bookings_count=0,
             )
         )
     else:
         existing_diag.diagnostic_provider = "healthians"
-        existing_diag.external_package_code = 2002
+        existing_diag.external_package_code = "2002"
 
     await seed_employee(test_db_session, employee_id=602, role="admin", commit=False)
 
@@ -259,16 +260,39 @@ async def test_console_book_participant_sync_collection_to_now(async_client, tes
                 engagement_id=7103,
                 user_id=93103,
                 booked_by_user_id=93103,
-                engagement_date=original_date,
-                slot_start_time=original_slot,
+            )
+        )
+        await test_db_session.flush()
+        test_db_session.add(
+            ParticipantBloodBooking(
+                engagement_participant_id=96003,
+                collection_date=original_date,
+                collection_time=original_slot,
             )
         )
     else:
-        existing_participant.booking_id = None
-        existing_participant.barcode = None
         existing_participant.booked_by_user_id = 93103
-        existing_participant.engagement_date = original_date
-        existing_participant.slot_start_time = original_slot
+        blood_row = (
+            await test_db_session.execute(
+                select(ParticipantBloodBooking).where(
+                    ParticipantBloodBooking.engagement_participant_id == 96003
+                )
+            )
+        ).scalars().first()
+        if blood_row is None:
+            test_db_session.add(
+                ParticipantBloodBooking(
+                    engagement_participant_id=96003,
+                    collection_date=original_date,
+                    collection_time=original_slot,
+                )
+            )
+        else:
+            blood_row.booking_id = None
+            blood_row.barcode = None
+            blood_row.collection_date = original_date
+            blood_row.collection_time = original_slot
+            blood_row.collected_at = None
     await test_db_session.commit()
 
     frozen_now = datetime(2026, 9, 19, 14, 37, 0, tzinfo=ZoneInfo("Asia/Kolkata"))
@@ -317,14 +341,24 @@ async def test_console_book_participant_sync_collection_to_now(async_client, tes
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["booking_id"] == "1715623010"
-    assert data["engagement_date"] == "2026-09-19"
-    assert data["slot_start_time"] == "14:37:00"
+    assert "engagement_date" not in data
+    assert "slot_start_time" not in data
+    assert data["collected_at"].startswith("2026-09-19T14:37:00")
 
-    participant = await test_db_session.get(EngagementParticipant, 96003)
-    assert participant.booking_id == "1715623010"
-    assert participant.barcode == "BC96003"
-    assert participant.engagement_date == date(2026, 9, 19)
-    assert participant.slot_start_time == time(14, 37, 0)
+    blood_row = (
+        await test_db_session.execute(
+            select(ParticipantBloodBooking).where(
+                ParticipantBloodBooking.engagement_participant_id == 96003
+            )
+        )
+    ).scalars().first()
+    assert blood_row is not None
+    assert blood_row.booking_id == "1715623010"
+    assert blood_row.barcode == "BC96003"
+    assert blood_row.collection_date == original_date
+    assert blood_row.collection_time == original_slot
+    assert blood_row.collected_at is not None
+    assert blood_row.collected_at.astimezone(ZoneInfo("Asia/Kolkata")).replace(microsecond=0) == frozen_now
 
 
 @pytest.mark.asyncio

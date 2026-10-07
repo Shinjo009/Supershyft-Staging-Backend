@@ -575,6 +575,23 @@ async def get_engagement_booking_dates(
     return success_response(data)
 
 
+@router.get("/{engagement_id}/booking-summary")
+async def get_engagement_booking_summary(
+    engagement_id: int,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    engagements_service: EngagementsService = Depends(get_engagements_service),
+):
+    """Camp EOD booking summary for this engagement (one countable row per participant)."""
+
+    data = await engagements_service.booking_summary_for_engagement_id(
+        db,
+        employee=employee,
+        engagement_id=engagement_id,
+    )
+    return success_response(data)
+
+
 @router.get("/{engagement_id}/participants/filter-options")
 async def get_engagement_participant_filter_options(
     engagement_id: int,

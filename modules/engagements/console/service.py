@@ -837,20 +837,14 @@ class ConsoleService:
                 message=str(exc),
             ) from exc
 
-        synced_engagement_date: date | None = None
-        synced_slot_start_time: time | None = None
-        if sync_collection_to_now:
-            now_ist = datetime.now(_IST)
-            synced_engagement_date = now_ist.date()
-            synced_slot_start_time = time(now_ist.hour, now_ist.minute, now_ist.second)
+        collected_at = datetime.now(_IST) if sync_collection_to_now else None
 
         await self._repository.update_participant_healthians_booking(
             db,
             engagement_participant_id=engagement_participant_id,
             barcode=trimmed_barcode,
             booking_id=str(healthians_booking_id),
-            engagement_date=synced_engagement_date,
-            slot_start_time=synced_slot_start_time,
+            collected_at=collected_at,
         )
 
         result = {
@@ -864,9 +858,8 @@ class ConsoleService:
             "engagement_participant_id": engagement_participant_id,
             "user_id": user_id,
         }
-        if synced_engagement_date is not None and synced_slot_start_time is not None:
-            result["engagement_date"] = synced_engagement_date.isoformat()
-            result["slot_start_time"] = synced_slot_start_time.isoformat()
+        if collected_at is not None:
+            result["collected_at"] = collected_at.isoformat()
         return result
 
     async def cancel_participant_booking(
