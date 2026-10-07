@@ -733,8 +733,10 @@ class OrganizationsService:
         reported_slugs_by_camp: dict[int, list[str]],
         cities_by_camp: dict[int, list[str]],
         org_departments_by_id: dict[int, list[dict[str, str]]],
+        initialized_camp_nos: set[int] | None = None,
     ) -> list[dict]:
         result = []
+        initialized = initialized_camp_nos or set()
         for (
             camp_no,
             organization_id,
@@ -782,7 +784,8 @@ class OrganizationsService:
                         "count": len(camp_cities),
                         "cities": camp_cities,
                     },
-                    "report_initialized": len(reported_slugs) > 0,
+                    # Any camp_reports row counts (overall/city/department) — not only dept rows.
+                    "report_initialized": cid in initialized,
                 }
             )
         return result
@@ -800,6 +803,9 @@ class OrganizationsService:
         reported_slugs_by_camp = await self._repository.list_reported_department_slugs_by_camp_nos(
             db, camp_nos=camp_nos
         )
+        initialized_camp_nos = await self._repository.list_camp_nos_with_any_report(
+            db, camp_nos=camp_nos
+        )
         cities_by_camp = await self._repository.list_distinct_cities_by_camp_nos(
             db,
             camp_nos=camp_nos,
@@ -813,6 +819,7 @@ class OrganizationsService:
             reported_slugs_by_camp=reported_slugs_by_camp,
             cities_by_camp=cities_by_camp,
             org_departments_by_id=org_departments_by_id,
+            initialized_camp_nos=initialized_camp_nos,
         )
 
     async def list_camps_for_employee(
