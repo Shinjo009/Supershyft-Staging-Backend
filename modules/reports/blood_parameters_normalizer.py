@@ -18,7 +18,7 @@ class PackageTestRow(Protocol):
     test_name: str
     parameter_key: str | None
     unit: str | None
-    external_parameter_code: str | None
+    healthians_parameter_key: str | None
 
 
 class PackageGroupRow(Protocol):
@@ -85,7 +85,7 @@ def build_grouped_from_healthians(
         tests: list[GroupedBloodParameterTest] = []
         for test in group.tests:
             entry: dict[str, Any] | None = None
-            external_pid = test.external_parameter_code
+            external_pid = test.healthians_parameter_key
             if external_pid is not None:
                 entry = dd_lookup.get(str(external_pid))
 

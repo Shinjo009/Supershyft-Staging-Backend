@@ -16,3 +16,25 @@ def healthians_product_deal_type_id(external_package_code: str | None) -> int:
     if not raw:
         return 0
     return int(raw)
+
+
+def _normalized_provider(diagnostic_provider: str | None) -> str:
+    return (diagnostic_provider or "").strip().lower()
+
+
+def provider_parameter_key(
+    parameter: object,
+    diagnostic_provider: str | None,
+) -> str | None:
+    """Return the provider-specific external parameter key for mapping/booking context."""
+    provider = _normalized_provider(diagnostic_provider)
+    if provider == "orange_health":
+        raw = getattr(parameter, "orangehealth_parameter_key", None)
+    elif provider in ("healthians", "healthlabs"):
+        raw = getattr(parameter, "healthians_parameter_key", None)
+    else:
+        raw = getattr(parameter, "healthians_parameter_key", None)
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    return text or None

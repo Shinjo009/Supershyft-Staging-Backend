@@ -188,7 +188,8 @@ class TagResponse(BaseModel):
 class HealthParameterCreate(BaseModel):
     parameter_type: ParameterType = ParameterType.TEST
     test_name: SafeDisplayName
-    external_parameter_code: Optional[str] = None
+    healthians_parameter_key: Optional[str] = None
+    orangehealth_parameter_key: Optional[str] = None
     parameter_key: OptionalParameterKey = None
     unit: Optional[str] = None
     meaning: OptionalSafeText = None
@@ -221,7 +222,8 @@ class HealthParameterCreate(BaseModel):
 class HealthParameterUpdate(BaseModel):
     parameter_type: Optional[ParameterType] = None
     test_name: OptionalSafeDisplayName = None
-    external_parameter_code: Optional[str] = None
+    healthians_parameter_key: Optional[str] = None
+    orangehealth_parameter_key: Optional[str] = None
     parameter_key: OptionalParameterKey = None
     unit: Optional[str] = None
     meaning: OptionalSafeText = None
@@ -257,7 +259,8 @@ class HealthParameterResponse(BaseModel):
     test_id: int
     parameter_type: ParameterType
     test_name: str
-    external_parameter_code: Optional[str] = None
+    healthians_parameter_key: Optional[str] = None
+    orangehealth_parameter_key: Optional[str] = None
     parameter_key: Optional[str] = None
     unit: Optional[str] = None
     meaning: Optional[str] = None

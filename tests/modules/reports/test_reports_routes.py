@@ -202,7 +202,7 @@ class _HealthiansDiagnosticsService(_FakeDiagnosticsService):
         super().__init__()
         base_test = self._payload.groups[0].tests[0]
         self._payload.groups[0].tests[0] = HealthParameterResponse(
-            **{**base_test.model_dump(), "external_parameter_code": 1018}
+            **{**base_test.model_dump(), "healthians_parameter_key": "1018"}
         )
 
 

@@ -277,7 +277,8 @@ class HealthParameter(Base):
     original_price = Column(Numeric(10, 2))
     is_most_popular = Column(Boolean, nullable=False, default=False, server_default="false")
     gender_suitability = Column(gender_suitability_enum, nullable=True)
-    external_parameter_code = Column(String, nullable=True)
+    healthians_parameter_key = Column(String, nullable=True)
+    orangehealth_parameter_key = Column(String, nullable=True)
 
     low_risk_lower_range_male = Column(Numeric(12, 4), nullable=True)
     low_risk_higher_range_male = Column(Numeric(12, 4), nullable=True)

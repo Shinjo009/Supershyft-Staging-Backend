@@ -1,6 +1,12 @@
 """Tests for diagnostic external code helpers."""
 
-from modules.diagnostics.external_codes import healthians_package_deal_id, healthians_product_deal_type_id
+from types import SimpleNamespace
+
+from modules.diagnostics.external_codes import (
+    healthians_package_deal_id,
+    healthians_product_deal_type_id,
+    provider_parameter_key,
+)
 
 
 def test_healthians_package_deal_id_from_string_code():
@@ -14,3 +20,19 @@ def test_healthians_package_deal_id_empty_defaults_to_zero():
 
 def test_healthians_product_deal_type_id():
     assert healthians_product_deal_type_id("42") == 42
+
+
+def test_provider_parameter_key_healthians():
+    param = SimpleNamespace(healthians_parameter_key="135", orangehealth_parameter_key="oh-1")
+    assert provider_parameter_key(param, "Healthians") == "135"
+    assert provider_parameter_key(param, "healthians") == "135"
+
+
+def test_provider_parameter_key_orange_health():
+    param = SimpleNamespace(healthians_parameter_key="135", orangehealth_parameter_key="oh-1")
+    assert provider_parameter_key(param, "orange_health") == "oh-1"
+
+
+def test_provider_parameter_key_empty_string_is_none():
+    param = SimpleNamespace(healthians_parameter_key="  ", orangehealth_parameter_key=None)
+    assert provider_parameter_key(param, "healthians") is None

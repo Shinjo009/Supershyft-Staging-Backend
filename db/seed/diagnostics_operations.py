@@ -147,11 +147,20 @@ async def _apply_health_parameter_row(session: AsyncSession, raw: dict[str, str 
         _bool_cell(imp_hp) if imp_hp is not None and str(imp_hp).strip() != "" else False
     )
     row.gender_suitability = _str_or_none(raw.get("gender_suitability"))
-    ext_param = raw.get("external_parameter_code")
+    ext_param = (
+        raw.get("healthians_parameter_key")
+        or raw.get("external_parameter_code")
+        or raw.get("external_parameter_id")
+    )
     if ext_param is None or str(ext_param).strip() == "":
-        row.external_parameter_code = None
+        row.healthians_parameter_key = None
     else:
-        row.external_parameter_code = str(ext_param).strip()
+        row.healthians_parameter_key = str(ext_param).strip()
+    oh_param = raw.get("orangehealth_parameter_key")
+    if oh_param is None or str(oh_param).strip() == "":
+        row.orangehealth_parameter_key = None
+    else:
+        row.orangehealth_parameter_key = str(oh_param).strip()
 
     def _txt(key: str) -> str | None:
         v = raw.get(key)

@@ -18,7 +18,7 @@ class _TestRow:
     test_name: str
     parameter_key: str | None
     unit: str | None
-    external_parameter_code: int | None
+    healthians_parameter_key: str | None
 
 
 @dataclass
@@ -53,7 +53,7 @@ def test_build_grouped_from_healthians_matches_package_structure():
                     test_name="Haemoglobin",
                     parameter_key="haemoglobin",
                     unit="g/dL",
-                    external_parameter_code=1018,
+                    healthians_parameter_key="1018",
                 )
             ],
         )
@@ -92,7 +92,7 @@ def test_build_grouped_includes_unmatched_tests_with_null_values():
                     test_name="Haemoglobin",
                     parameter_key="haemoglobin",
                     unit="g/dL",
-                    external_parameter_code=55,
+                    healthians_parameter_key="55",
                 )
             ],
         )
@@ -144,7 +144,7 @@ def test_build_grouped_from_healthians_parses_inequality_prefixed_value():
                     test_name="CA-19.9",
                     parameter_key="ca_19_9",
                     unit="U/mL",
-                    external_parameter_code=541,
+                    healthians_parameter_key="541",
                 )
             ],
         )

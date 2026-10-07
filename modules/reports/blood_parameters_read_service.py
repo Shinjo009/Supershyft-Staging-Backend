@@ -492,8 +492,8 @@ class BloodParametersReadService:
             tests: list[BloodParameterTestInReportResponse] = []
             for test in group.tests:
                 entry = None
-                if test.external_parameter_code is not None:
-                    entry = dd_lookup.get(str(test.external_parameter_code))
+                if test.healthians_parameter_key is not None:
+                    entry = dd_lookup.get(str(test.healthians_parameter_key))
                 value = machine_value = unit = lower_range = higher_range = None
                 provider_test_name = test.test_name
                 if entry is not None:
