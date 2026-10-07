@@ -34,6 +34,7 @@ class ChecklistTemplateResponse(BaseModel):
     audience: ChecklistAudience = "internal"
     created_at: datetime
     created_employee_id: Optional[int] = None
+    items_count: int = 0
 
 
 class ChecklistTemplateItemResponse(BaseModel):
@@ -74,6 +75,10 @@ class ChecklistTemplateItemUpdate(BaseModel):
     title: OptionalSafeDisplayName = None
     description: OptionalChecklistText = None
     display_order: Optional[int] = Field(default=None, ge=1)
+
+
+class ReorderChecklistTemplateItemsRequest(BaseModel):
+    item_ids: list[int] = Field(min_length=1)
 
 
 class ApplyTemplateRequest(BaseModel):

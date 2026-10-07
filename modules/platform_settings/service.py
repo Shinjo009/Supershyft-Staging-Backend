@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from sqlalchemy import select
@@ -11,6 +12,7 @@ from core.exceptions import AppError
 from modules.assessments.models import AssessmentPackage
 from modules.diagnostics.models import DiagnosticPackage
 from modules.partners.models import PartnerRole
+from modules.partners.role_utils import partner_role_value
 from modules.partners.repository import PartnersRepository
 from modules.employee.models import EmployeeRole
 from modules.employee.repository import EmployeeRepository
@@ -379,7 +381,7 @@ class PlatformSettingsService:
                     error_code="INVALID_ONBOARDING_ASSISTANT",
                     message=f"Partner {raw} is not active",
                 )
-            role = partner.role.value if isinstance(partner.role, PartnerRole) else str(partner.role or "")
+            role = partner_role_value(partner.role)
             if role != PartnerRole.phlebo.value:
                 raise AppError(
                     status_code=422,
@@ -406,7 +408,7 @@ class PlatformSettingsService:
                 DefaultOnboardingAssistantItem(
                     employee_id=partner.partner_id,
                     user_id=partner.partner_id,
-                    role=partner.role.value if isinstance(partner.role, PartnerRole) else str(partner.role),
+                    role=partner_role_value(partner.role),
                     status=partner.status,
                     first_name=parts[0] if parts else "",
                     last_name=parts[1] if len(parts) > 1 else "",
@@ -536,3 +538,26 @@ class PlatformSettingsService:
             )
 
         return await self.get_geocoding_provider(db)
+
+    async def get_settings_bootstrap(self, db: AsyncSession, *, engagement_types_service) -> dict[str, Any]:
+        """Core platform settings reads for admin Settings page initial load."""
+        (
+            b2c_defaults,
+            onboarding_assistants,
+            support_query_notification,
+            geocoding_provider,
+            engagement_types,
+        ) = await asyncio.gather(
+            self.get_b2c_onboarding_defaults(db),
+            self.get_default_onboarding_assistants(db),
+            self.get_support_query_notification(db),
+            self.get_geocoding_provider(db),
+            engagement_types_service.list_all(db, is_active=True),
+        )
+        return {
+            "b2c_onboarding": b2c_defaults.model_dump(mode="json"),
+            "default_onboarding_assistants": onboarding_assistants.model_dump(),
+            "support_query_notification": support_query_notification.model_dump(),
+            "geocoding_provider": geocoding_provider.model_dump(mode="json"),
+            "engagement_types": [item.model_dump(mode="json") for item in engagement_types],
+        }

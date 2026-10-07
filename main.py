@@ -37,7 +37,6 @@ from modules.platform_settings.router import router as platform_settings_router
 from modules.payments.routes import router as payments_router
 from modules.bookings.router import router as bookings_router
 from modules.experts.router import router as experts_router, portal_router as experts_portal_router, expert_types_router
-from modules.admin_temp.router import router as admin_temp_router
 from modules.notifications.router import router as notifications_router
 from modules.engagement_types.router import router as engagement_types_router
 from modules.notification_events.router import router as notification_events_router
@@ -136,7 +135,6 @@ app.include_router(bookings_router)
 app.include_router(experts_portal_router)
 app.include_router(experts_router)
 app.include_router(expert_types_router)
-app.include_router(admin_temp_router)
 app.include_router(notifications_router)
 app.include_router(engagement_types_router)
 app.include_router(notification_events_router)

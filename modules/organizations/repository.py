@@ -477,6 +477,22 @@ class OrganizationsRepository:
             by_camp.setdefault(cid, []).append(slug)
         return by_camp
 
+    async def list_camp_nos_with_any_report(
+        self,
+        db: AsyncSession,
+        *,
+        camp_nos: list[int],
+    ) -> set[int]:
+        """Camp nos that have at least one camp_reports row (overall, city, or department)."""
+        if not camp_nos:
+            return set()
+        result = await db.execute(
+            select(CampReport.camp_no)
+            .where(CampReport.camp_no.in_(camp_nos))
+            .distinct()
+        )
+        return {int(camp_no) for (camp_no,) in result.all() if camp_no is not None}
+
     async def list_reported_department_slugs_by_organization_ids(
         self,
         db: AsyncSession,

@@ -115,6 +115,9 @@ class ChecklistsService:
 
     async def get_all_templates(self, db: AsyncSession) -> list[ChecklistTemplateResponse]:
         rows = await self._repository.get_all_templates(db)
+        counts = await self._repository.count_items_by_template_ids(
+            db, [int(r.template_id) for r in rows]
+        )
         return [
             ChecklistTemplateResponse(
                 template_id=r.template_id,
@@ -124,6 +127,7 @@ class ChecklistsService:
                 audience=(getattr(r, "audience", None) or "internal"),
                 created_at=r.created_at,
                 created_employee_id=r.created_employee_id,
+                items_count=counts.get(int(r.template_id), 0),
             )
             for r in rows
         ]
@@ -189,6 +193,7 @@ class ChecklistsService:
             audience=(getattr(row, "audience", None) or "internal"),
             created_at=row.created_at,
             created_employee_id=row.created_employee_id,
+            items_count=0,
         )
 
     async def update_template(
@@ -232,6 +237,7 @@ class ChecklistsService:
             audience=(getattr(row, "audience", None) or "internal"),
             created_at=row.created_at,
             created_employee_id=row.created_employee_id,
+            items_count=len(getattr(row, "items", None) or []),
         )
 
     async def update_template_status(
@@ -347,6 +353,36 @@ class ChecklistsService:
             description=updated.description,
             display_order=updated.display_order,
         )
+
+    async def reorder_template_items(
+        self,
+        db: AsyncSession,
+        *,
+        template_id: int,
+        item_ids: list[int],
+        current_employee: EmployeeContext,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> dict:
+        self._ensure_employee(current_employee)
+        template = await self._repository.get_template_by_id(db, template_id)
+        if template is None:
+            raise AppError(status_code=404, error_code="NOT_FOUND", message="Template does not exist")
+        await self._repository.reorder_template_items(
+            db, template_id=template_id, item_ids=item_ids
+        )
+        audit = self._require_audit_service()
+        await audit.log_event(
+            db,
+            action="CHECKLIST_REORDER_TEMPLATE_ITEMS",
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=None,
+            session_id=None,
+        )
+        return {"reordered": True}
 
     async def delete_template_item(
         self,
@@ -654,6 +690,18 @@ class ChecklistsService:
             session_id=None,
         )
         return _task_to_response(task)
+
+    async def count_pending_tasks_for_employee(
+        self,
+        db: AsyncSession,
+        *,
+        employee_id: int,
+    ) -> int:
+        return await self._repository.count_my_tasks(
+            db,
+            employee_id=employee_id,
+            status_filter="pending",
+        )
 
     async def get_my_tasks(
         self,

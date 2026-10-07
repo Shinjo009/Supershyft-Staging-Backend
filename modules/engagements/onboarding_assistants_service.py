@@ -17,6 +17,7 @@ from modules.employee.service import EmployeeContext
 from modules.engagements.models import OnboardingAssistantAssignment
 from modules.engagements.repository import EngagementsRepository
 from modules.partners.models import Partner, PartnerRole
+from modules.partners.role_utils import partner_role_value
 from modules.partners.repository import PartnersRepository
 from modules.partners.schemas import PartnerCreateRequest
 from modules.partners.service import PartnersService
@@ -37,7 +38,7 @@ def _partner_payload(partner: Partner) -> dict:
         "name": partner.name,
         "phone": partner.phone,
         "email": partner.email,
-        "role": partner.role.value if isinstance(partner.role, PartnerRole) else partner.role,
+        "role": partner_role_value(partner.role),
         "status": partner.status,
     }
 
@@ -284,9 +285,7 @@ class OnboardingAssistantsService:
 
         if existing_partner is not None:
             partner = existing_partner
-            role_value = (
-                partner.role.value if isinstance(partner.role, PartnerRole) else str(partner.role or "")
-            )
+            role_value = partner_role_value(partner.role)
             if role_value != PartnerRole.phlebo.value:
                 raise AppError(
                     status_code=400,

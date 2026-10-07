@@ -25,6 +25,7 @@ from db.seed.blood_parameters_registry import (
     ADVANCED_BLOOD_PARAMETER_CATEGORY_KEY,
     BLOOD_PARAMETER_CATEGORY_KEY,
 )
+from modules.assessments.essentials_vitals import is_metsights_essentials
 from modules.assessments.models import AssessmentInstance, AssessmentPackage
 from modules.assessments.repository import AssessmentsRepository
 from modules.audit.cron_sync_logging import tracked_integration_call
@@ -194,6 +195,7 @@ async def _repush_metsights_categories_before_regenerate(
     engagement_id: int,
     instance_id: int,
     package_id: int,
+    assessment_type_code: str | None,
     details: list[dict[str, Any]],
 ) -> bool:
     """Re-draft blood questionnaire answers and re-push Metsights categories."""
@@ -245,8 +247,10 @@ async def _repush_metsights_categories_before_regenerate(
         })
         return False
 
+    essentials = is_metsights_essentials(type_code=assessment_type_code)
+
     for category_key in category_keys:
-        if category_key == "vitals":
+        if category_key == "vitals" and not essentials:
             await _draft_vitals_blood_pressure_if_missing(
                 db,
                 assessments_service=assessments_service,
@@ -274,6 +278,31 @@ async def _repush_metsights_categories_before_regenerate(
                 ),
             })
         except Exception as exc:
+            if (
+                category_key == "vitals"
+                and essentials
+            ):
+                try:
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+                push_error = getattr(exc, "message", None) or str(exc)
+                logger.warning(
+                    "Skipping optional vitals re-push for Essentials user=%s: %s",
+                    user_id,
+                    exc,
+                )
+                details.append({
+                    "user_id": user_id,
+                    "engagement_id": engagement_id,
+                    "action": "skipped",
+                    "reason": (
+                        f"skipped optional vitals re-push for Essentials: "
+                        f"{str(push_error)[:100]}"
+                    ),
+                })
+                continue
+
             if category_key == "vitals" and _is_vitals_blood_pressure_push_error(exc):
                 try:
                     draft_result = await assessments_service.draft_vitals_blood_pressure_fallbacks(
@@ -524,6 +553,7 @@ async def regenerate_bioai_reports(
                 engagement_id=row_engagement_id,
                 instance_id=instance_id,
                 package_id=int(package_id),
+                assessment_type_code=(type_code or "").strip() or None,
                 details=details,
             )
             if not repushed:

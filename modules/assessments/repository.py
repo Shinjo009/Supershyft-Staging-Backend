@@ -29,6 +29,24 @@ class AssessmentsRepository:
         )
         return list(result.scalars().all())
 
+    async def count_categories_for_packages(
+        self,
+        db: AsyncSession,
+        *,
+        package_ids: list[int],
+    ) -> dict[int, int]:
+        if not package_ids:
+            return {}
+        result = await db.execute(
+            select(
+                AssessmentPackageCategory.package_id,
+                func.count().label("category_count"),
+            )
+            .where(AssessmentPackageCategory.package_id.in_(package_ids))
+            .group_by(AssessmentPackageCategory.package_id)
+        )
+        return {int(row.package_id): int(row.category_count) for row in result.all()}
+
     async def get_package_category_link(
         self,
         db: AsyncSession,

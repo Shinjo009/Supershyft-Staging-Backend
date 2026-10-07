@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.listing import PageParamsDep
 from common.responses import success_response
 from core.exceptions import AppError
 from core.network import get_client_ip
@@ -179,8 +180,7 @@ async def create_partner(
 
 @router.get("")
 async def list_partners(
-    page: int = 1,
-    limit: int = 20,
+    pagination: PageParamsDep,
     status: str | None = None,
     role: str | None = None,
     search: str | None = None,
@@ -190,14 +190,11 @@ async def list_partners(
     employee: EmployeeContext = Depends(get_current_employee),
     partners_service: PartnersService = Depends(get_partners_service),
 ):
-    if page < 1 or limit < 1 or limit > 100:
-        raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
-
     partners, total = await partners_service.list_partners(
         db,
         employee=employee,
-        page=page,
-        limit=limit,
+        page=pagination.page,
+        limit=pagination.limit,
         status=status,
         role=role,
         search=search,
@@ -206,7 +203,7 @@ async def list_partners(
     )
     return success_response(
         [_partner_to_dict(row) for row in partners],
-        meta={"page": page, "limit": limit, "total": total},
+        meta={"page": pagination.page, "limit": pagination.limit, "total": total},
     )
 
 

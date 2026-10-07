@@ -15,6 +15,10 @@ from core.exceptions import AppError
 from db.seed.metsights_sync_operations import reset_metsights_sync as run_reset_metsights_sync
 from db.seed.blood_parameters_operations import reload_blood_parameters_questions as run_reload_blood_parameters_questions
 from db.seed.questionnaire_field_config import MAX_MULTI_SELECT_CHOICES, QUESTION_TYPE_OVERRIDES
+from modules.assessments.essentials_vitals import (
+    category_optional_for_essentials_completion,
+    is_metsights_essentials,
+)
 from modules.metsights.anthropometry_validation import validate_scale_answer
 from modules.audit.service import AuditService
 from modules.employee.service import EmployeeContext
@@ -446,6 +450,49 @@ class QuestionnaireService:
     async def serialize_question_definition(self, db: AsyncSession, row: QuestionnaireDefinition) -> dict:
         """Serialize for employee/admin management APIs (raw DB question_type)."""
         return await self._serialize_question(db, row, apply_type_overrides=False)
+
+    async def serialize_question_definitions(
+        self, db: AsyncSession, rows: list[QuestionnaireDefinition]
+    ) -> list[dict]:
+        if not rows:
+            return []
+        question_ids = [int(row.question_id) for row in rows]
+        option_rows = await self._repository.list_options_for_question_ids(db, question_ids=question_ids)
+        options_by_question: dict[int, list] = {}
+        for opt in option_rows:
+            options_by_question.setdefault(int(opt.question_id), []).append(
+                {
+                    "option_value": opt.option_value,
+                    "display_name": opt.display_name,
+                    "tooltip_text": opt.tooltip_text,
+                }
+            )
+
+        out: list[dict] = []
+        for row in rows:
+            question_type = row.question_type
+            if row.question_key and row.question_key in QUESTION_TYPE_OVERRIDES:
+                question_type = QUESTION_TYPE_OVERRIDES[row.question_key]
+            serialized_options = options_by_question.get(int(row.question_id), [])
+            out.append(
+                {
+                    "question_id": row.question_id,
+                    "question_key": row.question_key,
+                    "question_text": row.question_text,
+                    "question_type": question_type,
+                    "is_required": bool(row.is_required),
+                    "is_read_only": bool(row.is_read_only),
+                    "help_text": row.help_text,
+                    "sub_text": row.sub_text,
+                    "options": serialized_options if serialized_options else None,
+                    "visibility_rules": row.visibility_rules,
+                    "prefill_from": row.prefill_from,
+                    "metsights_sync": row.metsights_sync,
+                    "status": row.status,
+                    "created_at": row.created_at,
+                }
+            )
+        return out
 
     def _validate_options_by_type(self, *, question_type: str, options: list[dict[str, str | None]]) -> None:
         if question_type in _CHOICE_TYPES and len(options) == 0:
@@ -1862,7 +1909,7 @@ class QuestionnaireService:
                 error_code="ASSESSMENT_NOT_FOUND",
                 message="Assessment does not exist",
             )
-        instance, _package = row
+        instance, package = row
 
         current_status = (instance.status or "").lower()
         if current_status == "completed":
@@ -2039,7 +2086,15 @@ class QuestionnaireService:
         if not package_category_ids:
             return
 
+        essentials = is_metsights_essentials(
+            type_code=(package.assessment_type_code if package else None),
+            package_code=(package.package_code if package else None),
+        )
         for category_id in package_category_ids:
+            category = await self._repository.get_category_by_id(db, category_id=category_id)
+            cat_key = (category.category_key or "").strip() if category is not None else ""
+            if essentials and category_optional_for_essentials_completion(cat_key):
+                continue
             if not await self.is_category_complete(
                 db,
                 assessment_instance_id=int(instance.assessment_instance_id),

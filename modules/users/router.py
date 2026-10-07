@@ -774,6 +774,9 @@ async def employee_list_users(
         sort_dir=sort_dir,
     )
 
+    stats = await users_service.get_participant_metsights_counts_for_employee(db, employee=employee)
+    protected_user_ids = sorted(await users_service._protected_user_ids(db))
+
     data = []
     for user in users:
         data.append(
@@ -797,7 +800,58 @@ async def employee_list_users(
 
     return success_response(
         data,
-        meta={"page": page, "limit": limit, "total": total},
+        meta={
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "with_metsights_profile": stats.get("with_metsights_profile"),
+            "total_participants": stats.get("total_participants"),
+            "protected_user_ids": protected_user_ids,
+        },
+    )
+
+
+@router.get("/{user_id}/participant-journey/page-bootstrap")
+async def employee_get_participant_journey_page_bootstrap(
+    user_id: int,
+    page: int = 1,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    users_service: UsersService = Depends(get_users_service),
+    journey_service: ParticipantJourneyService = Depends(get_participant_journey_service),
+):
+    if page < 1 or limit < 1 or limit > 100:
+        raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+
+    user = await users_service.get_user_details_for_employee(db, employee=employee, user_id=user_id)
+    journey_data, journey_meta = await journey_service.get_summary(
+        db,
+        employee=employee,
+        user_id=user_id,
+        page=page,
+        limit=limit,
+    )
+    user_payload = {
+        "user_id": user.user_id,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "age": user.age,
+        "phone": mask_phone(user.phone),
+        "email": mask_email(user.email),
+        "profile_photo": user.profile_photo,
+        "date_of_birth": user.date_of_birth,
+        "gender": user.gender,
+        "city": user.city,
+        "status": user.status,
+        "is_participant": user.is_participant,
+        "metsights_profile_id": user.metsights_profile_id,
+        "created_at": user.created_at,
+        "updated_at": user.updated_at,
+    }
+    return success_response(
+        {"user": user_payload, "journey": journey_data},
+        meta=journey_meta,
     )
 
 

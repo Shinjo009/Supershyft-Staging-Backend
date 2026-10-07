@@ -8,6 +8,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.listing import PageParamsDep
 from common.responses import success_response
 from core.exceptions import AppError
 from db.session import get_db
@@ -116,8 +117,7 @@ async def get_organization_filter_options(
 @router.get("")
 async def list_organizations(
     request: Request,
-    page: int = 1,
-    limit: int = 20,
+    pagination: PageParamsDep,
     status: str | None = None,
     organization_type: str | None = None,
     bd_employee_id: int | None = None,
@@ -131,14 +131,11 @@ async def list_organizations(
     employee: EmployeeContext = Depends(get_current_employee),
     organizations_service: OrganizationsService = Depends(get_organizations_service),
 ):
-    if page < 1 or limit < 1 or limit > 100:
-        raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
-
     organizations, total = await organizations_service.list_organizations_for_employee(
         db,
         employee=employee,
-        page=page,
-        limit=limit,
+        page=pagination.page,
+        limit=pagination.limit,
         status=status,
         organization_type=organization_type,
         bd_employee_id=bd_employee_id,
@@ -148,6 +145,9 @@ async def list_organizations(
         industry_key=industry_key,
         sort_by=sort_by,
         sort_dir=sort_dir,
+    )
+    filter_options = await organizations_service.get_organization_filter_options_for_employee(
+        db, employee=employee
     )
 
     data = []
@@ -168,7 +168,15 @@ async def list_organizations(
             }
         )
 
-    return success_response(data, meta={"page": page, "limit": limit, "total": total})
+    return success_response(
+        data,
+        meta={
+            "page": pagination.page,
+            "limit": pagination.limit,
+            "total": total,
+            "filter_options": filter_options,
+        },
+    )
 
 
 @router.get("/camps")
@@ -277,9 +285,13 @@ async def get_organization_details(
         organization_id=organization_id,
     )
 
-    return success_response(
-        organizations_service.organization_to_details_dict(organization, industry)
+    payload = organizations_service.organization_to_details_dict(organization, industry)
+    payload["contact_partner_labels"] = await organizations_service.contact_partner_labels_for_contact_ids(
+        db,
+        contact_person_user_ids=organization.contact_person_user_ids,
     )
+
+    return success_response(payload)
 
 
 @router.put("/{organization_id}")

@@ -169,6 +169,7 @@ async def list_experts(
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext | None = Depends(get_optional_employee_if_authenticated),
     experts_service: ExpertsService = Depends(get_experts_service),
+    expert_types_service: ExpertTypesService = Depends(get_expert_types_service),
 ):
     _ = request
     if page < 1 or limit < 1 or limit > 100:
@@ -187,7 +188,15 @@ async def list_experts(
         sort_by=sort_by,
         sort_dir=sort_dir,
     )
-    return success_response([_expert_dict(e) for e in experts], meta={"page": page, "limit": limit, "total": total})
+    expert_types = await expert_types_service.list_expert_types(db)
+    type_meta = [
+        {"id": t.id, "type_key": t.type_key, "type": t.type}
+        for t in expert_types
+    ]
+    return success_response(
+        [_expert_dict(e) for e in experts],
+        meta={"page": page, "limit": limit, "total": total, "expert_types": type_meta},
+    )
 
 
 @router.get("/consultations/slots")
@@ -634,6 +643,28 @@ async def delete_expert_override(
 
 
 # ─── Portal Availability endpoints ────────────────────────────────────────────
+
+
+@portal_router.get("/availability/bootstrap")
+async def portal_availability_bootstrap(
+    db: AsyncSession = Depends(get_db),
+    actor: ExpertPortalActor = Depends(get_expert_portal_actor),
+    experts_service: ExpertsService = Depends(get_experts_service),
+    availability_service: ExpertAvailabilityService = Depends(get_availability_service),
+):
+    expert, _ = await experts_service.get_portal_me(db, employee=actor.employee, partner=actor.partner)
+    blocks = await availability_service.list_blocks(db, expert_id=expert.expert_id)
+    overrides = await availability_service.list_overrides(db, expert_id=expert.expert_id)
+    return success_response(
+        {
+            "expert_id": expert.expert_id,
+            "session_duration_mins": expert.session_duration_mins,
+            "effective_from": expert.effective_from.isoformat() if expert.effective_from else None,
+            "effective_until": expert.effective_until.isoformat() if expert.effective_until else None,
+            "availability_blocks": [_availability_block_dict(b) for b in blocks],
+            "overrides": [_override_dict(o) for o in overrides],
+        }
+    )
 
 
 @portal_router.get("/availability")

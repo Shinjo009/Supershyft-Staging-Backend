@@ -23,11 +23,16 @@ from modules.platform_settings.schemas import (
     SupportQueryNotificationRead,
     SupportQueryNotificationUpdate,
 )
+from modules.engagement_types.service import EngagementTypesService
 from modules.platform_settings.service import PlatformSettingsService
 from modules.users.dependencies import get_users_service
 from modules.users.service import UsersService
 
 router = APIRouter(prefix="/platform-settings", tags=["platform-settings"])
+
+
+def _engagement_types_service() -> EngagementTypesService:
+    return EngagementTypesService()
 
 
 def _client_ip(request: Request) -> str:
@@ -37,6 +42,18 @@ def _client_ip(request: Request) -> str:
     if request.client is None:
         return "unknown"
     return request.client.host
+
+
+@router.get("/bootstrap")
+async def get_platform_settings_bootstrap(
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    service: PlatformSettingsService = Depends(get_platform_settings_service),
+    engagement_types_service: EngagementTypesService = Depends(_engagement_types_service),
+):
+    _ = employee
+    data = await service.get_settings_bootstrap(db, engagement_types_service=engagement_types_service)
+    return success_response(data)
 
 
 @router.get("/b2c-onboarding")

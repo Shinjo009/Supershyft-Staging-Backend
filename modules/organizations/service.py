@@ -40,6 +40,7 @@ from modules.organizations.repository import OrganizationsRepository
 from modules.organizations.schemas import OrganizationCreateRequest, OrganizationUpdateRequest
 from modules.partners.models import Partner, PartnerRole
 from modules.partners.repository import PartnersRepository
+from modules.partners.role_utils import partner_role_value
 from modules.users.repository import UsersRepository
 
 
@@ -156,7 +157,7 @@ class OrganizationsService:
         partner = await self._partners_repository.get_by_id(db, partner_id)
         if partner is None or (partner.status or "").lower() != "active":
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
-        role = partner.role.value if isinstance(partner.role, PartnerRole) else str(partner.role or "")
+        role = partner_role_value(partner.role)
         if role != PartnerRole.organization_manager.value:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
         return partner_id
@@ -183,7 +184,7 @@ class OrganizationsService:
         existing = await self._partners_repository.get_by_id(db, partner_id)
         if existing is None:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
-        role = existing.role.value if isinstance(existing.role, PartnerRole) else str(existing.role or "")
+        role = partner_role_value(existing.role)
         if role != PartnerRole.organization_manager.value:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
         if (existing.status or "").lower() != "active":
@@ -288,6 +289,22 @@ class OrganizationsService:
             "updated_at": updated_at,
             "updated_employee_id": organization.updated_employee_id,
         }
+
+    async def contact_partner_labels_for_contact_ids(
+        self, db, *, contact_person_user_ids
+    ) -> dict[str, dict[str, str | None]]:
+        labels: dict[str, dict[str, str | None]] = {}
+        for partner_id in iter_contact_person_user_ids(contact_person_user_ids):
+            if str(partner_id) in labels:
+                continue
+            partner = await self._partners_repository.get_by_id(db, partner_id)
+            if partner is None:
+                continue
+            labels[str(partner_id)] = {
+                "name": partner.name,
+                "phone": mask_phone(partner.phone) if partner.phone else None,
+            }
+        return labels
 
     async def list_organizations_for_employee(
         self,
@@ -716,8 +733,10 @@ class OrganizationsService:
         reported_slugs_by_camp: dict[int, list[str]],
         cities_by_camp: dict[int, list[str]],
         org_departments_by_id: dict[int, list[dict[str, str]]],
+        initialized_camp_nos: set[int] | None = None,
     ) -> list[dict]:
         result = []
+        initialized = initialized_camp_nos or set()
         for (
             camp_no,
             organization_id,
@@ -765,6 +784,8 @@ class OrganizationsService:
                         "count": len(camp_cities),
                         "cities": camp_cities,
                     },
+                    # Any camp_reports row counts (overall/city/department) — not only dept rows.
+                    "report_initialized": cid in initialized,
                 }
             )
         return result
@@ -782,6 +803,9 @@ class OrganizationsService:
         reported_slugs_by_camp = await self._repository.list_reported_department_slugs_by_camp_nos(
             db, camp_nos=camp_nos
         )
+        initialized_camp_nos = await self._repository.list_camp_nos_with_any_report(
+            db, camp_nos=camp_nos
+        )
         cities_by_camp = await self._repository.list_distinct_cities_by_camp_nos(
             db,
             camp_nos=camp_nos,
@@ -795,6 +819,7 @@ class OrganizationsService:
             reported_slugs_by_camp=reported_slugs_by_camp,
             cities_by_camp=cities_by_camp,
             org_departments_by_id=org_departments_by_id,
+            initialized_camp_nos=initialized_camp_nos,
         )
 
     async def list_camps_for_employee(

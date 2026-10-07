@@ -41,15 +41,7 @@ class DiagnosticsRepository:
         created_by_user_id: int | None = None,
         package_for: str | None = None,
     ) -> list[DiagnosticPackage]:
-        query = (
-            select(DiagnosticPackage)
-            .options(
-                selectinload(DiagnosticPackage.tags),
-                selectinload(DiagnosticPackage.filter_chip_links).selectinload(
-                    DiagnosticPackageFilterChipLink.filter_chip
-                ),
-            )
-        )
+        query = select(DiagnosticPackage)
 
         if active_only:
             query = query.where(DiagnosticPackage.status == "active")
@@ -93,6 +85,54 @@ class DiagnosticsRepository:
         )
         result = await db.execute(query)
         return list(result.scalars().all())
+
+    async def list_tags_for_package_ids(
+        self,
+        db: AsyncSession,
+        *,
+        package_ids: list[int],
+    ) -> dict[int, list[DiagnosticPackageTag]]:
+        if not package_ids:
+            return {}
+        result = await db.execute(
+            select(DiagnosticPackageTag)
+            .where(DiagnosticPackageTag.diagnostic_package_id.in_(package_ids))
+            .order_by(
+                DiagnosticPackageTag.diagnostic_package_id.asc(),
+                DiagnosticPackageTag.display_order.asc().nulls_last(),
+                DiagnosticPackageTag.tag_id.asc(),
+            )
+        )
+        out: dict[int, list[DiagnosticPackageTag]] = {int(pid): [] for pid in package_ids}
+        for tag in result.scalars().all():
+            out.setdefault(int(tag.diagnostic_package_id), []).append(tag)
+        return out
+
+    async def list_filter_chip_links_for_package_ids(
+        self,
+        db: AsyncSession,
+        *,
+        package_ids: list[int],
+    ) -> dict[int, list[DiagnosticPackageFilterChipLink]]:
+        if not package_ids:
+            return {}
+        result = await db.execute(
+            select(DiagnosticPackageFilterChipLink)
+            .where(DiagnosticPackageFilterChipLink.diagnostic_package_id.in_(package_ids))
+            .options(selectinload(DiagnosticPackageFilterChipLink.filter_chip))
+            .order_by(
+                DiagnosticPackageFilterChipLink.diagnostic_package_id.asc(),
+                DiagnosticPackageFilterChipLink.display_order.asc().nulls_last(),
+                DiagnosticPackageFilterChipLink.link_id.asc(),
+            )
+        )
+        out: dict[int, list[DiagnosticPackageFilterChipLink]] = {int(pid): [] for pid in package_ids}
+        for link in result.scalars().all():
+            pkg_id = link.diagnostic_package_id
+            if pkg_id is None:
+                continue
+            out.setdefault(int(pkg_id), []).append(link)
+        return out
 
     async def count_distinct_tests_for_packages(
         self,
@@ -291,6 +331,33 @@ class DiagnosticsRepository:
             await db.execute(
                 sql_update(DiagnosticPackage)
                 .where(DiagnosticPackage.diagnostic_package_id == package_id)
+                .values(display_order=index)
+            )
+        await db.flush()
+
+    async def reorder_filter_chips(self, db: AsyncSession, *, filter_chip_ids: list[int]) -> None:
+        from sqlalchemy import update as sql_update
+
+        for index, chip_id in enumerate(filter_chip_ids, start=1):
+            await db.execute(
+                sql_update(DiagnosticPackageFilterChip)
+                .where(DiagnosticPackageFilterChip.filter_chip_id == chip_id)
+                .values(display_order=index)
+            )
+        await db.flush()
+
+    async def reorder_package_reasons(
+        self, db: AsyncSession, *, package_id: int, reason_ids: list[int]
+    ) -> None:
+        from sqlalchemy import update as sql_update
+
+        for index, reason_id in enumerate(reason_ids, start=1):
+            await db.execute(
+                sql_update(DiagnosticPackageReason)
+                .where(
+                    DiagnosticPackageReason.reason_id == reason_id,
+                    DiagnosticPackageReason.diagnostic_package_id == package_id,
+                )
                 .values(display_order=index)
             )
         await db.flush()

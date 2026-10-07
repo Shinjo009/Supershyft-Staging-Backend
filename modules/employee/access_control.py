@@ -17,6 +17,7 @@ from modules.organizations.contact_person import (
 from modules.organizations.models import Organization
 from modules.organizations.repository import OrganizationsRepository
 from modules.partners.models import Partner, PartnerRole
+from modules.partners.role_utils import partner_role_value
 
 INTERNAL_ROLES = frozenset({EmployeeRole.admin})
 
@@ -34,7 +35,7 @@ EXPERT_PORTAL_ROLES = frozenset({EmployeeRole.admin})
 
 def ensure_valid_onboarding_assistant_assignee_role(role: str | PartnerRole) -> None:
     """Partners with role phlebo or expert may be assigned as onboarding assistants."""
-    value = role.value if isinstance(role, PartnerRole) else str(role or "")
+    value = partner_role_value(role)
     if value not in {PartnerRole.phlebo.value, PartnerRole.expert.value}:
         raise AppError(
             status_code=400,
@@ -113,8 +114,7 @@ def ensure_expert_portal_access(
 ) -> None:
     """Allow admin employees or active expert partners on /experts/portal/*."""
     if partner is not None:
-        role_value = getattr(partner.role, "value", partner.role)
-        role = "" if role_value is None else str(role_value)
+        role = partner_role_value(partner.role)
         if role == PartnerRole.expert.value and (partner.status or "").lower() == "active":
             return
         raise AppError(
@@ -173,7 +173,7 @@ def resolve_org_manager_scope_for_organization(
 def is_organization_manager_partner(partner: Partner | None) -> bool:
     if partner is None:
         return False
-    role = partner.role.value if isinstance(partner.role, PartnerRole) else str(partner.role or "")
+    role = partner_role_value(partner.role)
     return role == PartnerRole.organization_manager.value and (partner.status or "").lower() == "active"
 
 
@@ -286,7 +286,7 @@ async def ensure_console_access(
         return
 
     if partner is not None:
-        role = partner.role.value if isinstance(partner.role, PartnerRole) else str(partner.role or "")
+        role = partner_role_value(partner.role)
         if role != PartnerRole.phlebo.value:
             raise AppError(
                 status_code=403,

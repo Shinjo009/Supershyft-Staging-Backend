@@ -14,6 +14,7 @@ from modules.checklists.schemas import (
     ChecklistTemplateCreate,
     ChecklistTemplateItemCreate,
     ChecklistTemplateItemUpdate,
+    ReorderChecklistTemplateItemsRequest,
     ChecklistTemplateStatusUpdate,
     ChecklistTemplateUpdate,
     TaskAssignRequest,
@@ -178,6 +179,28 @@ async def update_checklist_template_item(
     )
     await db.commit()
     return success_response(row.model_dump(mode="json"))
+
+
+@router.patch("/checklist-templates/{template_id}/items/order")
+async def reorder_checklist_template_items(
+    template_id: int,
+    payload: ReorderChecklistTemplateItemsRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    service: ChecklistsService = Depends(get_checklists_service),
+):
+    data = await service.reorder_template_items(
+        db,
+        template_id=template_id,
+        item_ids=payload.item_ids,
+        current_employee=employee,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response(data)
 
 
 @router.delete("/checklist-templates/{template_id}/items/{item_id}", status_code=204)

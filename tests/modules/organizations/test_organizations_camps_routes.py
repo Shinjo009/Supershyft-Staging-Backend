@@ -211,7 +211,80 @@ async def test_list_camps_initialized_only_returns_camps_with_reports(async_clie
     matching = [row for row in response.json()["data"] if row["camp_no"] == camp_no]
     assert matching[0]["year"] == 2026
     assert matching[0]["engagement_ids"] == [8210]
+    assert matching[0]["report_initialized"] is True
     assert matching[0]["departments"] == {
         "count": 1,
         "departments": [{"name": "Sales", "slug": "sales"}],
     }
+
+
+@pytest.mark.asyncio
+async def test_list_camps_report_initialized_true_for_overall_only_report(
+    async_client, test_db_session
+):
+    """Overall/city camp_reports (no department rows) still count as initialized."""
+    from modules.reports.models import CampReport
+
+    await _seed_employee(test_db_session, employee_id=34)
+
+    test_db_session.add(
+        Organization(
+            organization_id=8011,
+            name="Overall Only Org",
+            organization_type="corporate",
+            status="active",
+            departments=[{"department": "Sales", "slug": "sales"}],
+        )
+    )
+    await test_db_session.commit()
+    start = date(2026, 8, 31)
+    camp_no = compute_camp_no(8011, start)
+    bio_ai_type_id = await engagement_type_id(test_db_session, "bio_ai")
+
+    test_db_session.add(
+        Engagement(
+            engagement_id=8220,
+            engagement_name="Overall Only Camp",
+            organization_id=8011,
+            camp_no=camp_no,
+            engagement_code="OVER1",
+            engagement_type=bio_ai_type_id,
+            assessment_package_id=None,
+            diagnostic_package_id=None,
+            city="Bengaluru",
+            slot_duration=20,
+            start_date=start,
+            end_date=start,
+            status="running",
+        )
+    )
+    test_db_session.add(
+        CampReport(
+            report={"kpis": {"data": {"employees_enrolled": 10}}},
+            camp_no=camp_no,
+            department=None,
+            city=None,
+            organization_id=8011,
+        )
+    )
+    test_db_session.add(
+        CampReport(
+            report={"kpis": {"data": {"employees_enrolled": 7}}},
+            camp_no=camp_no,
+            department=None,
+            city="Bengaluru",
+            organization_id=8011,
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        f"/organizations/camps?page=1&limit=10&initialized_only=false&search={camp_no}",
+        headers=employee_auth_header(34),
+    )
+    assert response.status_code == 200
+    matching = [row for row in response.json()["data"] if row["camp_no"] == camp_no]
+    assert len(matching) == 1
+    assert matching[0]["report_initialized"] is True
+    # Department list still reflects department-scoped reports only.
+    assert matching[0]["departments"] == {"count": 0, "departments": []}

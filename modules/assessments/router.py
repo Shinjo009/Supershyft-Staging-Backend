@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +23,7 @@ from modules.assessments.schemas import (
     AssessmentSubmitLegacyRequest,
     AssessmentSubmitRequest,
     MetsightsImportRequest,
+    MetsightsBatchImportRequest,
     MetsightsRecordIdUpdate,
 )
 from modules.assessments.service import AssessmentsService
@@ -196,24 +199,42 @@ async def import_metsights_questionnaire_answers(
     return success_response(result)
 
 
-@router.post("/{assessment_instance_id}/metsights/import-answers-legacy")
-async def import_metsights_questionnaire_answers_legacy(
+@router.post("/{assessment_instance_id}/metsights/import-answers-batch")
+async def import_metsights_questionnaire_answers_batch(
     assessment_instance_id: int,
+    body: MetsightsBatchImportRequest,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
     employee=Depends(get_optional_employee),
     sync_service: MetsightsSyncService = Depends(get_metsights_sync_service),
 ):
-    """Legacy import: pull all Metsights questionnaire resources for the instance."""
+    """Pull answers for multiple Metsights categories in one request."""
 
-    result = await sync_service.import_questionnaire_answers_for_instance(
-        db,
-        assessment_instance_id=assessment_instance_id,
-        current_user_id=current_user.user_id,
-        employee_ok=_employee_can_admin_assessments(employee),
-    )
+    employee_ok = _employee_can_admin_assessments(employee)
+    results: list[dict[str, Any]] = []
+    for item in body.categories:
+        try:
+            row = await sync_service.import_category_from_metsights(
+                db,
+                assessment_instance_id=assessment_instance_id,
+                user_id=current_user.user_id,
+                category_key=item.category,
+                category_of=item.category_of,
+                reload=item.reload,
+                employee_ok=employee_ok,
+            )
+            results.append({"category": item.category, "ok": True, "result": row})
+        except AppError as exc:
+            results.append(
+                {
+                    "category": item.category,
+                    "ok": False,
+                    "error_code": exc.error_code,
+                    "message": exc.message,
+                }
+            )
     await db.commit()
-    return success_response(result)
+    return success_response({"results": results})
 
 
 @router.post("/{assessment_instance_id}/metsights/draft-blood-parameters")

@@ -346,6 +346,70 @@ async def test_regenerate_retries_vitals_push_after_default_bp_draft(test_db_ses
 
 
 @pytest.mark.asyncio
+async def test_regenerate_essentials_skips_vitals_bp_draft(test_db_session, monkeypatch):
+    await _seed_regenerate_participant(
+        test_db_session,
+        user_id=88010,
+        engagement_id=88010,
+        assessment_id=88010,
+        package_id=1,
+        assessment_type_code="1",
+    )
+    await test_db_session.execute(
+        text(
+            "UPDATE assessment_packages SET package_code = 'METSIGHTS_BASIC' "
+            "WHERE package_id = 1"
+        )
+    )
+    await test_db_session.commit()
+
+    metsights_service = MetsightsService(client=MetsightsClient())
+    assessments_service = AsyncMock()
+    assessments_service.redraft_blood_questionnaire_responses = AsyncMock(
+        return_value={
+            "responses_drafted": 1,
+            "responses_drafted_from_report": 1,
+            "responses_drafted_from_fallbacks": 0,
+        }
+    )
+    assessments_service.is_vitals_blood_pressure_missing = AsyncMock(return_value=True)
+    assessments_service.draft_vitals_blood_pressure_fallbacks = AsyncMock(
+        return_value={"responses_drafted": 2}
+    )
+    sync_service = AsyncMock()
+    sync_service._push_category_to_metsights = AsyncMock(
+        return_value={"fields_pushed": [], "status": "skipped", "reason": "optional_vitals_empty"}
+    )
+
+    async def _fake_blood_params(*, record_id: str):
+        return {"is_complete": True}
+
+    async def _fake_report(*, record_id: str, assessment_type_code: str | None):
+        return {"record_id": record_id, "refreshed": True}
+
+    monkeypatch.setattr(metsights_service, "get_blood_parameters", _fake_blood_params)
+    monkeypatch.setattr(metsights_service, "get_report", _fake_report)
+    monkeypatch.setattr(
+        "modules.notifications.regenerate_bioai_reports.regenerate_permanent_bio_ai_report_url",
+        AsyncMock(return_value="https://bio-ai-reports.supershyft.com/r/essentials-slug"),
+    )
+    monkeypatch.setattr(
+        "modules.notifications.regenerate_bioai_reports._metsights_category_keys_for_package",
+        AsyncMock(return_value=["physical-measurement", "vitals", "blood-parameters"]),
+    )
+
+    result = await regenerate_bioai_reports(
+        test_db_session,
+        metsights_service=metsights_service,
+        assessments_service=assessments_service,
+        sync_service=sync_service,
+        engagement_id=88010,
+    )
+    assert result["regenerated"] == 1
+    assessments_service.draft_vitals_blood_pressure_fallbacks.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_regenerate_skips_advanced_blood_push_failure_and_continues(
     test_db_session,
     monkeypatch,

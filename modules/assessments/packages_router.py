@@ -87,6 +87,9 @@ async def list_assessment_packages(
         status=status,
     )
 
+    pkg_ids = [p.package_id for p in rows]
+    category_counts = await packages_service.category_counts_for_packages(db, package_ids=pkg_ids)
+
     data = []
     for package in rows:
         data.append(
@@ -97,6 +100,7 @@ async def list_assessment_packages(
                 "assessment_type_code": package.assessment_type_code,
                 "subscription_id": package.subscription_id,
                 "status": package.status,
+                "category_count": category_counts.get(package.package_id, 0),
             }
         )
 

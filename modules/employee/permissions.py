@@ -608,7 +608,7 @@ def classify_operation(route_template: str, method: str) -> RouteCapability | No
         category = "notifications"
     elif path.startswith(("/platform-settings", "/engagement-types")):
         category = "platform_settings"
-    elif path.startswith(("/server-health", "/health/db", "/audit", "/admin-temp")):
+    elif path.startswith(("/server-health", "/health/db", "/audit")):
         category = "system_monitoring"
     elif path.startswith("/uploads/users"):
         category = "users"

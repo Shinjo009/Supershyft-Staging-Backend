@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.listing import PageParamsDep
 from common.responses import success_response
 from core.exceptions import AppError
 from db.session import get_db
@@ -75,29 +76,28 @@ async def create_question_definition(
 @management_router.get("/questions")
 async def list_questions(
     request: Request,
-    page: int = 1,
-    limit: int = 20,
+    pagination: PageParamsDep,
     status: str | None = None,
     type: str | None = None,  # noqa: A002
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
     service: QuestionnaireService = Depends(get_questionnaire_management_service),
 ):
-    if page < 1 or limit < 1 or limit > 100:
-        raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
-
     rows, total = await service.list_question_definitions(
         db,
         employee=employee,
-        page=page,
-        limit=limit,
+        page=pagination.page,
+        limit=pagination.limit,
         status=status,
         question_type=type,
     )
 
-    data = [await service.serialize_question_definition(db, row) for row in rows]
+    data = await service.serialize_question_definitions(db, rows)
 
-    return success_response(data, meta={"page": page, "limit": limit, "total": total})
+    return success_response(
+        data,
+        meta={"page": pagination.page, "limit": pagination.limit, "total": total},
+    )
 
 
 @management_router.get("/questions/metsights-sync-gaps")

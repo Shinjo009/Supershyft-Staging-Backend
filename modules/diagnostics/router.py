@@ -29,6 +29,8 @@ from modules.diagnostics.schemas import (
     ReorderGroupTestsRequest,
     ReorderPackageGroupsRequest,
     ReorderPackagesRequest,
+    ReorderFilterChipsRequest,
+    ReorderPackageReasonsRequest,
     SampleCreate,
     SampleUpdate,
     HealthParameterCreate,
@@ -291,6 +293,26 @@ async def reorder_packages(
     return success_response(data)
 
 
+@router.patch("/diagnostic-packages/filters-chips/order")
+async def reorder_filter_chips(
+    payload: ReorderFilterChipsRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    diagnostics_service: DiagnosticsService = Depends(get_diagnostics_service),
+):
+    data = await diagnostics_service.reorder_filter_chips(
+        db,
+        employee=employee,
+        filter_chip_ids=payload.filter_chip_ids,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response(data)
+
+
 @router.delete("/diagnostic-packages/{package_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_package(
     package_id: int,
@@ -355,6 +377,28 @@ async def update_reason(
     )
     await db.commit()
     return success_response(updated.model_dump())
+
+
+@router.patch("/diagnostic-packages/{package_id}/reasons/order")
+async def reorder_package_reasons(
+    package_id: int,
+    payload: ReorderPackageReasonsRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    diagnostics_service: DiagnosticsService = Depends(get_diagnostics_service),
+):
+    data = await diagnostics_service.reorder_package_reasons(
+        db,
+        employee=employee,
+        package_id=package_id,
+        reason_ids=payload.reason_ids,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response(data)
 
 
 @router.delete("/diagnostic-packages/{package_id}/reasons/{reason_id}")

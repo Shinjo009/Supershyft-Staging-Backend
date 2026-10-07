@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -104,7 +104,10 @@ async def _ensure_test_engagement(test_db_session, *, engagement_id: int = 1):
             assessment_package_id=1,
             diagnostic_package_id=1,
             slot_duration=20,
-            status="active",
+            city="BLR",
+            start_date=date(2026, 2, 1),
+            end_date=date(2026, 2, 28),
+            status="running",
         )
         test_db_session.add(engagement)
         await test_db_session.commit()
@@ -1105,27 +1108,33 @@ async def test_upsert_responses_updates_existing_responses(async_client, test_db
     assert updated.submitted_at is None
 
 
-# ==================== POST /assessments/{assessment_instance_id}/submit-legacy Tests ====================
+# ==================== POST /assessments/{assessment_instance_id}/submit Tests ====================
+
+_SUBMIT_PHYSICAL = {"category": "physical-measurement", "category_of": "metsights"}
 
 
 @pytest.mark.asyncio
-async def test_submit_legacy_requires_auth(async_client):
+async def test_submit_category_requires_auth(async_client):
     """Test that authentication is required."""
-    response = await async_client.post("/assessments/1/submit-legacy")
+    response = await async_client.post("/assessments/1/submit", json=_SUBMIT_PHYSICAL)
     assert response.status_code == 401
 
 
 @pytest.mark.asyncio
-async def test_submit_legacy_returns_404_when_assessment_not_found(async_client, test_db_session):
+async def test_submit_category_returns_404_when_assessment_not_found(async_client, test_db_session):
     """Test 404 when assessment instance does not exist."""
     await _seed_user(test_db_session, user_id=5017)
 
-    response = await async_client.post("/assessments/99999/submit-legacy", headers=_auth_header(5017))
+    response = await async_client.post(
+        "/assessments/99999/submit",
+        headers=_auth_header(5017),
+        json=_SUBMIT_PHYSICAL,
+    )
     assert response.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_submit_legacy_returns_403_when_not_owner(async_client, test_db_session):
+async def test_submit_category_returns_403_when_not_owner(async_client, test_db_session):
     """Test 403 when user tries to submit another user's assessment."""
     await _seed_user(test_db_session, user_id=5018)
     await _seed_user(test_db_session, user_id=5019)
@@ -1139,17 +1148,25 @@ async def test_submit_legacy_returns_403_when_not_owner(async_client, test_db_se
         package_id=1012,
         engagement_id=1,
         status="active",
+        metsights_record_id="MS-2012",
     )
     test_db_session.add(instance)
     await test_db_session.commit()
 
-    response = await async_client.post("/assessments/2012/submit-legacy", headers=_auth_header(5018))
+    response = await async_client.post(
+        "/assessments/2012/submit",
+        headers=_auth_header(5018),
+        json=_SUBMIT_PHYSICAL,
+    )
     assert response.status_code == 403
 
 
 @pytest.mark.asyncio
-async def test_submit_legacy_returns_422_when_already_completed(async_client, test_db_session):
-    """Test 422 when assessment is already completed."""
+async def test_submit_assessment_for_user_returns_422_when_already_completed(test_db_session):
+    """Full assessment submit rejects already completed instances."""
+    from modules.assessments.dependencies import get_assessments_service
+    from core.exceptions import AppError
+
     await _seed_user(test_db_session, user_id=5020)
     await _ensure_test_engagement(test_db_session)
     package = AssessmentPackage(package_id=1013, package_code="PKG013", display_name="Test Package", status="active")
@@ -1165,14 +1182,25 @@ async def test_submit_legacy_returns_422_when_already_completed(async_client, te
     test_db_session.add(instance)
     await test_db_session.commit()
 
-    response = await async_client.post("/assessments/2013/submit-legacy", headers=_auth_header(5020))
-    assert response.status_code == 422
-    assert "already completed" in response.json()["message"]
+    service = get_assessments_service()
+    with pytest.raises(AppError) as exc:
+        await service.submit_assessment_for_user(
+            test_db_session,
+            user_id=5020,
+            assessment_instance_id=2013,
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+            endpoint="/test/submit",
+        )
+    assert "already completed" in exc.value.message
 
 
 @pytest.mark.asyncio
-async def test_submit_legacy_returns_422_when_not_active(async_client, test_db_session):
-    """Test 422 when assessment is not active."""
+async def test_submit_assessment_for_user_returns_422_when_not_active(test_db_session):
+    """Full assessment submit rejects non-active instances."""
+    from modules.assessments.dependencies import get_assessments_service
+    from core.exceptions import AppError
+
     await _seed_user(test_db_session, user_id=5021)
     await _ensure_test_engagement(test_db_session)
     package = AssessmentPackage(package_id=1014, package_code="PKG014", display_name="Test Package", status="active")
@@ -1188,14 +1216,24 @@ async def test_submit_legacy_returns_422_when_not_active(async_client, test_db_s
     test_db_session.add(instance)
     await test_db_session.commit()
 
-    response = await async_client.post("/assessments/2014/submit-legacy", headers=_auth_header(5021))
-    assert response.status_code == 422
-    assert "not active" in response.json()["message"]
+    service = get_assessments_service()
+    with pytest.raises(AppError) as exc:
+        await service.submit_assessment_for_user(
+            test_db_session,
+            user_id=5021,
+            assessment_instance_id=2014,
+            ip_address="127.0.0.1",
+            user_agent="pytest",
+            endpoint="/test/submit",
+        )
+    assert "not active" in exc.value.message
 
 
 @pytest.mark.asyncio
-async def test_submit_legacy_marks_assessment_completed(async_client, test_db_session):
-    """Test successful legacy submission marks assessment as completed."""
+async def test_submit_assessment_for_user_marks_assessment_completed(test_db_session):
+    """Full assessment submit marks the instance completed."""
+    from modules.assessments.dependencies import get_assessments_service
+
     await _seed_user(test_db_session, user_id=5022)
     await _ensure_test_engagement(test_db_session)
     package = AssessmentPackage(package_id=1015, package_code="PKG015", display_name="Test Package", status="active")
@@ -1235,9 +1273,17 @@ async def test_submit_legacy_marks_assessment_completed(async_client, test_db_se
     test_db_session.add(response_row)
     await test_db_session.commit()
 
-    response = await async_client.post("/assessments/2015/submit-legacy", headers=_auth_header(5022))
-    assert response.status_code == 200
-    assert "submitted successfully" in response.json()["data"]["message"].lower()
+    service = get_assessments_service()
+    result = await service.submit_assessment_for_user(
+        test_db_session,
+        user_id=5022,
+        assessment_instance_id=2015,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        endpoint="/test/submit",
+    )
+    await test_db_session.commit()
+    assert "submitted successfully" in result["message"].lower()
 
     await test_db_session.refresh(instance)
     assert instance.status == "completed"
@@ -1248,8 +1294,10 @@ async def test_submit_legacy_marks_assessment_completed(async_client, test_db_se
 
 
 @pytest.mark.asyncio
-async def test_submit_legacy_with_no_responses(async_client, test_db_session):
-    """Test legacy submission is allowed even with no responses."""
+async def test_submit_assessment_for_user_with_no_responses(test_db_session):
+    """Full assessment submit is allowed even with no responses."""
+    from modules.assessments.dependencies import get_assessments_service
+
     await _seed_user(test_db_session, user_id=5023)
     await _ensure_test_engagement(test_db_session)
     package = AssessmentPackage(package_id=1016, package_code="PKG016", display_name="Test Package", status="active")
@@ -1265,8 +1313,16 @@ async def test_submit_legacy_with_no_responses(async_client, test_db_session):
     test_db_session.add(instance)
     await test_db_session.commit()
 
-    response = await async_client.post("/assessments/2016/submit-legacy", headers=_auth_header(5023))
-    assert response.status_code == 200
+    service = get_assessments_service()
+    await service.submit_assessment_for_user(
+        test_db_session,
+        user_id=5023,
+        assessment_instance_id=2016,
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        endpoint="/test/submit",
+    )
+    await test_db_session.commit()
 
     await test_db_session.refresh(instance)
     assert instance.status == "completed"
