@@ -28,7 +28,9 @@ from modules.audit.cron_sync_logging import tracked_integration_call
 from modules.bioai_report.pdf_registration import (
     is_bio_ai_reports_permanent_url,
     is_metsights_hosted_report_url,
+    regenerate_permanent_bio_ai_report_url,
     register_permanent_bio_ai_report_url,
+    resolve_canonical_bio_ai_report_url,
 )
 from modules.engagements.models import Engagement, EngagementParticipant
 from modules.metsights.service import MetsightsService
@@ -632,16 +634,66 @@ async def load_bioai_reports(
 
                 if _bioai_report_data_complete(reports, existing_report_url):
                     if not send_notifications:
-                        skipped += 1
-                        details.append({
-                            "user_id": user_id,
-                            "engagement_id": engagement_id,
-                            "action": "skipped",
-                            "reason": (
-                                "BioAI report already complete (stored reports and bio-ai-reports PDF URL); "
-                                "use regenerate if you need a fresh PDF"
-                            ),
-                        })
+                        canonical_url = await resolve_canonical_bio_ai_report_url(
+                            db,
+                            user_id=user_id,
+                            engagement_id=engagement_id,
+                            assessment_instance_id=instance_id,
+                            report_url=(existing_report_url or "").strip() or None,
+                        )
+                        slug_url = (canonical_url or existing_report_url or "").strip()
+                        if is_bio_ai_reports_permanent_url(slug_url):
+                            try:
+                                refreshed = await regenerate_permanent_bio_ai_report_url(
+                                    db,
+                                    assessment_instance_id=instance_id,
+                                    report_url=slug_url,
+                                    engagement_id=engagement_id,
+                                    user_id=user_id,
+                                )
+                                ihr = await _get_or_create_ihr(
+                                    db,
+                                    ihr_id=ihr_id,
+                                    user_id=user_id,
+                                    engagement_id=engagement_id,
+                                    instance_id=instance_id,
+                                )
+                                ihr.report_url = refreshed
+                                await db.flush()
+                                await db.commit()
+                                loaded += 1
+                                details.append({
+                                    "user_id": user_id,
+                                    "engagement_id": engagement_id,
+                                    "action": "loaded",
+                                    "reason": (
+                                        "BioAI PDF regenerated at existing bio-ai-reports link"
+                                    ),
+                                })
+                            except Exception as exc:
+                                logger.warning(
+                                    "BioAI PDF regenerate failed for instance=%s: %s",
+                                    instance_id,
+                                    exc,
+                                )
+                                skipped += 1
+                                details.append({
+                                    "user_id": user_id,
+                                    "engagement_id": engagement_id,
+                                    "action": "skipped",
+                                    "reason": f"BioAI PDF regenerate failed: {str(exc)[:180]}",
+                                })
+                        else:
+                            skipped += 1
+                            details.append({
+                                "user_id": user_id,
+                                "engagement_id": engagement_id,
+                                "action": "skipped",
+                                "reason": (
+                                    "BioAI reports JSON present but PDF URL is not a "
+                                    "bio-ai-reports slug"
+                                ),
+                            })
                         continue
 
                 if not _bioai_report_data_complete(reports, existing_report_url):
@@ -678,6 +730,20 @@ async def load_bioai_reports(
                                 engagement_id=engagement_id,
                                 user_id=user_id,
                             )
+                            if (
+                                fetched_url
+                                and is_bio_ai_reports_permanent_url(fetched_url)
+                                and is_metsights_hosted_report_url(
+                                    (existing_report_url or "").strip()
+                                )
+                            ):
+                                fetched_url = await regenerate_permanent_bio_ai_report_url(
+                                    db,
+                                    assessment_instance_id=instance_id,
+                                    report_url=fetched_url.strip(),
+                                    engagement_id=engagement_id,
+                                    user_id=user_id,
+                                )
                         except Exception as exc:
                             logger.warning(
                                 "bio-ai-reports registration failed for instance=%s: %s",
