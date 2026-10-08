@@ -108,6 +108,7 @@ from modules.notification_events.router import router as notification_events_rou
 from modules.engagement_notifications.router import router as engagement_notifications_router
 from modules.experts.router import expert_types_router
 from modules.diagnostics.healthians.router import router as healthians_router
+from modules.diagnostics.orange_health.router import router as orange_health_router
 from modules.integrations.router import router as integrations_router
 from modules.employee.permissions import authorize_inferior_admin_request
 from modules.export_logs.router import router as export_logs_router
@@ -405,6 +406,7 @@ async def fastapi_app(
     app.include_router(engagement_notifications_router)
     app.include_router(expert_types_router)
     app.include_router(healthians_router)
+    app.include_router(orange_health_router)
 
     async def _get_test_db():
         yield test_db_session

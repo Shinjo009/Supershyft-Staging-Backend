@@ -27,6 +27,7 @@ from modules.questionnaire.router import router as questionnaire_router
 from modules.support.router import router as support_router
 from modules.diagnostics.router import router as diagnostics_router
 from modules.diagnostics.healthians.router import router as healthians_router
+from modules.diagnostics.orange_health.router import router as orange_health_router
 from modules.uploads.router import router as uploads_router
 from modules.uploads.user_pdf_router import router as user_pdf_upload_router
 from modules.reports.router import router as reports_router
@@ -123,6 +124,7 @@ app.include_router(questionnaire_router)
 app.include_router(support_router)
 app.include_router(diagnostics_router)
 app.include_router(healthians_router)
+app.include_router(orange_health_router)
 app.include_router(uploads_router)
 app.include_router(user_pdf_upload_router)
 app.include_router(camp_reports_router)

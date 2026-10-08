@@ -1,0 +1,2854 @@
+[
+  {
+    "id": "1",
+    "name": "Absolute Eosinophil Count (AEC)"
+  },
+  {
+    "id": "2",
+    "name": "Absolute Lymphocyte Count (ALC)"
+  },
+  {
+    "id": "3",
+    "name": "Absolute Neutrophil Count (ANC)"
+  },
+  {
+    "id": "5",
+    "name": "Activated Partial Thromboplastin Time (aPTT)"
+  },
+  {
+    "id": "6",
+    "name": "Adenosine Deaminase (ADA), Body Fluids"
+  },
+  {
+    "id": "7",
+    "name": "Adenosine Deaminase (ADA)"
+  },
+  {
+    "id": "8",
+    "name": "AFB Smear"
+  },
+  {
+    "id": "9",
+    "name": "Alanine Amino Transferase (ALT/SGPT)"
+  },
+  {
+    "id": "10",
+    "name": "Albumin"
+  },
+  {
+    "id": "11",
+    "name": "Alkaline Phosphatase (ALP)"
+  },
+  {
+    "id": "12",
+    "name": "Alpha Feto Protein (AFP), Body fluids"
+  },
+  {
+    "id": "13",
+    "name": "Alpha Feto Protein (AFP), CSF"
+  },
+  {
+    "id": "14",
+    "name": "Alpha Feto Protein (AFP)"
+  },
+  {
+    "id": "15",
+    "name": "Amylase, Body Fluids"
+  },
+  {
+    "id": "16",
+    "name": "Amylase"
+  },
+  {
+    "id": "17",
+    "name": "Amylase, Urine"
+  },
+  {
+    "id": "18",
+    "name": "Antistreptolysin O (ASO) Titre"
+  },
+  {
+    "id": "19",
+    "name": "Anti Thyroid Peroxidase (Anti-TPO) antibody"
+  },
+  {
+    "id": "20",
+    "name": "Aspartate Amino Transferase (AST / SGOT)"
+  },
+  {
+    "id": "22",
+    "name": "Beta hCG - Pregnancy marker"
+  },
+  {
+    "id": "24",
+    "name": "Total Bilirubin"
+  },
+  {
+    "id": "25",
+    "name": "Blood Group ABO and RH Factor"
+  },
+  {
+    "id": "26",
+    "name": "Peripheral Smear"
+  },
+  {
+    "id": "27",
+    "name": "Blood Urea Nitrogen (BUN)"
+  },
+  {
+    "id": "28",
+    "name": "Body Fluid Analysis"
+  },
+  {
+    "id": "29",
+    "name": "Calcium, Body fluids"
+  },
+  {
+    "id": "30",
+    "name": "Calcium Creatinine Ratio, Urine"
+  },
+  {
+    "id": "31",
+    "name": "Calcium"
+  },
+  {
+    "id": "32",
+    "name": "Calcium,  24 hrs Urine"
+  },
+  {
+    "id": "33",
+    "name": "Cancer Antigen 125 (CA 125)"
+  },
+  {
+    "id": "34",
+    "name": "Chloride - Urine"
+  },
+  {
+    "id": "35",
+    "name": "Chloride"
+  },
+  {
+    "id": "36",
+    "name": "Cholesterol Total"
+  },
+  {
+    "id": "37",
+    "name": "Complement 3 (C3) & Complement 4 (C4) Level"
+  },
+  {
+    "id": "38",
+    "name": "Complement 3 (C3) Level"
+  },
+  {
+    "id": "39",
+    "name": "Complement 4 (C4) Level"
+  },
+  {
+    "id": "40",
+    "name": "Complete Blood Count (CBC)"
+  },
+  {
+    "id": "41",
+    "name": "Complete Haemogram (CBP)"
+  },
+  {
+    "id": "42",
+    "name": "Cortisol - PM"
+  },
+  {
+    "id": "43",
+    "name": "Cortisol - AM"
+  },
+  {
+    "id": "44",
+    "name": "Cortisol (Random)"
+  },
+  {
+    "id": "45",
+    "name": "C-peptide- Random"
+  },
+  {
+    "id": "46",
+    "name": "C-Reactive Protein (CRP)"
+  },
+  {
+    "id": "47",
+    "name": "High Sensitive C-Reactive Protein (HSCRP)"
+  },
+  {
+    "id": "48",
+    "name": "Creatine Phosphokinase -MB (CKMB/CPKMB)"
+  },
+  {
+    "id": "49",
+    "name": "Creatinine, 24 hrs Urine"
+  },
+  {
+    "id": "50",
+    "name": "Creatinine Clearance, 24 hours Urine"
+  },
+  {
+    "id": "51",
+    "name": "Creatinine, Urine"
+  },
+  {
+    "id": "52",
+    "name": "Creatinine"
+  },
+  {
+    "id": "53",
+    "name": "CSF Analysis"
+  },
+  {
+    "id": "54",
+    "name": "D-dimer"
+  },
+  {
+    "id": "56",
+    "name": "Dengue Profile (Rapid)"
+  },
+  {
+    "id": "61",
+    "name": "Dengue NS1 Antigen Rapid"
+  },
+  {
+    "id": "63",
+    "name": "Direct Coombs Test (DCT)"
+  },
+  {
+    "id": "64",
+    "name": "Electrolytes, Random Urine"
+  },
+  {
+    "id": "65",
+    "name": "Electrolytes"
+  },
+  {
+    "id": "66",
+    "name": "Erythrocyte Sedimentation Rate (ESR)"
+  },
+  {
+    "id": "67",
+    "name": "Estradiol (E2)"
+  },
+  {
+    "id": "68",
+    "name": "Extended Thyroid Profile"
+  },
+  {
+    "id": "69",
+    "name": "Fasting Blood Sugar (FBS)"
+  },
+  {
+    "id": "70",
+    "name": "Insulin - Fasting"
+  },
+  {
+    "id": "71",
+    "name": "Ferritin"
+  },
+  {
+    "id": "72",
+    "name": "Gamma Glutamyl Transferase (GGT)"
+  },
+  {
+    "id": "73",
+    "name": "Glucose Challenge Test (75 g) - 1 hour"
+  },
+  {
+    "id": "74",
+    "name": "Glucose Challenge Test (75 g) - 2 hours"
+  },
+  {
+    "id": "77",
+    "name": "Gram Staining"
+  },
+  {
+    "id": "78",
+    "name": "Hb TC DC"
+  },
+  {
+    "id": "79",
+    "name": "Glycosylated Haemoglobin (HbA1c)"
+  },
+  {
+    "id": "80",
+    "name": "Haemoglobin (Hb)"
+  },
+  {
+    "id": "81",
+    "name": "HBsAg (CLIA)"
+  },
+  {
+    "id": "82",
+    "name": "HBsAg (Qualitative) (Rapid)"
+  },
+  {
+    "id": "83",
+    "name": "HDL Cholesterol"
+  },
+  {
+    "id": "84",
+    "name": "Homocysteine (HCY)"
+  },
+  {
+    "id": "85",
+    "name": "HIV 1&2 (Qualitative) (Rapid)"
+  },
+  {
+    "id": "86",
+    "name": "Immunoglobulin E (Total IgE)"
+  },
+  {
+    "id": "87",
+    "name": "India Ink Preparation for Cryptococci"
+  },
+  {
+    "id": "88",
+    "name": "Indirect Coombs Test (ICT)"
+  },
+  {
+    "id": "89",
+    "name": "Total Iron"
+  },
+  {
+    "id": "90",
+    "name": "Iron Profile"
+  },
+  {
+    "id": "91",
+    "name": "Lactate Dehydrogenase (LDH)"
+  },
+  {
+    "id": "92",
+    "name": "Lactate Dehydrogenase (LDH), Body fluid"
+  },
+  {
+    "id": "93",
+    "name": "Leptospira IgM antibodies by EIA - Serum"
+  },
+  {
+    "id": "94",
+    "name": "Lipase"
+  },
+  {
+    "id": "95",
+    "name": "Lipid Profile"
+  },
+  {
+    "id": "96",
+    "name": "Liver Function Test (LFT)"
+  },
+  {
+    "id": "97",
+    "name": "Direct LDL Cholesterol"
+  },
+  {
+    "id": "98",
+    "name": "Magnesium (Mg)"
+  },
+  {
+    "id": "99",
+    "name": "Malarial Antigen (Rapid)"
+  },
+  {
+    "id": "100",
+    "name": "Smear for Malarial Parasite (MP)"
+  },
+  {
+    "id": "101",
+    "name": "Microalbumin Creatinine Ratio, Urine"
+  },
+  {
+    "id": "102",
+    "name": "Stool Occult Blood"
+  },
+  {
+    "id": "103",
+    "name": "Haematocrit (Packed Cell Volume)"
+  },
+  {
+    "id": "104",
+    "name": "Parathyroid Hormone (PTH) - Intact"
+  },
+  {
+    "id": "105",
+    "name": "Phosphorus, 24 hours Urine"
+  },
+  {
+    "id": "106",
+    "name": "Phosphorus"
+  },
+  {
+    "id": "107",
+    "name": "Platelet Count"
+  },
+  {
+    "id": "108",
+    "name": "Post Prandial Blood Sugar (PPBS)"
+  },
+  {
+    "id": "109",
+    "name": "Insulin - Post Prandial"
+  },
+  {
+    "id": "110",
+    "name": "Potassium, Random Urine"
+  },
+  {
+    "id": "111",
+    "name": "Potassium"
+  },
+  {
+    "id": "113",
+    "name": "Progesterone"
+  },
+  {
+    "id": "114",
+    "name": "Prostate Specific Antigen (PSA) - Free"
+  },
+  {
+    "id": "115",
+    "name": "Prostate Specific Antigen (PSA)"
+  },
+  {
+    "id": "116",
+    "name": "Protein Creatinine Ratio, Urine"
+  },
+  {
+    "id": "117",
+    "name": "Protein Total, 24 hours Urine"
+  },
+  {
+    "id": "118",
+    "name": "Protein Total, Body Fluids"
+  },
+  {
+    "id": "119",
+    "name": "Protein Total, CSF"
+  },
+  {
+    "id": "120",
+    "name": "Protein Total, Random Urine"
+  },
+  {
+    "id": "121",
+    "name": "Protein"
+  },
+  {
+    "id": "122",
+    "name": "Prothrombin Time (PT/INR)"
+  },
+  {
+    "id": "123",
+    "name": "Blood Sugar"
+  },
+  {
+    "id": "124",
+    "name": "Insulin - Random"
+  },
+  {
+    "id": "125",
+    "name": "Red Blood Cell Count (RBC Count)"
+  },
+  {
+    "id": "126",
+    "name": "Reticulocyte Count"
+  },
+  {
+    "id": "127",
+    "name": "Rheumatoid Factor (RA) Quantitative"
+  },
+  {
+    "id": "128",
+    "name": "Rubella antibody IgG"
+  },
+  {
+    "id": "129",
+    "name": "Rubella antibody IgM"
+  },
+  {
+    "id": "131",
+    "name": "Serum Osmolality"
+  },
+  {
+    "id": "132",
+    "name": "Sodium"
+  },
+  {
+    "id": "133",
+    "name": "Sodium, Urine"
+  },
+  {
+    "id": "134",
+    "name": "Stool Complete Analysis"
+  },
+  {
+    "id": "135",
+    "name": "Stool Hanging Drop"
+  },
+  {
+    "id": "136",
+    "name": "T3 - Total"
+  },
+  {
+    "id": "137",
+    "name": "T4 - Total"
+  },
+  {
+    "id": "138",
+    "name": "Testosterone - Free"
+  },
+  {
+    "id": "139",
+    "name": "Thyroid Function Test (TFT)"
+  },
+  {
+    "id": "140",
+    "name": "Thyroid Stimulating Hormone (TSH)"
+  },
+  {
+    "id": "141",
+    "name": "TC DC"
+  },
+  {
+    "id": "142",
+    "name": "Creatine Phosphokinase (CPK) - Total"
+  },
+  {
+    "id": "143",
+    "name": "Total WBC Count (TC)"
+  },
+  {
+    "id": "144",
+    "name": "Transferrin"
+  },
+  {
+    "id": "145",
+    "name": "Triglycerides (TGL)"
+  },
+  {
+    "id": "146",
+    "name": "High Sensitive Troponin-I"
+  },
+  {
+    "id": "147",
+    "name": "Typhidot"
+  },
+  {
+    "id": "148",
+    "name": "Urea"
+  },
+  {
+    "id": "149",
+    "name": "Urea, Urine"
+  },
+  {
+    "id": "150",
+    "name": "Uric Acid"
+  },
+  {
+    "id": "151",
+    "name": "Uric Acid,  24hrs Urine"
+  },
+  {
+    "id": "152",
+    "name": "Urine Complete Analysis"
+  },
+  {
+    "id": "153",
+    "name": "Rapid Syphilis IgG/IgM"
+  },
+  {
+    "id": "154",
+    "name": "Vitamin B12"
+  },
+  {
+    "id": "155",
+    "name": "Folic Acid (Vitamin B9)"
+  },
+  {
+    "id": "156",
+    "name": "Vitamin D 1,25-Dihydroxy"
+  },
+  {
+    "id": "157",
+    "name": "Weil-Felix Test"
+  },
+  {
+    "id": "158",
+    "name": "Widal Test (Slide Method)"
+  },
+  {
+    "id": "159",
+    "name": "Widal Test (Tube Method)"
+  },
+  {
+    "id": "160",
+    "name": "17- Hydroxy Progesterone"
+  },
+  {
+    "id": "161",
+    "name": "5 Alpha - Dihydrotestosterone (5 Alpha - DHT)"
+  },
+  {
+    "id": "162",
+    "name": "Acetyl Choline Receptor Binding antibody"
+  },
+  {
+    "id": "163",
+    "name": "Adreno Cortico Trophic Hormone (ACTH)"
+  },
+  {
+    "id": "165",
+    "name": "Alcohol Ethyl Glucuronide (EtG) & Ethyl Sulphate (EtS), Quantitative Assay, Random Urine"
+  },
+  {
+    "id": "166",
+    "name": "Aldolase, Serum"
+  },
+  {
+    "id": "168",
+    "name": "Aspergillus Fumigatus- IgE - for Acute Reaction"
+  },
+  {
+    "id": "169",
+    "name": "Alpha-1 Antitrypsin (A1AT)"
+  },
+  {
+    "id": "170",
+    "name": "Aluminium"
+  },
+  {
+    "id": "171",
+    "name": "Anti Nuclear Antibody (ANA) (IFA)"
+  },
+  {
+    "id": "172",
+    "name": "Anti Neutrophil Cytoplasmic antibody (ANCA) (IFA) with Reflex Testing for MPO & PR3 by EIA"
+  },
+  {
+    "id": "174",
+    "name": "Angiotensin Converting Enzyme (ACE)"
+  },
+  {
+    "id": "175",
+    "name": "Anti-HBc IgM"
+  },
+  {
+    "id": "176",
+    "name": "Anti-Thyroglobulin antibody (Anti-Tg)"
+  },
+  {
+    "id": "177",
+    "name": "Anti-B Titre"
+  },
+  {
+    "id": "178",
+    "name": "Anti-Cyclic Citrullinated Peptide (CCP)"
+  },
+  {
+    "id": "179",
+    "name": "Anti ds DNA antibody (EIA)"
+  },
+  {
+    "id": "180",
+    "name": "Anti ds DNA antibody (IFA)"
+  },
+  {
+    "id": "181",
+    "name": "Antigen Detection against Microfilaria"
+  },
+  {
+    "id": "182",
+    "name": "Anti Gliadin Deamidated Peptide antibody IgA"
+  },
+  {
+    "id": "183",
+    "name": "Anti Gliadin Deamidated Peptide antibody IgG"
+  },
+  {
+    "id": "184",
+    "name": "Anti Mitochondrial antibody (IFA)"
+  },
+  {
+    "id": "185",
+    "name": "Anti Mullerian Hormone (AMH)"
+  },
+  {
+    "id": "186",
+    "name": "MPO (EIA), p-ANCA"
+  },
+  {
+    "id": "187",
+    "name": "Anti NMDA Receptor/Anti Glutamate antibody, CSF (IFA)"
+  },
+  {
+    "id": "188",
+    "name": "Anti NMDA Receptor/Anti Glutamate antibody (IFA)"
+  },
+  {
+    "id": "189",
+    "name": "Anti NMO (Neuromyelitis Optica) antibody/Aquaporin 4 (IFA)"
+  },
+  {
+    "id": "190",
+    "name": "Anti-Nuclear Antibody (ANA) Test (EIA)"
+  },
+  {
+    "id": "191",
+    "name": "Anti Smooth Muscle antibody (Anti-SMA) (IFA)"
+  },
+  {
+    "id": "194",
+    "name": "Antithrombin III (ATIII), Plasma"
+  },
+  {
+    "id": "195",
+    "name": "Apolipoprotein A1 (Apo-A1)"
+  },
+  {
+    "id": "196",
+    "name": "Apolipoprotein B (Apo-B)"
+  },
+  {
+    "id": "197",
+    "name": "Anti Saccharomyces Cerevisiae antibody (ASCA) IgA (EIA)"
+  },
+  {
+    "id": "198",
+    "name": "Anti Saccharomyces Cerevisiae antibody (ASCA) IgG (EIA)"
+  },
+  {
+    "id": "199",
+    "name": "Aspergillus antibody IgG"
+  },
+  {
+    "id": "200",
+    "name": "Aspergillus antibody IgM"
+  },
+  {
+    "id": "201",
+    "name": "Autoimmune Encephalitis Panel (IFA)"
+  },
+  {
+    "id": "202",
+    "name": "BCR-ABL Quantitative- International Scale"
+  },
+  {
+    "id": "203",
+    "name": "Beta-2-Glycoprotein 1- IgA serum"
+  },
+  {
+    "id": "204",
+    "name": "Beta-2-Glycoprotein 1 - IgG Antibody Serum"
+  },
+  {
+    "id": "205",
+    "name": "Beta-2-Glycoprotein 1- IgM Antibody Serum"
+  },
+  {
+    "id": "206",
+    "name": "Beta 2 Microglobullin"
+  },
+  {
+    "id": "207",
+    "name": "Beta hCG - Free"
+  },
+  {
+    "id": "208",
+    "name": "Bile Acids - Total"
+  },
+  {
+    "id": "209",
+    "name": "Culture & Sensitivity - Aerobic (Blood)"
+  },
+  {
+    "id": "211",
+    "name": "Brucella Agglutination Test"
+  },
+  {
+    "id": "212",
+    "name": "CA 15.3, Breast Cancer Marker"
+  },
+  {
+    "id": "213",
+    "name": "CA 72.4, Gastric Cancer Marker"
+  },
+  {
+    "id": "214",
+    "name": "Calcitonin"
+  },
+  {
+    "id": "216",
+    "name": "Carbamazepine"
+  },
+  {
+    "id": "217",
+    "name": "Carbohydrate Antigen 19-9 (CA 19.9)"
+  },
+  {
+    "id": "218",
+    "name": "Carcinoembryonic Antigen (CEA)"
+  },
+  {
+    "id": "219",
+    "name": "Cardiolipin antibody IgA"
+  },
+  {
+    "id": "220",
+    "name": "Cardiolipin antibody IgG"
+  },
+  {
+    "id": "221",
+    "name": "Cardiolipin antibody IgM"
+  },
+  {
+    "id": "222",
+    "name": "Catecholamines, Plasma"
+  },
+  {
+    "id": "223",
+    "name": "CD 19, Flow Cytometry"
+  },
+  {
+    "id": "224",
+    "name": "CD 20, Flow Cytometry"
+  },
+  {
+    "id": "225",
+    "name": "CD 34, Stem Cell Enumeration, Flow Cytometry"
+  },
+  {
+    "id": "226",
+    "name": "Ceruloplasmin"
+  },
+  {
+    "id": "227",
+    "name": "Chikungunya Real Time PCR"
+  },
+  {
+    "id": "228",
+    "name": "Chlamydia Trachomatis antibody IgG"
+  },
+  {
+    "id": "229",
+    "name": "Chlamydia Trachomatis antibody IgM"
+  },
+  {
+    "id": "230",
+    "name": "Cholinesterase (Pseudocholinesterase)"
+  },
+  {
+    "id": "231",
+    "name": "Chromium, Blood"
+  },
+  {
+    "id": "232",
+    "name": "Chromogranin A"
+  },
+  {
+    "id": "233",
+    "name": "Citrate, 24 hours Urine"
+  },
+  {
+    "id": "234",
+    "name": "Copper, Random Urine"
+  },
+  {
+    "id": "236",
+    "name": "Cotinine - Qualitative"
+  },
+  {
+    "id": "238",
+    "name": "Cryptococcal Antigen Test"
+  },
+  {
+    "id": "239",
+    "name": "Cystatin C"
+  },
+  {
+    "id": "240",
+    "name": "Cysticercosis (Taenia solium) antibody IgG"
+  },
+  {
+    "id": "241",
+    "name": "Cytology Examination, Body Fluids"
+  },
+  {
+    "id": "242",
+    "name": "Cytomegalovirus (CMV) antibody IgG"
+  },
+  {
+    "id": "243",
+    "name": "Cytomegalovirus (CMV) antibody IgM"
+  },
+  {
+    "id": "244",
+    "name": "Cytomegalovirus (CMV) Avidity IgG"
+  },
+  {
+    "id": "245",
+    "name": "Cytomegalovirus (CMV) DNA, Qualitative, PCR"
+  },
+  {
+    "id": "246",
+    "name": "Cytomegalovirus (CMV) DNA, Quantitative, PCR"
+  },
+  {
+    "id": "247",
+    "name": "Dehydroepiandrosterone Sulphate (DHEAS)"
+  },
+  {
+    "id": "248",
+    "name": "Dengue detection, PCR"
+  },
+  {
+    "id": "249",
+    "name": "Digoxin"
+  },
+  {
+    "id": "251",
+    "name": "Echinococcus antibody (Hydatid) IgG"
+  },
+  {
+    "id": "252",
+    "name": "Endomysial antibody IgA"
+  },
+  {
+    "id": "253",
+    "name": "Endomysial antibody IgG"
+  },
+  {
+    "id": "254",
+    "name": "Epidermal (Pemphigus) antibody, in dilutions"
+  },
+  {
+    "id": "255",
+    "name": "Erythropoietin"
+  },
+  {
+    "id": "256",
+    "name": "Estimated Glomerular Filtration Rate (eGFR)"
+  },
+  {
+    "id": "257",
+    "name": "Factor IX Activity Anti Haemophilic factor B (Christmas Disease), Citrated plasma"
+  },
+  {
+    "id": "258",
+    "name": "Factor VIII, Functional Assay"
+  },
+  {
+    "id": "260",
+    "name": "Fecal Calprotectin , Quantitative"
+  },
+  {
+    "id": "261",
+    "name": "Fibrinogen Degradation Products (FDP), Semi-Quantitative"
+  },
+  {
+    "id": "262",
+    "name": "Fibrinogen Level"
+  },
+  {
+    "id": "263",
+    "name": "First Trimester Maternal Screening - FMF Certified Double Marker"
+  },
+  {
+    "id": "264",
+    "name": "Follicle Stimulating Hormone (FSH)"
+  },
+  {
+    "id": "265",
+    "name": "Free Cortisol, 24 hours Urine"
+  },
+  {
+    "id": "266",
+    "name": "Free Kappa Light Chains"
+  },
+  {
+    "id": "267",
+    "name": "Free Lambda Light Chain"
+  },
+  {
+    "id": "268",
+    "name": "Free Light Chains (Kappa & Lambda)"
+  },
+  {
+    "id": "269",
+    "name": "Free Thyroid Profile"
+  },
+  {
+    "id": "270",
+    "name": "Fructosamine"
+  },
+  {
+    "id": "271",
+    "name": "Fungal Culture"
+  },
+  {
+    "id": "272",
+    "name": "Galactomannan (Aspergillus Antigen)"
+  },
+  {
+    "id": "273",
+    "name": "Gastrin Level"
+  },
+  {
+    "id": "274",
+    "name": "Mycobacterium Tuberculosis (MTB) with Rifampicin (RIF) Resistance, Qualitative"
+  },
+  {
+    "id": "275",
+    "name": "Glucose-6-Phosphate Dehydrogenase (G6PD), Quantitative, Blood"
+  },
+  {
+    "id": "277",
+    "name": "Growth Hormone"
+  },
+  {
+    "id": "278",
+    "name": "H1N1 Qualitative, Real Time PCR"
+  },
+  {
+    "id": "281",
+    "name": "Haptoglobin"
+  },
+  {
+    "id": "282",
+    "name": "Helicobacter pylori (H. pylori) antibody IgA"
+  },
+  {
+    "id": "283",
+    "name": "Helicobacter pylori (H. pylori) antibody IgG"
+  },
+  {
+    "id": "284",
+    "name": "Helicobacter pylori (H. pylori) antibody IgM"
+  },
+  {
+    "id": "285",
+    "name": "Helicobacter pylori (H. pylori) Antigen, Stool"
+  },
+  {
+    "id": "286",
+    "name": "Abnormal HB Studies(HB Electrophoresis)"
+  },
+  {
+    "id": "287",
+    "name": "Hemosiderin, Urine"
+  },
+  {
+    "id": "288",
+    "name": "Hepatitis A Virus antibody (Anti-HAV) IgG"
+  },
+  {
+    "id": "289",
+    "name": "Hepatitis A Virus antibody (Anti-HAV) IgM"
+  },
+  {
+    "id": "290",
+    "name": "Hepatitis B Core antibodies (Anti-HBc) - Total"
+  },
+  {
+    "id": "291",
+    "name": "Hepatitis Be antibody (Anti-HBe)"
+  },
+  {
+    "id": "292",
+    "name": "Hepatitis Be Antigen (HBeAg)"
+  },
+  {
+    "id": "293",
+    "name": "Hepatitis B Surface antibody (Anti HBs)"
+  },
+  {
+    "id": "294",
+    "name": "Hepatitis B Viral DNA (HBV DNA), Qualitative, RT-PCR"
+  },
+  {
+    "id": "295",
+    "name": "Hepatitis B Viral DNA (HBV DNA), Quantitative, RT-PCR"
+  },
+  {
+    "id": "296",
+    "name": "Hepatitis C Viral (HCV) Load, Qualitative, PCR"
+  },
+  {
+    "id": "297",
+    "name": "Hepatitis C Viral (HCV) load, RNA, Quantitative, RT-PCR"
+  },
+  {
+    "id": "298",
+    "name": "Hepatitis C Virus antibodies (Anti HCV) - Total"
+  },
+  {
+    "id": "299",
+    "name": "Hepatitis C virus antibody (Anti-HCV) IgM"
+  },
+  {
+    "id": "300",
+    "name": "Hepatitis E Virus antibody (Anti-HEV) IgG"
+  },
+  {
+    "id": "301",
+    "name": "Hepatitis E Virus antibody (Anti-HEV) IgM"
+  },
+  {
+    "id": "303",
+    "name": "Herpes Simplex Virus (HSV) Type I antibody IgG"
+  },
+  {
+    "id": "304",
+    "name": "Herpes Simplex Virus (HSV) Type I antibody IgM"
+  },
+  {
+    "id": "305",
+    "name": "Herpes Simplex Virus (HSV) Type II antibody IgG"
+  },
+  {
+    "id": "306",
+    "name": "Herpes Simplex Virus (HSV) Type II antibody IgM"
+  },
+  {
+    "id": "307",
+    "name": "Herpes Simplex Virus (HSV) Type I & II antibodies IgG"
+  },
+  {
+    "id": "308",
+    "name": "Herpes Simplex Virus (HSV) Type I & II antibodies IgM"
+  },
+  {
+    "id": "309",
+    "name": "Herpes Simplex Virus (HSV) Type I & II, Qualitative, PCR"
+  },
+  {
+    "id": "310",
+    "name": "Herpes Simplex Virus (HSV) Type I & II, Qualitative, PCR, CSF"
+  },
+  {
+    "id": "311",
+    "name": "Histone antibodies"
+  },
+  {
+    "id": "312",
+    "name": "HIV-1 RNA Qualitative Detection, PCR"
+  },
+  {
+    "id": "313",
+    "name": "HLA-B27, Flow Cytometry"
+  },
+  {
+    "id": "314",
+    "name": "HLA-B27, Qualitative PCR"
+  },
+  {
+    "id": "315",
+    "name": "HOMA-IR, Insulin Resistance Index"
+  },
+  {
+    "id": "316",
+    "name": "HIV-1 Viral Load, Quantitative, PCR"
+  },
+  {
+    "id": "317",
+    "name": "Human Papiloma Virus (HPV) Detection"
+  },
+  {
+    "id": "318",
+    "name": "Immature Platelet Fraction (IPF)"
+  },
+  {
+    "id": "319",
+    "name": "Immunofixation Electrophoresis (IFE), Qualitative"
+  },
+  {
+    "id": "320",
+    "name": "Immunofixation Electrophoresis (IFE), Qualitative, Urine"
+  },
+  {
+    "id": "321",
+    "name": "Immunoglobulin IgA"
+  },
+  {
+    "id": "322",
+    "name": "Immunoglobulin IgG"
+  },
+  {
+    "id": "323",
+    "name": "Immunoglobulin IgG Synthesis Index & Rate"
+  },
+  {
+    "id": "324",
+    "name": "Immunoglobulin IgM"
+  },
+  {
+    "id": "325",
+    "name": "Immunoglobulin Subclass IgG4"
+  },
+  {
+    "id": "332",
+    "name": "CD23 (CLL Segregation Marker)"
+  },
+  {
+    "id": "333",
+    "name": "CD3 (Pan T Cell Marker)"
+  },
+  {
+    "id": "359",
+    "name": "Inhibin A"
+  },
+  {
+    "id": "360",
+    "name": "Inhibin B"
+  },
+  {
+    "id": "361",
+    "name": "Insulin-like Growth Factor-1 (IGF-1) (Somatomedin C)"
+  },
+  {
+    "id": "362",
+    "name": "Interferon Gamma Releasing Assay (QuantiFERON-TB Gold)"
+  },
+  {
+    "id": "363",
+    "name": "Interleukin 6 (IL6)"
+  },
+  {
+    "id": "364",
+    "name": "Jo-1 antibody, Enzyme Immunoassay"
+  },
+  {
+    "id": "365",
+    "name": "KOH-Fungal Stain"
+  },
+  {
+    "id": "368",
+    "name": "Lead, Whole Blood, Electrochemical Assay"
+  },
+  {
+    "id": "370",
+    "name": "Leptospira IgG antibodies by EIA - Serum"
+  },
+  {
+    "id": "371",
+    "name": "Leptospira Detection, PCR"
+  },
+  {
+    "id": "372",
+    "name": "Lipase, Body Fluid"
+  },
+  {
+    "id": "373",
+    "name": "Lipoprotein (a)"
+  },
+  {
+    "id": "374",
+    "name": "Lithium"
+  },
+  {
+    "id": "375",
+    "name": "Lupus Anticoagulant (LA)"
+  },
+  {
+    "id": "376",
+    "name": "Luteinizing Hormone (LH)"
+  },
+  {
+    "id": "377",
+    "name": "Measles (Rubeola) antibody IgG"
+  },
+  {
+    "id": "378",
+    "name": "Measles (Rubeola) antibody IgM"
+  },
+  {
+    "id": "379",
+    "name": "Mercury Level"
+  },
+  {
+    "id": "380",
+    "name": "Mercury, Random Urine"
+  },
+  {
+    "id": "381",
+    "name": "Metanephrine - Free, Plasma"
+  },
+  {
+    "id": "382",
+    "name": "Metanephrines, 24 hours Urine"
+  },
+  {
+    "id": "383",
+    "name": "Methyl Tetrahydro Folate Reductase (MTHFR) I & II Muation Analysis, PCR"
+  },
+  {
+    "id": "384",
+    "name": "Mumps Virus antibody IgG"
+  },
+  {
+    "id": "385",
+    "name": "Mumps Virus antibody IgM"
+  },
+  {
+    "id": "386",
+    "name": "Myoglobin Level"
+  },
+  {
+    "id": "387",
+    "name": "Myoglobin Level, Urine"
+  },
+  {
+    "id": "388",
+    "name": "Natural Killer (NK) Cells, Flow Cytometry"
+  },
+  {
+    "id": "389",
+    "name": "Nor-metanephrine, Random Urine 24hrs"
+  },
+  {
+    "id": "390",
+    "name": "Nor-metanephrine - Free, Plasma"
+  },
+  {
+    "id": "391",
+    "name": "N-terminal pro B Type Natriuretic Peptide (NT-pro BNP)"
+  },
+  {
+    "id": "392",
+    "name": "Oligoclonal Bands, CSF"
+  },
+  {
+    "id": "393",
+    "name": "Osmotic Fragility Test/Eosin 5 Maleimide (EMA) for Hereditary Spherocytosis"
+  },
+  {
+    "id": "394",
+    "name": "Oxalate, 24 hours Urine"
+  },
+  {
+    "id": "395",
+    "name": "Pan Fungal Detection, PCR"
+  },
+  {
+    "id": "397",
+    "name": "PAP Smear, LBC"
+  },
+  {
+    "id": "398",
+    "name": "Parvo Virus B19 antibody IgM"
+  },
+  {
+    "id": "399",
+    "name": "Phenobarbitone Level"
+  },
+  {
+    "id": "400",
+    "name": "Phenytoin"
+  },
+  {
+    "id": "401",
+    "name": "Phosphatidylserine antibody IgG"
+  },
+  {
+    "id": "402",
+    "name": "Phosphatidylserine antibody IgM"
+  },
+  {
+    "id": "403",
+    "name": "Porphobilinogen (PBG), Quantitative, Urine"
+  },
+  {
+    "id": "404",
+    "name": "Porphobilinogen (PBG), Quantitative, 24 hours Urine"
+  },
+  {
+    "id": "405",
+    "name": "Procalcitonin"
+  },
+  {
+    "id": "406",
+    "name": "Prolactin"
+  },
+  {
+    "id": "407",
+    "name": "Protein C Antigen"
+  },
+  {
+    "id": "408",
+    "name": "Protein C Functional"
+  },
+  {
+    "id": "409",
+    "name": "Protein Electrophoresis, 24 hour Urine/Random Urine"
+  },
+  {
+    "id": "410",
+    "name": "Protein Electrophoresis"
+  },
+  {
+    "id": "411",
+    "name": "Protein S - Free Antigen"
+  },
+  {
+    "id": "412",
+    "name": "Protein S Functional"
+  },
+  {
+    "id": "413",
+    "name": "Pus Culture"
+  },
+  {
+    "id": "414",
+    "name": "RBC Folate Level"
+  },
+  {
+    "id": "416",
+    "name": "Rubella Avidity IgG"
+  },
+  {
+    "id": "417",
+    "name": "Scl-70 (Scleroderma) antibody"
+  },
+  {
+    "id": "418",
+    "name": "Second Trimester Maternal Screening - FMF Certified Quadruple Marker"
+  },
+  {
+    "id": "419",
+    "name": "Second Trimester Maternal Screening - FMF Certified Triple Marker"
+  },
+  {
+    "id": "421",
+    "name": "Sex Hormone Binding Globulin (SHBG)"
+  },
+  {
+    "id": "422",
+    "name": "Sickling Test"
+  },
+  {
+    "id": "423",
+    "name": "Sodium Valporic Acid"
+  },
+  {
+    "id": "424",
+    "name": "Sputum Culture"
+  },
+  {
+    "id": "425",
+    "name": "SS-A/Ro antibody"
+  },
+  {
+    "id": "426",
+    "name": "SS-B/LA antibody"
+  },
+  {
+    "id": "427",
+    "name": "Stool Culture"
+  },
+  {
+    "id": "428",
+    "name": "Tacrolimus Level"
+  },
+  {
+    "id": "429",
+    "name": "Testosterone - Total"
+  },
+  {
+    "id": "431",
+    "name": "Tetanus Toxoid IgG"
+  },
+  {
+    "id": "432",
+    "name": "Throat Swab Culture"
+  },
+  {
+    "id": "433",
+    "name": "Thrombin Time"
+  },
+  {
+    "id": "434",
+    "name": "Thrombophilia Profile 1 (Maxi)"
+  },
+  {
+    "id": "435",
+    "name": "Thyroglobulin Level"
+  },
+  {
+    "id": "436",
+    "name": "Thyroid Stimulating Hormone (TSH) Receptor antibody"
+  },
+  {
+    "id": "437",
+    "name": "Thyroxine Binding Globulin"
+  },
+  {
+    "id": "438",
+    "name": "Tissue Transglutaminase antibody IgA"
+  },
+  {
+    "id": "439",
+    "name": "Tissue Transglutaminase antibody IgG"
+  },
+  {
+    "id": "442",
+    "name": "Toxoplasma antibody IgG"
+  },
+  {
+    "id": "443",
+    "name": "Toxoplasma antibody IgM"
+  },
+  {
+    "id": "444",
+    "name": "Toxoplasma Avidity IgG"
+  },
+  {
+    "id": "445",
+    "name": "Toxoplasma, Qualitative Detection, PCR"
+  },
+  {
+    "id": "446",
+    "name": "Treponema Pallidum Haemagglutination Assay (TPHA)"
+  },
+  {
+    "id": "447",
+    "name": "Tumour Necrosis Factor (TNF), Alpha"
+  },
+  {
+    "id": "448",
+    "name": "Unconjugated Estriol (UE3)"
+  },
+  {
+    "id": "449",
+    "name": "Urine Culture & Sensitivity"
+  },
+  {
+    "id": "450",
+    "name": "Urine Osmolality"
+  },
+  {
+    "id": "452",
+    "name": "Vanillylmandelic Acid (VMA), 24 hours Urine"
+  },
+  {
+    "id": "453",
+    "name": "Vanillylmandelic Acid (VMA), Random Urine"
+  },
+  {
+    "id": "454",
+    "name": "Varicella Zoster Virus (VZV) antibody IgG"
+  },
+  {
+    "id": "455",
+    "name": "Varicella Zoster Virus (VZV) antibody IgM"
+  },
+  {
+    "id": "456",
+    "name": "Vitamin A (Retinol)"
+  },
+  {
+    "id": "457",
+    "name": "Vitamin B1 (Thiamine)"
+  },
+  {
+    "id": "458",
+    "name": "Vitamin B6 (Pyridoxal Phosphate)"
+  },
+  {
+    "id": "459",
+    "name": "Vitamin E (Tocopherol)"
+  },
+  {
+    "id": "460",
+    "name": "Zinc"
+  },
+  {
+    "id": "461",
+    "name": "COVID -19 RT PCR"
+  },
+  {
+    "id": "462",
+    "name": "BCR ABL Qualitative Gene Fusion Analysis, RTPCR"
+  },
+  {
+    "id": "463",
+    "name": "Epidermal Growth Factor Receptor (EGFR) Mutation Analysis, NGS"
+  },
+  {
+    "id": "464",
+    "name": "FACTOR V LEIDEN MUTATION (G1691A)"
+  },
+  {
+    "id": "465",
+    "name": "Hepatitis B Virus (HBV) Genotyping, Sanger"
+  },
+  {
+    "id": "466",
+    "name": "Hepatitis C Virus (HCV) Genotyping, Sanger"
+  },
+  {
+    "id": "469",
+    "name": "Vitamin D, Total"
+  },
+  {
+    "id": "470",
+    "name": "Anti HCV (Hepatitis C Virus )-Rapid"
+  },
+  {
+    "id": "472",
+    "name": "T3 - Free"
+  },
+  {
+    "id": "473",
+    "name": "Free T4 (FT4)"
+  },
+  {
+    "id": "478",
+    "name": "Vitamin C (Ascorbic Acid)"
+  },
+  {
+    "id": "479",
+    "name": "Total Iron Binding Capacity (TIBC)"
+  },
+  {
+    "id": "480",
+    "name": "Glucose Challenge Test (50 g) - 1 hour"
+  },
+  {
+    "id": "484",
+    "name": "Anti Nuclear Antibody (ANA) Profile"
+  },
+  {
+    "id": "485",
+    "name": "Androstenedione (A4)"
+  },
+  {
+    "id": "486",
+    "name": "Anti Neutrophilic Cytoplasmic antibody (ANCA) (IFA)"
+  },
+  {
+    "id": "488",
+    "name": "Anti Phospholipid antibody IgA"
+  },
+  {
+    "id": "491",
+    "name": "APO-A1/APO-B Ratio"
+  },
+  {
+    "id": "493",
+    "name": "Bilirubin (Total + Direct)"
+  },
+  {
+    "id": "494",
+    "name": "Bilirubin Direct"
+  },
+  {
+    "id": "496",
+    "name": "Biopsy - Extra Large Specimen"
+  },
+  {
+    "id": "497",
+    "name": "Biopsy - Large Specimen (> 5cm)"
+  },
+  {
+    "id": "498",
+    "name": "Biopsy - Medium Specimen (upto 5cm)"
+  },
+  {
+    "id": "499",
+    "name": "Biopsy - Small Specimen (< 2cm)"
+  },
+  {
+    "id": "500",
+    "name": "Bone Marrow Smear Examination"
+  },
+  {
+    "id": "501",
+    "name": "C-Peptide - Fasting"
+  },
+  {
+    "id": "502",
+    "name": "C-Peptide - Post Prandial"
+  },
+  {
+    "id": "503",
+    "name": "Complete Blood Count (CBC) with ESR"
+  },
+  {
+    "id": "504",
+    "name": "CD3/CD4/CD8"
+  },
+  {
+    "id": "505",
+    "name": "CD4 Absolute Count"
+  },
+  {
+    "id": "507",
+    "name": "Karyotyping Clinical Cytogenetic Study, Blood"
+  },
+  {
+    "id": "512",
+    "name": "Culture & Sensitivity - Broncho Alveolar Lavage (BAL) - (Auto)"
+  },
+  {
+    "id": "513",
+    "name": "Culture & Sensitivity - AFB"
+  },
+  {
+    "id": "514",
+    "name": "Culture & Sensitivity - Body Fluids (Auto)"
+  },
+  {
+    "id": "515",
+    "name": "Culture & Sensitivity - Environment Swab (Auto)"
+  },
+  {
+    "id": "516",
+    "name": "Culture & Sensitivity - Miscellaneous (Auto)"
+  },
+  {
+    "id": "517",
+    "name": "CYFRA 21.1 (Lung Cancer Marker)"
+  },
+  {
+    "id": "518",
+    "name": "Dehydroepiandrosterone (DHEA)"
+  },
+  {
+    "id": "519",
+    "name": "Desmoglein I"
+  },
+  {
+    "id": "520",
+    "name": "Desmoglein III"
+  },
+  {
+    "id": "521",
+    "name": "Differential Count (DC)"
+  },
+  {
+    "id": "522",
+    "name": "Diphtheria IgG"
+  },
+  {
+    "id": "526",
+    "name": "Entamoeba Histolytica Detection"
+  },
+  {
+    "id": "527",
+    "name": "EBV NA IgG Antibody by CLIA - Serum"
+  },
+  {
+    "id": "529",
+    "name": "Factor-V"
+  },
+  {
+    "id": "530",
+    "name": "Free Androgen Index (FAI)"
+  },
+  {
+    "id": "532",
+    "name": "Globulin"
+  },
+  {
+    "id": "533",
+    "name": "Glycophorin (Erythroid Cell Marker)"
+  },
+  {
+    "id": "534",
+    "name": "HIV 1&2 (CLIA)"
+  },
+  {
+    "id": "535",
+    "name": "HIV DUO"
+  },
+  {
+    "id": "536",
+    "name": "Kidney Function Test (KFT) Mini"
+  },
+  {
+    "id": "537",
+    "name": "Kidney Function Test with Electrolytes"
+  },
+  {
+    "id": "538",
+    "name": "Liver-Kidney Microsomal (LKM) - 1 antibody"
+  },
+  {
+    "id": "542",
+    "name": "Microalbumin - Urine"
+  },
+  {
+    "id": "543",
+    "name": "MICROALBUMIN - 24HRS URINE"
+  },
+  {
+    "id": "544",
+    "name": "PAPP-A"
+  },
+  {
+    "id": "545",
+    "name": "Peripheral Smear for Toxic Granulation"
+  },
+  {
+    "id": "546",
+    "name": "Pooled Prolactin"
+  },
+  {
+    "id": "547",
+    "name": "Protein - Total with Albumin"
+  },
+  {
+    "id": "548",
+    "name": "Reducing Substances"
+  },
+  {
+    "id": "549",
+    "name": "Rh Antibody - Titres"
+  },
+  {
+    "id": "554",
+    "name": "TB PCR Qualitative"
+  },
+  {
+    "id": "557",
+    "name": "TORCH 10"
+  },
+  {
+    "id": "560",
+    "name": "Urinary Ketones"
+  },
+  {
+    "id": "561",
+    "name": "Urine Bile Pigment"
+  },
+  {
+    "id": "562",
+    "name": "Urine Bile Salt"
+  },
+  {
+    "id": "564",
+    "name": "Urine Sugar - Fasting"
+  },
+  {
+    "id": "565",
+    "name": "Urine Sugar - Post Prandial"
+  },
+  {
+    "id": "566",
+    "name": "Urine Specific Gravity"
+  },
+  {
+    "id": "567",
+    "name": "Mumps Qualitative PCR"
+  },
+  {
+    "id": "570",
+    "name": "Bilirubin Indirect"
+  },
+  {
+    "id": "571",
+    "name": "SG0T/SGPT Ratio"
+  },
+  {
+    "id": "572",
+    "name": "Pap Smear Extended Cytology"
+  },
+  {
+    "id": "582",
+    "name": "Potassium, 24 hours Urine"
+  },
+  {
+    "id": "590",
+    "name": "CD2 (Pan T Cell Marker)"
+  },
+  {
+    "id": "591",
+    "name": "CD22 (Pan B Cell Marker)"
+  },
+  {
+    "id": "592",
+    "name": "CD25 (Hairy Cell/NHL Marker)"
+  },
+  {
+    "id": "593",
+    "name": "CD3 Absolute Count"
+  },
+  {
+    "id": "594",
+    "name": "CD33 (Myeloid Cell Marker)"
+  },
+  {
+    "id": "597",
+    "name": "CD45/LCA (Leukocyte Common Antigen)"
+  },
+  {
+    "id": "598",
+    "name": "CD5 (T Cell/B Cell Subset)"
+  },
+  {
+    "id": "603",
+    "name": "CD64 (Monocytic Macrophage Marker)"
+  },
+  {
+    "id": "604",
+    "name": "CD7 (Pan T Cell/Early Myeloid Cell Marker)"
+  },
+  {
+    "id": "605",
+    "name": "CD79a (B Lymphoid Cell Marker)"
+  },
+  {
+    "id": "606",
+    "name": "CD8 (Suppressor T Cell Marker)"
+  },
+  {
+    "id": "673",
+    "name": "Salmonella Qualitative PCR"
+  },
+  {
+    "id": "680",
+    "name": "Pan Neurotropic Virus Panel"
+  },
+  {
+    "id": "681",
+    "name": "Myotonic Dystrophy Chomosome 19q 13.3 PCR"
+  },
+  {
+    "id": "686",
+    "name": "JAK2 (Janus Kinase 2) V617F for MPDs"
+  },
+  {
+    "id": "687",
+    "name": "Culture & Sensitivity - Pediatric Aerobic Blood (Auto)"
+  },
+  {
+    "id": "688",
+    "name": "Anti Treponema Pallidum (TPAB) antibody"
+  },
+  {
+    "id": "689",
+    "name": "Beta hCG - Tumor Marker"
+  },
+  {
+    "id": "690",
+    "name": "Intrinsic Factor Antibody"
+  },
+  {
+    "id": "691",
+    "name": "Parietal Cell antibody"
+  },
+  {
+    "id": "701",
+    "name": "Urinary Stone Analysis"
+  },
+  {
+    "id": "702",
+    "name": "Zinc, Urine"
+  },
+  {
+    "id": "703",
+    "name": "Magnesium, 24 hours Urine"
+  },
+  {
+    "id": "704",
+    "name": "Sodium, 24 hours Urine"
+  },
+  {
+    "id": "705",
+    "name": "Phosphorus, Urine"
+  },
+  {
+    "id": "706",
+    "name": "Cyclosporine"
+  },
+  {
+    "id": "707",
+    "name": "CD10"
+  },
+  {
+    "id": "708",
+    "name": "CD103"
+  },
+  {
+    "id": "713",
+    "name": "CD13"
+  },
+  {
+    "id": "715",
+    "name": "CD14"
+  },
+  {
+    "id": "716",
+    "name": "CD15"
+  },
+  {
+    "id": "717",
+    "name": "CD16/56"
+  },
+  {
+    "id": "720",
+    "name": "Factor-II (Prothrombin) Mutation Study"
+  },
+  {
+    "id": "753",
+    "name": "Glucose Random, Urine"
+  },
+  {
+    "id": "755",
+    "name": "Mucopolysaccharides, Urine"
+  },
+  {
+    "id": "756",
+    "name": "Clostridium Difficile DNA Detection by Real Time PCR - Stool"
+  },
+  {
+    "id": "757",
+    "name": "Clostridium Difficile GDH Reflex Toxin A/B by CLIA - Stool"
+  },
+  {
+    "id": "759",
+    "name": "Copper, 24 hours Urine"
+  },
+  {
+    "id": "760",
+    "name": "Paraneoplastic Syndrome - Yo antibody"
+  },
+  {
+    "id": "761",
+    "name": "Paraneoplastic Syndrome - Hu antibody"
+  },
+  {
+    "id": "762",
+    "name": "Paraneoplastic Syndrome - Amphiphysin antibody"
+  },
+  {
+    "id": "764",
+    "name": "C1 Esterase Inhibitor"
+  },
+  {
+    "id": "765",
+    "name": "Fungus/Mold Allergy Panel (ImmunoCAP)"
+  },
+  {
+    "id": "768",
+    "name": "Sea Food Allergy Panel (ImmunoCAP)"
+  },
+  {
+    "id": "770",
+    "name": "Urine Sugar - Random"
+  },
+  {
+    "id": "771",
+    "name": "Chlamydia Trachomatis antibody IgA"
+  },
+  {
+    "id": "773",
+    "name": "Chlamydia Trachomatis DNA Detection (RT-PCR)"
+  },
+  {
+    "id": "774",
+    "name": "HIV-2 RNA Qualitative Detection, PCR"
+  },
+  {
+    "id": "775",
+    "name": "Allergy Panel - Asthma / Rhinitis Comprehensive"
+  },
+  {
+    "id": "776",
+    "name": "Gonorrhoea PCR (Qualitative)"
+  },
+  {
+    "id": "778",
+    "name": "Rubella DNA PCR - Qualitative"
+  },
+  {
+    "id": "787",
+    "name": "Scrub typhus IgM by EIA - Serum"
+  },
+  {
+    "id": "788",
+    "name": "Paracetamol (Acetaminophen)"
+  },
+  {
+    "id": "789",
+    "name": "Fungal antibiogram(Yeast)-Pure culture"
+  },
+  {
+    "id": "790",
+    "name": "Swab culture"
+  },
+  {
+    "id": "792",
+    "name": "Fractional Excretion of Sodium"
+  },
+  {
+    "id": "794",
+    "name": "D3 Hydroxybutarate"
+  },
+  {
+    "id": "795",
+    "name": "Fecal Elastase (EIA)"
+  },
+  {
+    "id": "796",
+    "name": "Brucella IgG antibody by EIA"
+  },
+  {
+    "id": "797",
+    "name": "Brucella IgM antibody by EIA"
+  },
+  {
+    "id": "798",
+    "name": "Heavy and Trace Metals Profile 1"
+  },
+  {
+    "id": "799",
+    "name": "Cobalt Blood"
+  },
+  {
+    "id": "800",
+    "name": "Manganese Blood"
+  },
+  {
+    "id": "801",
+    "name": "Water Culture for coliforms"
+  },
+  {
+    "id": "802",
+    "name": "Soluble Transferrin Receptor (sTfR)"
+  },
+  {
+    "id": "803",
+    "name": "HLA Typing B51 Locus"
+  },
+  {
+    "id": "804",
+    "name": "Anti Phospholipid antibody IgG"
+  },
+  {
+    "id": "805",
+    "name": "Anti Phospholipid antibody IgM"
+  },
+  {
+    "id": "808",
+    "name": "Leishmania Antibody-IgG Antibody for Kala Azar by EIA"
+  },
+  {
+    "id": "809",
+    "name": "DPT Antibodies by EIA"
+  },
+  {
+    "id": "811",
+    "name": "Clozapine Serum"
+  },
+  {
+    "id": "812",
+    "name": "Vitamin B2 Riboflavin"
+  },
+  {
+    "id": "813",
+    "name": "Vitamin B Complex profile"
+  },
+  {
+    "id": "814",
+    "name": "Culture & Sensitivity, Aerobic bacteria - Tissue/Biopsy"
+  },
+  {
+    "id": "817",
+    "name": "Cryoglobulins Serum"
+  },
+  {
+    "id": "818",
+    "name": "Dengue profile (ELISA)"
+  },
+  {
+    "id": "819",
+    "name": "Adrenaline (Epinephrine) Plasma"
+  },
+  {
+    "id": "820",
+    "name": "Vitamin K1**"
+  },
+  {
+    "id": "823",
+    "name": "Factor XIII Activity, Citrated plasma"
+  },
+  {
+    "id": "826",
+    "name": "Bordetella Pertussis IgG antibodies Quantitative by EIA -Serum"
+  },
+  {
+    "id": "841",
+    "name": "Food Intolerance (Food IgG) Test, Serum- 215 parameters"
+  },
+  {
+    "id": "843",
+    "name": "Leptin"
+  },
+  {
+    "id": "844",
+    "name": "Nicotine Metabolite Quantitative Urine Spot"
+  },
+  {
+    "id": "845",
+    "name": "Albumin body fluid"
+  },
+  {
+    "id": "846",
+    "name": "Nuts Allergy Panel (ImmunoCAP)"
+  },
+  {
+    "id": "847",
+    "name": "Dust Allergy Panel(Immunocap)"
+  },
+  {
+    "id": "849",
+    "name": "Fruits Allergy panel (ImmunoCAP)"
+  },
+  {
+    "id": "850",
+    "name": "FAT GLOBULES ( Stool or Urine)"
+  },
+  {
+    "id": "853",
+    "name": "Liver cytosolic antigen type-1(LC-1)Antibody, Serum"
+  },
+  {
+    "id": "854",
+    "name": "Soluble Liver Antigen(SLA) serum by Immunoblot"
+  },
+  {
+    "id": "855",
+    "name": "Culture & Sensitivity, Aerobic bacteria - Vaginal Sample Includes Gr B Strepto"
+  },
+  {
+    "id": "856",
+    "name": "IA2 Insulin Autoantibodies serum"
+  },
+  {
+    "id": "857",
+    "name": "Influenza Virus Panel - Real Time PCR"
+  },
+  {
+    "id": "858",
+    "name": "PR3 - c-ANCASerum"
+  },
+  {
+    "id": "860",
+    "name": "Dengue RNA Detection by Real Time PCR - EDTA Plasma"
+  },
+  {
+    "id": "862",
+    "name": "AFB-Xpert panel (M.Tb Detection & Rifamipicin resistance) by Genexpert - Extra pulmonary samples"
+  },
+  {
+    "id": "863",
+    "name": "BETA-D-GLUCAN (BDG), Serum"
+  },
+  {
+    "id": "866",
+    "name": "Fungal culture and identification by MALDITOF (Vitek MS) - Nail"
+  },
+  {
+    "id": "867",
+    "name": "Common Allergens and Eczema Panel (ImmunoCAP)"
+  },
+  {
+    "id": "869",
+    "name": "Beta Carotene"
+  },
+  {
+    "id": "871",
+    "name": "Plasma Acylcarnitine profile"
+  },
+  {
+    "id": "873",
+    "name": "Amino Acid Quantitative Analysis by LC MSMS Plasma"
+  },
+  {
+    "id": "876",
+    "name": "Culture and Identification, Anaerobic bacteria - Blood Single bottle"
+  },
+  {
+    "id": "879",
+    "name": "Nicotine Metabolite Quantitative Serum"
+  },
+  {
+    "id": "881",
+    "name": "24 hrs URINE PROTEIN CREATININE RATIO"
+  },
+  {
+    "id": "882",
+    "name": "EBV VCA IgG Antibody by CLIA - Serum"
+  },
+  {
+    "id": "883",
+    "name": "Anti Aquaporin 4 (NMO) and Myelin Oligodendrocyte glycoprotein (MOG) antibody"
+  },
+  {
+    "id": "884",
+    "name": "TORCH-5 IgG"
+  },
+  {
+    "id": "885",
+    "name": "TORCH-5 IgM"
+  },
+  {
+    "id": "886",
+    "name": "HTLV 1 And 2 Virus Total Antibody by CLIA - Serum"
+  },
+  {
+    "id": "887",
+    "name": "HIV-1&2 Western blot by EIA - Serum"
+  },
+  {
+    "id": "888",
+    "name": "Allergy Screening IgE With Phadiatop (Adult & >5y) Immunocap"
+  },
+  {
+    "id": "889",
+    "name": "E Histolytica Antigen Detection by Immunochromatography -Stool **"
+  },
+  {
+    "id": "891",
+    "name": "Anti HBcAg total (ELFA, Serum)"
+  },
+  {
+    "id": "898",
+    "name": "Non-Veg Food Allergy Panel (ImmunoCAP)"
+  },
+  {
+    "id": "900",
+    "name": "Uric Acid Spot urine"
+  },
+  {
+    "id": "901",
+    "name": "Fungal culture and identification by MALDITOF (Vitek MS) - Skin"
+  },
+  {
+    "id": "902",
+    "name": "EBV VCA IgM Antibody by CLIA - Serum"
+  },
+  {
+    "id": "903",
+    "name": "Myositis Profile-IgG(16 Antigen)"
+  },
+  {
+    "id": "904",
+    "name": "SIROLIMUS, BLOOD BY LC MSMS"
+  },
+  {
+    "id": "905",
+    "name": "Antidiuretic Hormone (ADH), Plasma"
+  },
+  {
+    "id": "906",
+    "name": "Vasculitis profile, Serum (ANA , ANCA-MPO , ANCA-PR3 , Anti - ds-DNA)"
+  },
+  {
+    "id": "907",
+    "name": "Lamotrigine Level Plasma**"
+  },
+  {
+    "id": "908",
+    "name": "Islet Cell Antibody ICA-512 serum"
+  },
+  {
+    "id": "910",
+    "name": "Respiratory panel by Biofire - Nasopharyngeal swab"
+  },
+  {
+    "id": "911",
+    "name": "SMEAR FOR MICROFILARIA"
+  },
+  {
+    "id": "915",
+    "name": "Alkaline Phosphatase Isoenzymes Electrophoresis - Serum"
+  },
+  {
+    "id": "916",
+    "name": "IHC Panels with reporting Breast-III ER, PR, c-erb-B2, Ki 67"
+  },
+  {
+    "id": "918",
+    "name": "HBV DNA Detection by Taqman RT PCR - Serum or Plasma"
+  },
+  {
+    "id": "919",
+    "name": "EBV NA IgM Antibody by EIA - Serum"
+  },
+  {
+    "id": "920",
+    "name": "Protein Electrophoresis reflex immunofixation Serum"
+  },
+  {
+    "id": "922",
+    "name": "Phospholipid Syndrome Profile"
+  },
+  {
+    "id": "923",
+    "name": "SSA-Antibody Ro Serum"
+  },
+  {
+    "id": "924",
+    "name": "SSB-Antibody La Serum"
+  },
+  {
+    "id": "925",
+    "name": "Synovial Fluid by Polarizing microscopy"
+  },
+  {
+    "id": "926",
+    "name": "Factor XI Activity Rosenthal Citrated plasma"
+  },
+  {
+    "id": "927",
+    "name": "Factor XII Activity Hageman Citrated plasma"
+  },
+  {
+    "id": "928",
+    "name": "Pet/Animal Dander Allergy(Immunocap)"
+  },
+  {
+    "id": "929",
+    "name": "Beta-2-Crosslaps CTx-1"
+  },
+  {
+    "id": "930",
+    "name": "Pre-eclampsia screening Serum"
+  },
+  {
+    "id": "931",
+    "name": "Karyotyping by G-Banding Peripheral Blood"
+  },
+  {
+    "id": "934",
+    "name": "Glucose CSF"
+  },
+  {
+    "id": "935",
+    "name": "5-HIAA, Urine 24 hrs by column chormatography"
+  },
+  {
+    "id": "937",
+    "name": "IGF BP3 Serum"
+  },
+  {
+    "id": "940",
+    "name": "CD 4/CD 8"
+  },
+  {
+    "id": "944",
+    "name": "AFB Rapid culture by MGIT - Tissue/Biopsy"
+  },
+  {
+    "id": "945",
+    "name": "Her-2/Neu(C-Er-B2)(ERBB2)by FISH"
+  },
+  {
+    "id": "946",
+    "name": "Beta-Trace protein(BTP) CSF leakage in body fluid (B2 transferrin) (Serum + Nasal Discharge)"
+  },
+  {
+    "id": "948",
+    "name": "Nocardia Detection by smear examination - Sputum"
+  },
+  {
+    "id": "949",
+    "name": "AUTOIMMUNE ENCEPHALITIS ANTIIBODY, CSF (Indirect IF method)"
+  },
+  {
+    "id": "950",
+    "name": "India Ink Preparation by Microscopy - CSF"
+  },
+  {
+    "id": "951",
+    "name": "Neuronal Antigen Profile (Paraneoplastic Panel)"
+  },
+  {
+    "id": "952",
+    "name": "VZV DNA Detection by Real Time PCR - Blood"
+  },
+  {
+    "id": "954",
+    "name": "Serotonin5-Hydroxy Tryptamine Serum"
+  },
+  {
+    "id": "955",
+    "name": "Selenium, Blood"
+  },
+  {
+    "id": "956",
+    "name": "ZAP-70"
+  },
+  {
+    "id": "958",
+    "name": "Fungal culture and identification - Body Fluid"
+  },
+  {
+    "id": "959",
+    "name": "ANTI PHOSPHOLIPASE A-2 RECEPTOR ( PLA-2R) ANTIBODY , Serum (1:10 Dilution)"
+  },
+  {
+    "id": "960",
+    "name": "Culture & Sensitivity, Aerobic bacteria - CSF"
+  },
+  {
+    "id": "962",
+    "name": "Anti GAD-65 Paraneoplastic Syndrome Serum"
+  },
+  {
+    "id": "964",
+    "name": "Vitamin D Gold (Vit D2 , Vit D3 & Vit D total)"
+  },
+  {
+    "id": "966",
+    "name": "Gliadin-IgG Antibodies De-amidated (DGP)Serum"
+  },
+  {
+    "id": "967",
+    "name": "Gliadin-IgA Antibodies De-amidated (DGP)Serum"
+  },
+  {
+    "id": "968",
+    "name": "IgD by Flow cytometry Blood**"
+  },
+  {
+    "id": "969",
+    "name": "Veg Food Allergy Panel (ImmunoCAP)"
+  },
+  {
+    "id": "970",
+    "name": "Food Allergen - Egg White (Anda) - (Immunocap)"
+  },
+  {
+    "id": "973",
+    "name": "MER Form"
+  },
+  {
+    "id": "979",
+    "name": "Chikungunya IgM"
+  },
+  {
+    "id": "980",
+    "name": "Catecholamines in 24 hours urine"
+  },
+  {
+    "id": "1000",
+    "name": "Sputum AFB"
+  },
+  {
+    "id": "1010781",
+    "name": "LH:FSH ratio"
+  },
+  {
+    "id": "1010790",
+    "name": "Identification of Fungal Element"
+  },
+  {
+    "id": "1010791",
+    "name": "DCP-Decarboxy Prothrombin PIVKA II"
+  },
+  {
+    "id": "1010795",
+    "name": "Adenovirus IgG Antibody by EIA"
+  },
+  {
+    "id": "1010796",
+    "name": "Adenovirus IgM Antibody by EIA"
+  },
+  {
+    "id": "1010797",
+    "name": "HSV 1 & 2 IgG by Western Blot"
+  },
+  {
+    "id": "1010798",
+    "name": "HSV 1 & 2 IgM by Western Blot"
+  },
+  {
+    "id": "1010799",
+    "name": "Dihydorhodamine (DHR) by Flowcytometry"
+  },
+  {
+    "id": "1010800",
+    "name": "Adenovirus, Quantitative, PCR"
+  },
+  {
+    "id": "1010802",
+    "name": "AFB MDR Screen by Hains Line Probe Assay - Sputum / BAL/ Other respiratory samples"
+  },
+  {
+    "id": "1010803",
+    "name": "AFB Rapid Culture by MGIT - Sputum"
+  },
+  {
+    "id": "1010810",
+    "name": "Carcinogenic Embryonic Antigen (CEA)-Body Fluids"
+  },
+  {
+    "id": "1010813",
+    "name": "Lipid Profile - Advanced"
+  },
+  {
+    "id": "1010817",
+    "name": "Dengue NS1 Antigen ELISA"
+  },
+  {
+    "id": "1010818",
+    "name": "Dengue IgM Antibody ELISA"
+  },
+  {
+    "id": "1010819",
+    "name": "Dengue IgG Antibody ELISA"
+  },
+  {
+    "id": "1010823",
+    "name": "NIPT for All Chromosomes"
+  },
+  {
+    "id": "1010829",
+    "name": "Even Clinic Radiology"
+  },
+  {
+    "id": "1010833",
+    "name": "Physical Examination - Stool"
+  },
+  {
+    "id": "1010834",
+    "name": "Chemical Examination - Stool"
+  },
+  {
+    "id": "1010835",
+    "name": "Microscopic Examination - Stool"
+  },
+  {
+    "id": "1010843",
+    "name": "HOMA-IR with C-Peptide"
+  },
+  {
+    "id": "1010844",
+    "name": "NIPT for All Chromosomes with Microdeletions"
+  },
+  {
+    "id": "1010845",
+    "name": "Culture & Sensitivity - Semen (Auto)"
+  },
+  {
+    "id": "1010846",
+    "name": "Dengue Profile - Rapid with CBC"
+  },
+  {
+    "id": "1010853",
+    "name": "ZINC TRANSPORTER 8 (ZNT8) ANTIBODY"
+  },
+  {
+    "id": "1010854",
+    "name": "Complete Haemogram/ Complete blood picture (CBP) for Leukemia"
+  },
+  {
+    "id": "1010855",
+    "name": "AFB Drug Susceptibility Panel 14 Drugs"
+  },
+  {
+    "id": "1010858",
+    "name": "Culture & Sensitivity - Tracheal secretion"
+  },
+  {
+    "id": "1010859",
+    "name": "DRUG ALLERGY PANEL - (Comprehensive - 35 DRUG) IgE"
+  },
+  {
+    "id": "1010860",
+    "name": "Child Allergy Panel(Immunocap)"
+  },
+  {
+    "id": "1010861",
+    "name": "Infant Allergy Panel(Immunocap)"
+  },
+  {
+    "id": "1010862",
+    "name": "Comprehensive Allergy Panel(Immunocap)"
+  },
+  {
+    "id": "1010863",
+    "name": "Complete Food Allergy(Immunocap)"
+  },
+  {
+    "id": "1010864",
+    "name": "Spices Allergy(Immunocap)"
+  },
+  {
+    "id": "1010865",
+    "name": "Grass Pollen Allergy(Immunocap)"
+  },
+  {
+    "id": "1010866",
+    "name": "Tree Pollen Allergy(Immunocap)"
+  },
+  {
+    "id": "1010867",
+    "name": "Weed Pollen Allergy(Immunocap)"
+  },
+  {
+    "id": "1010868",
+    "name": "Environmental Allergy(Immunocap)"
+  },
+  {
+    "id": "1010870",
+    "name": "GAD-65 Antibody - Type I Diabetes"
+  },
+  {
+    "id": "1010872",
+    "name": "Holotranscobalamin (Active Vitamin B12)"
+  },
+  {
+    "id": "1010873",
+    "name": "Allergy Screening IgE With PhadiaTop (Child Below 5 y)"
+  },
+  {
+    "id": "1010875",
+    "name": "Human Metapneumovirus (HMPV)"
+  },
+  {
+    "id": "1010876",
+    "name": "Flu Panel with HMPV"
+  },
+  {
+    "id": "1010878",
+    "name": "Anti C1Q antibodies, Serum"
+  },
+  {
+    "id": "1010879",
+    "name": "Gut Microbiome test"
+  },
+  {
+    "id": "1010880",
+    "name": "Thiopurine S-Methyltransferase (TPMT) Genotype"
+  },
+  {
+    "id": "1010881",
+    "name": "Cholesterol:HDL ratio"
+  },
+  {
+    "id": "1010882",
+    "name": "Vitamin B12 - Diasorin"
+  },
+  {
+    "id": "1010883",
+    "name": "Vitamin D - Diasorin"
+  },
+  {
+    "id": "1010884",
+    "name": "Second line of antibiotics (Culture)"
+  },
+  {
+    "id": "1010885",
+    "name": "Allergy Panel - CRD (Component Testing)"
+  },
+  {
+    "id": "1010886",
+    "name": "Food Allergen - Cow Milk (Doodh) - (Immunocap)"
+  },
+  {
+    "id": "1010887",
+    "name": "Insect Allergen - Cockroach - Blatella Germanica (Immunocap)"
+  },
+  {
+    "id": "1010888",
+    "name": "Grass Pollen Allergen - Johnson Grass (Jowar/Sorghum Grass)- ImmunoCAP"
+  },
+  {
+    "id": "1010889",
+    "name": "Dust Allergen - Dermatophagoides Farinae (House Dust Mite), Immunocap"
+  },
+  {
+    "id": "1010890",
+    "name": "Food Allergen - Wheat (Gehon - Triticum Aestivum, Immunocap)"
+  },
+  {
+    "id": "1010891",
+    "name": "Human Herpesvirus 6 (HHV6), Qualitative Real Time PCR"
+  },
+  {
+    "id": "1010892",
+    "name": "Anti DNAse B, Serum"
+  },
+  {
+    "id": "1010896",
+    "name": "Genomic Health Insights (TM)"
+  },
+  {
+    "id": "1010897",
+    "name": "Breast Assure Basic (BRCA1 & BRCA2)"
+  },
+  {
+    "id": "1010898",
+    "name": "Breast Assure Standard (4 Genes)"
+  },
+  {
+    "id": "1010901",
+    "name": "Breast Assure Comprehensive (19 Genes)"
+  },
+  {
+    "id": "1010903",
+    "name": "NutriDNA (TM)"
+  },
+  {
+    "id": "1010904",
+    "name": "IHC Comprehensive Profile for Diagnosis, FFPE Tissue"
+  },
+  {
+    "id": "1010906",
+    "name": "Marfan's Syndrome (FBN1) Gene Panel by NGS, EDTA"
+  },
+  {
+    "id": "1010907",
+    "name": "Fluid Triglycerides"
+  },
+  {
+    "id": "1010912",
+    "name": "PNH Confirmation Test, EDTA Blood"
+  },
+  {
+    "id": "1010913",
+    "name": "U1-SnRNP (68 KDa) - IgG antibody"
+  },
+  {
+    "id": "1010930",
+    "name": "Omega 3 & 6 Fatty Acid"
+  },
+  {
+    "id": "1010931",
+    "name": "Folate Pathway SNP Profiling"
+  },
+  {
+    "id": "1010935",
+    "name": "Vitamin B5 (Pantothenic acid) - Quantitative, Serum**"
+  },
+  {
+    "id": "1010936",
+    "name": "Vitamin B3 (Niacin) - Quantitative, Serum"
+  },
+  {
+    "id": "1010937",
+    "name": "Vitamin B7 (Biotin) - Quantitative, Serum"
+  },
+  {
+    "id": "1010944",
+    "name": "MMR (Mismatch Repair) Protein Immunohistochemistry Profile, FFPE Tissue"
+  },
+  {
+    "id": "1010945",
+    "name": "IHC - THREE ANTIGEN PANEL"
+  },
+  {
+    "id": "1010946",
+    "name": "Allergy Panel - Asthma/Rhinitis, Comprehensive with Monitoring"
+  },
+  {
+    "id": "1010947",
+    "name": "FIT (Fecal Immunochemical Test) - Qualitative, Stool"
+  }
+]
