@@ -8,6 +8,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.validation import sanitize_search_query
+from modules.employee.models import Employee
 from modules.export_logs.models import ExportLog
 
 
@@ -29,17 +30,20 @@ class ExportLogsRepository:
     ):
         if search:
             like = f"%{search}%"
+            source_id = ExportLog.details["source_id"].astext
             source_name = ExportLog.details["source_name"].astext
             organization_name = ExportLog.details["organization_name"].astext
             engagement_name = ExportLog.details["engagement_name"].astext
+            camp_name = ExportLog.details["camp_name"].astext
             query = query.where(
                 or_(
-                    ExportLog.actor_name.ilike(like),
+                    Employee.name.ilike(like),
                     ExportLog.reason.ilike(like),
-                    ExportLog.source_id.ilike(like),
+                    source_id.ilike(like),
                     source_name.ilike(like),
                     organization_name.ilike(like),
                     engagement_name.ilike(like),
+                    camp_name.ilike(like),
                 )
             )
         if employee_id is not None:
@@ -52,6 +56,13 @@ class ExportLogsRepository:
             query = query.where(ExportLog.created_at <= created_to)
         return query
 
+    def _base_select(self):
+        return (
+            select(ExportLog, Employee.name, Employee.role)
+            .join(Employee, Employee.employee_id == ExportLog.employee_id)
+            .order_by(ExportLog.created_at.desc(), ExportLog.export_log_id.desc())
+        )
+
     async def list_logs(
         self,
         db: AsyncSession,
@@ -63,9 +74,9 @@ class ExportLogsRepository:
         export_type: str | None = None,
         created_from: datetime | None = None,
         created_to: datetime | None = None,
-    ) -> list[ExportLog]:
+    ) -> list[tuple[ExportLog, str, object]]:
         offset = (page - 1) * limit
-        query = select(ExportLog).order_by(ExportLog.created_at.desc(), ExportLog.export_log_id.desc())
+        query = self._base_select()
         query = self._apply_filters(
             query,
             search=sanitize_search_query(search) or None,
@@ -75,7 +86,7 @@ class ExportLogsRepository:
             created_to=created_to,
         )
         result = await db.execute(query.offset(offset).limit(limit))
-        return list(result.scalars().all())
+        return list(result.all())
 
     async def count_logs(
         self,
@@ -87,7 +98,11 @@ class ExportLogsRepository:
         created_from: datetime | None = None,
         created_to: datetime | None = None,
     ) -> int:
-        query = select(func.count()).select_from(ExportLog)
+        query = (
+            select(func.count())
+            .select_from(ExportLog)
+            .join(Employee, Employee.employee_id == ExportLog.employee_id)
+        )
         query = self._apply_filters(
             query,
             search=sanitize_search_query(search) or None,

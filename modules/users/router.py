@@ -22,6 +22,9 @@ from modules.employee.dependencies import get_current_employee, get_optional_emp
 from modules.employee.service import EmployeeContext
 from modules.employee.models import EmployeeRole
 from modules.employee.permissions import PermissionAction, context_task_allows, permission_denied
+from modules.export_logs.dependencies import get_export_logs_service
+from modules.export_logs.schemas import RevealContactRequest
+from modules.export_logs.service import ExportLogsService
 from modules.metsights.dependencies import get_metsights_sync_service
 from modules.metsights.sync_service import MetsightsSyncService
 from modules.users.schemas import (
@@ -976,6 +979,32 @@ async def employee_get_user(
             "metsights_profile_id": user.metsights_profile_id,
             "created_at": user.created_at,
             "updated_at": user.updated_at,
+        }
+    )
+
+
+@router.post("/{user_id}/reveal-contact")
+async def employee_reveal_user_contact(
+    user_id: int,
+    payload: RevealContactRequest,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    users_service: UsersService = Depends(get_users_service),
+    export_logs_service: ExportLogsService = Depends(get_export_logs_service),
+):
+    user = await users_service.get_user_details_for_employee(db, employee=employee, user_id=user_id)
+    await export_logs_service.create_contact_reveal(
+        db,
+        employee_id=employee.employee_id,
+        user_id=user.user_id,
+        reason=payload.reason,
+    )
+    await db.commit()
+    return success_response(
+        {
+            "user_id": user.user_id,
+            "phone": user.phone,
+            "email": user.email,
         }
     )
 
