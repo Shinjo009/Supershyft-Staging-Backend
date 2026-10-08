@@ -107,6 +107,21 @@ async def resolve_bio_ai_report_url(
     )
     fetched_reports = report_payload if isinstance(report_payload, dict) else None
 
+    target = assessment_report or engagement_report or existing_ihr or cached_ihr
+    if target is None:
+        target = await repo.get_or_create_individual_report_by_assessment(
+            db,
+            user_id=user_id,
+            engagement_id=engagement_id,
+            assessment_instance_id=assessment_instance_id,
+        )
+    if fetched_reports is not None:
+        target.reports = fetched_reports
+        if target.assessment_instance_id is None:
+            target.assessment_instance_id = assessment_instance_id
+        await repo.update_individual_report(db, target)
+        await db.flush()
+
     fetched_url = await register_permanent_bio_ai_report_url(
         db,
         assessment_instance_id=assessment_instance_id,
@@ -116,24 +131,9 @@ async def resolve_bio_ai_report_url(
 
     report_url = _normalize_report_url(fetched_url)
 
-    target = assessment_report or engagement_report or existing_ihr or cached_ihr
-    if target is None:
-        target = await repo.get_or_create_individual_report_by_assessment(
-            db,
-            user_id=user_id,
-            engagement_id=engagement_id,
-            assessment_instance_id=assessment_instance_id,
-        )
-        if fetched_reports is not None:
-            target.reports = fetched_reports
-        target.report_url = report_url
-        await repo.update_individual_report(db, target)
-    else:
-        if fetched_reports is not None:
-            target.reports = fetched_reports
-        target.report_url = report_url
-        if target.assessment_instance_id is None:
-            target.assessment_instance_id = assessment_instance_id
-        await repo.update_individual_report(db, target)
+    target.report_url = report_url
+    if target.assessment_instance_id is None:
+        target.assessment_instance_id = assessment_instance_id
+    await repo.update_individual_report(db, target)
 
     return report_url

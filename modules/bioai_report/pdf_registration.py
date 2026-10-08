@@ -375,18 +375,25 @@ async def register_permanent_bio_ai_report_url(
     if existing_url:
         return existing_url
 
-    bioreport_payload = await tracked_integration_call(
+    bioreport_payload: dict[str, Any] | None = None
+
+    async def _generate_for_integration_log() -> dict[str, Any]:
+        nonlocal bioreport_payload
+        bioreport_payload = await _generate_bioreport_payload(
+            service,
+            assessment_instance_id=instance_id,
+            db=db,
+        )
+        return summarize_bioreport_payload(bioreport_payload)
+
+    await tracked_integration_call(
         db,
         provider=_PROVIDER,
         api_url=bioreport_generate_endpoint(instance_id),
         engagement_id=engagement_id,
         user_id=user_id,
         request_payload={"assessment_instance_id": instance_id},
-        operation=lambda: _generate_bioreport_payload(
-            service,
-            assessment_instance_id=instance_id,
-            db=db,
-        ),
+        operation=_generate_for_integration_log,
         reraise=True,
     )
     if not isinstance(bioreport_payload, dict):
@@ -450,18 +457,25 @@ async def regenerate_permanent_bio_ai_report_url(
         engagement_id=engagement_id,
     )
 
-    bioreport_payload = await tracked_integration_call(
+    bioreport_payload: dict[str, Any] | None = None
+
+    async def _generate_for_integration_log() -> dict[str, Any]:
+        nonlocal bioreport_payload
+        bioreport_payload = await _generate_bioreport_payload(
+            service,
+            assessment_instance_id=instance_id,
+            db=db,
+        )
+        return summarize_bioreport_payload(bioreport_payload)
+
+    await tracked_integration_call(
         db,
         provider=_PROVIDER,
         api_url=bioreport_generate_endpoint(instance_id),
         engagement_id=engagement_id,
         user_id=user_id,
         request_payload={"assessment_instance_id": instance_id, "slug": slug},
-        operation=lambda: _generate_bioreport_payload(
-            service,
-            assessment_instance_id=instance_id,
-            db=db,
-        ),
+        operation=_generate_for_integration_log,
         reraise=True,
     )
     if not isinstance(bioreport_payload, dict):

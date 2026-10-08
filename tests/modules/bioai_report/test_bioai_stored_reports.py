@@ -260,6 +260,30 @@ async def test_latest_completed_stored_reports_used_for_bioai_not_highest_id():
 
 
 @pytest.mark.asyncio
+async def test_active_instance_uses_own_stored_reports_when_present():
+    active = _instance(instance_id=55, record_id="r55", completed="2026-08-01")
+    active.status = "active"
+    active.user_id = 12
+    rows = [
+        (active, _package(), _ihr(_reports(date="2026-08-01", diseases=[("obesity", 44)]))),
+    ]
+    svc = BioReportService(
+        assessment_service=_ExplodingFetch(),
+        patient_service=None,
+        kb_store=KnowledgeBaseStore(),
+        assessments_repository=_FakeReportAssessments([active]),
+        reports_repository=_FakeIHRRepo(rows),
+    )
+    report = await svc.generate_for_assessment_instance(assessment_instance_id=55, db=None)
+    obesity = next(
+        section
+        for section in report.to_dict()["disease_sections"]
+        if section["disease_id"] == "obesity"
+    )
+    assert obesity["current_status"]["score"] == 44
+
+
+@pytest.mark.asyncio
 async def test_requested_active_instance_without_ihr_uses_latest_qualifying():
     requested = _instance(instance_id=99, record_id="", completed="2026-07-01")
     requested.status = "active"

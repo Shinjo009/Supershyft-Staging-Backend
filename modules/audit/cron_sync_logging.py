@@ -146,6 +146,7 @@ async def tracked_integration_call(
         await finalize_integration_sync_log_isolated(
             sync_log_id=sync_log_id,
             status="failed",
+            response_payload={"integration_error": str(exc)[:2000]},
             error_message=str(exc)[:2000],
         )
         if persist:

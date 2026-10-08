@@ -588,6 +588,18 @@ async def load_bioai_reports(
                             user_id=user_id,
                         )
 
+                    if fetched_reports is not None:
+                        ihr_for_pdf = await _get_or_create_ihr(
+                            db,
+                            ihr_id=ihr_id,
+                            user_id=user_id,
+                            engagement_id=engagement_id,
+                            instance_id=instance_id,
+                        )
+                        ihr_for_pdf.reports = fetched_reports
+                        reports = fetched_reports
+                        await db.flush()
+
                     if report_url is None:
                         try:
                             fetched_url = await register_permanent_bio_ai_report_url(
