@@ -773,3 +773,155 @@ class ParticipantJourneyService:
             "category_progress": category_progress,
             "categories": categories_out,
         }
+
+    @staticmethod
+    def _metsights_progress_by_key(category_progress: list[dict]) -> dict[str, dict]:
+        out: dict[str, dict] = {}
+        for row in category_progress:
+            if (row.get("category_of") or "").strip() != "metsights":
+                continue
+            key = (row.get("category_key") or "").strip()
+            if key:
+                out[key] = row
+        return out
+
+    @staticmethod
+    def _incomplete_metsights_keys(progress_by_key: dict[str, dict]) -> set[str]:
+        incomplete: set[str] = set()
+        for key, row in progress_by_key.items():
+            status = (row.get("status") or "").strip().lower()
+            has_resp = bool(row.get("has_responses"))
+            if status == "complete" and has_resp:
+                continue
+            incomplete.add(key)
+        return incomplete
+
+    @staticmethod
+    def _metsights_keys_with_responses(progress_by_key: dict[str, dict]) -> set[str]:
+        return {key for key, row in progress_by_key.items() if bool(row.get("has_responses"))}
+
+    async def copy_questionnaires_from_instance(
+        self,
+        db: AsyncSession,
+        *,
+        employee,
+        user_id: int,
+        dest_assessment_instance_id: int,
+        source_assessment_instance_id: int,
+        category_keys: list[str] | None,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> dict[str, Any]:
+        self._ensure_employee_access(employee)
+        await self._ensure_user_exists(db, user_id)
+
+        if source_assessment_instance_id == dest_assessment_instance_id:
+            raise AppError(
+                status_code=422,
+                error_code="INVALID_STATE",
+                message="Source and destination assessment must be different",
+            )
+
+        dest_row = await self._assessments_repository.get_instance_for_user(
+            db,
+            assessment_instance_id=dest_assessment_instance_id,
+            user_id=user_id,
+        )
+        if dest_row is None:
+            raise AppError(
+                status_code=404,
+                error_code="ASSESSMENT_NOT_FOUND",
+                message="Destination assessment instance does not exist for this user",
+            )
+        dest_instance, dest_package = dest_row
+
+        source_row = await self._assessments_repository.get_instance_for_user(
+            db,
+            assessment_instance_id=source_assessment_instance_id,
+            user_id=user_id,
+        )
+        if source_row is None:
+            raise AppError(
+                status_code=404,
+                error_code="ASSESSMENT_NOT_FOUND",
+                message="Source assessment instance does not exist for this user",
+            )
+        source_instance, _source_package = source_row
+
+        dest_status = (dest_instance.status or "").strip().lower()
+        if dest_status == "completed" or dest_status != "active":
+            raise AppError(
+                status_code=422,
+                error_code="INVALID_STATE",
+                message="Questionnaires can only be copied into an active assessment",
+            )
+
+        dest_progress = await self._build_category_progress(
+            db,
+            assessment_instance_id=int(dest_assessment_instance_id),
+            package_id=int(dest_instance.package_id),
+            user_id=int(user_id),
+        )
+        source_progress = await self._build_category_progress(
+            db,
+            assessment_instance_id=int(source_assessment_instance_id),
+            package_id=int(source_instance.package_id),
+            user_id=int(user_id),
+        )
+
+        dest_by_key = self._metsights_progress_by_key(dest_progress)
+        source_by_key = self._metsights_progress_by_key(source_progress)
+
+        default_keys = (
+            self._incomplete_metsights_keys(dest_by_key)
+            & self._metsights_keys_with_responses(source_by_key)
+        )
+
+        if category_keys:
+            requested = {(k or "").strip() for k in category_keys if (k or "").strip()}
+            unknown = requested - set(dest_by_key.keys())
+            if unknown:
+                raise AppError(
+                    status_code=422,
+                    error_code="INVALID_INPUT",
+                    message=f"Unknown or unassigned category keys: {', '.join(sorted(unknown))}",
+                )
+            keys_to_copy = requested & default_keys
+            if requested - keys_to_copy:
+                invalid = sorted(requested - keys_to_copy)
+                raise AppError(
+                    status_code=422,
+                    error_code="INVALID_STATE",
+                    message=(
+                        "Some category keys cannot be copied "
+                        f"(destination complete or source has no data): {', '.join(invalid)}"
+                    ),
+                )
+        else:
+            keys_to_copy = default_keys
+
+        if not keys_to_copy:
+            raise AppError(
+                status_code=422,
+                error_code="INVALID_STATE",
+                message="No questionnaire categories are eligible to copy",
+            )
+
+        copied_count = await self._questionnaire_service.copy_responses_from_previous_instance(
+            db,
+            user_id=int(user_id),
+            source_assessment_instance_id=int(source_assessment_instance_id),
+            dest_assessment_instance_id=int(dest_assessment_instance_id),
+            allowed_category_keys=frozenset(keys_to_copy),
+            ip_address=ip_address,
+            user_agent=user_agent,
+            endpoint=endpoint,
+        )
+
+        return {
+            "copied_count": copied_count,
+            "source_assessment_instance_id": int(source_assessment_instance_id),
+            "dest_assessment_instance_id": int(dest_assessment_instance_id),
+            "category_keys_used": sorted(keys_to_copy),
+        }

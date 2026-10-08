@@ -36,6 +36,7 @@ from modules.users.schemas import (
     EngagementUserOnboardRequest,
     ImportMetsightsProfilesRequest,
     MetsightsSyncRecordsRequest,
+    ParticipantJourneyCopyQuestionnairesRequest,
     UpcomingSlotResponse,
     PublicUserOnboardRequest,
     SubProfileCreate,
@@ -946,6 +947,31 @@ async def employee_get_participant_journey_detail(
         assessment_instance_id=assessment_instance_id,
     )
     return success_response(detail)
+
+
+@router.post("/{user_id}/participant-journey/{assessment_instance_id}/copy-questionnaires")
+async def employee_copy_participant_journey_questionnaires(
+    user_id: int,
+    assessment_instance_id: int,
+    payload: ParticipantJourneyCopyQuestionnairesRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    journey_service: ParticipantJourneyService = Depends(get_participant_journey_service),
+):
+    data = await journey_service.copy_questionnaires_from_instance(
+        db,
+        employee=employee,
+        user_id=user_id,
+        dest_assessment_instance_id=assessment_instance_id,
+        source_assessment_instance_id=int(payload.source_assessment_instance_id),
+        category_keys=payload.category_keys,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response(data)
 
 
 @router.get("/{user_id}")

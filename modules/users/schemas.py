@@ -719,6 +719,13 @@ class ImportMetsightsProfilesRequest(BaseModel):
         return out
 
 
+class ParticipantJourneyCopyQuestionnairesRequest(BaseModel):
+    """Copy questionnaire answers from another assessment instance for the same user."""
+
+    source_assessment_instance_id: PositiveIntId
+    category_keys: list[str] | None = None
+
+
 class UserDeleteImpactEngagement(BaseModel):
     engagement_id: int
     engagement_code: str

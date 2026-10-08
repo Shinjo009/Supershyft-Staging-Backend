@@ -535,3 +535,298 @@ async def test_participant_journey_summary_includes_imported_answers_without_pro
     assert any(q["question_key"] == "pj_lh_value" for q in unanswered)
     assert all(q["question_key"] != "pj_haemoglobin" for q in unanswered)
 
+
+@pytest.mark.asyncio
+async def test_participant_journey_copy_questionnaires_success(async_client, test_db_session):
+    test_db_session.add(User(user_id=9660, phone="96600000000", status="active", age=30))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=9660,
+            name="Employee 9660",
+            phone="0000009660",
+            email="employee9660@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    test_db_session.add(User(user_id=9661, phone="96610000000", status="active", age=30))
+    await test_db_session.flush()
+
+    if await test_db_session.get(DiagnosticPackage, 9766) is None:
+        test_db_session.add(
+            DiagnosticPackage(
+                diagnostic_package_id=9766,
+                reference_id="REF9766",
+                package_name="Diag",
+                diagnostic_provider="test_provider",
+                status="active",
+                bookings_count=0,
+            )
+        )
+    if await test_db_session.get(Organization, 9661) is None:
+        test_db_session.add(
+            Organization(organization_id=9661, name="O9661", organization_type="corporate", status="active")
+        )
+    if await test_db_session.get(AssessmentPackage, 9661) is None:
+        test_db_session.add(
+            AssessmentPackage(
+                package_id=9661,
+                package_code="PJ_COPY",
+                display_name="Copy Package",
+                assessment_type_code="1",
+                status="active",
+            )
+        )
+    await test_db_session.flush()
+
+    for eid, code in ((9661, "PJCOPY1"), (9662, "PJCOPY2")):
+        if await test_db_session.get(Engagement, eid) is None:
+            test_db_session.add(
+                Engagement(
+                    engagement_id=eid,
+                    engagement_name=f"Camp {eid}",
+                    organization_id=9661,
+                    engagement_code=code,
+                    engagement_type="doctor",
+                    assessment_package_id=9661,
+                    diagnostic_package_id=9766,
+                    city="Pune",
+                    slot_duration=30,
+                    start_date=date(2026, 1, 1),
+                    end_date=date(2026, 12, 31),
+                    status="active",
+                )
+            )
+    await test_db_session.flush()
+
+    if await test_db_session.get(QuestionnaireCategory, 9661) is None:
+        test_db_session.add(
+            QuestionnaireCategory(
+                category_id=9661,
+                category_key="physical-measurement",
+                display_name="Anthropometry",
+                category_of="metsights",
+                status="active",
+            )
+        )
+    await test_db_session.flush()
+    if await test_db_session.get(QuestionnaireDefinition, 9661) is None:
+        test_db_session.add(
+            QuestionnaireDefinition(
+                question_id=9661,
+                question_key="height_cm",
+                question_text="Height",
+                question_type="text",
+                status="active",
+            )
+        )
+    await test_db_session.flush()
+    if not await _has_category_question(test_db_session, category_id=9661, question_id=9661):
+        test_db_session.add(QuestionnaireCategoryQuestion(category_id=9661, question_id=9661, display_order=1))
+    if not await _has_package_category(test_db_session, package_id=9661, category_id=9661):
+        test_db_session.add(AssessmentPackageCategory(package_id=9661, category_id=9661, display_order=1))
+
+    source_inst = AssessmentInstance(
+        user_id=9661,
+        package_id=9661,
+        engagement_id=9661,
+        status="active",
+        assigned_at=datetime.now(timezone.utc),
+    )
+    dest_inst = AssessmentInstance(
+        user_id=9661,
+        package_id=9661,
+        engagement_id=9662,
+        status="active",
+        assigned_at=datetime.now(timezone.utc),
+    )
+    test_db_session.add(source_inst)
+    test_db_session.add(dest_inst)
+    await test_db_session.flush()
+
+    test_db_session.add(
+        QuestionnaireResponse(
+            assessment_instance_id=source_inst.assessment_instance_id,
+            question_id=9661,
+            category_ids=[9661],
+            answer="175",
+        )
+    )
+    await test_db_session.commit()
+
+    url = (
+        f"/users/9661/participant-journey/{dest_inst.assessment_instance_id}/copy-questionnaires"
+    )
+    response = await async_client.post(
+        url,
+        headers=_auth_header(9660),
+        json={"source_assessment_instance_id": source_inst.assessment_instance_id},
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["copied_count"] >= 1
+    assert "physical-measurement" in data["category_keys_used"]
+
+    dest_responses = await test_db_session.execute(
+        select(QuestionnaireResponse).where(
+            QuestionnaireResponse.assessment_instance_id == dest_inst.assessment_instance_id
+        )
+    )
+    assert len(dest_responses.scalars().all()) >= 1
+
+
+@pytest.mark.asyncio
+async def test_participant_journey_copy_questionnaires_rejects_same_instance(async_client, test_db_session):
+    test_db_session.add(User(user_id=9670, phone="96700000000", status="active", age=30))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=9670,
+            name="Employee 9670",
+            phone="0000009670",
+            email="employee9670@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    test_db_session.add(User(user_id=9671, phone="96710000000", status="active", age=30))
+    await test_db_session.flush()
+    if await test_db_session.get(DiagnosticPackage, 9771) is None:
+        test_db_session.add(
+            DiagnosticPackage(
+                diagnostic_package_id=9771,
+                reference_id="REF9771",
+                package_name="Diag",
+                diagnostic_provider="test_provider",
+                status="active",
+                bookings_count=0,
+            )
+        )
+    if await test_db_session.get(Organization, 9671) is None:
+        test_db_session.add(
+            Organization(organization_id=9671, name="O9671", organization_type="corporate", status="active")
+        )
+    if await test_db_session.get(AssessmentPackage, 9671) is None:
+        test_db_session.add(
+            AssessmentPackage(package_id=9671, package_code="PJ9671", display_name="P", status="active")
+        )
+    await test_db_session.flush()
+    if await test_db_session.get(Engagement, 9671) is None:
+        test_db_session.add(
+            Engagement(
+                engagement_id=9671,
+                engagement_name="E9671",
+                organization_id=9671,
+                engagement_code="PJ9671",
+                engagement_type="doctor",
+                assessment_package_id=9671,
+                diagnostic_package_id=9771,
+                city="Pune",
+                slot_duration=30,
+                start_date=date(2026, 1, 1),
+                end_date=date(2026, 12, 31),
+                status="active",
+            )
+        )
+    await test_db_session.flush()
+    inst = AssessmentInstance(
+        user_id=9671,
+        package_id=9671,
+        engagement_id=9671,
+        status="active",
+        assigned_at=datetime.now(timezone.utc),
+    )
+    test_db_session.add(inst)
+    await test_db_session.commit()
+
+    iid = inst.assessment_instance_id
+    response = await async_client.post(
+        f"/users/9671/participant-journey/{iid}/copy-questionnaires",
+        headers=_auth_header(9670),
+        json={"source_assessment_instance_id": iid},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_participant_journey_copy_questionnaires_rejects_completed_dest(async_client, test_db_session):
+    test_db_session.add(User(user_id=9680, phone="96800000000", status="active", age=30))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=9680,
+            name="Employee 9680",
+            phone="0000009680",
+            email="employee9680@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    test_db_session.add(User(user_id=9681, phone="96810000000", status="active", age=30))
+    await test_db_session.flush()
+    if await test_db_session.get(DiagnosticPackage, 9781) is None:
+        test_db_session.add(
+            DiagnosticPackage(
+                diagnostic_package_id=9781,
+                reference_id="REF9781",
+                package_name="Diag",
+                diagnostic_provider="test_provider",
+                status="active",
+                bookings_count=0,
+            )
+        )
+    if await test_db_session.get(Organization, 9681) is None:
+        test_db_session.add(
+            Organization(organization_id=9681, name="O9681", organization_type="corporate", status="active")
+        )
+    if await test_db_session.get(AssessmentPackage, 9681) is None:
+        test_db_session.add(
+            AssessmentPackage(package_id=9681, package_code="PJ9681", display_name="P", status="active")
+        )
+    await test_db_session.flush()
+    for eid, code in ((9681, "PJ9681A"), (9682, "PJ9681B")):
+        if await test_db_session.get(Engagement, eid) is None:
+            test_db_session.add(
+                Engagement(
+                    engagement_id=eid,
+                    engagement_name=f"E{eid}",
+                    organization_id=9681,
+                    engagement_code=code,
+                    engagement_type="doctor",
+                    assessment_package_id=9681,
+                    diagnostic_package_id=9781,
+                    city="Pune",
+                    slot_duration=30,
+                    start_date=date(2026, 1, 1),
+                    end_date=date(2026, 12, 31),
+                    status="active",
+                )
+            )
+    await test_db_session.flush()
+    dest = AssessmentInstance(
+        user_id=9681,
+        package_id=9681,
+        engagement_id=9681,
+        status="completed",
+        assigned_at=datetime.now(timezone.utc),
+        completed_at=datetime.now(timezone.utc),
+    )
+    source = AssessmentInstance(
+        user_id=9681,
+        package_id=9681,
+        engagement_id=9682,
+        status="active",
+        assigned_at=datetime.now(timezone.utc),
+    )
+    test_db_session.add(dest)
+    test_db_session.add(source)
+    await test_db_session.commit()
+
+    response = await async_client.post(
+        f"/users/9681/participant-journey/{dest.assessment_instance_id}/copy-questionnaires",
+        headers=_auth_header(9680),
+        json={"source_assessment_instance_id": source.assessment_instance_id},
+    )
+    assert response.status_code == 422
+
