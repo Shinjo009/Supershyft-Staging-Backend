@@ -36,6 +36,7 @@ from modules.assessments.repository import AssessmentsRepository
 from modules.assessments.service import AssessmentsService
 from modules.audit.service import AuditService
 from modules.employee.service import EmployeeContext
+from modules.metsights.integration_logging import MetsightsSyncContext
 from modules.engagements.metsights_pro_validation import (
     METSIGHTS_PRO_PACKAGE_CODE,
     ensure_metsights_pro_allowed_for_engagement,
@@ -853,9 +854,15 @@ class EngagementAssessmentPackagesService:
 
             try:
                 await release_request_transaction(db)
+                sync_context = MetsightsSyncContext(
+                    db=db,
+                    engagement_id=int(engagement_id),
+                    user_id=user_id,
+                )
                 record_id = await self._metsights.create_record_for_profile(
                     profile_id=profile_id,
                     subscription_id=subscription_id,
+                    sync_context=sync_context,
                 )
                 await self._assessments_repo.set_metsights_record_id(
                     db,

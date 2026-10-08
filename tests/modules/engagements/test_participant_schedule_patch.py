@@ -255,3 +255,24 @@ async def test_get_engagement_includes_public_slot_detail(async_client, test_db_
     assert "blood_collection" in data["public_slot_detail"]
     cabins = data["public_slot_detail"]["blood_collection"]["2026-08-20"]["cabins"]
     assert cabins[0]["available_slots"][0]["spot_left"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_participants_bootstrap_includes_public_slot_detail(async_client, test_db_session):
+    engagement_id = await _create_slot_engagement(
+        async_client,
+        test_db_session,
+        user_id=79817,
+        employee_id=817,
+        organization_id=9817,
+        code="SCHPATCH6",
+    )
+
+    response = await async_client.get(
+        f"/engagements/{engagement_id}/participants/bootstrap",
+        headers=_auth_header(817),
+    )
+    assert response.status_code == 200, response.text
+    engagement = response.json()["data"]["engagement"]
+    assert engagement["public_slot_detail"] is not None
+    assert "blood_collection" in engagement["public_slot_detail"]

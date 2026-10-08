@@ -16,6 +16,37 @@ from modules.metsights.schemas import MetsightsEnvelope, MetsightsProfilesPage
 logger = logging.getLogger(__name__)
 
 
+def _metsights_http_error_message(exc: httpx.HTTPStatusError, *, max_body_len: int = 500) -> str:
+    status = exc.response.status_code
+    try:
+        snippet = (exc.response.text or "").strip()[:max_body_len]
+    except Exception:
+        snippet = ""
+    if snippet:
+        return f"Metsights request failed (HTTP {status}): {snippet}"
+    return f"Metsights request failed (HTTP {status})"
+
+
+def _records_list_from_envelope_data(data: Any) -> list[dict[str, Any]]:
+    if isinstance(data, list):
+        return [r for r in data if isinstance(r, dict)]
+    if isinstance(data, dict):
+        inner = data.get("results")
+        if isinstance(inner, list):
+            return [r for r in inner if isinstance(r, dict)]
+    return []
+
+
+def _record_row_subscription_id(row: dict[str, Any]) -> str:
+    direct = str(row.get("subscription_id") or "").strip()
+    if direct:
+        return direct
+    subscription = row.get("subscription")
+    if isinstance(subscription, dict):
+        return str(subscription.get("id") or "").strip()
+    return ""
+
+
 def outbound_last_name(raw: str | None) -> str:
     """Last name sent to MetSights/Healthians when the user record has none."""
     value = (raw or "").strip()
@@ -1034,6 +1065,30 @@ class MetsightsService:
             )
         return profile_id
 
+    async def _find_existing_record_id_for_subscription(
+        self,
+        *,
+        profile_id: str,
+        subscription_id: str,
+        sync_context: MetsightsSyncContext | None,
+    ) -> str | None:
+        """Return an existing Metsights record id for this profile and subscription, if any."""
+        try:
+            listed = await self.list_profile_records(
+                profile_id=profile_id,
+                sync_context=sync_context,
+            )
+        except AppError:
+            return None
+        rows = _records_list_from_envelope_data(listed)
+        for row in rows:
+            if _record_row_subscription_id(row) != subscription_id:
+                continue
+            record_id = str(row.get("id") or "").strip()
+            if record_id:
+                return record_id
+        return None
+
     async def create_record_for_profile(
         self,
         *,
@@ -1076,10 +1131,30 @@ class MetsightsService:
                     error_code="EXTERNAL_SERVICE_UNAVAILABLE",
                     message="Metsights authorization failed",
                 ) from exc
+            message = _metsights_http_error_message(exc)
+            logger.warning(
+                "Metsights create_profile_record failed profile_id=%s subscription_id=%s: %s",
+                safe_profile_id,
+                safe_subscription_id,
+                message,
+            )
+            existing_id = await self._find_existing_record_id_for_subscription(
+                profile_id=safe_profile_id,
+                subscription_id=safe_subscription_id,
+                sync_context=sync_context,
+            )
+            if existing_id:
+                logger.info(
+                    "Metsights reusing existing record_id=%s profile_id=%s subscription_id=%s",
+                    existing_id,
+                    safe_profile_id,
+                    safe_subscription_id,
+                )
+                return existing_id
             raise AppError(
                 status_code=503,
                 error_code="EXTERNAL_SERVICE_UNAVAILABLE",
-                message="Metsights request failed",
+                message=message,
             ) from exc
         except httpx.HTTPError as exc:
             raise AppError(
@@ -1100,6 +1175,14 @@ class MetsightsService:
             record_id = str(body[0].get("id") or "").strip()
             if record_id:
                 return record_id
+
+        existing_id = await self._find_existing_record_id_for_subscription(
+            profile_id=safe_profile_id,
+            subscription_id=safe_subscription_id,
+            sync_context=sync_context,
+        )
+        if existing_id:
+            return existing_id
 
         raise AppError(
             status_code=503,

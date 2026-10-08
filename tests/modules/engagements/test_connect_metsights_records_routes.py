@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import text
 
 from core.config import settings
+from core.exceptions import AppError
 from modules.metsights.service import MetsightsService
 from modules.users.models import User
 from tests.helpers.auth import employee_auth_header, make_employee, seed_employee, user_auth_header
@@ -202,3 +203,48 @@ async def test_connect_metsights_records_skips_no_profile_id(async_client, test_
     assert data["skipped"] == 1
     assert data["results"][0]["reason"] == "no_metsights_profile_id"
     assert called["n"] == 0
+
+
+@pytest.mark.asyncio
+async def test_connect_metsights_records_surfaces_metsights_error_reason(
+    async_client, test_db_session, monkeypatch
+):
+    await _seed_employee(test_db_session, employee_id=1)
+    await _seed_engagement_with_package(test_db_session, engagement_id=9204)
+
+    await test_db_session.execute(
+        text(
+            "INSERT INTO users (user_id, age, phone, status, metsights_profile_id) "
+            "VALUES (5204, 30, '+919876543213', 1, :pid)"
+        ),
+        {"pid": METSIGHTS_PROFILE_ID},
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO assessment_instances (user_id, engagement_id, package_id, status, metsights_record_id) "
+            "VALUES (5204, 9204, 2, 'assigned', NULL)"
+        )
+    )
+    await test_db_session.commit()
+
+    detail = 'Metsights request failed (HTTP 500): {"detail":"upstream"}'
+
+    async def _create_record_for_profile(self, **kwargs):
+        raise AppError(
+            status_code=503,
+            error_code="EXTERNAL_SERVICE_UNAVAILABLE",
+            message=detail,
+        )
+
+    monkeypatch.setattr(MetsightsService, "create_record_for_profile", _create_record_for_profile)
+    monkeypatch.setattr(settings, "METSIGHTS_API_KEY", "test-key")
+
+    response = await async_client.post(
+        "/engagements/9204/connect-metsights-records",
+        headers=_auth_header(1),
+        json={"package_id": 2},
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["failed"] == 1
+    assert data["results"][0]["reason"] == detail

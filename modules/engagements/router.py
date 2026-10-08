@@ -729,6 +729,7 @@ async def get_engagement_participants_bootstrap(
         limit=limit,
         filters=None,
     )
+    public_slot_detail = await engagements_service.public_slot_detail_for_engagement(db, engagement)
     payload: dict = {
         "engagement": {
             "engagement_id": engagement.engagement_id,
@@ -736,7 +737,7 @@ async def get_engagement_participants_bootstrap(
             "engagement_code": engagement.engagement_code,
             "organization_id": engagement.organization_id,
             "consultations": engagement.consultations,
-            "public_slot_detail": engagement.public_slot_detail,
+            "public_slot_detail": public_slot_detail,
             "blood_collection_type": engagement.blood_collection_type,
             "participant_count": total,
         },
