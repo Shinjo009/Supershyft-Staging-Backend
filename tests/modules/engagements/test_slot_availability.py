@@ -10,7 +10,9 @@ from core.exceptions import AppError
 from modules.engagements.slot_availability import (
     SLOT_UNAVAILABLE_CODE,
     SLOT_UNAVAILABLE_MESSAGE,
+    build_cabin_slot_rows,
     build_public_slot_detail,
+    capacity_for_slot,
     format_hhmm,
     generate_slot_starts,
     occupancy_key,
@@ -348,3 +350,63 @@ def test_resolve_blood_collection_cabin_display_name():
         )
         is None
     )
+
+
+def test_capacity_for_slot_uses_override_for_one_start_only():
+    cabin = {
+        "capacity_per_slot": 5,
+        "slot_capacity_overrides": {"10:00": 7},
+    }
+    assert capacity_for_slot(cabin, time(9, 0)) == 5
+    assert capacity_for_slot(cabin, time(10, 0)) == 7
+    assert capacity_for_slot({"capacity_per_slot": 4}, time(9, 30)) == 4
+
+
+def test_build_public_slot_detail_applies_per_slot_capacity_override():
+    slot_detail = {
+        "blood_collection": {
+            "2026-08-20": [
+                {
+                    "cabin_name": "Blood Test Cabin 1",
+                    "cabin_key": "blood_test_cabin_1",
+                    "start_time": "09:00",
+                    "end_time": "11:00",
+                    "slot_duration": 30,
+                    "capacity_per_slot": 5,
+                    "slot_capacity_overrides": {"10:00": 7},
+                    "breaks": [],
+                    "is_active": True,
+                }
+            ]
+        }
+    }
+    occupancy = {occupancy_key("blood_test_cabin_1", date(2026, 8, 20), time(10, 0)): 1}
+    public = build_public_slot_detail(slot_detail, occupancy)
+    slots = public["blood_collection"]["2026-08-20"]["cabins"][0]["available_slots"]
+    assert slots == [
+        {"slot": "09:00", "spot_left": 5},
+        {"slot": "09:30", "spot_left": 5},
+        {"slot": "10:00", "spot_left": 6},
+        {"slot": "10:30", "spot_left": 5},
+    ]
+
+
+def test_build_cabin_slot_rows_includes_end_and_override():
+    cabin = {
+        "cabin_key": "blood_test_cabin_1",
+        "start_time": "09:00",
+        "end_time": "10:00",
+        "slot_duration": 30,
+        "capacity_per_slot": 4,
+        "slot_capacity_overrides": {"09:00": 5},
+        "breaks": [],
+    }
+    rows = build_cabin_slot_rows(
+        cabin,
+        slot_date=date(2026, 8, 20),
+        occupancy={occupancy_key("blood_test_cabin_1", date(2026, 8, 20), time(9, 0)): 1},
+    )
+    assert rows == [
+        {"slot": "09:00", "slot_end": "09:30", "capacity": 5, "spot_left": 4},
+        {"slot": "09:30", "slot_end": "10:00", "capacity": 4, "spot_left": 4},
+    ]

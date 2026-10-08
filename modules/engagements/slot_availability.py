@@ -213,6 +213,93 @@ def resolve_blood_collection_cabin_display_name(
     )
 
 
+def capacity_for_slot(cabin: dict[str, Any], slot_time: Any) -> int:
+    """Cabin default, replaced by ``slot_capacity_overrides`` for that start time."""
+    try:
+        base = int(cabin.get("capacity_per_slot") or 0)
+    except (TypeError, ValueError):
+        base = 0
+    parsed = coerce_time(slot_time)
+    if parsed is None:
+        return base
+    overrides = cabin.get("slot_capacity_overrides")
+    if not isinstance(overrides, dict):
+        return base
+    raw = overrides.get(format_hhmm(parsed))
+    if raw is None:
+        return base
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return base
+
+
+def slot_end_hhmm(slot_t: time, duration_minutes: int) -> str:
+    end_dt = datetime.combine(date.min, time(hour=slot_t.hour, minute=slot_t.minute)) + timedelta(
+        minutes=max(duration_minutes, 0)
+    )
+    return format_hhmm(time(hour=end_dt.hour, minute=end_dt.minute))
+
+
+def locate_cabin(
+    slot_detail: Any,
+    *,
+    section: str,
+    date_key: str,
+    cabin_key: str,
+) -> dict[str, Any] | None:
+    """Return the cabin dict stored inside ``slot_detail`` (not a normalized copy)."""
+    if not isinstance(slot_detail, dict):
+        return None
+    section_data = slot_detail.get(section)
+    if not isinstance(section_data, dict):
+        return None
+    raw = section_data.get(date_key)
+    if isinstance(raw, list):
+        cabins = raw
+    elif isinstance(raw, dict) and isinstance(raw.get("cabins"), list):
+        cabins = raw.get("cabins")
+    else:
+        return None
+    wanted = (cabin_key or "").strip()
+    if not wanted:
+        return None
+    for cabin in cabins:
+        if isinstance(cabin, dict) and (cabin.get("cabin_key") or "").strip() == wanted:
+            return cabin
+    return None
+
+
+def build_cabin_slot_rows(
+    cabin: dict[str, Any],
+    *,
+    slot_date: date,
+    occupancy: OccupancyMap | None = None,
+) -> list[dict[str, Any]]:
+    occupancy = occupancy or {}
+    duration = int(cabin.get("slot_duration") or 0)
+    cabin_key = (cabin.get("cabin_key") or "").strip()
+    starts = generate_slot_starts(
+        cabin.get("start_time"),
+        cabin.get("end_time"),
+        duration,
+        cabin.get("breaks") or [],
+    )
+    rows: list[dict[str, Any]] = []
+    for slot_t in starts:
+        capacity = capacity_for_slot(cabin, slot_t)
+        count = occupancy.get(occupancy_key(cabin_key, slot_date, slot_t), 0)
+        rows.append(
+            {
+                "slot": format_hhmm(slot_t),
+                "slot_end": slot_end_hhmm(slot_t, duration),
+                "capacity": capacity,
+                "spot_left": max(0, capacity - int(count)),
+            }
+        )
+    return rows
+
+
 def find_active_cabin(
     slot_detail: Any,
     *,
@@ -270,11 +357,7 @@ def require_available_blood_collection_slot(
     if wanted is None or wanted not in starts:
         raise slot_unavailable()
 
-    try:
-        capacity = int(cabin.get("capacity_per_slot") or 0)
-    except (TypeError, ValueError) as exc:
-        raise slot_unavailable() from exc
-    if capacity <= 0:
+    if capacity_for_slot(cabin, wanted) <= 0:
         raise slot_unavailable()
     return cabin
 
@@ -312,11 +395,7 @@ def require_available_consultation_slot(
     if wanted is None or wanted not in starts:
         raise slot_unavailable()
 
-    try:
-        capacity = int(cabin.get("capacity_per_slot") or 0)
-    except (TypeError, ValueError) as exc:
-        raise slot_unavailable() from exc
-    if capacity <= 0:
+    if capacity_for_slot(cabin, wanted) <= 0:
         raise slot_unavailable()
     return cabin
 
@@ -350,10 +429,6 @@ def build_public_slot_detail(
                 if not isinstance(cabin, dict) or not _cabin_is_active(cabin):
                     continue
                 duration = int(cabin.get("slot_duration") or 0)
-                try:
-                    capacity = int(cabin.get("capacity_per_slot") or 0)
-                except (TypeError, ValueError):
-                    capacity = 0
                 cabin_key = (cabin.get("cabin_key") or "").strip()
                 starts = generate_slot_starts(
                     cabin.get("start_time"),
@@ -364,6 +439,7 @@ def build_public_slot_detail(
                 section_occupancy = consultation_occupancy if section_key == "consultation" else occupancy
                 available_slots = []
                 for slot_t in starts:
+                    capacity = capacity_for_slot(cabin, slot_t)
                     count = section_occupancy.get(occupancy_key(cabin_key, slot_date, slot_t), 0)
                     available_slots.append(
                         {

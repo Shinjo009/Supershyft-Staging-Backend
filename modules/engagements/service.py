@@ -8,6 +8,7 @@ Business rules:
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 import secrets
 import string
@@ -60,9 +61,13 @@ from modules.engagements.participant_list_filters import (
 from modules.engagements.metsights_pro_validation import ensure_metsights_pro_allowed_for_engagement
 from modules.engagements.repository import EngagementsRepository
 from modules.engagements.slot_availability import (
+    build_cabin_slot_rows,
     build_public_slot_detail,
+    capacity_for_slot,
     coerce_time,
     format_hhmm,
+    generate_slot_starts,
+    locate_cabin,
     occupancy_map_from_rows,
     require_available_blood_collection_slot,
     require_available_consultation_slot,
@@ -80,6 +85,7 @@ from modules.engagements.schemas import (
     ConsultationConsentRequest,
     ResolveHealthiansZoneRequest,
     ResolveHealthiansZoneResponse,
+    SlotCapacityUpdateRequest,
     SlotDetail,
 )
 from modules.experts.repository import ExpertTypesRepository
@@ -1033,6 +1039,128 @@ class EngagementsService:
             occupancy_map_from_rows(consultation_rows),
         )
 
+    async def update_slot_capacity_for_employee(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        engagement_id: int,
+        payload: SlotCapacityUpdateRequest,
+    ) -> dict[str, Any]:
+        """Merge one cabin slot override into the stored JSON without replacing the rest."""
+        ensure_admin(employee)
+        engagement = await self._repository.get_engagement_by_id(db, engagement_id)
+        if engagement is None:
+            raise AppError(status_code=404, error_code="ENGAGEMENT_NOT_FOUND", message="Engagement does not exist")
+        if engagement.slot_detail_id is None:
+            raise AppError(
+                status_code=400,
+                error_code="SLOT_DETAIL_NOT_CONFIGURED",
+                message="This engagement has no slot schedule",
+            )
+
+        stored = await self.resolve_slot_detail(db, engagement)
+        if not isinstance(stored, dict):
+            raise AppError(
+                status_code=400,
+                error_code="SLOT_DETAIL_NOT_CONFIGURED",
+                message="This engagement has no slot schedule",
+            )
+
+        slot_detail = copy.deepcopy(stored)
+        cabin = locate_cabin(
+            slot_detail,
+            section=payload.section,
+            date_key=payload.date,
+            cabin_key=payload.cabin_key,
+        )
+        if cabin is None:
+            raise AppError(status_code=404, error_code="CABIN_NOT_FOUND", message="Cabin does not exist")
+
+        try:
+            slot_date = date.fromisoformat(payload.date)
+        except ValueError as exc:
+            raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid date") from exc
+
+        starts = generate_slot_starts(
+            cabin.get("start_time"),
+            cabin.get("end_time"),
+            int(cabin.get("slot_duration") or 0),
+            cabin.get("breaks") or [],
+        )
+        slot_time = coerce_time(payload.slot)
+        if slot_time is None or slot_time not in starts:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message="That time is not a slot for this cabin",
+            )
+
+        try:
+            base_capacity = int(cabin.get("capacity_per_slot") or 0)
+        except (TypeError, ValueError) as exc:
+            raise AppError(status_code=400, error_code="INVALID_INPUT", message="Cabin capacity is invalid") from exc
+
+        shared_slot_detail_id = int(engagement.slot_detail_id)
+        if payload.section == "consultation":
+            count = await self._consultation_bookings.count_cabin_slot_bookings(
+                db,
+                engagement_id=int(engagement.engagement_id),
+                consultation_cabin=payload.cabin_key,
+                consultation_date=slot_date,
+                consultation_slot=format_hhmm(slot_time),
+                slot_detail_id=shared_slot_detail_id,
+            )
+        else:
+            count = await self._repository.count_cabin_slot_participants(
+                db,
+                engagement_id=int(engagement.engagement_id),
+                blood_collection_cabin=payload.cabin_key,
+                engagement_date=slot_date,
+                slot_start_time=time(slot_time.hour, slot_time.minute),
+                slot_detail_id=shared_slot_detail_id,
+            )
+        if payload.capacity < count:
+            raise AppError(
+                status_code=400,
+                error_code="SLOT_CAPACITY_BELOW_BOOKINGS",
+                message="Capacity cannot be lower than people already booked in this slot",
+            )
+
+        raw_overrides = cabin.get("slot_capacity_overrides")
+        overrides = dict(raw_overrides) if isinstance(raw_overrides, dict) else {}
+        slot_key = format_hhmm(slot_time)
+        if payload.capacity == base_capacity:
+            overrides.pop(slot_key, None)
+        else:
+            overrides[slot_key] = payload.capacity
+        cabin["slot_capacity_overrides"] = overrides
+
+        await self._slot_info_repository.update(db, shared_slot_detail_id, slot_detail)
+
+        if payload.section == "consultation":
+            occupancy_rows = await self._consultation_bookings.list_consultation_cabin_slot_occupancy(
+                db,
+                engagement_id=int(engagement.engagement_id),
+                slot_detail_id=shared_slot_detail_id,
+            )
+        else:
+            occupancy_rows = await self._repository.list_cabin_slot_occupancy(
+                db,
+                engagement_id=int(engagement.engagement_id),
+                slot_detail_id=shared_slot_detail_id,
+            )
+        return {
+            "section": payload.section,
+            "date": payload.date,
+            "cabin": cabin,
+            "slots": build_cabin_slot_rows(
+                cabin,
+                slot_date=slot_date,
+                occupancy=occupancy_map_from_rows(occupancy_rows),
+            ),
+        }
+
     async def _validate_blood_collection_slot_capacity(
         self,
         db: AsyncSession,
@@ -1066,7 +1194,7 @@ class EngagementsService:
             ),
             exclude_engagement_participant_id=exclude_engagement_participant_id,
         )
-        capacity = int(cabin.get("capacity_per_slot") or 0)
+        capacity = capacity_for_slot(cabin, slot_time)
         if count >= capacity:
             raise slot_unavailable()
         return persisted_cabin
@@ -1142,7 +1270,7 @@ class EngagementsService:
                 consultation_slot=slot_hhmm,
                 slot_detail_id=shared_slot_detail_id,
             )
-            capacity = int(cabin.get("capacity_per_slot") or 0)
+            capacity = capacity_for_slot(cabin, slot_time)
             if count >= capacity:
                 raise slot_unavailable()
             pref["cabin"] = persisted_cabin

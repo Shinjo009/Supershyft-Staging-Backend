@@ -2717,3 +2717,206 @@ async def test_create_engagement_online_strips_consultation_slot_detail(async_cl
     assert detail.status_code == 200, detail.text
     slot_detail = detail.json()["data"].get("slot_detail")
     assert slot_detail is None or "consultation" not in slot_detail
+
+
+@pytest.mark.asyncio
+async def test_patch_slot_capacity_updates_one_slot_only(async_client, test_db_session):
+    from datetime import time
+
+    from modules.engagements.blood_booking_enums import BloodBookingRelation, BloodBookingStatus
+    from modules.engagements.models import EngagementParticipant, ParticipantBloodBooking
+    from modules.users.models import User
+
+    await _seed_employee(test_db_session, employee_id=8801)
+    await _seed_organization(test_db_session, organization_id=8801, name="Override Org")
+    await _seed_assessment_package(test_db_session, package_id=8801, package_code="PKG8801")
+    await test_db_session.execute(
+        text(
+            "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, bookings_count) "
+            "VALUES (:did, :ref, :pname, 'healthians', 1, 0) ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
+            "reference_id = EXCLUDED.reference_id, package_name = EXCLUDED.package_name, "
+            "diagnostic_provider = EXCLUDED.diagnostic_provider, status = EXCLUDED.status"
+        ),
+        {"did": 8801, "ref": "REF8801", "pname": "Test Diagnostic Package 8801"},
+    )
+    await test_db_session.commit()
+    type_id = await _engagement_type_id(test_db_session, "blood_test")
+
+    create = await async_client.post(
+        "/engagements",
+        headers=_auth_header(8801),
+        json={
+            "engagement_name": "Override Camp",
+            "organization_id": 8801,
+            "engagement_type": type_id,
+            "assessment_package_id": 8801,
+            "diagnostic_package_id": 8801,
+            "city": "BLR",
+            "slot_duration": 30,
+            "start_date": "2026-10-08",
+            "end_date": "2026-10-08",
+            "engagement_code": "SLOTOVR1",
+            "slot_detail": {
+                "blood_collection": {
+                    "2026-10-08": {
+                        "is_enable": True,
+                        "cabins": [
+                            {
+                                "cabin_name": "Blood Test Cabin 1",
+                                "cabin_key": "blood_test_cabin1",
+                                "start_time": "09:00",
+                                "end_time": "11:00",
+                                "slot_duration": 30,
+                                "capacity_per_slot": 5,
+                                "breaks": [],
+                                "is_active": True,
+                            }
+                        ],
+                    }
+                }
+            },
+        },
+    )
+    assert create.status_code == 201, create.text
+    engagement_id = create.json()["data"]["engagement_id"]
+
+    patched = await async_client.patch(
+        f"/engagements/{engagement_id}/slot-capacity",
+        headers=_auth_header(8801),
+        json={
+            "section": "blood_collection",
+            "date": "2026-10-08",
+            "cabin_key": "blood_test_cabin1",
+            "slot": "10:00",
+            "capacity": 7,
+        },
+    )
+    assert patched.status_code == 200, patched.text
+    body = patched.json()["data"]
+    assert body["cabin"]["capacity_per_slot"] == 5
+    assert body["cabin"]["slot_capacity_overrides"] == {"10:00": 7}
+    assert body["cabin"]["cabin_name"] == "Blood Test Cabin 1"
+    by_slot = {row["slot"]: row for row in body["slots"]}
+    assert by_slot["09:00"]["capacity"] == 5
+    assert by_slot["10:00"] == {
+        "slot": "10:00",
+        "slot_end": "10:30",
+        "capacity": 7,
+        "spot_left": 7,
+    }
+
+    stored = await async_client.get(f"/engagements/{engagement_id}", headers=_auth_header(8801))
+    cabin = stored.json()["data"]["slot_detail"]["blood_collection"]["2026-10-08"]["cabins"][0]
+    assert cabin["slot_capacity_overrides"] == {"10:00": 7}
+    assert cabin["start_time"] == "09:00"
+    assert cabin["end_time"] == "11:00"
+
+    public = await async_client.get("/engagements/code/SLOTOVR1")
+    available = public.json()["data"]["slot_detail"]["blood_collection"]["2026-10-08"]["cabins"][0]["available_slots"]
+    assert {item["slot"]: item["spot_left"] for item in available} == {
+        "09:00": 5,
+        "09:30": 5,
+        "10:00": 7,
+        "10:30": 5,
+    }
+
+    unknown = await async_client.patch(
+        f"/engagements/{engagement_id}/slot-capacity",
+        headers=_auth_header(8801),
+        json={
+            "section": "blood_collection",
+            "date": "2026-10-08",
+            "cabin_key": "blood_test_cabin1",
+            "slot": "08:00",
+            "capacity": 9,
+        },
+    )
+    assert unknown.status_code == 400
+
+    test_db_session.add(User(user_id=88011, age=30, phone="9000008801", status="active"))
+    test_db_session.add(User(user_id=88012, age=30, phone="9000008802", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        EngagementParticipant(
+            engagement_participant_id=88011,
+            engagement_id=engagement_id,
+            user_id=88011,
+            booked_by_user_id=88011,
+        )
+    )
+    test_db_session.add(
+        EngagementParticipant(
+            engagement_participant_id=88012,
+            engagement_id=engagement_id,
+            user_id=88012,
+            booked_by_user_id=88012,
+        )
+    )
+    await test_db_session.flush()
+    for participant_id in (88011, 88012):
+        test_db_session.add(
+            ParticipantBloodBooking(
+                engagement_participant_id=participant_id,
+                collection_cabin="blood_test_cabin1",
+                collection_date=date(2026, 10, 8),
+                collection_time=time(10, 0),
+                relation=BloodBookingRelation.primary.value,
+                status=BloodBookingStatus.active.value,
+            )
+        )
+    await test_db_session.commit()
+
+    too_low = await async_client.patch(
+        f"/engagements/{engagement_id}/slot-capacity",
+        headers=_auth_header(8801),
+        json={
+            "section": "blood_collection",
+            "date": "2026-10-08",
+            "cabin_key": "blood_test_cabin1",
+            "slot": "10:00",
+            "capacity": 0,
+        },
+    )
+    assert too_low.status_code == 400
+
+    below_bookings = await async_client.patch(
+        f"/engagements/{engagement_id}/slot-capacity",
+        headers=_auth_header(8801),
+        json={
+            "section": "blood_collection",
+            "date": "2026-10-08",
+            "cabin_key": "blood_test_cabin1",
+            "slot": "09:00",
+            "capacity": 4,
+        },
+    )
+    assert below_bookings.status_code == 200, below_bookings.text
+
+    blocked = await async_client.patch(
+        f"/engagements/{engagement_id}/slot-capacity",
+        headers=_auth_header(8801),
+        json={
+            "section": "blood_collection",
+            "date": "2026-10-08",
+            "cabin_key": "blood_test_cabin1",
+            "slot": "10:00",
+            "capacity": 1,
+        },
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["error_code"] == "SLOT_CAPACITY_BELOW_BOOKINGS"
+
+    cleared = await async_client.patch(
+        f"/engagements/{engagement_id}/slot-capacity",
+        headers=_auth_header(8801),
+        json={
+            "section": "blood_collection",
+            "date": "2026-10-08",
+            "cabin_key": "blood_test_cabin1",
+            "slot": "09:00",
+            "capacity": 5,
+        },
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert "09:00" not in cleared.json()["data"]["cabin"]["slot_capacity_overrides"]
+    assert cleared.json()["data"]["cabin"]["slot_capacity_overrides"]["10:00"] == 7
