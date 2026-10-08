@@ -55,6 +55,8 @@ from modules.engagements.models import Engagement
 from modules.engagements.participant_list_filters import filters_to_meta, parse_participant_list_filters
 from modules.engagements.service import EngagementsService
 from modules.metsights.dependencies import get_metsights_sync_service
+from modules.reports.dependencies import get_reports_service
+from modules.reports.service import ReportsService
 from modules.metsights.sync_service import MetsightsSyncService
 
 router = APIRouter(prefix="/engagements", tags=["engagements"])
@@ -805,6 +807,32 @@ async def load_blood_reports_for_engagement_participants(
         engagement_id=engagement_id,
         user_ids=payload.user_ids,
         sync_service=sync_service,
+    )
+    await db.commit()
+    return success_response(data)
+
+
+@router.post("/{engagement_id}/participants/reload-provider-blood-parameters")
+async def reload_provider_blood_parameters_for_engagement_participants(
+    engagement_id: int,
+    request: Request,
+    payload: LoadBloodReportsForParticipantsRequest,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    engagements_service: EngagementsService = Depends(get_engagements_service),
+    reports_service: ReportsService = Depends(get_reports_service),
+):
+    """Re-fetch Healthians digital values and overwrite stored blood_parameters (reload=1)."""
+
+    data = await engagements_service.reload_provider_blood_parameters_for_participants(
+        db,
+        employee=employee,
+        engagement_id=engagement_id,
+        user_ids=payload.user_ids,
+        reports_service=reports_service,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
     )
     await db.commit()
     return success_response(data)

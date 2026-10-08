@@ -3202,27 +3202,20 @@ class CampReportsService:
         external_pid = test.healthians_parameter_key
         if external_pid is None:
             return None, None, None
+        from modules.reports.blood_parameters_normalizer import _parse_float
+
         for entry in blood_params["digital_data"]:
             entry_pid = entry.get("parameter_id")
             if entry_pid is not None and str(entry_pid) == str(external_pid):
                 raw_val = entry.get("value")
                 if raw_val is not None:
-                    try:
-                        value = float(raw_val)
-                    except (TypeError, ValueError):
-                        pass
+                    value = _parse_float(raw_val)
                 raw_min = entry.get("min_range")
                 if raw_min is not None:
-                    try:
-                        lower_range = float(raw_min)
-                    except (TypeError, ValueError):
-                        pass
+                    lower_range = _parse_float(raw_min)
                 raw_max = entry.get("max_range")
                 if raw_max is not None:
-                    try:
-                        higher_range = float(raw_max)
-                    except (TypeError, ValueError):
-                        pass
+                    higher_range = _parse_float(raw_max)
                 break
 
         return value, lower_range, higher_range

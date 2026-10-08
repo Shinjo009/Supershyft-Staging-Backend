@@ -2731,6 +2731,176 @@ class EngagementsService:
             ignore_engagement_date=True,
         )
 
+    async def reload_provider_blood_parameters_for_participants(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        engagement_id: int,
+        user_ids: list[int],
+        reports_service: Any,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> dict[str, Any]:
+        """Re-fetch Healthians digital values and persist grouped blood_parameters (reload=1)."""
+
+        from modules.reports.blood_booking_reports import get_current_report_root, merged_blood_parameters_blob
+        from modules.reports.blood_parameters_schemas import has_usable_provider_blood_parameters
+
+        ensure_admin(employee)
+        await self._ensure_engagement_exists(db, engagement_id)
+
+        unique_user_ids = list(dict.fromkeys(int(user_id) for user_id in user_ids))
+        enrolled = await self._repository.get_participants_map_for_engagement(
+            db,
+            engagement_id=engagement_id,
+            user_ids=unique_user_ids,
+        )
+        missing = [user_id for user_id in unique_user_ids if user_id not in enrolled]
+        if missing:
+            raise AppError(
+                status_code=422,
+                error_code="INVALID_INPUT",
+                message=(
+                    "These participants are not in the engagement: "
+                    + ", ".join(str(user_id) for user_id in missing)
+                ),
+            )
+
+        reloaded = 0
+        skipped = 0
+        failed = 0
+        details: list[dict[str, Any]] = []
+
+        for user_id in unique_user_ids:
+            instances = await self._assessments_repository.list_instances_for_user_engagement(
+                db,
+                user_id=user_id,
+                engagement_id=engagement_id,
+            )
+            if not instances:
+                skipped += 1
+                details.append(
+                    {
+                        "user_id": user_id,
+                        "engagement_id": engagement_id,
+                        "action": "skipped",
+                        "reason": "no assessment instance for engagement",
+                    }
+                )
+                continue
+
+            assessment_instance = instances[0]
+            for inst in instances:
+                if (inst.metsights_record_id or "").strip():
+                    assessment_instance = inst
+                    break
+
+            record_id = (assessment_instance.metsights_record_id or "").strip()
+            if not record_id:
+                skipped += 1
+                details.append(
+                    {
+                        "user_id": user_id,
+                        "engagement_id": engagement_id,
+                        "action": "skipped",
+                        "reason": "assessment has no Metsights record id",
+                    }
+                )
+                continue
+
+            user = await self._users_repository.get_user_by_id(db, user_id)
+            if user is None:
+                skipped += 1
+                details.append(
+                    {
+                        "user_id": user_id,
+                        "engagement_id": engagement_id,
+                        "action": "skipped",
+                        "reason": "user not found",
+                    }
+                )
+                continue
+
+            first_name = getattr(user, "first_name", "") or ""
+            last_name = getattr(user, "last_name", "") or ""
+            gender = getattr(user, "gender", None)
+
+            try:
+                await reports_service.get_blood_parameters_for_user(
+                    db,
+                    assessment_id=int(assessment_instance.assessment_instance_id),
+                    user_id=user_id,
+                    user_gender=gender,
+                    user_first_name=first_name,
+                    user_last_name=last_name,
+                    load_from="provider",
+                    reload=1,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    endpoint=endpoint,
+                )
+                await db.flush()
+                blood_root = await get_current_report_root(
+                    db,
+                    user_id=user_id,
+                    engagement_id=engagement_id,
+                )
+                if has_usable_provider_blood_parameters(merged_blood_parameters_blob(blood_root)):
+                    reloaded += 1
+                    details.append(
+                        {
+                            "user_id": user_id,
+                            "engagement_id": engagement_id,
+                            "action": "reloaded",
+                            "reason": "provider blood parameters refreshed",
+                        }
+                    )
+                else:
+                    skipped += 1
+                    details.append(
+                        {
+                            "user_id": user_id,
+                            "engagement_id": engagement_id,
+                            "action": "skipped",
+                            "reason": "provider blood data unavailable after reload",
+                        }
+                    )
+            except AppError as exc:
+                if exc.status_code in {404, 422}:
+                    skipped += 1
+                    action = "skipped"
+                else:
+                    failed += 1
+                    action = "failed"
+                details.append(
+                    {
+                        "user_id": user_id,
+                        "engagement_id": engagement_id,
+                        "action": action,
+                        "reason": (exc.message or exc.error_code)[:200],
+                    }
+                )
+            except Exception as exc:
+                failed += 1
+                details.append(
+                    {
+                        "user_id": user_id,
+                        "engagement_id": engagement_id,
+                        "action": "failed",
+                        "reason": str(exc)[:200],
+                    }
+                )
+
+        return {
+            "engagement_id": engagement_id,
+            "reloaded": reloaded,
+            "skipped": skipped,
+            "failed": failed,
+            "details": details,
+        }
+
     async def load_bioai_reports_for_participants(
         self,
         db: AsyncSession,
