@@ -26,6 +26,17 @@ class ParameterType(str, enum.Enum):
     METRIC = "metric"
 
 
+class DiagnosticPackageGroup(Base):
+    """Groups diagnostic packages that are the same product from different labs."""
+
+    __tablename__ = "diagnostic_package_group"
+
+    package_group_id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    packages = relationship("DiagnosticPackage", back_populates="package_group")
+
+
 class DiagnosticPackage(Base):
     """SQLAlchemy model for `diagnostic_package` table."""
 
@@ -40,6 +51,11 @@ class DiagnosticPackage(Base):
     )
 
     diagnostic_package_id = Column(Integer, primary_key=True)
+    package_group_id = Column(
+        Integer,
+        ForeignKey("diagnostic_package_group.package_group_id", ondelete="SET NULL"),
+        nullable=True,
+    )
     reference_id = Column(String)
     package_name = Column(String, nullable=False)
     package_image = Column(String, nullable=True)
@@ -70,6 +86,7 @@ class DiagnosticPackage(Base):
     )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     display_order = Column(Integer)
+    package_group = relationship("DiagnosticPackageGroup", back_populates="packages")
     reasons = relationship(
         "DiagnosticPackageReason",
         back_populates="package",

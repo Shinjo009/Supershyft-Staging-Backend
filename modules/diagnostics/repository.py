@@ -12,6 +12,7 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from modules.diagnostics.models import (
     DiagnosticPackage,
+    DiagnosticPackageGroup,
     DiagnosticPackageFilterChip,
     DiagnosticPackageFilterChipLink,
     DiagnosticPackagePreparation,
@@ -190,6 +191,36 @@ class DiagnosticsRepository:
         await db.flush()
         return package
 
+    async def create_package_group(self, db: AsyncSession) -> DiagnosticPackageGroup:
+        group = DiagnosticPackageGroup()
+        db.add(group)
+        await db.flush()
+        return group
+
+    async def list_packages_by_group_ids(
+        self,
+        db: AsyncSession,
+        *,
+        group_ids: list[int],
+    ) -> dict[int, list[DiagnosticPackage]]:
+        if not group_ids:
+            return {}
+        result = await db.execute(
+            select(DiagnosticPackage).where(DiagnosticPackage.package_group_id.in_(group_ids))
+        )
+        grouped: dict[int, list[DiagnosticPackage]] = {}
+        for row in result.scalars().all():
+            if row.package_group_id is None:
+                continue
+            grouped.setdefault(int(row.package_group_id), []).append(row)
+        return grouped
+
+    async def list_packages_in_group(self, db: AsyncSession, *, group_id: int) -> list[DiagnosticPackage]:
+        result = await db.execute(
+            select(DiagnosticPackage).where(DiagnosticPackage.package_group_id == group_id)
+        )
+        return list(result.scalars().all())
+
     async def update_package(self, db: AsyncSession, *, package_id: int, data: dict) -> DiagnosticPackage | None:
         package = await self.get_package_by_id_basic(db, package_id=package_id)
         if package is None:
@@ -265,6 +296,12 @@ class DiagnosticsRepository:
         )
         db.add(duplicated)
         await db.flush()
+
+        new_group = DiagnosticPackageGroup()
+        db.add(new_group)
+        await db.flush()
+        duplicated.package_group_id = new_group.package_group_id
+        db.add(duplicated)
 
         for r in original.reasons:
             db.add(

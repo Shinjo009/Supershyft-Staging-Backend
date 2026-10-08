@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.diagnostics.models import (
     DiagnosticPackage,
+    DiagnosticPackageGroup,
     DiagnosticPackageFilterChip,
     DiagnosticPackageFilterChipLink,
     DiagnosticPackagePreparation,
@@ -254,6 +255,11 @@ async def upsert_diagnostic_packages(
         if row is None:
             row = DiagnosticPackage(diagnostic_package_id=seed.diagnostic_package_id)
             session.add(row)
+        if row.package_group_id is None:
+            group = DiagnosticPackageGroup()
+            session.add(group)
+            await session.flush()
+            row.package_group_id = group.package_group_id
         row.reference_id = seed.reference_id
         row.package_name = seed.package_name
         row.diagnostic_provider = seed.diagnostic_provider

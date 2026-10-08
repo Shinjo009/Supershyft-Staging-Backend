@@ -20,6 +20,7 @@ _PHONE_ALLOWED = frozenset("0123456789+ -()")
 _SCRIPT_PATTERN = re.compile(r"(?i)<\s*script|javascript\s*:|on\w+\s*=")
 
 _SAFE_DISPLAY_EXTRA = frozenset(".,&-'/()")
+_PACKAGE_NAME_EXTRA = frozenset("+")
 _CITY_STATE_EXTRA = frozenset(".-'")
 
 # ── Limits (from plan) ────────────────────────────────────────────────────────
@@ -34,6 +35,7 @@ PHONE_MAX = 15
 EMAIL_MAX = 254
 PIN_CODE_LEN = 6
 SAFE_TEXT_DEFAULT_MAX = 1200
+DIAGNOSTIC_PACKAGE_MULTILINE_TEXT_MAX = 8000
 SUPPORT_QUERY_MAX = 1000
 CHECKLIST_TEXT_MAX = 500
 EXPERT_ABOUT_MAX = 1200
@@ -76,6 +78,26 @@ def _chars_safe_display(value: str) -> bool:
             continue
         return False
     return True
+
+
+def _chars_diagnostic_package_name(value: str) -> bool:
+    for ch in value:
+        if ch == " " or _is_letter_or_digit(ch) or ch in _SAFE_DISPLAY_EXTRA or ch in _PACKAGE_NAME_EXTRA:
+            continue
+        return False
+    return True
+
+
+def _normalize_multiline_text(value: str) -> str:
+    normalized = value.replace("\r\n", "\n").replace("\r", "\n")
+    kept: list[str] = []
+    for ch in normalized:
+        if ch in ("\n", "\t"):
+            kept.append(ch)
+            continue
+        if ord(ch) >= 32 and ord(ch) != 127:
+            kept.append(ch)
+    return "".join(kept).strip()
 
 
 def _chars_city_state_country(value: str) -> bool:
@@ -157,6 +179,43 @@ def _make_safe_text_validator(max_len: int = SAFE_TEXT_DEFAULT_MAX):
         if not cleaned:
             raise ValidationError("Value cannot be empty")
         _reject_control_chars(cleaned)
+        _reject_html_script(cleaned)
+        _validate_max_length(cleaned, max_len)
+        return cleaned
+
+    return _validate
+
+
+def _make_diagnostic_package_name_validator(max_len: int = SAFE_DISPLAY_NAME_MAX):
+    def _validate(value: Any) -> str:
+        if value is None:
+            raise ValidationError("Value is required")
+        if not isinstance(value, str):
+            raise ValidationError("Value must be a string")
+        cleaned = _strip_collapse(value)
+        if not cleaned:
+            raise ValidationError("Value cannot be empty")
+        _reject_control_chars(cleaned)
+        _reject_html_script(cleaned)
+        _validate_max_length(cleaned, max_len)
+        if not _chars_diagnostic_package_name(cleaned):
+            raise ValidationError("Value contains disallowed characters")
+        return cleaned
+
+    return _validate
+
+
+def _make_diagnostic_package_multiline_validator(
+    max_len: int = DIAGNOSTIC_PACKAGE_MULTILINE_TEXT_MAX,
+):
+    def _validate(value: Any) -> str:
+        if value is None:
+            raise ValidationError("Value is required")
+        if not isinstance(value, str):
+            raise ValidationError("Value must be a string")
+        cleaned = _normalize_multiline_text(value)
+        if not cleaned:
+            raise ValidationError("Value cannot be empty")
         _reject_html_script(cleaned)
         _validate_max_length(cleaned, max_len)
         return cleaned
@@ -401,6 +460,18 @@ OptionalPersonName = Annotated[str | None, BeforeValidator(_make_optional_valida
 SafeDisplayName = Annotated[str, BeforeValidator(_make_safe_display_name_validator())]
 OptionalSafeDisplayName = Annotated[
     str | None, BeforeValidator(_make_optional_validator(_make_safe_display_name_validator()))
+]
+
+DiagnosticPackageName = Annotated[str, BeforeValidator(_make_diagnostic_package_name_validator())]
+OptionalDiagnosticPackageName = Annotated[
+    str | None, BeforeValidator(_make_optional_validator(_make_diagnostic_package_name_validator()))
+]
+DiagnosticPackageMultilineText = Annotated[
+    str, BeforeValidator(_make_diagnostic_package_multiline_validator())
+]
+OptionalDiagnosticPackageMultilineText = Annotated[
+    str | None,
+    BeforeValidator(_make_optional_validator(_make_diagnostic_package_multiline_validator())),
 ]
 
 SafeText = Annotated[str, BeforeValidator(_make_safe_text_validator())]

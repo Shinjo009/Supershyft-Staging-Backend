@@ -34,6 +34,7 @@ from modules.diagnostics.schemas import (
     DiagnosticPackageCreate,
     DiagnosticPackageDetailResponse,
     DiagnosticPackageListItem,
+    DiagnosticPackagePeerResponse,
     DiagnosticPackageResponse,
     DiagnosticPackageStatusUpdate,
     DiagnosticPackageUpdate,
@@ -169,6 +170,93 @@ class DiagnosticsService:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
         if pf is not None:
             payload["package_for"] = pf
+
+    @staticmethod
+    def _provider_key(provider: str | None) -> str | None:
+        if provider is None:
+            return None
+        if hasattr(provider, "value"):
+            provider = provider.value
+        text = str(provider).strip()
+        if not text:
+            return None
+        return text.lower()
+
+    @staticmethod
+    def _provider_display_label(provider: str | None) -> str:
+        key = (provider or "").strip().lower()
+        if key == "orange_health":
+            return "Orange Health"
+        if key == "healthlabs":
+            return "HealthLabs"
+        if key in ("healthians",):
+            return "Healthians"
+        text = (provider or "").strip()
+        return text if text else "Lab"
+
+    def _peer_responses(
+        self,
+        package: DiagnosticPackage,
+        members: list[DiagnosticPackage],
+    ) -> list[DiagnosticPackagePeerResponse]:
+        return [
+            DiagnosticPackagePeerResponse(
+                diagnostic_package_id=member.diagnostic_package_id,
+                package_name=member.package_name,
+                diagnostic_provider=member.diagnostic_provider,
+            )
+            for member in members
+            if member.diagnostic_package_id != package.diagnostic_package_id
+        ]
+
+    async def _resolve_same_as_package_group(
+        self,
+        db,
+        *,
+        package_id: int,
+        provider: str | None,
+        same_as_package_id: int,
+    ) -> int:
+        if same_as_package_id == package_id:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message="A package cannot be linked to itself",
+            )
+        target = await self._repository.get_package_by_id_basic(db, package_id=same_as_package_id)
+        if target is None:
+            raise AppError(
+                status_code=404,
+                error_code="DIAGNOSTIC_PACKAGE_NOT_FOUND",
+                message="Linked package does not exist",
+            )
+
+        provider_key = self._provider_key(provider)
+        group_id = target.package_group_id
+        if group_id is None:
+            group = await self._repository.create_package_group(db)
+            target.package_group_id = group.package_group_id
+            group_id = group.package_group_id
+            db.add(target)
+            await db.flush()
+
+        members = await self._repository.list_packages_in_group(db, group_id=int(group_id))
+        for member in members:
+            if member.diagnostic_package_id == package_id:
+                continue
+            member_key = self._provider_key(member.diagnostic_provider)
+            if provider_key is not None and member_key == provider_key:
+                label = self._provider_display_label(member.diagnostic_provider)
+                raise AppError(
+                    status_code=400,
+                    error_code="DIAGNOSTIC_PACKAGE_PROVIDER_CONFLICT",
+                    message=(
+                        f"{label} is already linked to {member.package_name}. "
+                        "Edit that package, or pick a different one."
+                    ),
+                )
+
+        return int(group_id)
 
     def _validate_optional_gender_field(self, payload: dict) -> None:
         gender = self._normalize_lower(payload.get("gender_suitability"))
@@ -329,6 +417,7 @@ class DiagnosticsService:
         row: DiagnosticPackage,
         *,
         no_of_tests: int | None = None,
+        same_packages: list[DiagnosticPackagePeerResponse] | None = None,
     ) -> DiagnosticPackageResponse:
         price = float(row.price) if row.price is not None else None
         original_price = float(row.original_price) if row.original_price is not None else None
@@ -357,13 +446,26 @@ class DiagnosticsService:
             status=row.status,
             created_at=row.created_at,
             discount_percent=_discount_percent(price, original_price),
+            package_group_id=row.package_group_id,
+            same_packages=same_packages or [],
         )
 
     async def _package_response_with_test_count(self, db, row: DiagnosticPackage) -> DiagnosticPackageResponse:
         counts = await self._repository.count_distinct_tests_for_packages(
             db, package_ids=[row.diagnostic_package_id]
         )
-        return self._to_package_response(row, no_of_tests=counts.get(row.diagnostic_package_id, 0))
+        same_packages: list[DiagnosticPackagePeerResponse] = []
+        if row.package_group_id is not None:
+            grouped = await self._repository.list_packages_by_group_ids(
+                db, group_ids=[int(row.package_group_id)]
+            )
+            members = grouped.get(int(row.package_group_id), [])
+            same_packages = self._peer_responses(row, members)
+        return self._to_package_response(
+            row,
+            no_of_tests=counts.get(row.diagnostic_package_id, 0),
+            same_packages=same_packages,
+        )
 
     async def get_packages(
         self,
@@ -409,6 +511,8 @@ class DiagnosticsService:
         chip_links_by_pkg = await self._repository.list_filter_chip_links_for_package_ids(
             db, package_ids=pkg_ids
         )
+        group_ids = [int(r.package_group_id) for r in rows if r.package_group_id is not None]
+        members_by_group = await self._repository.list_packages_by_group_ids(db, group_ids=group_ids)
         items: list[DiagnosticPackageListItem] = []
         for row in rows:
             price = float(row.price) if row.price is not None else None
@@ -416,6 +520,11 @@ class DiagnosticsService:
             min_price = float(row.min_price) if row.min_price is not None else None
             tags = tags_by_pkg.get(int(row.diagnostic_package_id), [])
             n_tests = counts.get(row.diagnostic_package_id, 0)
+            group_members = (
+                members_by_group.get(int(row.package_group_id), [])
+                if row.package_group_id is not None
+                else []
+            )
             items.append(
                 DiagnosticPackageListItem(
                     diagnostic_package_id=row.diagnostic_package_id,
@@ -440,6 +549,8 @@ class DiagnosticsService:
                     filter_chips=self._filter_chip_responses_from_links(
                         chip_links_by_pkg.get(int(row.diagnostic_package_id), [])
                     ),
+                    package_group_id=row.package_group_id,
+                    same_packages=self._peer_responses(row, group_members),
                 )
             )
         return items
@@ -453,7 +564,13 @@ class DiagnosticsService:
             db, package_ids=[row.diagnostic_package_id]
         )
         n_tests = counts.get(row.diagnostic_package_id, 0)
-        package = self._to_package_response(row, no_of_tests=n_tests)
+        same_packages: list[DiagnosticPackagePeerResponse] = []
+        if row.package_group_id is not None:
+            grouped = await self._repository.list_packages_by_group_ids(
+                db, group_ids=[int(row.package_group_id)]
+            )
+            same_packages = self._peer_responses(row, grouped.get(int(row.package_group_id), []))
+        package = self._to_package_response(row, no_of_tests=n_tests, same_packages=same_packages)
         reasons = sorted(list(row.reasons), key=lambda r: (r.display_order is None, r.display_order or 0, r.reason_id))
         tags = sorted(list(row.tags), key=lambda t: (t.display_order is None, t.display_order or 0, t.tag_id))
         samples = sorted(list(row.samples), key=lambda s: (s.display_order is None, s.display_order or 0, s.sample_id))
@@ -494,6 +611,7 @@ class DiagnosticsService:
         payload = data.model_dump(exclude_none=True)
         payload.pop("no_of_tests", None)
         payload.pop("custom", None)
+        same_as_package_id = payload.pop("same_as_package_id", None)
 
         if employee is not None:
             if is_custom:
@@ -518,6 +636,19 @@ class DiagnosticsService:
 
         package = DiagnosticPackage(**payload)
         package = await self._repository.create_package(db, package)
+
+        if same_as_package_id is not None:
+            package.package_group_id = await self._resolve_same_as_package_group(
+                db,
+                package_id=package.diagnostic_package_id,
+                provider=package.diagnostic_provider,
+                same_as_package_id=int(same_as_package_id),
+            )
+        else:
+            group = await self._repository.create_package_group(db)
+            package.package_group_id = group.package_group_id
+        db.add(package)
+        await db.flush()
 
         action = "EMPLOYEE_CREATE_DIAGNOSTIC_PACKAGE" if employee is not None else "USER_CREATE_DIAGNOSTIC_PACKAGE"
         await self._require_audit_service().log_event(
@@ -555,8 +686,22 @@ class DiagnosticsService:
                     message="You do not have permission to perform this action",
                 )
 
+        fields_set = data.model_fields_set
         payload = data.model_dump(exclude_none=True)
         payload.pop("no_of_tests", None)
+        if "same_as_package_id" in fields_set:
+            payload.pop("same_as_package_id", None)
+            if data.same_as_package_id is None:
+                group = await self._repository.create_package_group(db)
+                payload["package_group_id"] = group.package_group_id
+            else:
+                merged_provider = payload.get("diagnostic_provider", existing.diagnostic_provider)
+                payload["package_group_id"] = await self._resolve_same_as_package_group(
+                    db,
+                    package_id=package_id,
+                    provider=merged_provider,
+                    same_as_package_id=int(data.same_as_package_id),
+                )
         if "package_name" in payload:
             name = self._normalize(payload["package_name"])
             if name is None:
@@ -564,6 +709,25 @@ class DiagnosticsService:
             payload["package_name"] = name
         self._validate_package_common_fields(payload)
         self._validate_package_for_field(payload)
+
+        if "diagnostic_provider" in payload and "same_as_package_id" not in fields_set:
+            group_id = existing.package_group_id
+            if group_id is not None:
+                provider_key = self._provider_key(payload.get("diagnostic_provider"))
+                members = await self._repository.list_packages_in_group(db, group_id=int(group_id))
+                for member in members:
+                    if member.diagnostic_package_id == package_id:
+                        continue
+                    if provider_key is not None and self._provider_key(member.diagnostic_provider) == provider_key:
+                        label = self._provider_display_label(member.diagnostic_provider)
+                        raise AppError(
+                            status_code=400,
+                            error_code="DIAGNOSTIC_PACKAGE_PROVIDER_CONFLICT",
+                            message=(
+                                f"{label} is already linked to {member.package_name}. "
+                                "Edit that package, or pick a different one."
+                            ),
+                        )
 
         updated = await self._repository.update_package(db, package_id=package_id, data=payload)
         if updated is None:

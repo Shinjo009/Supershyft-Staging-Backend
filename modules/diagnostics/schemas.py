@@ -9,10 +9,14 @@ from typing import Optional
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from common.validation import (
+    DiagnosticPackageName,
+    OptionalDiagnosticPackageMultilineText,
+    OptionalDiagnosticPackageName,
     OptionalParameterKey,
     OptionalSafeDisplayName,
     OptionalSafeText,
     OptionalSlugKey,
+    PositiveIntId,
     SafeDisplayName,
     SlugKey,
     StatusStr,
@@ -39,18 +43,25 @@ class FilterChipForSchema(str, Enum):
     CUSTOM_PACKAGE = "custom_package"
 
 
+class DiagnosticPackagePeerResponse(BaseModel):
+    diagnostic_package_id: int
+    package_name: str
+    diagnostic_provider: Optional[str] = None
+
+
 class DiagnosticPackageCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    package_name: SafeDisplayName
+    package_name: DiagnosticPackageName
     package_image: Optional[str] = None
     diagnostic_provider: Optional[str] = None
     external_package_code: Optional[str] = None
     custom: bool = False
     report_duration_hours: Optional[int] = None
     collection_type: Optional[str] = None
-    health_areas_covered: OptionalSafeText = None
-    about_text: OptionalSafeText = None
+    health_areas_covered: OptionalDiagnosticPackageMultilineText = None
+    about_text: OptionalDiagnosticPackageMultilineText = None
+    same_as_package_id: PositiveIntId | None = None
     bookings_count: Optional[int] = None
     price: Optional[float] = None
     original_price: Optional[float] = None
@@ -68,14 +79,15 @@ class DiagnosticPackageCreate(BaseModel):
 class DiagnosticPackageUpdate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    package_name: OptionalSafeDisplayName = None
+    package_name: OptionalDiagnosticPackageName = None
     package_image: Optional[str] = None
     diagnostic_provider: Optional[str] = None
     external_package_code: Optional[str] = None
     report_duration_hours: Optional[int] = None
     collection_type: Optional[str] = None
-    health_areas_covered: OptionalSafeText = None
-    about_text: OptionalSafeText = None
+    health_areas_covered: OptionalDiagnosticPackageMultilineText = None
+    about_text: OptionalDiagnosticPackageMultilineText = None
+    same_as_package_id: int | None = None
     bookings_count: Optional[int] = None
     price: Optional[float] = None
     original_price: Optional[float] = None
@@ -118,6 +130,8 @@ class DiagnosticPackageResponse(BaseModel):
     status: Optional[str] = None
     created_at: Optional[datetime] = None
     discount_percent: Optional[int] = None
+    package_group_id: Optional[int] = None
+    same_packages: list[DiagnosticPackagePeerResponse] = Field(default_factory=list)
 
 
 class FilterChipCreate(BaseModel):
@@ -442,3 +456,5 @@ class DiagnosticPackageListItem(BaseModel):
     status: Optional[str] = None
     tags: list[TagResponse] = Field(default_factory=list)
     filter_chips: list[PackageFilterChipResponse] = Field(default_factory=list)
+    package_group_id: Optional[int] = None
+    same_packages: list[DiagnosticPackagePeerResponse] = Field(default_factory=list)
