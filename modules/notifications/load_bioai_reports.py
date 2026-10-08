@@ -61,8 +61,28 @@ def _metsights_blood_parameters_url(*, record_id: str) -> str:
     return f"{settings.METSIGHTS_BASE_URL.rstrip('/')}/records/{record_id}/blood-parameters/"
 
 
+def _has_usable_reports(reports: Any) -> bool:
+    if reports is None:
+        return False
+    if isinstance(reports, str):
+        return bool(reports.strip())
+    if isinstance(reports, dict):
+        return bool(reports)
+    if isinstance(reports, list):
+        return bool(reports)
+    return True
+
+
+def _has_usable_report_url(report_url: Any) -> bool:
+    if report_url is None:
+        return False
+    if isinstance(report_url, str):
+        return bool(report_url.strip())
+    return True
+
+
 def _report_data_complete(reports: Any, report_url: Any) -> bool:
-    return reports is not None and report_url is not None
+    return _has_usable_reports(reports) and _has_usable_report_url(report_url)
 
 
 def _extract_report_file_url(report_data: Any) -> str | None:
@@ -574,6 +594,20 @@ async def load_bioai_reports(
                 reports = existing_reports
                 report_url = existing_report_url
 
+                if _report_data_complete(reports, report_url):
+                    if not send_notifications:
+                        skipped += 1
+                        details.append({
+                            "user_id": user_id,
+                            "engagement_id": engagement_id,
+                            "action": "skipped",
+                            "reason": (
+                                "BioAI report already complete (stored reports and PDF URL); "
+                                "use regenerate if you need a fresh PDF"
+                            ),
+                        })
+                        continue
+
                 if not _report_data_complete(reports, report_url):
                     fetched_reports = None
                     fetched_url = None
@@ -666,12 +700,14 @@ async def load_bioai_reports(
                                 instance_id,
                                 exc,
                             )
+                            skipped += 1
                             details.append({
                                 "user_id": user_id,
                                 "engagement_id": engagement_id,
                                 "action": "skipped",
                                 "reason": f"vitals BP recovery failed: {str(exc)[:100]}",
                             })
+                            continue
 
                     if fetched_reports is None and fetched_url is None:
                         skipped += 1
