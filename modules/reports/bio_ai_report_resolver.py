@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.exceptions import AppError
 from modules.bioai_report.pdf_registration import (
+    is_metsights_hosted_report_url,
     lookup_existing_bio_ai_report_url,
     register_permanent_bio_ai_report_url,
 )
@@ -88,7 +89,7 @@ async def resolve_bio_ai_report_url(
         if candidate is None:
             continue
         cached_url = (candidate.report_url or "").strip()
-        if cached_url:
+        if cached_url and not is_metsights_hosted_report_url(cached_url):
             return _normalize_report_url(cached_url)
         if cached_ihr is None:
             cached_ihr = candidate

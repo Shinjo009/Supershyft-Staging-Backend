@@ -57,6 +57,22 @@ def is_bio_ai_reports_permanent_url(url: str | None) -> bool:
     return extract_slug_from_report_url(url) is not None
 
 
+def is_metsights_hosted_report_url(url: str | None) -> bool:
+    """True when ``report_url`` points at MetSights storage, not a bio-ai-reports slug."""
+    cleaned = (url or "").strip()
+    if not cleaned or is_bio_ai_reports_permanent_url(cleaned):
+        return False
+    lowered = cleaned.lower()
+    if "metsights" in lowered and (
+        "/reports/" in lowered or "fitness-reports" in lowered
+    ):
+        return True
+    base = (settings.METSIGHTS_BASE_URL or "").strip().rstrip("/").lower()
+    if base and lowered.startswith(base):
+        return True
+    return False
+
+
 def _url_from_register_response_payload(payload: Any) -> str | None:
     if not isinstance(payload, dict):
         return None

@@ -25,7 +25,11 @@ from db.seed.blood_parameters_registry import BLOOD_PARAMETER_CATEGORY_KEY
 from modules.assessments.essentials_vitals import is_metsights_essentials
 from modules.assessments.models import AssessmentInstance, AssessmentPackage
 from modules.audit.cron_sync_logging import tracked_integration_call
-from modules.bioai_report.pdf_registration import register_permanent_bio_ai_report_url
+from modules.bioai_report.pdf_registration import (
+    is_bio_ai_reports_permanent_url,
+    is_metsights_hosted_report_url,
+    register_permanent_bio_ai_report_url,
+)
 from modules.engagements.models import Engagement, EngagementParticipant
 from modules.metsights.service import MetsightsService
 from modules.engagement_notifications.service_config import (
@@ -82,7 +86,39 @@ def _has_usable_report_url(report_url: Any) -> bool:
 
 
 def _report_data_complete(reports: Any, report_url: Any) -> bool:
+    """Generic IHR completeness (FitPrint and other loaders)."""
     return _has_usable_reports(reports) and _has_usable_report_url(report_url)
+
+
+def _has_registered_bio_ai_pdf_url(report_url: Any) -> bool:
+    """BioAI load is complete only when PDF is not still a MetSights-hosted file URL."""
+    if not _has_usable_report_url(report_url):
+        return False
+    text = str(report_url).strip()
+    if is_metsights_hosted_report_url(text):
+        return False
+    if is_bio_ai_reports_permanent_url(text):
+        return True
+    lowered = text.lower()
+    if "/media/bio-ai/" in lowered or "bio-ai-reports" in lowered:
+        return True
+    return True
+
+
+def _bioai_report_data_complete(reports: Any, report_url: Any) -> bool:
+    return _has_usable_reports(reports) and _has_registered_bio_ai_pdf_url(report_url)
+
+
+def _report_url_for_bio_ai_registration(report_url: Any) -> str | None:
+    """Treat MetSights PDF URLs as missing so we register a permanent bio-ai-reports link."""
+    if not _has_usable_report_url(report_url):
+        return None
+    text = str(report_url).strip()
+    if is_metsights_hosted_report_url(text):
+        return None
+    if _has_registered_bio_ai_pdf_url(text):
+        return text
+    return None
 
 
 def _extract_report_file_url(report_data: Any) -> str | None:
@@ -511,7 +547,7 @@ async def load_bioai_reports(
                 continue
 
             if dry_run:
-                complete = _report_data_complete(existing_reports, existing_report_url)
+                complete = _bioai_report_data_complete(existing_reports, existing_report_url)
                 details.append({
                     "user_id": user_id, "engagement_id": engagement_id,
                     "action": "dry_run",
@@ -592,9 +628,9 @@ async def load_bioai_reports(
                         continue
 
                 reports = existing_reports
-                report_url = existing_report_url
+                report_url = _report_url_for_bio_ai_registration(existing_report_url)
 
-                if _report_data_complete(reports, report_url):
+                if _bioai_report_data_complete(reports, existing_report_url):
                     if not send_notifications:
                         skipped += 1
                         details.append({
@@ -602,13 +638,13 @@ async def load_bioai_reports(
                             "engagement_id": engagement_id,
                             "action": "skipped",
                             "reason": (
-                                "BioAI report already complete (stored reports and PDF URL); "
+                                "BioAI report already complete (stored reports and bio-ai-reports PDF URL); "
                                 "use regenerate if you need a fresh PDF"
                             ),
                         })
                         continue
 
-                if not _report_data_complete(reports, report_url):
+                if not _bioai_report_data_complete(reports, existing_report_url):
                     fetched_reports = None
                     fetched_url = None
 
@@ -734,7 +770,7 @@ async def load_bioai_reports(
                     await db.flush()
                     await db.commit()
 
-                    if not _report_data_complete(reports, report_url):
+                    if not _bioai_report_data_complete(reports, report_url):
                         skipped += 1
                         details.append({
                             "user_id": user_id, "engagement_id": engagement_id,
@@ -749,7 +785,7 @@ async def load_bioai_reports(
                         "action": "loaded", "reason": "BioAI report data fetched from MetSights",
                     })
 
-                if not _report_data_complete(reports, report_url):
+                if not _bioai_report_data_complete(reports, report_url):
                     skipped += 1
                     details.append({
                         "user_id": user_id, "engagement_id": engagement_id,
