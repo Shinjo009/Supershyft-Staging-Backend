@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
+from db.column_types import UserGender
 from modules.reports.camp_report_section_builders import (
     build_band_percent_math,
     build_blood_and_lab_intelligence,
@@ -367,6 +368,50 @@ def test_normalize_camp_gender():
     assert normalize_camp_gender("2") == "female"
     assert normalize_camp_gender("other") is None
     assert normalize_camp_gender(None) is None
+    assert normalize_camp_gender(UserGender.male) == "male"
+    assert normalize_camp_gender(UserGender.male_capitalized) == "male"
+    assert normalize_camp_gender(UserGender.female) == "female"
+    assert normalize_camp_gender(UserGender.female_capitalized) == "female"
+
+
+def test_build_distribution_by_sleeping_hours_user_gender_enum():
+    rows = [
+        (UserGender.male, "1"),
+        (UserGender.male_capitalized, "2"),
+        (UserGender.female, "3"),
+        (UserGender.female_capitalized, "0"),
+    ]
+    payload = build_distribution_by_sleeping_hours(rows)
+    assert payload["data"]["male"]["total_responded"] == 2
+    assert payload["data"]["female"]["total_responded"] == 2
+
+
+def test_build_distribution_by_physical_activity_frequency_user_gender_enum():
+    rows = [
+        (UserGender.male, "1"),
+        (UserGender.female_capitalized, "2"),
+    ]
+    payload = build_distribution_by_physical_activity_frequency(rows)
+    assert payload["data"]["male"]["total_responded"] == 1
+    assert payload["data"]["female"]["total_responded"] == 1
+
+
+def test_build_distribution_by_gender_by_metabolic_syndrome_user_gender_enum():
+    reports = {
+        "diseases": [
+            {"code": "type_2_diabetes", "risk_score_scaled": 30},
+        ]
+    }
+    rows = [
+        (UserGender.male, reports),
+        (UserGender.female_capitalized, reports),
+    ]
+    payload = build_distribution_by_gender_by_metabolic_syndrome(rows)
+    diseases = payload["data"]["diseases"]
+    assert len(diseases) >= 1
+    diabetes = next(d for d in diseases if d["code"] == "type_2_diabetes")
+    assert diabetes["male"]["total_responded"] == 1
+    assert diabetes["female"]["total_responded"] == 1
 
 
 def test_physical_activity_answer_to_bucket():

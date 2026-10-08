@@ -472,6 +472,7 @@ async def test_list_camp_reports(async_client, test_db_session):
     assert len(rows) == 2
     assert rows[0]["department"] is None
     assert rows[1]["department"] == "sales"
+    assert "report_bts" not in rows[0]
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import enum
 from collections.abc import Callable
 from datetime import date
 from typing import Any
@@ -414,7 +415,11 @@ def normalize_camp_gender(value: object | None) -> str | None:
     """Map user gender to male/female using the same values as camp KPI aggregation."""
     if value is None:
         return None
-    normalized = str(value).strip().lower()
+    if isinstance(value, enum.Enum):
+        raw = value.value
+    else:
+        raw = value
+    normalized = str(raw).strip().lower()
     if normalized in {"m", "male", "1"}:
         return "male"
     if normalized in {"f", "female", "2"}:

@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy import and_, case, delete, exists, extract, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 from sqlalchemy.orm.attributes import flag_modified
 
 from modules.assessments.models import (
@@ -40,6 +41,7 @@ from modules.reports.camp_report_section_builders import (
     extract_oxidative_stress_score,
     metabolic_age_gap,
     metabolic_risk_bucket,
+    normalize_camp_gender,
     resolve_user_age,
 )
 from modules.notifications.expire_stale import DEFAULT_PENDING_TIMEOUT_HOURS
@@ -378,9 +380,22 @@ class CampReportsRepository:
         row = result.one_or_none()
         return tuple(row) if row is not None else None
 
-    async def get_overall_by_camp_no(self, db: AsyncSession, *, camp_no: int) -> CampReport | None:
+    @staticmethod
+    def _camp_report_select(*, load_report_bts: bool = True):
+        stmt = select(CampReport)
+        if not load_report_bts:
+            stmt = stmt.options(defer(CampReport.report_bts))
+        return stmt
+
+    async def get_overall_by_camp_no(
+        self,
+        db: AsyncSession,
+        *,
+        camp_no: int,
+        load_report_bts: bool = True,
+    ) -> CampReport | None:
         result = await db.execute(
-            select(CampReport).where(
+            self._camp_report_select(load_report_bts=load_report_bts).where(
                 CampReport.camp_no == camp_no,
                 CampReport.department.is_(None),
                 CampReport.city.is_(None),
@@ -394,9 +409,10 @@ class CampReportsRepository:
         *,
         camp_no: int,
         department: str,
+        load_report_bts: bool = True,
     ) -> CampReport | None:
         result = await db.execute(
-            select(CampReport).where(
+            self._camp_report_select(load_report_bts=load_report_bts).where(
                 CampReport.camp_no == camp_no,
                 CampReport.department == department,
                 CampReport.city.is_(None),
@@ -410,9 +426,10 @@ class CampReportsRepository:
         *,
         camp_no: int,
         city: str,
+        load_report_bts: bool = True,
     ) -> CampReport | None:
         result = await db.execute(
-            select(CampReport).where(
+            self._camp_report_select(load_report_bts=load_report_bts).where(
                 CampReport.camp_no == camp_no,
                 CampReport.department.is_(None),
                 func.lower(CampReport.city) == city.lower(),
@@ -427,15 +444,58 @@ class CampReportsRepository:
         camp_no: int,
         city: str,
         department: str,
+        load_report_bts: bool = True,
     ) -> CampReport | None:
         result = await db.execute(
-            select(CampReport).where(
+            self._camp_report_select(load_report_bts=load_report_bts).where(
                 CampReport.camp_no == camp_no,
                 CampReport.department == department,
                 func.lower(CampReport.city) == city.lower(),
             )
         )
         return result.scalar_one_or_none()
+
+    async def get_report_bts_for_scope(
+        self,
+        db: AsyncSession,
+        *,
+        camp_no: int,
+        department: str | None,
+        city: str | None,
+    ) -> dict[str, Any] | None:
+        """Load only the report_bts JSON column for a camp report scope."""
+        if city is None:
+            if department is None:
+                where = (
+                    CampReport.camp_no == camp_no,
+                    CampReport.department.is_(None),
+                    CampReport.city.is_(None),
+                )
+            else:
+                where = (
+                    CampReport.camp_no == camp_no,
+                    CampReport.department == department,
+                    CampReport.city.is_(None),
+                )
+        elif department is None:
+            where = (
+                CampReport.camp_no == camp_no,
+                CampReport.department.is_(None),
+                func.lower(CampReport.city) == city.lower(),
+            )
+        else:
+            where = (
+                CampReport.camp_no == camp_no,
+                CampReport.department == department,
+                func.lower(CampReport.city) == city.lower(),
+            )
+        result = await db.execute(select(CampReport.report_bts).where(*where))
+        raw = result.scalar_one_or_none()
+        if raw is None:
+            return None
+        if isinstance(raw, dict):
+            return raw
+        return None
 
     async def list_distinct_cities_for_camp(
         self,
@@ -488,6 +548,7 @@ class CampReportsRepository:
     async def list_by_camp_no(self, db: AsyncSession, *, camp_no: int) -> list[CampReport]:
         result = await db.execute(
             select(CampReport)
+            .options(defer(CampReport.report_bts))
             .where(CampReport.camp_no == camp_no)
             .order_by(
                 CampReport.city.is_(None).desc(),
@@ -1705,10 +1766,10 @@ class CampReportsRepository:
         counts = {"male": 0, "female": 0, "total": 0, "other": 0}
         for (gender_raw,) in result.all():
             counts["total"] += 1
-            normalized = str(gender_raw).strip().lower() if gender_raw is not None else ""
-            if normalized in _MALE_GENDERS:
+            bucket = normalize_camp_gender(gender_raw)
+            if bucket == "male":
                 counts["male"] += 1
-            elif normalized in _FEMALE_GENDERS:
+            elif bucket == "female":
                 counts["female"] += 1
             else:
                 counts["other"] += 1

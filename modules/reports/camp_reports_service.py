@@ -914,18 +914,20 @@ class CampReportsService:
         }
 
     @staticmethod
-    def _serialize_camp_report(row: CampReport) -> dict:
-        return {
+    def _serialize_camp_report(row: CampReport, *, include_report_bts: bool = False) -> dict:
+        payload = {
             "report_id": row.report_id,
             "camp_no": int(row.camp_no),
             "department": row.department,
             "city": row.city,
             "organization_id": row.organization_id,
             "report": row.report,
-            "report_bts": row.report_bts,
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         }
+        if include_report_bts:
+            payload["report_bts"] = row.report_bts
+        return payload
 
     async def list_camp_reports(
         self,
@@ -938,7 +940,7 @@ class CampReportsService:
         ensure_internal_employee(employee)
         await self._resolve_camp_context(db, camp_no=camp_no)
         rows = await self._repository.list_by_camp_no(db, camp_no=camp_no)
-        return [self._serialize_camp_report(row) for row in rows]
+        return [self._serialize_camp_report(row, include_report_bts=False) for row in rows]
 
     @staticmethod
     def _camp_participant_to_dict(
@@ -1044,7 +1046,11 @@ class CampReportsService:
     ) -> CampReport:
         if city is None:
             if department is None:
-                row = await self._repository.get_overall_by_camp_no(db, camp_no=camp_no)
+                row = await self._repository.get_overall_by_camp_no(
+                    db,
+                    camp_no=camp_no,
+                    load_report_bts=False,
+                )
             else:
                 normalized_department = department.strip()
                 if not normalized_department:
@@ -1053,6 +1059,7 @@ class CampReportsService:
                     db,
                     camp_no=camp_no,
                     department=normalized_department,
+                    load_report_bts=False,
                 )
         else:
             normalized_city = self._normalize_city(city)
@@ -1061,6 +1068,7 @@ class CampReportsService:
                     db,
                     camp_no=camp_no,
                     city=normalized_city,
+                    load_report_bts=False,
                 )
             else:
                 normalized_department = department.strip()
@@ -1071,6 +1079,7 @@ class CampReportsService:
                     camp_no=camp_no,
                     city=normalized_city,
                     department=normalized_department,
+                    load_report_bts=False,
                 )
 
         if row is None:
@@ -1221,6 +1230,58 @@ class CampReportsService:
                 message="Report section has not been refreshed",
             )
         return dict(report[normalized_section])
+
+    async def get_camp_report_section_bts(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext | None = None,
+        partner=None,
+        camp_no: int,
+        section: str,
+        department: str | None = None,
+        city: str | None = None,
+    ) -> dict[str, Any] | None:
+        normalized_section = section.strip()
+        if not normalized_section:
+            raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+
+        context = await self._resolve_camp_context(db, camp_no=camp_no)
+        department, city = await self._normalize_and_ensure_report_access(
+            db,
+            employee=employee,
+            partner=partner,
+            camp_no=camp_no,
+            organization_id=context["organization_id"],
+            department=department,
+            city=city,
+        )
+
+        section_row = await self._sections_repository.get_by_section_key(
+            db,
+            section_key=normalized_section,
+        )
+        if section_row is None:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_SECTION",
+                message="Invalid report section",
+            )
+
+        report_bts = await self._repository.get_report_bts_for_scope(
+            db,
+            camp_no=camp_no,
+            department=department,
+            city=city,
+        )
+        if not isinstance(report_bts, dict):
+            return None
+        section_bts = report_bts.get(normalized_section)
+        if section_bts is None:
+            return None
+        if isinstance(section_bts, dict):
+            return dict(section_bts)
+        return None
 
     async def enrich_camp_report_section(
         self,

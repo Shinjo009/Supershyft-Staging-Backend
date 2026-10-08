@@ -108,6 +108,24 @@ async def get_camp_report_dashboard(
     return success_response(result)
 
 
+@router.get("/{camp_no}/bts")
+async def get_camp_report_section_bts(
+    camp_no: int,
+    section: str,
+    db: AsyncSession = Depends(get_db),
+    actor: OrgScopedActor = Depends(get_org_scoped_actor),
+    service: CampReportsService = Depends(get_camp_reports_service),
+):
+    result = await service.get_camp_report_section_bts(
+        db,
+        employee=actor.employee,
+        partner=actor.partner,
+        camp_no=camp_no,
+        section=section,
+    )
+    return success_response(result)
+
+
 @router.get("/{camp_no}/department/{slug}/dashboard")
 async def get_department_camp_report_dashboard(
     camp_no: int,
@@ -120,6 +138,26 @@ async def get_department_camp_report_dashboard(
     result = await service.get_camp_report_dashboard(
         db,
         employee=actor.employee, partner=actor.partner,
+        camp_no=camp_no,
+        section=section,
+        department=slug,
+    )
+    return success_response(result)
+
+
+@router.get("/{camp_no}/department/{slug}/bts")
+async def get_department_camp_report_section_bts(
+    camp_no: int,
+    slug: str,
+    section: str,
+    db: AsyncSession = Depends(get_db),
+    actor: OrgScopedActor = Depends(get_org_scoped_actor),
+    service: CampReportsService = Depends(get_camp_reports_service),
+):
+    result = await service.get_camp_report_section_bts(
+        db,
+        employee=actor.employee,
+        partner=actor.partner,
         camp_no=camp_no,
         section=section,
         department=slug,
@@ -355,6 +393,48 @@ async def get_city_department_camp_report_dashboard(
     result = await service.get_camp_report_dashboard(
         db,
         employee=actor.employee, partner=actor.partner,
+        camp_no=camp_no,
+        section=section,
+        department=slug,
+        city=city,
+    )
+    return success_response(result)
+
+
+@router.get("/{camp_no}/{city}/bts")
+async def get_city_camp_report_section_bts(
+    camp_no: int,
+    city: str,
+    section: str,
+    db: AsyncSession = Depends(get_db),
+    actor: OrgScopedActor = Depends(get_org_scoped_actor),
+    service: CampReportsService = Depends(get_camp_reports_service),
+):
+    result = await service.get_camp_report_section_bts(
+        db,
+        employee=actor.employee,
+        partner=actor.partner,
+        camp_no=camp_no,
+        section=section,
+        city=city,
+    )
+    return success_response(result)
+
+
+@router.get("/{camp_no}/{city}/department/{slug}/bts")
+async def get_city_department_camp_report_section_bts(
+    camp_no: int,
+    city: str,
+    slug: str,
+    section: str,
+    db: AsyncSession = Depends(get_db),
+    actor: OrgScopedActor = Depends(get_org_scoped_actor),
+    service: CampReportsService = Depends(get_camp_reports_service),
+):
+    result = await service.get_camp_report_section_bts(
+        db,
+        employee=actor.employee,
+        partner=actor.partner,
         camp_no=camp_no,
         section=section,
         department=slug,
