@@ -413,18 +413,9 @@ def build_participation_by_age_details(
 
 def normalize_camp_gender(value: object | None) -> str | None:
     """Map user gender to male/female using the same values as camp KPI aggregation."""
-    if value is None:
-        return None
-    if isinstance(value, enum.Enum):
-        raw = value.value
-    else:
-        raw = value
-    normalized = str(raw).strip().lower()
-    if normalized in {"m", "male", "1"}:
-        return "male"
-    if normalized in {"f", "female", "2"}:
-        return "female"
-    return None
+    from modules.users.gender_labels import normalize_gender_label
+
+    return normalize_gender_label(value)
 
 
 def physical_activity_answer_to_bucket(answer: object | None) -> str | None:

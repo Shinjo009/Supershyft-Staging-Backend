@@ -13,6 +13,7 @@ from modules.bioai_report.report_engine.models.assessment import (
     AssessmentDisease,
     AssessmentPayload,
 )
+from modules.users.gender_labels import normalize_gender_label
 
 
 def _unwrap_data(raw: dict[str, Any]) -> dict[str, Any]:
@@ -162,8 +163,8 @@ def normalize_assessment(
         or _as_optional_str(raw.get("record_id"))
     )
 
-    sex = _as_optional_str(body.get("sex"))
-    gender = _as_optional_str(body.get("gender")) or sex
+    sex = normalize_gender_label(body.get("sex"))
+    gender = normalize_gender_label(body.get("gender")) or sex
     if sex is None and gender is not None:
         sex = gender
 

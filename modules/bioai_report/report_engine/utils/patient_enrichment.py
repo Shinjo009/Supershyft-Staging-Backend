@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
+from modules.users.gender_labels import normalize_gender_label
+
 # Fields the BioReport patient block expects from assessment + profile sources.
 PATIENT_DEMOGRAPHIC_FIELDS: tuple[str, ...] = (
     "user_id",
@@ -90,27 +92,6 @@ def missing_demographic_fields(assessment: dict[str, Any]) -> list[str]:
 
 def needs_patient_enrichment(assessment: dict[str, Any]) -> bool:
     return bool(missing_demographic_fields(assessment))
-
-
-def normalize_gender_label(raw: Any) -> str | None:
-    """Map MetSights gender codes / labels to a stable lowercase string."""
-    if raw is None or isinstance(raw, bool):
-        return None
-    if isinstance(raw, (int, float)):
-        code = int(raw)
-        if code == 1:
-            return "male"
-        if code == 2:
-            return "female"
-        return str(code)
-    text = str(raw).strip().lower()
-    if not text:
-        return None
-    if text in {"1", "male", "m", "man"}:
-        return "male"
-    if text in {"2", "female", "f", "woman"}:
-        return "female"
-    return text
 
 
 def format_person_name(
