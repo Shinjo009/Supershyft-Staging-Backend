@@ -1384,10 +1384,13 @@ class ConsoleService:
             for s in raw_slots
             if isinstance(s, dict)
         ]
+        partner_message = (resp.get("message") or "").strip() or None
 
         return {
             "status": "success",
             "slots": slim_slots,
+            "diagnostic_provider": (pkg.diagnostic_provider or "healthians").strip().lower(),
+            "partner_message": partner_message if not slim_slots else None,
             "engagement_id": engagement_id,
             "user_id": user_id,
         }

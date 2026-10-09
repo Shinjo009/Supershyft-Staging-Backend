@@ -166,14 +166,26 @@ async def fetch_slots(
         response_payload=resp,
         status="success",
     )
-    slots_map = resp.get("slots") if isinstance(resp.get("slots"), dict) else {}
+    slots_raw = resp.get("slots")
+    if isinstance(slots_raw, dict):
+        slots_map = slots_raw
+    elif isinstance(slots_raw, list):
+        slots_map = {
+            str(item.get("slot_datetime") or idx): item
+            for idx, item in enumerate(slots_raw)
+            if isinstance(item, dict)
+        }
+    else:
+        slots_map = {}
     slim_slots = slim_orange_health_slots(slots_map)
+    partner_message = (resp.get("status") or resp.get("message") or "").strip() or None
     return {
         "status": "success",
         "slots": slim_slots,
         "engagement_id": engagement_id,
         "user_id": user_id,
         "diagnostic_provider": "orange_health",
+        "partner_message": partner_message if not slim_slots else None,
     }
 
 
