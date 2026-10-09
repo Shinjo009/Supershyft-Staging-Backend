@@ -136,6 +136,26 @@ class UsersRepository:
             out.append((int(y), int(row.count)))
         return out
 
+    async def count_users_created_by_month(self, db: AsyncSession, *, year: int) -> list[tuple[int, int]]:
+        created_ts = func.coalesce(User.created_at, User.updated_at)
+        month_expr = cast(extract("month", created_ts), Integer)
+        year_expr = cast(extract("year", created_ts), Integer)
+        rows = (
+            await db.execute(
+                select(month_expr.label("m"), func.count().label("count"))
+                .where(year_expr == year)
+                .group_by(month_expr)
+                .order_by(month_expr.asc())
+            )
+        ).all()
+        out: list[tuple[int, int]] = []
+        for row in rows:
+            month = row.m
+            if month is None:
+                continue
+            out.append((int(month), int(row.count)))
+        return out
+
     async def count_users_with_metsights_profile_id(self, db: AsyncSession) -> int:
         query = (
             select(func.count())

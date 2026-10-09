@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.dashboard.operations_snapshot import (
+    build_dashboard_participant_issues_block,
     build_operations_snapshot,
     empty_operations_snapshot,
 )
@@ -40,6 +41,27 @@ async def _operations_for_overview(db: AsyncSession, *, employee: EmployeeContex
     except Exception:
         logger.exception("dashboard overview: operations snapshot failed")
         return empty_operations_snapshot()
+
+
+async def _participant_issues_for_overview(
+    db: AsyncSession,
+    *,
+    employee: EmployeeContext,
+) -> tuple[list[dict], dict | None]:
+    try:
+        return await asyncio.wait_for(
+            build_dashboard_participant_issues_block(db, employee=employee),
+            timeout=DASHBOARD_OPERATIONS_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        logger.warning(
+            "dashboard overview: participant issue summary timed out after %ss",
+            DASHBOARD_OPERATIONS_TIMEOUT_SECONDS,
+        )
+        return [], None
+    except Exception:
+        logger.exception("dashboard overview: participant issue summary failed")
+        return [], None
 
 
 def _year_date_bounds(year: int) -> tuple[date, date]:
@@ -126,7 +148,32 @@ async def _users_overview(db: AsyncSession) -> dict:
         yearly_totals.append(
             {"year": date.today().year, "new_users": total, "total_users": total}
         )
-    return {"total_users": total, "active_users": active, "yearly_totals": yearly_totals}
+
+    monthly_totals: list[dict] = []
+    if len(yearly_totals) == 1:
+        chart_year = yearly_totals[0]["year"]
+        month_counts = await users_repo.count_users_created_by_month(db, year=chart_year)
+        if month_counts:
+            by_month = dict(month_counts)
+            running = 0
+            for month in range(1, 13):
+                added = by_month.get(month, 0)
+                running += added
+                monthly_totals.append(
+                    {
+                        "year": chart_year,
+                        "month": month,
+                        "new_users": added,
+                        "total_users": running,
+                    }
+                )
+
+    return {
+        "total_users": total,
+        "active_users": active,
+        "yearly_totals": yearly_totals,
+        "monthly_totals": monthly_totals,
+    }
 
 
 async def _participant_stats(db: AsyncSession) -> int:
@@ -157,17 +204,24 @@ async def booking_status_totals(db: AsyncSession) -> dict[str, int]:
 
 
 async def ticket_status_counts(db: AsyncSession) -> dict[str, int]:
+    from db.column_types import STATUS_SUPPORT_TICKET
+
+    code_to_label = {code: label for label, code in STATUS_SUPPORT_TICKET.items()}
     rows = (
         await db.execute(
             select(SupportTicket.status, func.count())
             .select_from(SupportTicket)
-            .where(SupportTicket.status.in_(("open", "resolved", "closed")))
             .group_by(SupportTicket.status)
         )
     ).all()
     out = {status: 0 for status in ("open", "resolved", "closed")}
     for status, count in rows:
-        out[str(status)] = int(count or 0)
+        if isinstance(status, int):
+            label = code_to_label.get(status)
+        else:
+            label = str(status or "").strip().lower()
+        if label in out:
+            out[label] += int(count or 0)
     return out
 
 
@@ -191,6 +245,7 @@ async def build_dashboard_overview(db: AsyncSession, *, employee: EmployeeContex
         ticket_counts,
         failed_notifications_count,
         operations,
+        participant_issues_block,
     ) = await asyncio.gather(
         year_stats_payload(db, year=year),
         _users_overview(db),
@@ -199,7 +254,12 @@ async def build_dashboard_overview(db: AsyncSession, *, employee: EmployeeContex
         ticket_status_counts(db),
         _failed_notifications_count(db),
         _operations_for_overview(db, employee=employee),
+        _participant_issues_for_overview(db, employee=employee),
     )
+
+    participant_issues, participant_issue_summary = participant_issues_block
+    operations["participant_issues"] = participant_issues
+    operations["participant_issue_summary"] = participant_issue_summary
 
     return {
         "year_stats": year_stats,
