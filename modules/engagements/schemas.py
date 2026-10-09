@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime, time
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -67,6 +67,7 @@ class CabinSlotConfig(BaseModel):
     end_time: str
     slot_duration: int = Field(gt=0, le=480)
     capacity_per_slot: int = Field(gt=0, le=1000)
+    slot_capacity_overrides: dict[str, int] = Field(default_factory=dict)
     breaks: list[CabinBreak] = Field(default_factory=list)
     is_active: bool = True
 
@@ -75,6 +76,22 @@ class CabinSlotConfig(BaseModel):
     def validate_time(cls, value: str) -> str:
         _parse_hhmm(value)
         return value
+
+    @field_validator("slot_capacity_overrides")
+    @classmethod
+    def validate_slot_capacity_overrides(cls, value: dict[str, int]) -> dict[str, int]:
+        cleaned: dict[str, int] = {}
+        for raw_key, raw_capacity in value.items():
+            key = str(raw_key).strip()
+            _parse_hhmm(key)
+            try:
+                capacity = int(raw_capacity)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"Invalid capacity for slot '{key}'") from exc
+            if capacity <= 0 or capacity > 1000:
+                raise ValueError(f"Capacity for slot '{key}' must be between 1 and 1000")
+            cleaned[key] = capacity
+        return cleaned
 
     @model_validator(mode="after")
     def validate_window_and_breaks(self) -> CabinSlotConfig:
@@ -153,6 +170,27 @@ class SlotDetail(BaseModel):
         if len(keys) != len(set(keys)):
             raise ValueError("cabin_key must be unique within slot_detail")
         return self
+
+
+class SlotCapacityUpdateRequest(BaseModel):
+    section: Literal["blood_collection", "consultation"]
+    date: str
+    cabin_key: SlugKey
+    slot: str
+    capacity: int = Field(gt=0, le=1000)
+
+    @field_validator("date")
+    @classmethod
+    def validate_date(cls, value: str) -> str:
+        if not _DATE_RE.match(value):
+            raise ValueError(f"Invalid date '{value}'; expected YYYY-MM-DD")
+        return value
+
+    @field_validator("slot")
+    @classmethod
+    def validate_slot(cls, value: str) -> str:
+        _parse_hhmm(value)
+        return value
 
 
 class EngagementNotificationInput(BaseModel):

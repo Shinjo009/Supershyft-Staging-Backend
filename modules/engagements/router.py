@@ -42,6 +42,7 @@ from modules.engagements.schemas import (
     EngagementRescheduleRequest,
     EngagementStatusUpdateRequest,
     EngagementUpdateRequest,
+    SlotCapacityUpdateRequest,
     LoadBloodReportsForParticipantsRequest,
     LoadBioaiReportsForParticipantsRequest,
     RemoveReportsForParticipantsRequest,
@@ -484,6 +485,24 @@ async def update_engagement(
     await db.commit()
 
     return success_response({"engagement_id": updated.engagement_id})
+
+
+@router.patch("/{engagement_id}/slot-capacity")
+async def update_slot_capacity(
+    engagement_id: int,
+    payload: SlotCapacityUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    engagements_service: EngagementsService = Depends(get_engagements_service),
+):
+    data = await engagements_service.update_slot_capacity_for_employee(
+        db,
+        employee=employee,
+        engagement_id=engagement_id,
+        payload=payload,
+    )
+    await db.commit()
+    return success_response(data)
 
 
 @router.get("/code/{engagement_code}/occupied-slots")

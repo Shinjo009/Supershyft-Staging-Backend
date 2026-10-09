@@ -10,6 +10,7 @@ from modules.engagements.enums import ConsultationMode
 from modules.engagements.models import Engagement
 from modules.engagements.slot_info_repository import EngagementSlotInfoRepository
 from modules.engagements.slot_availability import (
+    capacity_for_slot,
     coerce_time,
     format_hhmm,
     require_available_consultation_slot,
@@ -69,7 +70,7 @@ async def validate_consultation_cabin_slot_for_booking(
         ),
         exclude_consultation_id=exclude_consultation_id,
     )
-    capacity = int(cabin.get("capacity_per_slot") or 0)
+    capacity = capacity_for_slot(cabin, slot_time)
     if count >= capacity:
         raise slot_unavailable()
     return persisted_cabin, slot_hhmm
