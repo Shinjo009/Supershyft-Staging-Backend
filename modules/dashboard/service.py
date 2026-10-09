@@ -122,6 +122,10 @@ async def _users_overview(db: AsyncSession) -> dict:
             added = by_year.get(yr, 0)
             running += added
             yearly_totals.append({"year": yr, "new_users": added, "total_users": running})
+    elif total > 0:
+        yearly_totals.append(
+            {"year": date.today().year, "new_users": total, "total_users": total}
+        )
     return {"total_users": total, "active_users": active, "yearly_totals": yearly_totals}
 
 

@@ -34,6 +34,7 @@ def empty_operations_snapshot() -> dict[str, Any]:
             "truncated": False,
         },
         "participant_issues": [],
+        "participant_issue_summary": None,
         "pending_payments": [],
         "failed_notifications": [],
         "tickets": {"open": []},
@@ -280,7 +281,7 @@ async def build_operations_snapshot(
             "truncated": today_trunc or active_trunc,
         }
 
-    async def load_participant_issues() -> list[dict]:
+    async def load_participant_issues_block() -> tuple[list[dict], dict | None]:
         data = await engagements_service.list_engagements_data_completeness_summary(
             db,
             employee=employee,
@@ -297,7 +298,26 @@ async def build_operations_snapshot(
             limit=DASHBOARD_PARTICIPANT_ISSUES_LIMIT,
             include_participant_issues=True,
         )
-        return list(data.get("participant_issues") or [])
+        issues = list(data.get("participant_issues") or [])
+        rollup = data.get("rollup") if isinstance(data.get("rollup"), dict) else {}
+        participants_in_scope = int(rollup.get("total_participants") or 0)
+        engagements_in_scope = int(rollup.get("engagement_count") or 0)
+        with_booking = int(rollup.get("with_booking_id") or 0)
+        blood_report = int(rollup.get("blood_report") or 0)
+        bio_ai_report = int(rollup.get("bio_ai_report") or 0)
+        questionnaire_missing = int(rollup.get("questionnaire_not_started") or 0) + int(
+            rollup.get("questionnaire_partially_filled") or 0
+        )
+        summary = {
+            "participants_in_scope": participants_in_scope,
+            "engagements_in_scope": engagements_in_scope,
+            "limit_reached": engagements_in_scope >= DASHBOARD_PARTICIPANT_ISSUES_LIMIT,
+            "missing_blood_slot": max(0, participants_in_scope - with_booking),
+            "missing_questionnaire": questionnaire_missing,
+            "missing_blood_report": max(0, participants_in_scope - blood_report),
+            "missing_bio_ai_report": max(0, participants_in_scope - bio_ai_report),
+        }
+        return issues, summary
 
     async def load_pending_payments() -> list[dict]:
         payload = await payments_service.list_bookings_admin(
@@ -357,23 +377,25 @@ async def build_operations_snapshot(
 
     (
         engagements_block,
-        participant_issues,
+        participant_issues_block,
         pending_payments,
         failed_notifications,
         tickets_block,
         serviceability,
     ) = await asyncio.gather(
         load_engagements_block(),
-        load_participant_issues(),
+        load_participant_issues_block(),
         load_pending_payments(),
         load_failed_notifications(),
         load_tickets(),
         load_serviceability(),
     )
+    participant_issues, participant_issue_summary = participant_issues_block
 
     return {
         "engagements": engagements_block,
         "participant_issues": participant_issues,
+        "participant_issue_summary": participant_issue_summary,
         "pending_payments": pending_payments,
         "failed_notifications": failed_notifications,
         "tickets": tickets_block,

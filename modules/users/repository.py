@@ -119,11 +119,11 @@ class UsersRepository:
         return with_profile, total_participants
 
     async def count_users_created_by_year(self, db: AsyncSession) -> list[tuple[int, int]]:
-        year_expr = cast(extract("year", User.created_at), Integer)
+        created_year = func.coalesce(User.created_at, User.updated_at)
+        year_expr = cast(extract("year", created_year), Integer)
         rows = (
             await db.execute(
                 select(year_expr.label("y"), func.count().label("count"))
-                .where(User.created_at.is_not(None))
                 .group_by(year_expr)
                 .order_by(year_expr.asc())
             )
