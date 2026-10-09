@@ -443,6 +443,7 @@ class DiagnosticPackageListItem(BaseModel):
     display_order: Optional[int] = None
     external_package_code: Optional[str] = None
     no_of_tests: Optional[int] = None
+    unmapped_test_count: int = 0
     report_duration_hours: Optional[int] = None
     collection_type: Optional[str] = None
     price: Optional[float] = None

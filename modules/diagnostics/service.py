@@ -507,6 +507,9 @@ class DiagnosticsService:
         )
         pkg_ids = [r.diagnostic_package_id for r in rows]
         counts = await self._repository.count_distinct_tests_for_packages(db, package_ids=pkg_ids)
+        unmapped_counts = await self._repository.count_unmapped_tests_for_packages(
+            db, package_ids=pkg_ids
+        )
         tags_by_pkg = await self._repository.list_tags_for_package_ids(db, package_ids=pkg_ids)
         chip_links_by_pkg = await self._repository.list_filter_chip_links_for_package_ids(
             db, package_ids=pkg_ids
@@ -534,6 +537,7 @@ class DiagnosticsService:
                     display_order=row.display_order,
                     external_package_code=row.external_package_code,
                     no_of_tests=n_tests,
+                    unmapped_test_count=unmapped_counts.get(row.diagnostic_package_id, 0),
                     report_duration_hours=row.report_duration_hours,
                     collection_type=row.collection_type,
                     price=price,

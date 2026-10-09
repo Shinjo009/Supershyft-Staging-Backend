@@ -5,7 +5,7 @@ Only database queries live here.
 
 from __future__ import annotations
 
-from sqlalchemy import delete, distinct, func, or_, select, update as sql_update
+from sqlalchemy import String, case, cast, delete, distinct, func, or_, select, update as sql_update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -158,6 +158,55 @@ class DiagnosticsRepository:
             .group_by(pkg_col)
         )
         result = await db.execute(subq)
+        rows = result.all()
+        out = {int(pid): 0 for pid in package_ids}
+        for row in rows:
+            out[int(row.diagnostic_package_id)] = int(row.cnt or 0)
+        return out
+
+    async def count_unmapped_tests_for_packages(
+        self,
+        db: AsyncSession,
+        *,
+        package_ids: list[int],
+    ) -> dict[int, int]:
+        """Distinct tests whose provider parameter key is null or blank.
+
+        Orange Health uses ``orangehealth_parameter_key``. Every other provider
+        uses ``healthians_parameter_key``, matching ``provider_parameter_key``.
+        """
+        if not package_ids:
+            return {}
+        pkg_col = DiagnosticPackageTestGroup.diagnostic_package_id
+        provider_text = func.lower(func.trim(cast(DiagnosticPackage.diagnostic_provider, String)))
+        is_orange = provider_text == "orange_health"
+        relevant_key = case(
+            (is_orange, HealthParameter.orangehealth_parameter_key),
+            else_=HealthParameter.healthians_parameter_key,
+        )
+        unmapped = or_(relevant_key.is_(None), func.trim(relevant_key) == "")
+        query = (
+            select(
+                pkg_col.label("diagnostic_package_id"),
+                func.count(distinct(DiagnosticTestGroupTest.test_id)).label("cnt"),
+            )
+            .select_from(DiagnosticPackageTestGroup)
+            .join(
+                DiagnosticPackage,
+                DiagnosticPackage.diagnostic_package_id == pkg_col,
+            )
+            .join(
+                DiagnosticTestGroupTest,
+                DiagnosticTestGroupTest.group_id == DiagnosticPackageTestGroup.group_id,
+            )
+            .join(
+                HealthParameter,
+                HealthParameter.test_id == DiagnosticTestGroupTest.test_id,
+            )
+            .where(pkg_col.in_(package_ids), unmapped)
+            .group_by(pkg_col)
+        )
+        result = await db.execute(query)
         rows = result.all()
         out = {int(pid): 0 for pid in package_ids}
         for row in rows:
