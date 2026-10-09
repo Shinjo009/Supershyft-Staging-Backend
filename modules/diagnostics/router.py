@@ -7,7 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.responses import success_response
-from core.dependencies import _http_bearer, authenticate_bearer_user, get_current_user
+from core.dependencies import _http_bearer, authenticate_bearer_user
 from db.session import get_db
 from modules.diagnostics.actor import DiagnosticsPackageActor, get_diagnostics_package_actor
 from modules.diagnostics.dependencies import get_diagnostics_service
@@ -43,7 +43,6 @@ from modules.diagnostics.schemas import (
 from modules.diagnostics.service import DiagnosticsService
 from modules.employee.dependencies import get_current_employee, get_employee_service
 from modules.employee.service import EmployeeContext, EmployeeService
-from modules.users.models import User
 
 
 router = APIRouter(tags=["diagnostics"])
@@ -737,7 +736,7 @@ async def list_diagnostic_test_groups(
     filter_chip: str | None = Query(default=None),
     package_for: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _actor: DiagnosticsPackageActor = Depends(get_diagnostics_package_actor),
     diagnostics_service: DiagnosticsService = Depends(get_diagnostics_service),
 ):
     data = await diagnostics_service.get_all_groups(db, filter_chip=filter_chip, package_for=package_for)
@@ -779,7 +778,7 @@ async def get_diagnostic_test_group(
 async def list_group_tests(
     group_id: int,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _actor: DiagnosticsPackageActor = Depends(get_diagnostics_package_actor),
     diagnostics_service: DiagnosticsService = Depends(get_diagnostics_service),
 ):
     data = await diagnostics_service.get_group_tests(db, group_id=group_id)
