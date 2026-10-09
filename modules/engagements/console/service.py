@@ -334,7 +334,6 @@ class ConsoleService:
 
     @staticmethod
     async def _engagement_to_console_dict(
-        self,
         db: AsyncSession,
         engagement: Engagement,
         *,
