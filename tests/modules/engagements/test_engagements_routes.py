@@ -70,18 +70,55 @@ async def _seed_default_notification_service(test_db_session):
 async def _seed_diagnostic_package(test_db_session, *, diagnostic_package_id: int):
     await test_db_session.execute(
         text(
-            "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, bookings_count) "
-            "VALUES (:did, :ref, :pname, 'test_provider', 1, 0) ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
+            "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, bookings_count, external_package_code) "
+            "VALUES (:did, :ref, :pname, 'orange_health', 1, 0, :code) ON CONFLICT (diagnostic_package_id) DO UPDATE SET "
             "reference_id = EXCLUDED.reference_id, package_name = EXCLUDED.package_name, "
-            "diagnostic_provider = EXCLUDED.diagnostic_provider, status = EXCLUDED.status"
+            "diagnostic_provider = EXCLUDED.diagnostic_provider, status = EXCLUDED.status, "
+            "external_package_code = EXCLUDED.external_package_code"
         ),
         {
             "did": diagnostic_package_id,
             "ref": f"REF{diagnostic_package_id}",
             "pname": f"Test Diagnostic Package {diagnostic_package_id}",
+            "code": f"PKG{diagnostic_package_id}",
         },
     )
     await test_db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_create_engagement_rejects_package_without_external_code(async_client, test_db_session):
+    await _seed_employee(test_db_session, employee_id=19)
+    await _seed_organization(test_db_session, organization_id=1, name="Test Organization 1")
+    await _seed_assessment_package(test_db_session, package_id=1, package_code="PKG1")
+    await _seed_diagnostic_package(test_db_session, diagnostic_package_id=91)
+    await test_db_session.execute(
+        text(
+            "UPDATE diagnostic_package SET external_package_code = NULL "
+            "WHERE diagnostic_package_id = :did"
+        ),
+        {"did": 91},
+    )
+    await test_db_session.commit()
+    type_id = await _engagement_type_id(test_db_session, "bio_ai")
+
+    response = await async_client.post(
+        "/engagements",
+        headers=_auth_header(19),
+        json={
+            "engagement_name": "Uncoded Package Camp",
+            "organization_id": 1,
+            "engagement_type": type_id,
+            "assessment_package_id": 1,
+            "diagnostic_package_id": 91,
+            "city": "BLR",
+            "slot_duration": 20,
+            "start_date": "2026-02-01",
+            "end_date": "2026-02-02",
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "DIAGNOSTIC_PACKAGE_EXTERNAL_CODE_REQUIRED"
 
 
 @pytest.mark.asyncio

@@ -586,6 +586,28 @@ class EngagementsService:
     async def get_by_id(self, db: AsyncSession, engagement_id: int) -> Engagement | None:
         return await self._repository.get_engagement_by_id(db, engagement_id)
 
+    async def _reject_diagnostic_packages_without_external_code(
+        self,
+        db: AsyncSession,
+        *,
+        package_ids: list[int | None],
+    ) -> None:
+        ids = sorted({int(package_id) for package_id in package_ids if package_id})
+        if not ids:
+            return
+        from modules.diagnostics.models import DiagnosticPackage
+
+        result = await db.execute(
+            select(DiagnosticPackage).where(DiagnosticPackage.diagnostic_package_id.in_(ids))
+        )
+        for pkg in result.scalars().all():
+            if not (pkg.external_package_code or "").strip():
+                raise AppError(
+                    status_code=400,
+                    error_code="DIAGNOSTIC_PACKAGE_EXTERNAL_CODE_REQUIRED",
+                    message=f"Diagnostic package {pkg.package_name} has no external package code",
+                )
+
     async def create_b2b_engagement(
         self,
         db: AsyncSession,
@@ -610,6 +632,15 @@ class EngagementsService:
                     error_code="ORGANIZATION_NOT_FOUND",
                     message=f"Organization with ID {payload.organization_id} does not exist",
                 )
+
+        await self._reject_diagnostic_packages_without_external_code(
+            db,
+            package_ids=[
+                payload.diagnostic_package_id,
+                payload.diagnostic_package_id_male,
+                payload.diagnostic_package_id_female,
+            ],
+        )
 
         diagnostic_package_id = payload.diagnostic_package_id
         prepared_slot_detail = _prepare_slot_detail_for_consultation_mode(

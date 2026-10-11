@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from modules.diagnostics.models import DiagnosticPackage, DiagnosticPackageGroup
+from modules.diagnostics.models import (
+    DiagnosticPackage,
+    DiagnosticPackageGroup,
+    DiagnosticPackageTestGroup,
+    DiagnosticTestGroup,
+    DiagnosticTestGroupTest,
+    HealthParameter,
+)
 from modules.users.models import User
 from tests.helpers.auth import employee_auth_header, seed_employee, user_auth_header
 
@@ -161,3 +168,108 @@ async def test_package_name_plus_and_about_text_multiline(async_client, test_db_
     assert body["package_name"] == "Core+"
     assert "Line one\nLine two" in body["about_text"]
     assert "\x07" not in body["about_text"]
+
+
+async def _assign_tests(session, package: DiagnosticPackage, tests: list[HealthParameter], group_key: str) -> None:
+    group = DiagnosticTestGroup(group_name=group_key, group_key=group_key)
+    session.add(group)
+    session.add_all(tests)
+    await session.flush()
+    session.add(
+        DiagnosticPackageTestGroup(
+            diagnostic_package_id=package.diagnostic_package_id,
+            group_id=group.group_id,
+        )
+    )
+    for index, test in enumerate(tests):
+        session.add(
+            DiagnosticTestGroupTest(
+                group_id=group.group_id,
+                test_id=test.test_id,
+                display_order=index,
+            )
+        )
+    await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_list_packages_reports_unmapped_provider_test_ids(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=905, role="admin")
+    healthians = await _add_package_with_group(
+        test_db_session,
+        package_name="Mapped Partial",
+        diagnostic_provider="healthians",
+        status="active",
+        package_for="public",
+    )
+    await _assign_tests(
+        test_db_session,
+        healthians,
+        [
+            HealthParameter(
+                test_name="Haemoglobin",
+                parameter_type="test",
+                healthians_parameter_key="135",
+            ),
+            HealthParameter(
+                test_name="Albumin",
+                parameter_type="test",
+                healthians_parameter_key="  ",
+                orangehealth_parameter_key="oh-albumin",
+            ),
+        ],
+        "partial-healthians",
+    )
+
+    orange = await _add_package_with_group(
+        test_db_session,
+        package_name="Orange Partial",
+        diagnostic_provider="orange_health",
+        status="active",
+        package_for="public",
+    )
+    await _assign_tests(
+        test_db_session,
+        orange,
+        [
+            HealthParameter(
+                test_name="Glucose",
+                parameter_type="test",
+                healthians_parameter_key="999",
+            ),
+            HealthParameter(
+                test_name="Creatinine",
+                parameter_type="test",
+                orangehealth_parameter_key="oh-creatinine",
+            ),
+        ],
+        "partial-orange",
+    )
+
+    empty = await _add_package_with_group(
+        test_db_session,
+        package_name="No Tests",
+        diagnostic_provider="healthians",
+        status="active",
+        package_for="public",
+    )
+
+    list_resp = await async_client.get(
+        "/diagnostic-packages",
+        headers=employee_auth_header(905),
+        params={"include_inactive": True, "type": "public_package"},
+    )
+    assert list_resp.status_code == 200
+    rows = {row["diagnostic_package_id"]: row for row in list_resp.json()["data"]}
+
+    healthians_row = rows[healthians.diagnostic_package_id]
+    assert healthians_row["no_of_tests"] == 2
+    assert healthians_row["unmapped_test_count"] == 1
+
+    orange_row = rows[orange.diagnostic_package_id]
+    assert orange_row["no_of_tests"] == 2
+    assert orange_row["unmapped_test_count"] == 1
+
+    empty_row = rows[empty.diagnostic_package_id]
+    assert empty_row["no_of_tests"] == 0
+    assert empty_row["unmapped_test_count"] == 0
