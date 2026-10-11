@@ -5,8 +5,11 @@ where today >= engagement_date:
 1. Check MetSights blood parameters for is_complete (Pro/Basic only).
    If missing/incomplete, fill internal blood defaults (including LH and FSH),
    mark those categories complete, push them to MetSights, then continue.
-2. If individual_health_report.reports or report_url is null, fetch from MetSights.
-3. When both reports and report_url are present, send notifications using
+2. If the MetSights report is missing because the record is not complete, push
+   physical measurements, vitals, and diet/lifestyle from the local questionnaire
+   and mark those modules complete, then request the report again.
+3. If individual_health_report.reports or report_url is null, fetch from MetSights.
+4. When both reports and report_url are present, send notifications using
    engagement_notifications for bioai_report_ready event (skipping services already sent).
 """
 
@@ -20,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.exceptions import AppError
 from db.seed.blood_parameters_registry import BLOOD_PARAMETER_CATEGORY_KEY
 from modules.assessments.essentials_vitals import is_metsights_essentials
 from modules.assessments.models import AssessmentInstance, AssessmentPackage
@@ -151,7 +155,26 @@ async def _fetch_metsights_report_json(
     type_code: str,
     engagement_id: int,
     user_id: int,
-) -> Any | None:
+) -> tuple[Any | None, bool]:
+    """Return ``(report, record_incomplete)``.
+
+    ``record_incomplete`` is true when MetSights answers 404. That response means
+    the record is missing or not complete, so result generation cannot start.
+    """
+    record_incomplete = False
+
+    async def _load() -> Any:
+        nonlocal record_incomplete
+        try:
+            return await metsights_service.get_report(
+                record_id=record_id,
+                assessment_type_code=type_code,
+            )
+        except AppError as exc:
+            if exc.error_code == "REPORT_NOT_FOUND":
+                record_incomplete = True
+            raise
+
     report_data = await tracked_integration_call(
         db,
         provider="metsights",
@@ -165,20 +188,83 @@ async def _fetch_metsights_report_json(
             "record_id": record_id,
             "assessment_type_code": type_code,
         },
-        operation=lambda: metsights_service.get_report(
-            record_id=record_id,
-            assessment_type_code=type_code,
-        ),
+        operation=_load,
         reraise=False,
     )
     if report_data is not None and report_data:
-        return report_data
+        return report_data, False
     if report_data is None:
         logger.warning(
-            "MetSights get_report failed for record=%s",
+            "MetSights get_report failed for record=%s incomplete=%s",
             record_id,
+            record_incomplete,
         )
-    return None
+    return None, record_incomplete
+
+
+async def _push_incomplete_report_modules(
+    db: AsyncSession,
+    *,
+    metsights_service: MetsightsService,
+    sync_service: "MetsightsSyncService",
+    record_id: str,
+    type_code: str,
+    user_id: int,
+    engagement_id: int,
+    instance_id: int,
+    details: list[dict[str, Any]],
+) -> bool:
+    """Push local questionnaire modules that MetSights still marks incomplete.
+
+    A Pro report needs physical measurements, vitals, blood, and diet/lifestyle
+    complete. Blood is handled earlier in this job.
+    """
+    from modules.notifications.push_questionnaires_to_metsights import categories_for_type_code
+
+    required = categories_for_type_code(type_code)
+    if not required:
+        return False
+
+    incomplete: list[str] = []
+    for resource in required:
+        data = await metsights_service.get_record_subresource_or_none(
+            record_id=record_id,
+            resource=resource,
+        )
+        if not isinstance(data, dict) or not data.get("is_complete", False):
+            incomplete.append(resource)
+    if not incomplete:
+        return False
+
+    result = await sync_service.push_questionnaire_for_instance(
+        db,
+        assessment_instance_id=instance_id,
+        categories=incomplete,
+    )
+    patched = list(result.get("resources_patched") or [])
+    if not result.get("pushed"):
+        details.append({
+            "user_id": user_id,
+            "engagement_id": engagement_id,
+            "action": "skipped",
+            "reason": (
+                "MetSights record is not complete and questionnaire push did not update "
+                + ", ".join(incomplete)
+            ),
+        })
+        return False
+
+    details.append({
+        "user_id": user_id,
+        "engagement_id": engagement_id,
+        "action": "pushed",
+        "reason": (
+            "pushed "
+            + ", ".join(patched or incomplete)
+            + " so MetSights can generate the report"
+        ),
+    })
+    return True
 
 
 async def _try_recover_missing_vitals_bp(
@@ -704,7 +790,7 @@ async def load_bioai_reports(
                     fetched_url = None
 
                     if reports is None:
-                        fetched_reports = await _fetch_metsights_report_json(
+                        fetched_reports, record_incomplete = await _fetch_metsights_report_json(
                             db,
                             metsights_service=metsights_service,
                             record_id=record_id,
@@ -712,6 +798,41 @@ async def load_bioai_reports(
                             engagement_id=engagement_id,
                             user_id=user_id,
                         )
+                        if (
+                            fetched_reports is None
+                            and record_incomplete
+                            and sync_service is not None
+                        ):
+                            try:
+                                pushed_modules = await _push_incomplete_report_modules(
+                                    db,
+                                    metsights_service=metsights_service,
+                                    sync_service=sync_service,
+                                    record_id=record_id,
+                                    type_code=type_code,
+                                    user_id=user_id,
+                                    engagement_id=engagement_id,
+                                    instance_id=instance_id,
+                                    details=details,
+                                )
+                            except Exception as exc:
+                                await db.rollback()
+                                logger.warning(
+                                    "BioAI record-module push failed for user=%s instance=%s: %s",
+                                    user_id,
+                                    instance_id,
+                                    exc,
+                                )
+                                pushed_modules = False
+                            if pushed_modules:
+                                fetched_reports, _record_incomplete = await _fetch_metsights_report_json(
+                                    db,
+                                    metsights_service=metsights_service,
+                                    record_id=record_id,
+                                    type_code=type_code,
+                                    engagement_id=engagement_id,
+                                    user_id=user_id,
+                                )
 
                     if fetched_reports is not None:
                         ihr_for_pdf = await _get_or_create_ihr(
@@ -774,7 +895,7 @@ async def load_bioai_reports(
                             )
                             if recovered:
                                 if reports is None:
-                                    fetched_reports = await _fetch_metsights_report_json(
+                                    fetched_reports, _record_incomplete = await _fetch_metsights_report_json(
                                         db,
                                         metsights_service=metsights_service,
                                         record_id=record_id,

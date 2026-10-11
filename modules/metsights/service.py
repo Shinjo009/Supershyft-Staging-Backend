@@ -472,10 +472,20 @@ class MetsightsService:
         except httpx.HTTPStatusError as exc:
             status_code = exc.response.status_code
             if status_code == 404:
+                detail = ""
+                try:
+                    body = exc.response.json()
+                    if isinstance(body, dict):
+                        detail = str(body.get("detail") or "").strip()
+                except Exception:
+                    detail = ""
+                message = "Report not found for this record"
+                if detail:
+                    message = f"{message}: {detail}"
                 raise AppError(
                     status_code=404,
                     error_code="REPORT_NOT_FOUND",
-                    message="Report not found for this record",
+                    message=message,
                 ) from exc
             if status_code == 403:
                 raise AppError(

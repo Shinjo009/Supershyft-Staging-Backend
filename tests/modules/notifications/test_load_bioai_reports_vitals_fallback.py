@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import text
 
 from core.config import settings
+from core.exceptions import AppError
 from modules.assessments.dependencies import get_assessments_service
 from modules.assessments.models import AssessmentInstance
 from modules.engagements.dependencies import get_engagements_service
@@ -354,3 +355,71 @@ async def test_load_bioai_reports_skips_recovery_when_bp_already_present(
     push_mock.assert_not_called()
     reasons = [d["reason"] for d in result["details"]]
     assert any("no report data returned" in r for r in reasons)
+
+
+@pytest.mark.asyncio
+async def test_load_bioai_reports_pushes_incomplete_modules_before_report(
+    test_db_session,
+    monkeypatch,
+):
+    await _seed_bioai_participant(
+        test_db_session,
+        user_id=199205,
+        engagement_id=199205,
+        assessment_id=199205,
+    )
+    monkeypatch.setattr(settings, "METSIGHTS_API_KEY", "test-key")
+    metsights_service = MetsightsService(client=MetsightsClient())
+    sync_service = _build_sync_service(metsights_service)
+
+    report_attempts = 0
+
+    async def _fake_blood_params(*, record_id: str):
+        return {"is_complete": True}
+
+    async def _fake_report(*, record_id: str, assessment_type_code: str | None):
+        nonlocal report_attempts
+        report_attempts += 1
+        if report_attempts == 1:
+            raise AppError(
+                status_code=404,
+                error_code="REPORT_NOT_FOUND",
+                message="Report not found for this record: Completed record not found.",
+            )
+        return {"metabolic_score": 62, "record_id": record_id}
+
+    async def _fake_module(*, record_id: str, resource: str):
+        if resource == "vitals":
+            return {"is_complete": True}
+        return None
+
+    pushed_categories: list[list[str]] = []
+
+    async def _fake_push_questionnaire(db, **kwargs):
+        pushed_categories.append(list(kwargs.get("categories") or []))
+        return {"pushed": True, "resources_patched": list(kwargs.get("categories") or [])}
+
+    monkeypatch.setattr(metsights_service, "get_blood_parameters", _fake_blood_params)
+    monkeypatch.setattr(metsights_service, "get_report", _fake_report)
+    monkeypatch.setattr(metsights_service, "get_record_subresource_or_none", _fake_module)
+    monkeypatch.setattr(sync_service, "push_questionnaire_for_instance", _fake_push_questionnaire)
+    monkeypatch.setattr(
+        "modules.notifications.load_bioai_reports.register_permanent_bio_ai_report_url",
+        AsyncMock(return_value="https://bio-ai-reports.supershyft.com/r/modules"),
+    )
+
+    result = await load_bioai_reports(
+        test_db_session,
+        metsights_service=metsights_service,
+        notifications_service=NotificationsService(NotificationsRepository()),
+        assessments_service=get_assessments_service(),
+        sync_service=sync_service,
+        send_notifications=False,
+        user_ids={199205},
+    )
+
+    assert result["loaded"] == 1
+    assert report_attempts == 2
+    assert pushed_categories == [["physical-measurement", "diet-lifestyle-parameters"]]
+    reasons = [d["reason"] for d in result["details"] if d["action"] == "pushed"]
+    assert any("physical-measurement" in reason for reason in reasons)
