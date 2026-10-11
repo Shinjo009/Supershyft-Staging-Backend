@@ -53,10 +53,10 @@ async def test_engagement_onboard_enrolls_fitprint_before_primary(async_client, 
     monkeypatch.setattr(settings, "METSIGHTS_BASE_URL", "https://api.metsights.test")
     record_order = _patch_metsights_record_order(monkeypatch)
 
-    async def _fake_register(self, *, engagement_id: str, data: dict):
+    async def _fake_create_profile(self, *, data: dict):
         return {"data": {"id": "ms-profile-fp-order"}}
 
-    monkeypatch.setattr("modules.metsights.client.MetsightsClient.create_profile_for_engagement", _fake_register)
+    monkeypatch.setattr("modules.metsights.client.MetsightsClient.create_profile", _fake_create_profile)
 
     await _seed_primary_and_fitprint_packages(test_db_session)
     await test_db_session.execute(

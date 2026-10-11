@@ -401,7 +401,7 @@ async def test_load_fitprint_reports_creates_sync_logs_without_notifications(
         )
     ).all()
     assert len(rows) >= 2
-    assert all("fitness-reports" in row.api_endpoint_url for row in rows)
+    assert all("/external/reports/fitness/" in row.api_endpoint_url for row in rows)
 
 
 @pytest.mark.asyncio

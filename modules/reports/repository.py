@@ -107,7 +107,7 @@ class ReportsRepository:
             )
             .where(AssessmentInstance.user_id == user_id)
             .where(IndividualHealthReport.user_id == AssessmentInstance.user_id)
-            .where(func.lower(AssessmentInstance.status) == "completed")
+            .where(AssessmentInstance.status == "completed")
             .where(AssessmentPackage.assessment_type_code.in_(_METSIGHTS_PRO_BASIC_TYPE_CODES))
             .order_by(
                 AssessmentInstance.completed_at.asc().nulls_last(),

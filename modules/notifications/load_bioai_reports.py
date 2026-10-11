@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.config import settings
 from db.seed.blood_parameters_registry import BLOOD_PARAMETER_CATEGORY_KEY
 from modules.assessments.essentials_vitals import is_metsights_essentials
 from modules.assessments.models import AssessmentInstance, AssessmentPackage
@@ -56,15 +55,19 @@ _PRO_BASIC_TYPE_CODES = {"1", "2"}
 
 
 def _metsights_report_url(*, record_id: str, assessment_type_code: str, pdf: bool = False) -> str:
-    base = settings.METSIGHTS_BASE_URL.rstrip("/")
-    suffix = "/pdf/" if pdf else "/"
-    if assessment_type_code == "7":
-        return f"{base}/reports/fitness-reports/{record_id}{suffix}"
-    return f"{base}/reports/{record_id}{suffix}"
+    from modules.metsights.integration_logging import metsights_api_url
+
+    branch = "fitness" if assessment_type_code == "7" else "metsights"
+    path = f"reports/{branch}/{record_id}"
+    if pdf:
+        path = f"{path}/pdf"
+    return metsights_api_url(path)
 
 
 def _metsights_blood_parameters_url(*, record_id: str) -> str:
-    return f"{settings.METSIGHTS_BASE_URL.rstrip('/')}/records/{record_id}/blood-parameters/"
+    from modules.metsights.integration_logging import metsights_api_url
+
+    return metsights_api_url(f"records/{record_id}/blood-parameters")
 
 
 def _has_usable_reports(reports: Any) -> bool:
@@ -293,7 +296,7 @@ async def _get_eligible_participants(
             == EngagementParticipant.engagement_participant_id,
         ).where(curr_pbb.c.collection_date <= today)
     if not all_engagements:
-        query = query.where(Engagement.status.ilike("running"))
+        query = query.where(Engagement.status == "running")
     if engagement_id is not None:
         query = query.where(Engagement.engagement_id == engagement_id)
     if user_ids is not None:

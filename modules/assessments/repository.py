@@ -465,7 +465,7 @@ class AssessmentsRepository:
             select(AssessmentInstance, AssessmentPackage)
             .outerjoin(AssessmentPackage, AssessmentPackage.package_id == AssessmentInstance.package_id)
             .where(AssessmentInstance.user_id == user_id)
-            .where(func.lower(AssessmentInstance.status) == "completed")
+            .where(AssessmentInstance.status == "completed")
             .where(AssessmentInstance.metsights_record_id.is_not(None))
             .where(AssessmentInstance.metsights_record_id != "")
             .order_by(AssessmentInstance.completed_at.asc().nulls_last(), AssessmentInstance.assessment_instance_id.asc())

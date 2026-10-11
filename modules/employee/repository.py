@@ -162,14 +162,14 @@ class EmployeeRepository:
         result = await db.execute(
             select(func.count())
             .select_from(Employee)
-            .where(Employee.role == "admin", func.lower(Employee.status) == "active")
+            .where(Employee.role == "admin", Employee.status == "active")
         )
         return int(result.scalar_one())
 
     async def lock_active_admins(self, db: AsyncSession) -> list[Employee]:
         result = await db.execute(
             select(Employee)
-            .where(Employee.role == "admin", func.lower(Employee.status) == "active")
+            .where(Employee.role == "admin", Employee.status == "active")
             .order_by(Employee.employee_id)
             .with_for_update()
         )

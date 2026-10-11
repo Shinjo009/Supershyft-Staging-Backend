@@ -323,9 +323,8 @@ class MetsightsService:
         res = (resource or "").strip().strip("/")
         if not rid or not res:
             return None
-        # Docs claim GET works for these, but production MetSights returns 405 Method Not Allowed.
-        # Avoid noisy failed calls; import paths already fall back to record detail.
-        if res in {"vitals", "fitness-parameters", "advanced-blood-parameters"}:
+        # advanced-blood-parameters is not an external module. Hormones live on blood-parameters.
+        if res == "advanced-blood-parameters":
             return None
         self._require_api_key()
         try:
@@ -990,80 +989,22 @@ class MetsightsService:
         age: int | None,
         sync_context: MetsightsSyncContext | None = None,
     ) -> str:
-        self._require_api_key()
-        safe_engagement_id = (engagement_id or "").strip()
-        safe_first = (first_name or "").strip()
-        safe_last = outbound_last_name(last_name)
-        safe_phone = (phone or "").strip()
-        safe_gender = (gender or "").strip()
-        safe_email = (email or "").strip() if email is not None else None
-        safe_dob = (date_of_birth or "").strip() if date_of_birth is not None else None
+        """Create a blank external profile.
 
-        if not safe_engagement_id:
-            raise AppError(status_code=422, error_code="INVALID_STATE", message="Metsights engagement id is missing")
-        if not safe_first or not safe_phone or not safe_gender:
-            raise AppError(status_code=422, error_code="INVALID_STATE", message="Missing required profile fields")
-
-        payload: dict[str, Any] = {
-            "first_name": safe_first,
-            "last_name": safe_last,
-            "phone": safe_phone,
-            "gender": int(safe_gender),
-        }
-        if safe_email:
-            payload["email"] = safe_email
-        if safe_dob:
-            payload["date_of_birth"] = safe_dob
-        elif age is not None:
-            payload["age"] = int(age)
-        else:
-            raise AppError(status_code=422, error_code="INVALID_STATE", message="DOB or age is required")
-
-        try:
-            created = await tracked_metsights_call(
-                sync_context,
-                api_url=metsights_api_url(f"engagements/{safe_engagement_id}/register/"),
-                request_payload=dict(payload),
-                operation=lambda: self._client.create_profile_for_engagement(
-                    engagement_id=safe_engagement_id,
-                    data=payload,
-                ),
-            )
-            if created is None:
-                raise AppError(
-                    status_code=503,
-                    error_code="EXTERNAL_SERVICE_UNAVAILABLE",
-                    message="Metsights request failed",
-                )
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code in (401, 403):
-                raise AppError(
-                    status_code=503,
-                    error_code="EXTERNAL_SERVICE_UNAVAILABLE",
-                    message="Metsights authorization failed",
-                ) from exc
-            raise AppError(
-                status_code=503,
-                error_code="EXTERNAL_SERVICE_UNAVAILABLE",
-                message="Metsights request failed",
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise AppError(
-                status_code=503,
-                error_code="EXTERNAL_SERVICE_UNAVAILABLE",
-                message="Metsights request failed",
-            ) from exc
-
-        envelope = MetsightsEnvelope.model_validate(created)
-        data = envelope.data if isinstance(envelope.data, dict) else {}
-        profile_id = str(data.get("id") or "").strip()
-        if not profile_id:
-            raise AppError(
-                status_code=503,
-                error_code="EXTERNAL_SERVICE_UNAVAILABLE",
-                message="Metsights profile creation returned no id",
-            )
-        return profile_id
+        The external API has no engagement-register call and does not accept
+        names or contact fields. ``engagement_id`` is retained for callers.
+        """
+        del engagement_id, first_name, last_name, phone, email
+        return await self.get_or_create_profile_id(
+            first_name="",
+            last_name="",
+            phone="",
+            email=None,
+            gender=gender,
+            date_of_birth=date_of_birth,
+            age=age,
+            sync_context=sync_context,
+        )
 
     async def _find_existing_record_id_for_subscription(
         self,

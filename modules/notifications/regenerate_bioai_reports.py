@@ -18,7 +18,7 @@ from collections.abc import Callable
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import func, select
+from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.seed.blood_parameters_registry import (
@@ -109,7 +109,7 @@ async def _get_regenerate_candidates(
         .where(Engagement.assessment_package_id.isnot(None))
         .where(curr_pbb.c.booking_id.isnot(None))
         .where(func.trim(curr_pbb.c.booking_id) != "")
-        .where(func.lower(func.trim(User.gender)).in_(_FEMALE_GENDERS))
+        .where(func.lower(func.trim(cast(User.gender, String))).in_(_FEMALE_GENDERS))
         .where(AssessmentInstance.metsights_record_id.isnot(None))
         .where(AssessmentInstance.metsights_record_id != "")
         .where(canonical_ihr.c.report_url.isnot(None))
@@ -118,7 +118,7 @@ async def _get_regenerate_candidates(
     if engagement_id is not None:
         query = query.where(Engagement.engagement_id == engagement_id)
     else:
-        query = query.where(Engagement.status.ilike("running"))
+        query = query.where(Engagement.status == "running")
     query = query.order_by(
         Engagement.engagement_id.asc(),
         EngagementParticipant.user_id.asc(),

@@ -30,7 +30,7 @@ from collections.abc import Callable
 from datetime import date
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import settings
@@ -104,11 +104,16 @@ def _healthians_url(path: str) -> str:
 
 
 def _metsights_fetch_collections_url(*, record_id: str) -> str:
-    return f"{settings.METSIGHTS_BASE_URL.rstrip('/')}/records/{record_id}/fetch-collections/"
+    from modules.metsights.integration_logging import metsights_api_url
+
+    return metsights_api_url(f"records/{record_id}/fetch-collections")
 
 
 def _metsights_report_url(*, record_id: str, assessment_type_code: str) -> str:
-    return f"{settings.METSIGHTS_BASE_URL.rstrip('/')}/reports/{record_id}/"
+    from modules.metsights.integration_logging import metsights_api_url
+
+    del assessment_type_code
+    return metsights_api_url(f"reports/metsights/{record_id}")
 
 
 def _blood_report_data_complete(blood_parameters: Any, diagnostic_report_url: Any) -> bool:
@@ -566,13 +571,23 @@ async def _get_eligible_participants(
                 AssessmentInstance.package_id == Engagement.assessment_package_id,
             )
         )
-        .where(AssessmentInstance.metsights_record_id.isnot(None))
-        .where(AssessmentInstance.metsights_record_id != "")
+        .where(
+            or_(
+                and_(
+                    AssessmentInstance.metsights_record_id.isnot(None),
+                    AssessmentInstance.metsights_record_id != "",
+                ),
+                and_(
+                    curr_pbb.c.booking_id.isnot(None),
+                    func.trim(curr_pbb.c.booking_id) != "",
+                ),
+            )
+        )
     )
     if not ignore_engagement_date:
         query = query.where(curr_pbb.c.collection_date <= today)
     if not all_engagements:
-        query = query.where(Engagement.status.ilike("running"))
+        query = query.where(Engagement.status == "running")
     if engagement_id is not None:
         query = query.where(Engagement.engagement_id == engagement_id)
     if user_ids is not None:
@@ -687,6 +702,85 @@ async def _send_report_notifications(
     return sent_count
 
 
+async def _backfill_missing_metsights_record(
+    db: AsyncSession,
+    *,
+    metsights_service: MetsightsService,
+    user_id: int,
+    engagement_id: int,
+    instance_id: int,
+    package_id: int | None,
+    details: list[dict[str, Any]],
+) -> str:
+    """Create a MetSights record when onboarding saved the instance without one.
+
+    Blood PDF fetch can proceed from the Healthians booking id either way.
+    The record is required before blood values can be pushed and BioAI generated.
+    """
+    if package_id is None:
+        return ""
+
+    user = await db.get(User, user_id)
+    package = await db.get(AssessmentPackage, package_id)
+    profile_id = (getattr(user, "metsights_profile_id", None) or "").strip() if user else ""
+    subscription_id = (getattr(package, "subscription_id", None) or "").strip() if package else ""
+    if not profile_id or not subscription_id:
+        details.append({
+            "user_id": user_id,
+            "engagement_id": engagement_id,
+            "action": "skipped",
+            "reason": "cannot backfill metsights record: missing profile or subscription",
+        })
+        return ""
+
+    try:
+        await release_request_transaction(db)
+        new_rid = await metsights_service.create_record_for_profile(
+            profile_id=profile_id,
+            subscription_id=subscription_id,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Metsights record backfill failed for user=%s instance=%s: %s",
+            user_id,
+            instance_id,
+            exc,
+        )
+        details.append({
+            "user_id": user_id,
+            "engagement_id": engagement_id,
+            "action": "skipped",
+            "reason": f"metsights record backfill failed: {str(exc)[:120]}",
+        })
+        return ""
+
+    new_rid = (new_rid or "").strip()
+    if not new_rid:
+        return ""
+
+    await AssessmentsRepository().set_metsights_record_id(
+        db,
+        assessment_instance_id=instance_id,
+        metsights_record_id=new_rid,
+    )
+    participant = await get_participant_for_user_engagement(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    )
+    if participant is not None:
+        participant.is_primary_record_id_synced = True
+        db.add(participant)
+    await db.commit()
+    details.append({
+        "user_id": user_id,
+        "engagement_id": engagement_id,
+        "action": "loaded",
+        "reason": "created missing metsights record",
+    })
+    return new_rid
+
+
 async def load_blood_reports(
     db: AsyncSession,
     *,
@@ -747,7 +841,10 @@ async def load_blood_reports(
             package_code = (package_code or "").strip()
             assessment_type_code = (assessment_type_code or "").strip()
 
-            if not record_id:
+            booking_ready = bool(
+                try_participant_booking_id(participant_booking_id, diagnostic_provider)
+            )
+            if not record_id and not booking_ready:
                 skipped += 1
                 details.append({
                     "user_id": user_id, "engagement_id": engagement_id,
@@ -755,13 +852,26 @@ async def load_blood_reports(
                 })
                 continue
 
+            if not record_id and not dry_run:
+                record_id = await _backfill_missing_metsights_record(
+                    db,
+                    metsights_service=metsights_service,
+                    user_id=user_id,
+                    engagement_id=engagement_id,
+                    instance_id=instance_id,
+                    package_id=package_id,
+                    details=details,
+                )
+
             if dry_run:
                 complete = _blood_report_data_complete(blood_params, diag_url)
                 dry_run_reasons = [
                     "would_fetch_booking_report",
                     "would_fetch_blood_parameters_if_verified_at_changed",
                 ]
-                if package_code in _PACKAGE_BLOOD_CATEGORY_KEYS:
+                if not record_id:
+                    dry_run_reasons.insert(0, "would_backfill_metsights_record")
+                if package_code in _PACKAGE_BLOOD_CATEGORY_KEYS and record_id:
                     dry_run_reasons.append("would_draft_blood_questionnaires")
                     dry_run_reasons.append("would_retry_unsubmitted_blood_metsights_categories")
                     try:
@@ -1140,7 +1250,7 @@ async def load_blood_reports(
                                     "reason": f"blood draft failed: {str(exc)[:120]}",
                                 })
 
-                if has_usable_provider_blood_parameters(blood_parameters):
+                if record_id and has_usable_provider_blood_parameters(blood_parameters):
                     await _sync_unsubmitted_blood_to_metsights(
                         db,
                         metsights_service=metsights_service,

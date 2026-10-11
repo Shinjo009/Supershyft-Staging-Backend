@@ -4864,12 +4864,12 @@ class EngagementsService:
         """Create Metsights profiles for enrolled participants.
 
         Modes:
-        - ``enrol_force``: Register ALL participants via ``POST /engagements/{id}/register/``
-          (even if they already have ``metsights_profile_id``). Requires ``metsights_engagement_id``.
-        - ``enrol``: Register only participants without ``metsights_profile_id`` via engagement
-          registration. Requires ``metsights_engagement_id``.
-        - ``profile``: Create standalone profiles via ``POST /profiles/`` for participants
-          without ``metsights_profile_id``.
+        - ``enrol_force``: Create a blank profile via ``POST /external/profiles/`` for every
+          participant, even if they already have ``metsights_profile_id``.
+        - ``enrol``: Same create call, only for participants without ``metsights_profile_id``.
+        - ``profile``: Create standalone profiles via ``POST /external/profiles/`` for
+          participants without ``metsights_profile_id``.
+          Names and phone numbers are not sent. The external API has no engagement register.
         """
 
         _ = ip_address, user_agent, endpoint

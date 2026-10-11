@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import and_, case, delete, exists, extract, func, select
+from sqlalchemy import String, and_, case, cast, delete, exists, extract, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 from sqlalchemy.orm.attributes import flag_modified
@@ -52,6 +52,13 @@ from modules.users.models import User
 
 _MALE_GENDERS = ("male", "m", "1")
 _FEMALE_GENDERS = ("female", "f", "2")
+
+
+def _normalized_gender(column):
+    """user_gender_enum has no trim/lower; compare the text label."""
+    return func.lower(func.trim(cast(column, String)))
+
+
 _METSIGHTS_PRO_BASIC_TYPE_CODES = ("1", "2")
 _METSIGHTS_CATEGORY_KEYS = (
     "physical-measurement",
@@ -582,12 +589,11 @@ class CampReportsRepository:
         return [int(row[0]) for row in result.all()]
 
     async def has_scheduled_or_running_engagement(self, db: AsyncSession, *, camp_no: int) -> bool:
-        normalized = func.lower(func.trim(Engagement.status))
         result = await db.execute(
             select(Engagement.engagement_id)
             .where(
                 Engagement.camp_no == camp_no,
-                normalized.in_(("scheduled", "running")),
+                Engagement.status.in_(("scheduled", "running")),
             )
             .limit(1)
         )
@@ -599,7 +605,7 @@ class CampReportsRepository:
             select(Engagement.engagement_id)
             .where(
                 Engagement.camp_no == camp_no,
-                func.lower(func.trim(Engagement.status)) == "running",
+                Engagement.status == "running",
             )
             .limit(1)
         )
@@ -928,14 +934,14 @@ class CampReportsRepository:
         male_result = await db.execute(
             select(func.count())
             .select_from(enrolled)
-            .where(func.lower(func.trim(enrolled.c.gender)).in_(_MALE_GENDERS))
+            .where(_normalized_gender(enrolled.c.gender).in_(_MALE_GENDERS))
         )
         male_enrolled = int(male_result.scalar_one())
 
         female_result = await db.execute(
             select(func.count())
             .select_from(enrolled)
-            .where(func.lower(func.trim(enrolled.c.gender)).in_(_FEMALE_GENDERS))
+            .where(_normalized_gender(enrolled.c.gender).in_(_FEMALE_GENDERS))
         )
         female_enrolled = int(female_result.scalar_one())
 

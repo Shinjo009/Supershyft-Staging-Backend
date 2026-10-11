@@ -2,8 +2,8 @@
 
 For participants in running engagements where assessment_instance.status == 'completed',
 today >= engagement_date, and the package is FitPrint Full (type 7):
-1. Fetch report detail from ``/reports/fitness-reports/:record_id/``.
-2. Fetch PDF URL from ``/reports/fitness-reports/:record_id/pdf/``.
+1. Fetch report detail from ``/external/reports/fitness/:record_id/``.
+2. Fetch PDF URL from ``/external/reports/fitness/:record_id/pdf/``.
 3. Persist on ``individual_health_report`` for the assessment instance.
 
 These are fitness reports — not MetSights BioAI / metabolic health reports.
@@ -18,7 +18,6 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.config import settings
 from modules.assessments.models import AssessmentInstance, AssessmentPackage
 from modules.audit.cron_sync_logging import tracked_integration_call
 from modules.engagements.models import Engagement, EngagementParticipant
@@ -36,9 +35,12 @@ _FITPRINT_TYPE_CODE = "7"
 
 
 def _fitprint_report_url(*, record_id: str, pdf: bool = False) -> str:
-    base = settings.METSIGHTS_BASE_URL.rstrip("/")
-    suffix = "/pdf/" if pdf else "/"
-    return f"{base}/reports/fitness-reports/{record_id}{suffix}"
+    from modules.metsights.integration_logging import metsights_api_url
+
+    path = f"reports/fitness/{record_id}"
+    if pdf:
+        path = f"{path}/pdf"
+    return metsights_api_url(path)
 
 
 async def _get_eligible_participants(
@@ -85,7 +87,7 @@ async def _get_eligible_participants(
         .where(AssessmentPackage.assessment_type_code == _FITPRINT_TYPE_CODE)
     )
     if not all_engagements:
-        query = query.where(Engagement.status.ilike("running"))
+        query = query.where(Engagement.status == "running")
     result = await db.execute(query)
     return result.all()
 

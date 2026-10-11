@@ -13,6 +13,7 @@ from sqlalchemy import String, and_, false, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.listing import apply_sort, ilike_pattern
+from db.column_types import STATUS_ENGAGEMENT
 from modules.engagements.blood_booking_enums import BloodBookingRelation, BloodBookingStatus
 from modules.engagements.blood_bookings_repository import BloodBookingsRepository, current_blood_booking_subquery
 from modules.engagements.models import (
@@ -1515,12 +1516,12 @@ class EngagementsRepository:
 
     @staticmethod
     def _running_engagement_status_filter():
-        return func.lower(func.trim(Engagement.status)) == "running"
+        # Stored as smallint. ILIKE / lower(trim()) has no smallint operator.
+        return Engagement.status == "running"
 
     @staticmethod
     def _scheduled_or_running_engagement_status_filter():
-        normalized = func.lower(func.trim(Engagement.status))
-        return normalized.in_(("scheduled", "running"))
+        return Engagement.status.in_(("scheduled", "running"))
 
     async def count_running_engagements_past_end_date(
         self,
@@ -1554,7 +1555,7 @@ class EngagementsRepository:
 
     @staticmethod
     def _scheduled_engagement_status_filter():
-        return func.lower(func.trim(Engagement.status)) == "scheduled"
+        return Engagement.status == "scheduled"
 
     async def count_scheduled_engagements_past_start_date(
         self,
@@ -1790,7 +1791,7 @@ class EngagementsRepository:
             JOIN individual_health_report ihr
               ON ihr.user_id = ep.user_id
              AND ihr.engagement_id = ep.engagement_id
-            WHERE lower(trim(e.status)) IN ('scheduled', 'running')
+            WHERE e.status IN (CAST(:status_scheduled AS smallint), CAST(:status_running AS smallint))
               AND ane.event_code = 'consultation_ready'
               AND et.code IN ('bio_ai_with_consultation', 'blood_test_with_consultation')
               AND EXISTS (
@@ -1831,7 +1832,14 @@ class EngagementsRepository:
             ORDER BY ep.engagement_id ASC, ep.user_id ASC
             """
         )
-        result = await db.execute(query, {"blood_url_pattern": blood_url_pattern})
+        result = await db.execute(
+            query,
+            {
+                "blood_url_pattern": blood_url_pattern,
+                "status_scheduled": STATUS_ENGAGEMENT["scheduled"],
+                "status_running": STATUS_ENGAGEMENT["running"],
+            },
+        )
         return [
             (
                 int(row.user_id),
@@ -1870,14 +1878,21 @@ class EngagementsRepository:
             JOIN LATERAL unnest(COALESCE(ep.consultation_booking_ids, ARRAY[]::integer[])) AS u(booking_id) ON true
             JOIN consultation_bookings cb ON cb.consultation_id = u.booking_id
             LEFT JOIN engagement_slot_info esi ON esi.slot_detail_id = e.slot_detail_id
-            WHERE lower(trim(e.status)) IN ('scheduled', 'running')
+            WHERE e.status IN (CAST(:status_scheduled AS smallint), CAST(:status_running AS smallint))
               AND ane.event_code = 'consultation_remainder'
               AND cb.consultation_date = :consultation_date
               AND cb.want IS TRUE
             ORDER BY ep.engagement_id ASC, ep.user_id ASC, cb.expert_type ASC
             """
         )
-        result = await db.execute(query, {"consultation_date": consultation_date})
+        result = await db.execute(
+            query,
+            {
+                "consultation_date": consultation_date,
+                "status_scheduled": STATUS_ENGAGEMENT["scheduled"],
+                "status_running": STATUS_ENGAGEMENT["running"],
+            },
+        )
         return [
             ConsultationRemainderParticipant(
                 user_id=int(row.user_id),

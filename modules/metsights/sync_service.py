@@ -16,7 +16,6 @@ from core.exceptions import AppError
 from db.transaction import release_request_transaction
 from db.seed.blood_parameters_registry import (
     ADVANCED_BLOOD_PARAMETER_CATEGORY_KEY,
-    ADVANCED_BLOOD_PARAMETER_DETAIL_FIELD,
     ADVANCED_BLOOD_PARAMETER_QUESTION_ORDER,
     BLOOD_PARAMETER_CATEGORY_KEY,
     BLOOD_PARAMETER_DETAIL_FIELD,
@@ -49,6 +48,7 @@ from modules.assessments.service import AssessmentsService
 from modules.engagements.models import EngagementType
 from modules.engagements.service import EngagementsService
 from modules.metsights.anthropometry_validation import prepare_anthropometry_payload as _prepare_anthropometry_payload
+from modules.metsights.integration_logging import metsights_api_url
 from modules.metsights.service import MetsightsService
 from modules.metsights.strategies import apply_pull_strategy, apply_push_strategy
 from modules.platform_settings.service import PlatformSettingsService
@@ -62,7 +62,8 @@ _CATEGORY_KEY_TO_API_PATH: dict[str, str] = {
     "diet-lifestyle-parameters": "diet-lifestyle-parameters",
     "fitness-parameters": "fitness-parameters",
     BLOOD_PARAMETER_CATEGORY_KEY: BLOOD_PARAMETER_CATEGORY_KEY,
-    ADVANCED_BLOOD_PARAMETER_CATEGORY_KEY: ADVANCED_BLOOD_PARAMETER_CATEGORY_KEY,
+    # External API has one blood module. Hormones are fields on blood-parameters.
+    ADVANCED_BLOOD_PARAMETER_CATEGORY_KEY: BLOOD_PARAMETER_CATEGORY_KEY,
 }
 
 _METSIGHTS_TO_SUPERSHYFT_CATEGORY_KEYS: dict[str, list[str]] = {
@@ -92,7 +93,7 @@ async def _resolve_active_diagnostic_package_id(db: AsyncSession, preferred_id: 
     alt = (
         await db.execute(
             select(DiagnosticPackage.diagnostic_package_id)
-            .where(func.lower(DiagnosticPackage.status) == "active")
+            .where(DiagnosticPackage.status == "active")
             .order_by(DiagnosticPackage.diagnostic_package_id.asc())
             .limit(1)
         )
@@ -911,17 +912,15 @@ def _validate_required_metsights_fields(
     )
 
 
-# Metsights returns ``405 Method Not Allowed`` for ``GET`` on some sub-resources
-# (e.g. ``/vitals/`` and ``/fitness-parameters/``). Those endpoints are still readable
-# via ``GET /records/:id/`` under these nested keys, so we fall back to the record
-# detail payload when the sub-resource GET is unavailable or empty.
+# Record detail nests each module under these keys. Blood hormones are part of
+# ``blood_parameter``; there is no separate advanced-blood module.
 _RESOURCE_TO_DETAIL_FIELD: dict[str, str] = {
     "physical-measurement": "physical_measurement",
     "vitals": "vital_parameter",
     "diet-lifestyle-parameters": "diet_lifestyle_parameter",
     "fitness-parameters": "fitness_parameter",
     BLOOD_PARAMETER_CATEGORY_KEY: BLOOD_PARAMETER_DETAIL_FIELD,
-    ADVANCED_BLOOD_PARAMETER_CATEGORY_KEY: ADVANCED_BLOOD_PARAMETER_DETAIL_FIELD,
+    ADVANCED_BLOOD_PARAMETER_CATEGORY_KEY: BLOOD_PARAMETER_DETAIL_FIELD,
 }
 
 
@@ -957,7 +956,7 @@ class MetsightsSyncService:
     @staticmethod
     def _push_placeholder_url(*, record_id: str | None = None, resource: str = "push") -> str:
         mrid = (record_id or "unknown").strip() or "unknown"
-        return f"/records/{mrid}/{resource}/"
+        return metsights_api_url(f"records/{mrid}/{resource}")
 
     async def _create_pending_sync_log(
         self,
@@ -1413,7 +1412,8 @@ class MetsightsSyncService:
             return False
 
         for resource in resources:
-            api_url = f"/records/{mrid}/{resource}/"
+            api_resource = _CATEGORY_KEY_TO_API_PATH.get(resource, resource)
+            api_url = metsights_api_url(f"records/{mrid}/{api_resource}")
             await release_request_transaction(db)
             sync_log_id = await persist_integration_sync_log_isolated(
                 provider="metsights",
@@ -1423,7 +1423,10 @@ class MetsightsSyncService:
             )
 
             try:
-                payload = await self._metsights.get_record_subresource_or_none(record_id=mrid, resource=resource)
+                payload = await self._metsights.get_record_subresource_or_none(
+                    record_id=mrid,
+                    resource=api_resource,
+                )
                 source = resource
 
                 # Fallback: Metsights returns 405 for GET on some sub-resources
@@ -1449,7 +1452,10 @@ class MetsightsSyncService:
                     continue
 
                 skipped_before = len(skipped_questions)
-                opt_env = await self._metsights.options_record_subresource(record_id=mrid, resource=resource)
+                opt_env = await self._metsights.options_record_subresource(
+                    record_id=mrid,
+                    resource=api_resource,
+                )
                 choice_maps = _build_field_choice_maps(opt_env if isinstance(opt_env, dict) else {})
                 resource_imported = await _ingest_payload(source, payload, choice_maps)
                 resource_skipped = skipped_questions[skipped_before:]
@@ -1524,7 +1530,8 @@ class MetsightsSyncService:
         async def _patch_section(resource: str, body: dict[str, Any]) -> None:
             if allowed is not None and resource not in allowed:
                 return
-            api_url = f"/records/{mrid}/{resource}/"
+            api_resource = _CATEGORY_KEY_TO_API_PATH.get(resource, resource)
+            api_url = metsights_api_url(f"records/{mrid}/{api_resource}")
             payload = {k: v for k, v in body.items() if k not in _METADATA_FIELDS}
             if not payload:
                 logger.info(
@@ -1542,7 +1549,7 @@ class MetsightsSyncService:
                 )
                 return
             await release_request_transaction(db)
-            field_meta = await self._fetch_field_metadata_for_resource(mrid, resource, cache=options_cache)
+            field_meta = await self._fetch_field_metadata_for_resource(mrid, api_resource, cache=options_cache)
             if field_meta:
                 payload = _validate_payload_against_options(payload, field_meta)
                 if not payload:
@@ -1575,7 +1582,11 @@ class MetsightsSyncService:
                 request_payload=dict(payload),
             )
             try:
-                await self._metsights.upsert_record_subresource(record_id=mrid, resource=resource, body=payload)
+                await self._metsights.upsert_record_subresource(
+                    record_id=mrid,
+                    resource=api_resource,
+                    body=payload,
+                )
                 patched.append(resource)
                 await finalize_integration_sync_log_isolated(
                     sync_log_id=sync_log_id,
@@ -2115,7 +2126,7 @@ class MetsightsSyncService:
             fields = apply_push_strategy(q.question_key, answer, sync_cfg)
             metsights_payload.update(fields)
 
-        api_url = f"/records/{mrid}/{api_path}/"
+        api_url = metsights_api_url(f"records/{mrid}/{api_path}")
 
         await release_request_transaction(db)
 
@@ -2318,7 +2329,7 @@ class MetsightsSyncService:
                     package_id=package_id,
                     user_id=owner_user_id,
                 )
-                api_url = f"/records/{mrid}/{api_path}/"
+                api_url = metsights_api_url(f"records/{mrid}/{api_path}")
                 await self._log_skipped_metsights_sync(
                     db,
                     engagement_id=engagement_id,
@@ -2333,7 +2344,7 @@ class MetsightsSyncService:
                     "reason": "responses already exist, use reload=1 to overwrite",
                 }
 
-        api_url = f"/records/{mrid}/{api_path}/"
+        api_url = metsights_api_url(f"records/{mrid}/{api_path}")
         sync_log_id = await persist_integration_sync_log_isolated(
             provider="metsights",
             api_url=api_url,

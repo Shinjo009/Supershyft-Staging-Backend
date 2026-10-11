@@ -1871,15 +1871,18 @@ async def test_engagement_onboard_logs_metsights_integration_sync(async_client, 
     profile_id = "ms-profile-8801"
     record_id = "ms-record-8801"
 
-    async def _fake_register(self, *, engagement_id: str, data: dict):
-        assert engagement_id == "ms-eng-8801"
+    async def _fake_create_profile(self, *, data: dict):
+        assert data.get("gender") == "1"
+        assert data.get("age") == 30
+        assert "first_name" not in data
+        assert "phone" not in data
         return {"data": {"id": profile_id}}
 
     async def _fake_list_records(self, *, profile_id: str, completed=None, code=None, search=None):
         assert profile_id == "ms-profile-8801"
         return {"data": [{"id": record_id, "date": "2026-02-01", "created_at": "2026-02-01T10:00:00Z"}]}
 
-    monkeypatch.setattr("modules.metsights.client.MetsightsClient.create_profile_for_engagement", _fake_register)
+    monkeypatch.setattr("modules.metsights.client.MetsightsClient.create_profile", _fake_create_profile)
     monkeypatch.setattr("modules.metsights.client.MetsightsClient.list_profile_records", _fake_list_records)
 
     payload = {
@@ -1910,10 +1913,12 @@ async def test_engagement_onboard_logs_metsights_integration_sync(async_client, 
     ).mappings().all()
 
     assert len(rows) >= 2
-    register_row = next(r for r in rows if "/engagements/ms-eng-8801/register/" in r["api_endpoint_url"])
-    assert register_row["status"] == "success"
-    assert register_row["user_id"] == data["user_id"]
-    assert register_row["request_payload"]["first_name"] == "Mets"
+    profile_row = next(r for r in rows if r["api_endpoint_url"].rstrip("/").endswith("/external/profiles"))
+    assert profile_row["status"] == "success"
+    assert profile_row["user_id"] == data["user_id"]
+    assert profile_row["request_payload"]["gender"] == "1"
+    assert profile_row["request_payload"]["age"] == 30
+    assert "first_name" not in profile_row["request_payload"]
 
     records_row = next(r for r in rows if "/profiles/ms-profile-8801/records/" in r["api_endpoint_url"])
     assert records_row["status"] == "success"

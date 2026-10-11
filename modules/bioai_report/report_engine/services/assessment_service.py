@@ -2,9 +2,9 @@
 
 Upstream source (production):
 
-    GET {METSIGHTS_BASE_URL}/reports/{record_id}/
+    GET {METSIGHTS_BASE_URL}/external/reports/metsights/{record_id}/
 
-(FitPrint type ``7`` uses ``/reports/fitness-reports/{record_id}/``.)
+(FitPrint type ``7`` uses ``/external/reports/fitness/{record_id}/``.)
 
 This is step 1 of the Bio-AI pipeline. The engine never accepts assessment
 JSON from the frontend.
