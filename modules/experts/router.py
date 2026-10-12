@@ -433,18 +433,31 @@ async def portal_consultation_questionnaire(
 @router.get("/{expert_id}")
 async def get_expert(
     expert_id: int,
+    reviews_limit: int = 10,
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext | None = Depends(get_optional_employee_if_authenticated),
     experts_service: ExpertsService = Depends(get_experts_service),
 ):
+    if reviews_limit < 0 or reviews_limit > 20:
+        raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+
+    effective_employee = _effective_public_employee(employee)
     expert, tags = await experts_service.get_expert_detail(
         db,
-        employee=_effective_public_employee(employee),
+        employee=effective_employee,
         expert_id=expert_id,
+    )
+    reviews, reviews_total = await experts_service.get_embedded_reviews(
+        db,
+        employee=effective_employee,
+        expert_id=expert_id,
+        reviews_limit=reviews_limit,
     )
     card_by_id = await experts_service.card_enrichment_for_experts(db, [expert])
     data = _expert_response(expert, card_by_id.get(expert.expert_id))
     data["expertise_tags"] = [_tag_dict(t) for t in tags]
+    data["reviews"] = [_review_dict(r) for r in reviews]
+    data["reviews_total"] = reviews_total
     return success_response(data)
 
 

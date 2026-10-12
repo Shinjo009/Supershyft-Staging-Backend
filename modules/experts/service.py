@@ -262,6 +262,28 @@ class ExpertsService:
         tags = await self._repository.list_tags(db, expert_id)
         return expert, tags
 
+    async def get_embedded_reviews(
+        self,
+        db,
+        *,
+        employee: EmployeeContext | None,
+        expert_id: int,
+        reviews_limit: int,
+    ) -> tuple[list[ExpertReview], int]:
+        expert = await self._repository.get_by_id(db, expert_id)
+        if expert is None:
+            raise AppError(status_code=404, error_code="NOT_FOUND", message="Expert does not exist")
+        if not self._expert_visible_to_public(expert, employee):
+            raise AppError(status_code=404, error_code="NOT_FOUND", message="Expert does not exist")
+
+        total = await self._repository.count_reviews(db, expert_id)
+        if reviews_limit <= 0:
+            return [], total
+        reviews = await self._repository.list_reviews(
+            db, expert_id=expert_id, page=1, limit=reviews_limit
+        )
+        return reviews, total
+
     async def create_expert_for_employee(
         self,
         db,

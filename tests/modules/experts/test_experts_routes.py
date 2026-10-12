@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 
 import pytest
 
 from modules.engagements.models import Engagement, EngagementParticipant
-from modules.experts.models import ConsultationBooking, Expert, ExpertAvailabilityModel
+from modules.experts.models import ConsultationBooking, Expert, ExpertAvailabilityModel, ExpertReview
 from modules.partners.models import Partner
 from modules.users.models import User
 from tests.helpers.auth import (
@@ -159,6 +160,84 @@ async def test_get_expert_detail_public_includes_specialization(async_client, te
     assert "name" in data
     assert "discount_percent" in data
     assert "availability" in data
+    assert "reviews" in data
+    assert "reviews_total" in data
+    assert data["reviews"] == []
+    assert data["reviews_total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_get_expert_detail_embeds_reviews(async_client, test_db_session):
+    _, expert = await _seed_expert(
+        test_db_session,
+        partner_id=78560,
+        expert_type="doctor",
+        specialization="Cardiology",
+    )
+    test_db_session.add(User(user_id=78560, age=30, phone="785600000001", status="active"))
+    test_db_session.add(User(user_id=78561, age=30, phone="785600000002", status="active"))
+    await test_db_session.flush()
+    for idx, user_id in enumerate((78560, 78561), start=1):
+        test_db_session.add(
+            ExpertReview(
+                expert_id=expert.expert_id,
+                user_id=user_id,
+                rating=Decimal("4.5"),
+                review_text=f"Review text {idx}",
+            )
+        )
+    await test_db_session.commit()
+
+    response = await async_client.get(f"/experts/{expert.expert_id}?reviews_limit=1")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["reviews_total"] == 2
+    assert len(data["reviews"]) == 1
+    assert data["reviews"][0]["review_text"] in ("Review text 1", "Review text 2")
+    assert data["reviews"][0]["rating"] == 4.5
+
+
+@pytest.mark.asyncio
+async def test_get_expert_detail_reviews_limit_zero(async_client, test_db_session):
+    _, expert = await _seed_expert(
+        test_db_session,
+        partner_id=78562,
+        expert_type="doctor",
+        specialization="General medicine",
+    )
+    test_db_session.add(User(user_id=78562, age=30, phone="785620000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        ExpertReview(
+            expert_id=expert.expert_id,
+            user_id=78562,
+            rating=Decimal("5.0"),
+            review_text="Only review",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get(f"/experts/{expert.expert_id}?reviews_limit=0")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["reviews"] == []
+    assert data["reviews_total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_list_experts_does_not_include_reviews(async_client, test_db_session):
+    await _seed_expert(
+        test_db_session,
+        partner_id=78563,
+        expert_type="doctor",
+        specialization="Dermatology",
+    )
+
+    response = await async_client.get("/experts?page=1&limit=20")
+    assert response.status_code == 200
+    for row in response.json()["data"]:
+        assert "reviews" not in row
+        assert "reviews_total" not in row
 
 
 @pytest.mark.asyncio
