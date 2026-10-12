@@ -74,6 +74,17 @@ def _decimal_to_float(value: Decimal | None) -> float:
     return float(value)
 
 
+def _expert_response(expert, card_fields: dict | None = None) -> dict:
+    data = _expert_dict(expert)
+    if card_fields:
+        data.update(card_fields)
+    else:
+        data["name"] = None
+        data["discount_percent"] = None
+        data["availability"] = None
+    return data
+
+
 def _expert_dict(expert) -> dict:
     return {
         "expert_id": expert.expert_id,
@@ -193,8 +204,9 @@ async def list_experts(
         {"id": t.id, "type_key": t.type_key, "type": t.type}
         for t in expert_types
     ]
+    card_by_id = await experts_service.card_enrichment_for_experts(db, experts)
     return success_response(
-        [_expert_dict(e) for e in experts],
+        [_expert_response(e, card_by_id.get(e.expert_id)) for e in experts],
         meta={"page": page, "limit": limit, "total": total, "expert_types": type_meta},
     )
 
@@ -430,7 +442,8 @@ async def get_expert(
         employee=_effective_public_employee(employee),
         expert_id=expert_id,
     )
-    data = _expert_dict(expert)
+    card_by_id = await experts_service.card_enrichment_for_experts(db, [expert])
+    data = _expert_response(expert, card_by_id.get(expert.expert_id))
     data["expertise_tags"] = [_tag_dict(t) for t in tags]
     return success_response(data)
 

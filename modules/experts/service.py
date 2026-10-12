@@ -70,6 +70,7 @@ from modules.experts.schemas import (
     ExpertUpdateRequest,
     OverrideCreate,
 )
+from modules.experts.expert_card_enrichment import card_fields_for_expert
 from modules.experts.slot_engine import (
     aggregate_slots,
     compute_expert_day_slots,
@@ -138,6 +139,7 @@ class ExpertsService:
         self._users_repository = UsersRepository()
         self._expert_types_service = expert_types_service
         self._partners_repository = PartnersRepository()
+        self._availability_repository = ExpertAvailabilityRepository()
 
     def _require_audit(self) -> AuditService:
         if self._audit_service is None:
@@ -213,6 +215,37 @@ class ExpertsService:
             search=search,
         )
         return experts, total
+
+    async def card_enrichment_for_experts(
+        self,
+        db,
+        experts: list[Expert],
+    ) -> dict[int, dict[str, Any]]:
+        if not experts:
+            return {}
+
+        partner_ids = [e.partner_id for e in experts if e.partner_id is not None]
+        partner_names: dict[int, str] = {}
+        if partner_ids:
+            result = await db.execute(select(Partner).where(Partner.partner_id.in_(partner_ids)))
+            for partner in result.scalars().all():
+                partner_names[partner.partner_id] = partner.name
+
+        expert_ids = [e.expert_id for e in experts]
+        blocks = await self._availability_repository.list_by_expert_ids(db, expert_ids)
+        blocks_by_expert: dict[int, list[ExpertAvailabilityModel]] = defaultdict(list)
+        for block in blocks:
+            blocks_by_expert[block.expert_id].append(block)
+
+        enrichment: dict[int, dict[str, Any]] = {}
+        for expert in experts:
+            partner_name = partner_names.get(expert.partner_id) if expert.partner_id else None
+            enrichment[expert.expert_id] = card_fields_for_expert(
+                expert,
+                partner_name=partner_name,
+                availability_blocks=blocks_by_expert.get(expert.expert_id, []),
+            )
+        return enrichment
 
     async def get_expert_detail(
         self,

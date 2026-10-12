@@ -7,7 +7,7 @@ from datetime import date, datetime, time, timedelta
 import pytest
 
 from modules.engagements.models import Engagement, EngagementParticipant
-from modules.experts.models import ConsultationBooking, Expert
+from modules.experts.models import ConsultationBooking, Expert, ExpertAvailabilityModel
 from modules.partners.models import Partner
 from modules.users.models import User
 from tests.helpers.auth import (
@@ -64,6 +64,81 @@ async def test_list_experts_public_returns_specialization_key(async_client, test
     for r in rows:
         assert "specialization" in r
         assert "display_name" not in r
+        assert "name" in r
+        assert "discount_percent" in r
+        assert "availability" in r
+
+
+@pytest.mark.asyncio
+async def test_list_experts_public_includes_card_fields(async_client, test_db_session):
+    await seed_partner(
+        test_db_session,
+        partner_id=78550,
+        role="expert",
+        name="Dr. Sarah Jenkins",
+        phone="785500000001",
+        email="expert78550@test.example",
+    )
+    expert = Expert(
+        partner_id=78550,
+        expert_type="doctor",
+        specialization="General Physician",
+        status="active",
+        appointment_fee_paise=49900,
+        original_fee_paise=89800,
+        experience_years=12,
+        session_duration_mins=20,
+    )
+    test_db_session.add(expert)
+    await test_db_session.flush()
+    for day in range(1, 6):
+        test_db_session.add(
+            ExpertAvailabilityModel(
+                expert_id=expert.expert_id,
+                day_of_week=day,
+                start_time=time(9, 0),
+                end_time=time(17, 0),
+                slot_duration=20,
+                buffer_time=5,
+            )
+        )
+    await test_db_session.commit()
+
+    response = await async_client.get("/experts?expert_type=doctor&page=1&limit=100")
+    assert response.status_code == 200
+    row = next(r for r in response.json()["data"] if r["expert_id"] == expert.expert_id)
+    assert row["name"] == "Dr. Sarah Jenkins"
+    assert row["discount_percent"] == 44
+    assert row["availability"]["day_label"] == "Mon-Fri"
+    assert row["availability"]["days"] == [1, 2, 3, 4, 5]
+    assert row["availability"]["start_time"] == "09:00"
+    assert row["availability"]["end_time"] == "17:00"
+    assert row["availability"]["hours_label"] == "9-5 PM"
+    assert "display_name" not in row
+
+    detail_response = await async_client.get(f"/experts/{expert.expert_id}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()["data"]
+    assert detail["name"] == "Dr. Sarah Jenkins"
+    assert detail["discount_percent"] == 44
+    assert detail["availability"]["day_label"] == "Mon-Fri"
+
+
+@pytest.mark.asyncio
+async def test_list_experts_card_fields_null_without_fees_or_availability(async_client, test_db_session):
+    partner, expert = await _seed_expert(
+        test_db_session,
+        partner_id=78551,
+        expert_type="doctor",
+        specialization="MBBS",
+    )
+
+    response = await async_client.get(f"/experts?expert_type=doctor&page=1&limit=100")
+    assert response.status_code == 200
+    row = next(r for r in response.json()["data"] if r["expert_id"] == expert.expert_id)
+    assert row["name"] == partner.name
+    assert row["discount_percent"] is None
+    assert row["availability"] is None
 
 
 @pytest.mark.asyncio
@@ -81,6 +156,9 @@ async def test_get_expert_detail_public_includes_specialization(async_client, te
     data = response.json()["data"]
     assert data["specialization"] == "Sports nutrition"
     assert "display_name" not in data
+    assert "name" in data
+    assert "discount_percent" in data
+    assert "availability" in data
 
 
 @pytest.mark.asyncio
