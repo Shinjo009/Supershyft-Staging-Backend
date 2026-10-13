@@ -8,7 +8,9 @@ Business rules:
 
 from __future__ import annotations
 
+import logging
 import re
+from collections import Counter
 
 from sqlalchemy.exc import IntegrityError
 
@@ -25,6 +27,12 @@ from modules.diagnostics.models import (
     HealthParameter,
     ParameterType as ORMParameterType,
 )
+from modules.diagnostics.external_codes import (
+    healthians_product_deal_type_id,
+    is_healthians_diagnostic_provider,
+    provider_parameter_key,
+)
+from modules.diagnostics.healthians import client as healthians_client
 from modules.diagnostics.repository import DiagnosticsRepository
 from modules.diagnostics.schemas import (
     AssignGroupsToPackageRequest,
@@ -48,6 +56,12 @@ from modules.diagnostics.schemas import (
     PackageForType,
     PackageTestsResponse,
     ParameterType,
+    ProviderTestDiffCounts,
+    ProviderTestDiffMatchedItem,
+    ProviderTestDiffNotLinkedItem,
+    ProviderTestDiffOnlyAtProviderItem,
+    ProviderTestDiffOnlyInPackageItem,
+    ProviderTestDiffResponse,
     PreparationCreate,
     PreparationResponse,
     PreparationUpdate,
@@ -69,6 +83,7 @@ from modules.diagnostics.schemas import (
 )
 from modules.employee.service import EmployeeContext
 
+logger = logging.getLogger(__name__)
 
 _ALLOWED_COLLECTION_TYPES = {"home_collection", "centre_visit"}
 _ALLOWED_GENDER_VALUES = {"male", "female", "both"}
@@ -599,6 +614,141 @@ class DiagnosticsService:
         group_rows = await self._repository.get_package_test_groups(db, package_id=package_id)
         groups = [self._to_group_response(group_row, tests=tests) for group_row, tests in group_rows]
         return PackageTestsResponse(diagnostic_package_id=package_id, groups=groups)
+
+    async def get_provider_test_diff(self, db, *, package_id: int) -> ProviderTestDiffResponse:
+        package = await self._repository.get_package_by_id_basic(db, package_id=package_id)
+        if package is None:
+            raise AppError(status_code=404, error_code="DIAGNOSTIC_PACKAGE_NOT_FOUND", message="Package does not exist")
+
+        if not is_healthians_diagnostic_provider(package.diagnostic_provider):
+            raise AppError(
+                status_code=400,
+                error_code="PROVIDER_NOT_SUPPORTED",
+                message="Provider test comparison is only available for Healthians packages.",
+            )
+
+        external_code = (package.external_package_code or "").strip()
+        if not external_code:
+            raise AppError(
+                status_code=400,
+                error_code="EXTERNAL_PACKAGE_CODE_REQUIRED",
+                message="Set the Healthians package code on this package before comparing tests.",
+            )
+
+        try:
+            token = await healthians_client.get_access_token()
+            deal_type_id = healthians_product_deal_type_id(external_code)
+            product = await healthians_client.get_product_details(token, deal_type_id)
+        except Exception as exc:
+            logger.exception("Healthians API error during provider test diff")
+            is_blocked = "403" in str(exc) or "blocked" in str(exc).lower()
+            raise AppError(
+                status_code=502,
+                error_code="HEALTHIANS_IP_BLOCKED" if is_blocked else "HEALTHIANS_API_ERROR",
+                message=(
+                    "Healthians is blocking requests from this server. "
+                    "The server IP needs to be whitelisted by Healthians."
+                    if is_blocked
+                    else f"Failed to fetch data from Healthians: {exc}"
+                ),
+            )
+
+        constituent_by_id: dict[str, str] = {}
+        for raw in product.get("constituents", []):
+            cid = str(raw.get("id", "")).strip()
+            if cid:
+                constituent_by_id[cid] = str(raw.get("name", "")).strip()
+
+        group_rows = await self._repository.get_package_test_groups(db, package_id=package_id)
+        tests_by_id: dict[int, tuple[HealthParameter, list[str]]] = {}
+        for group_row, tests in group_rows:
+            for test in tests:
+                if test.test_id not in tests_by_id:
+                    tests_by_id[test.test_id] = (test, [])
+                group_names = tests_by_id[test.test_id][1]
+                if group_row.group_name not in group_names:
+                    group_names.append(group_row.group_name)
+
+        matched: list[ProviderTestDiffMatchedItem] = []
+        only_in_package: list[ProviderTestDiffOnlyInPackageItem] = []
+        not_linked: list[ProviderTestDiffNotLinkedItem] = []
+        package_provider_ids: set[str] = set()
+
+        for test_id in sorted(tests_by_id.keys(), key=lambda tid: tests_by_id[tid][0].test_name or ""):
+            test, group_names = tests_by_id[test_id]
+            sorted_groups = sorted(group_names)
+            provider_key = provider_parameter_key(test, package.diagnostic_provider)
+            if provider_key is None:
+                not_linked.append(
+                    ProviderTestDiffNotLinkedItem(
+                        test_id=test_id,
+                        test_name=test.test_name,
+                        group_names=sorted_groups,
+                    )
+                )
+                continue
+
+            package_provider_ids.add(provider_key)
+            if provider_key in constituent_by_id:
+                matched.append(
+                    ProviderTestDiffMatchedItem(
+                        test_id=test_id,
+                        test_name=test.test_name,
+                        group_names=sorted_groups,
+                        provider_id=provider_key,
+                        provider_name=constituent_by_id[provider_key],
+                    )
+                )
+            else:
+                only_in_package.append(
+                    ProviderTestDiffOnlyInPackageItem(
+                        test_id=test_id,
+                        test_name=test.test_name,
+                        group_names=sorted_groups,
+                        provider_id=provider_key,
+                    )
+                )
+
+        shared_ids = {pid for pid, count in Counter(item.provider_id for item in matched).items() if count > 1}
+        if shared_ids:
+            matched = [
+                item.model_copy(update={"shared_provider_id": item.provider_id in shared_ids}) for item in matched
+            ]
+
+        only_at_provider_ids = sorted(
+            set(constituent_by_id.keys()) - package_provider_ids,
+            key=lambda pid: constituent_by_id.get(pid, pid).lower(),
+        )
+        catalog_by_key = await self._repository.map_parameters_by_healthians_keys(db, keys=only_at_provider_ids)
+        only_at_provider: list[ProviderTestDiffOnlyAtProviderItem] = []
+        for provider_id in only_at_provider_ids:
+            catalog_param = catalog_by_key.get(provider_id)
+            only_at_provider.append(
+                ProviderTestDiffOnlyAtProviderItem(
+                    provider_id=provider_id,
+                    provider_name=constituent_by_id[provider_id],
+                    catalog_test_id=catalog_param.test_id if catalog_param else None,
+                    catalog_test_name=catalog_param.test_name if catalog_param else None,
+                )
+            )
+
+        counts = ProviderTestDiffCounts(
+            matched=len(matched),
+            only_in_package=len(only_in_package),
+            only_at_provider=len(only_at_provider),
+            not_linked=len(not_linked),
+        )
+        in_sync = counts.only_in_package == 0 and counts.only_at_provider == 0 and counts.not_linked == 0
+        return ProviderTestDiffResponse(
+            status="in_sync" if in_sync else "out_of_sync",
+            healthians_package_name=product.get("name"),
+            external_package_code=external_code,
+            counts=counts,
+            matched=matched,
+            only_in_package=only_in_package,
+            not_linked=not_linked,
+            only_at_provider=only_at_provider,
+        )
 
     async def create_package(
         self,

@@ -22,6 +22,11 @@ def _normalized_provider(diagnostic_provider: str | None) -> str:
     return (diagnostic_provider or "").strip().lower()
 
 
+def is_healthians_diagnostic_provider(diagnostic_provider: str | None) -> bool:
+    """True for Healthians packages (including legacy ``Healthians`` stored value)."""
+    return _normalized_provider(diagnostic_provider) == "healthians"
+
+
 def provider_parameter_key(
     parameter: object,
     diagnostic_provider: str | None,

@@ -946,6 +946,30 @@ class DiagnosticsRepository:
                 keys.add(text.lower())
         return keys
 
+    async def map_parameters_by_healthians_keys(
+        self,
+        db: AsyncSession,
+        *,
+        keys: list[str],
+    ) -> dict[str, HealthParameter]:
+        normalized = [str(key).strip() for key in keys if str(key).strip()]
+        if not normalized:
+            return {}
+        result = await db.execute(
+            select(HealthParameter).where(
+                func.trim(HealthParameter.healthians_parameter_key).in_(normalized)
+            )
+        )
+        mapped: dict[str, HealthParameter] = {}
+        for param in result.scalars().all():
+            raw = param.healthians_parameter_key
+            if raw is None:
+                continue
+            key = str(raw).strip()
+            if key and key not in mapped:
+                mapped[key] = param
+        return mapped
+
     async def get_package_test_groups(
         self,
         db: AsyncSession,

@@ -124,6 +124,17 @@ async def get_diagnostic_package_tests(
     return success_response(data.model_dump())
 
 
+@router.get("/diagnostic-packages/{package_id}/provider-test-diff")
+async def get_diagnostic_package_provider_test_diff(
+    package_id: int,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    diagnostics_service: DiagnosticsService = Depends(get_diagnostics_service),
+):
+    data = await diagnostics_service.get_provider_test_diff(db, package_id=package_id)
+    return success_response(data.model_dump())
+
+
 @router.post("/diagnostic-packages/filters-chips", status_code=201)
 async def create_filter_chip(
     payload: FilterChipCreate,

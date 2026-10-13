@@ -387,6 +387,53 @@ class PackageTestsResponse(BaseModel):
     groups: list[TestGroupResponse] = Field(default_factory=list)
 
 
+class ProviderTestDiffCounts(BaseModel):
+    matched: int
+    only_in_package: int
+    only_at_provider: int
+    not_linked: int
+
+
+class ProviderTestDiffMatchedItem(BaseModel):
+    test_id: int
+    test_name: str
+    group_names: list[str] = Field(default_factory=list)
+    provider_id: str
+    provider_name: str
+    shared_provider_id: bool = False
+
+
+class ProviderTestDiffOnlyInPackageItem(BaseModel):
+    test_id: int
+    test_name: str
+    group_names: list[str] = Field(default_factory=list)
+    provider_id: str
+
+
+class ProviderTestDiffNotLinkedItem(BaseModel):
+    test_id: int
+    test_name: str
+    group_names: list[str] = Field(default_factory=list)
+
+
+class ProviderTestDiffOnlyAtProviderItem(BaseModel):
+    provider_id: str
+    provider_name: str
+    catalog_test_id: int | None = None
+    catalog_test_name: str | None = None
+
+
+class ProviderTestDiffResponse(BaseModel):
+    status: str
+    healthians_package_name: str | None = None
+    external_package_code: str
+    counts: ProviderTestDiffCounts
+    matched: list[ProviderTestDiffMatchedItem] = Field(default_factory=list)
+    only_in_package: list[ProviderTestDiffOnlyInPackageItem] = Field(default_factory=list)
+    not_linked: list[ProviderTestDiffNotLinkedItem] = Field(default_factory=list)
+    only_at_provider: list[ProviderTestDiffOnlyAtProviderItem] = Field(default_factory=list)
+
+
 class SampleCreate(BaseModel):
     sample_type: SafeDisplayName
     description: OptionalSafeText = None
