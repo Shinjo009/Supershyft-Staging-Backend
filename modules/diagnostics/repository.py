@@ -803,6 +803,138 @@ class DiagnosticsRepository:
         )
         return result.scalar_one_or_none()
 
+    async def package_has_group_assignment(
+        self,
+        db: AsyncSession,
+        *,
+        package_id: int,
+        group_id: int,
+    ) -> bool:
+        result = await db.execute(
+            select(DiagnosticPackageTestGroup.id).where(
+                DiagnosticPackageTestGroup.diagnostic_package_id == package_id,
+                DiagnosticPackageTestGroup.group_id == group_id,
+            )
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def get_package_assigned_fork(
+        self,
+        db: AsyncSession,
+        *,
+        package_id: int,
+        catalog_group_id: int,
+    ) -> DiagnosticTestGroup | None:
+        result = await db.execute(
+            select(DiagnosticTestGroup)
+            .join(
+                DiagnosticPackageTestGroup,
+                DiagnosticPackageTestGroup.group_id == DiagnosticTestGroup.group_id,
+            )
+            .where(
+                DiagnosticPackageTestGroup.diagnostic_package_id == package_id,
+                DiagnosticTestGroup.forked_from_group_id == catalog_group_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def allocate_unique_group_key(
+        self,
+        db: AsyncSession,
+        *,
+        base_key: str,
+        package_id: int,
+    ) -> str:
+        candidates = [f"{base_key}_pkg_{package_id}"]
+        for index in range(1, 100):
+            candidates.append(f"{base_key}_fork_{index}")
+        for candidate in candidates:
+            existing = await self.get_group_by_group_key(db, group_key=candidate)
+            if existing is None:
+                return candidate
+        raise RuntimeError("Could not allocate unique diagnostic test group key")
+
+    async def duplicate_test_group_for_package(
+        self,
+        db: AsyncSession,
+        *,
+        source_group_id: int,
+        forked_from_group_id: int,
+        package_id: int,
+    ) -> DiagnosticTestGroup | None:
+        result = await db.execute(
+            select(DiagnosticTestGroup)
+            .where(DiagnosticTestGroup.group_id == source_group_id)
+            .options(
+                selectinload(DiagnosticTestGroup.tests),
+                selectinload(DiagnosticTestGroup.filter_chip_links),
+            )
+        )
+        source = result.unique().scalar_one_or_none()
+        if source is None:
+            return None
+
+        new_key = await self.allocate_unique_group_key(db, base_key=source.group_key, package_id=package_id)
+        copy = DiagnosticTestGroup(
+            group_name=source.group_name,
+            group_key=new_key,
+            display_order=source.display_order,
+            price=source.price,
+            original_price=source.original_price,
+            is_most_popular=source.is_most_popular,
+            gender_suitability=source.gender_suitability,
+            package_for=source.package_for,
+            forked_from_group_id=forked_from_group_id,
+        )
+        db.add(copy)
+        await db.flush()
+
+        ordered_tests = sorted(
+            source.tests,
+            key=lambda row: (row.display_order is None, row.display_order or 0, row.id),
+        )
+        for link in ordered_tests:
+            db.add(
+                DiagnosticTestGroupTest(
+                    group_id=copy.group_id,
+                    test_id=link.test_id,
+                    display_order=link.display_order,
+                )
+            )
+
+        for chip_link in source.filter_chip_links:
+            if chip_link.diagnostic_package_id is not None:
+                continue
+            db.add(
+                DiagnosticPackageFilterChipLink(
+                    group_id=copy.group_id,
+                    filter_chip_id=chip_link.filter_chip_id,
+                    display_order=chip_link.display_order,
+                    diagnostic_package_id=None,
+                )
+            )
+        await db.flush()
+        return copy
+
+    async def replace_package_group_assignment(
+        self,
+        db: AsyncSession,
+        *,
+        package_id: int,
+        old_group_id: int,
+        new_group_id: int,
+    ) -> bool:
+        result = await db.execute(
+            sql_update(DiagnosticPackageTestGroup)
+            .where(
+                DiagnosticPackageTestGroup.diagnostic_package_id == package_id,
+                DiagnosticPackageTestGroup.group_id == old_group_id,
+            )
+            .values(group_id=new_group_id)
+            .returning(DiagnosticPackageTestGroup.id)
+        )
+        return result.scalar_one_or_none() is not None
+
     async def get_group_filter_chip_links(
         self,
         db: AsyncSession,

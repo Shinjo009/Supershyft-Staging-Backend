@@ -37,6 +37,7 @@ from modules.diagnostics.repository import DiagnosticsRepository
 from modules.diagnostics.schemas import (
     AssignGroupsToPackageRequest,
     AssignGroupsToPackageResponse,
+    ForkTestGroupForPackageResponse,
     AssignTestsToGroupRequest,
     AssignTestsToGroupResponse,
     DiagnosticPackageCreate,
@@ -1485,6 +1486,78 @@ class DiagnosticsService:
             added_group_ids=added_ids,
             skipped_group_ids=skipped_ids,
         )
+
+    async def fork_test_group_for_package(
+        self,
+        db,
+        *,
+        employee: EmployeeContext,
+        package_id: int,
+        group_id: int,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> ForkTestGroupForPackageResponse:
+        self._ensure_employee_access(employee)
+        package = await self._repository.get_package_by_id_basic(db, package_id=package_id)
+        if package is None:
+            raise AppError(status_code=404, error_code="DIAGNOSTIC_PACKAGE_NOT_FOUND", message="Package does not exist")
+
+        group = await self._repository.get_group_by_id(db, group_id=group_id)
+        if group is None:
+            raise AppError(status_code=404, error_code="DIAGNOSTIC_TEST_GROUP_NOT_FOUND", message="Group does not exist")
+
+        if not await self._repository.package_has_group_assignment(
+            db, package_id=package_id, group_id=group_id
+        ):
+            raise AppError(
+                status_code=404,
+                error_code="DIAGNOSTIC_TEST_GROUP_NOT_ASSIGNED_TO_PACKAGE",
+                message="This test group is not assigned to the package",
+            )
+
+        if group.forked_from_group_id is not None:
+            return ForkTestGroupForPackageResponse(group_id=group.group_id, forked=False)
+
+        existing_fork = await self._repository.get_package_assigned_fork(
+            db, package_id=package_id, catalog_group_id=group_id
+        )
+        if existing_fork is not None:
+            return ForkTestGroupForPackageResponse(group_id=existing_fork.group_id, forked=False)
+
+        catalog_group_id = group.group_id
+        copy = await self._repository.duplicate_test_group_for_package(
+            db,
+            source_group_id=catalog_group_id,
+            forked_from_group_id=catalog_group_id,
+            package_id=package_id,
+        )
+        if copy is None:
+            raise AppError(status_code=404, error_code="DIAGNOSTIC_TEST_GROUP_NOT_FOUND", message="Group does not exist")
+
+        replaced = await self._repository.replace_package_group_assignment(
+            db,
+            package_id=package_id,
+            old_group_id=catalog_group_id,
+            new_group_id=copy.group_id,
+        )
+        if not replaced:
+            raise AppError(
+                status_code=404,
+                error_code="DIAGNOSTIC_TEST_GROUP_NOT_ASSIGNED_TO_PACKAGE",
+                message="This test group is not assigned to the package",
+            )
+
+        await self._require_audit_service().log_event(
+            db,
+            action="EMPLOYEE_FORK_DIAGNOSTIC_TEST_GROUP_FOR_PACKAGE",
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=None,
+            session_id=None,
+        )
+        return ForkTestGroupForPackageResponse(group_id=copy.group_id, forked=True)
 
     async def remove_group_from_package(
         self,

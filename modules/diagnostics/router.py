@@ -971,6 +971,28 @@ async def assign_groups_to_package(
     return success_response(data.model_dump())
 
 
+@router.post("/diagnostic-packages/{package_id}/test-groups/{group_id}/fork-for-package", status_code=200)
+async def fork_test_group_for_package(
+    package_id: int,
+    group_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    diagnostics_service: DiagnosticsService = Depends(get_diagnostics_service),
+):
+    data = await diagnostics_service.fork_test_group_for_package(
+        db,
+        employee=employee,
+        package_id=package_id,
+        group_id=group_id,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response(data.model_dump())
+
+
 @router.patch("/diagnostic-packages/{package_id}/test-groups/order")
 async def reorder_package_test_groups(
     package_id: int,

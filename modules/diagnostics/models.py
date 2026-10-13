@@ -237,6 +237,11 @@ class DiagnosticTestGroup(Base):
         default="public",
         server_default=text("'public'::package_for_enum"),
     )
+    forked_from_group_id = Column(
+        Integer,
+        ForeignKey("diagnostic_test_groups.group_id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     tests = relationship(
         "DiagnosticTestGroupTest",

@@ -382,6 +382,11 @@ class AssignGroupsToPackageResponse(BaseModel):
     skipped_group_ids: list[int] = Field(default_factory=list)
 
 
+class ForkTestGroupForPackageResponse(BaseModel):
+    group_id: int
+    forked: bool
+
+
 class PackageTestsResponse(BaseModel):
     diagnostic_package_id: int
     groups: list[TestGroupResponse] = Field(default_factory=list)
