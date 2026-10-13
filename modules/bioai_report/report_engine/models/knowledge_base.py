@@ -82,3 +82,26 @@ class DiseaseKnowledgeBase(BaseModel):
             if band is not None:
                 return band
         return None
+
+
+class CancerTextBlock(BaseModel):
+    """One educational block on a cancer information page."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    heading: str
+    content: str = ""
+    items: list[str] = Field(default_factory=list)
+
+
+class CancerEducation(BaseModel):
+    """Reusable cancer education loaded from knowledge_base/cancer JSON."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    cancer_code: str
+    cancer_name: str
+    section_title: str
+    definition: CancerTextBlock
+    actionable_insights: CancerTextBlock
+    influencing_factors: CancerTextBlock

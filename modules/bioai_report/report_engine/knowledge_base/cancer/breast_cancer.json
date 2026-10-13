@@ -1,0 +1,25 @@
+{
+  "cancer_code": "breast_cancer",
+  "cancer_name": "Breast Cancer",
+  "section_title": "Breast Cancer Screening (Female)",
+  "definition": {
+    "heading": "What is Breast Cancer?",
+    "content": "Breast cancer occurs when abnormal cells grow uncontrollably in breast tissue and form a tumour. These cells may invade nearby tissues and, in some cases, spread to other parts of the body through the blood or lymphatic system."
+  },
+  "actionable_insights": {
+    "heading": "Actionable Insights for Your Health",
+    "items": [
+      "Prioritize vegetables, fruits, whole grains, legumes, and other nutrient-rich foods.",
+      "Stay physically active, maintain a healthy weight, and limit alcohol consumption.",
+      "Report new breast lumps, unusual nipple discharge, or persistent breast changes to a healthcare professional."
+    ]
+  },
+  "influencing_factors": {
+    "heading": "What May Influence Breast Cancer?",
+    "items": [
+      "Increasing Age",
+      "Family History",
+      "Alcohol Consumption"
+    ]
+  }
+}

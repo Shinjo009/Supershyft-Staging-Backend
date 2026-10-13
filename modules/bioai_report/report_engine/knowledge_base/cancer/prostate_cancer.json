@@ -1,0 +1,25 @@
+{
+  "cancer_code": "prostate_cancer",
+  "cancer_name": "Prostate Cancer",
+  "section_title": "Prostate Cancer Screening (Male)",
+  "definition": {
+    "heading": "What is Prostate Cancer?",
+    "content": "Prostate cancer develops when abnormal cells grow uncontrollably in the prostate gland, located below the bladder in men. Some prostate cancers grow slowly, while others may spread to nearby tissues and other parts of the body."
+  },
+  "actionable_insights": {
+    "heading": "Actionable Insights for Your Health",
+    "items": [
+      "Maintain a healthy body weight through regular exercise and balanced meals.",
+      "Discuss prostate screening with your doctor based on your age and family history.",
+      "Report persistent urinary difficulties, blood in urine, or unexplained pelvic discomfort to a healthcare professional."
+    ]
+  },
+  "influencing_factors": {
+    "heading": "What May Influence Prostate Cancer?",
+    "items": [
+      "Increasing Age",
+      "Family History",
+      "Excess Body Weight"
+    ]
+  }
+}

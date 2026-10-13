@@ -7,7 +7,10 @@ import logging
 from pathlib import Path
 
 from modules.bioai_report.report_engine.exceptions import KnowledgeBaseError
-from modules.bioai_report.report_engine.models.knowledge_base import DiseaseKnowledgeBase
+from modules.bioai_report.report_engine.models.knowledge_base import (
+    CancerEducation,
+    DiseaseKnowledgeBase,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +27,7 @@ class KnowledgeBaseStore:
     def __init__(self, kb_dir: Path | str | None = None) -> None:
         self._kb_dir = Path(kb_dir) if kb_dir is not None else DEFAULT_KB_DIR
         self._cache: dict[str, DiseaseKnowledgeBase] = {}
+        self._cancer_cache: dict[str, CancerEducation] = {}
 
     @property
     def kb_dir(self) -> Path:
@@ -73,5 +77,47 @@ class KnowledgeBaseStore:
         logger.debug("Loaded knowledge base for disease_id=%s from %s", disease_id, path.name)
         return kb
 
+    def list_cancer_codes(self) -> list[str]:
+        """Return sorted cancer education ids under ``cancer/``."""
+        cancer_dir = self._kb_dir / "cancer"
+        if not cancer_dir.is_dir():
+            return []
+        return sorted(path.stem for path in cancer_dir.glob("*.json"))
+
+    def has_cancer(self, cancer_code: str) -> bool:
+        return (self._kb_dir / "cancer" / f"{cancer_code}.json").is_file()
+
+    def get_cancer(self, cancer_code: str) -> CancerEducation:
+        """Load (and cache) cancer education by code. Same store as disease KBs."""
+        if cancer_code in self._cancer_cache:
+            return self._cancer_cache[cancer_code]
+
+        path = self._kb_dir / "cancer" / f"{cancer_code}.json"
+        if not path.is_file():
+            raise KnowledgeBaseError(
+                f"Knowledge base not found for cancer '{cancer_code}' "
+                f"(expected file: cancer/{path.name})"
+            )
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise KnowledgeBaseError(
+                f"Invalid JSON in knowledge base 'cancer/{path.name}': {exc}"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise KnowledgeBaseError(
+                f"Knowledge base 'cancer/{path.name}' must be a JSON object"
+            )
+        payload.setdefault("cancer_code", cancer_code)
+        try:
+            education = CancerEducation.model_validate(payload)
+        except Exception as exc:
+            raise KnowledgeBaseError(
+                f"Knowledge base 'cancer/{path.name}' failed validation: {exc}"
+            ) from exc
+        self._cancer_cache[cancer_code] = education
+        return education
+
     def clear_cache(self) -> None:
         self._cache.clear()
+        self._cancer_cache.clear()

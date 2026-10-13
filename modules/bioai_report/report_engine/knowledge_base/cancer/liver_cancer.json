@@ -1,0 +1,25 @@
+{
+  "cancer_code": "liver_cancer",
+  "cancer_name": "Liver Cancer",
+  "section_title": "Liver Cancer Screening (AFP)",
+  "definition": {
+    "heading": "What is Liver Cancer?",
+    "content": "Liver cancer occurs when abnormal cells grow uncontrollably in the liver, an organ that processes nutrients and removes harmful substances from the blood. Alpha-fetoprotein (AFP) is a blood marker sometimes used to help monitor certain liver conditions."
+  },
+  "actionable_insights": {
+    "heading": "Actionable Insights for Your Health",
+    "items": [
+      "Avoid excessive alcohol consumption and maintain a healthy body weight.",
+      "Get checked for hepatitis B and C when recommended by your healthcare professional.",
+      "If you have chronic liver disease, discuss regular liver monitoring with your doctor, as AFP alone cannot diagnose cancer."
+    ]
+  },
+  "influencing_factors": {
+    "heading": "What May Influence Liver Cancer?",
+    "items": [
+      "Hepatitis B or C",
+      "Liver Cirrhosis",
+      "Heavy Alcohol Use"
+    ]
+  }
+}

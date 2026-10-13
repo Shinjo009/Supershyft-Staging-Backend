@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from modules.bioai_report.report_engine import config
+from modules.bioai_report.report_engine.builders.cancer_builder import build_cancer_sections
 from modules.bioai_report.report_engine.builders.disease_builder import build_disease_sections
 from modules.bioai_report.report_engine.builders.patient_builder import build_patient
 from modules.bioai_report.report_engine.builders.summary_builder import build_executive_summary
@@ -59,6 +60,7 @@ def build_bioreport(
 
     patient = build_patient(payload)
     disease_sections = build_disease_sections(payload.diseases, kb_store=store)
+    individual_cancer, detailed_cancer = build_cancer_sections(payload, kb_store=store)
     executive_summary = build_executive_summary(
         patient=patient,
         disease_sections=disease_sections,
@@ -71,6 +73,8 @@ def build_bioreport(
         patient=patient,
         executive_summary=executive_summary,
         disease_sections=disease_sections,
+        individual_cancer_information=individual_cancer,
+        detailed_cancer_screening=detailed_cancer,
         report_metadata=ReportMetadata(
             record_id=resolved_record_id,
             engine_version=config.ENGINE_VERSION,

@@ -158,6 +158,92 @@ class DiseaseSection(BaseModel):
         return self.current_status.band
 
 
+class CancerDefinition(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    heading: str
+    content: str
+
+
+class CancerInsightBlock(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    heading: str
+    items: list[str] = Field(default_factory=list)
+
+
+class IndividualCancerInformation(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    cancer_code: str
+    cancer_name: str
+    section_title: str
+    definition: CancerDefinition
+    actionable_insights: CancerInsightBlock
+    influencing_factors: CancerInsightBlock
+
+
+class CancerSnapshotHighlight(BaseModel):
+    model_config = ConfigDict(extra="ignore", ser_json_inf_nan="null")
+
+    cancer_code: str
+    cancer_name: str
+    marker_name: str | None = None
+    value: float | int | str | None = None
+    unit: str | None = None
+    reference_range: str | None = None
+    range_flag: str = "unknown"
+
+
+class CancerMarkerSnapshot(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    total_markers: int = 0
+    markers_in_range: int = 0
+    markers_out_of_range: int = 0
+    markers_unknown: int = 0
+    summary: str = ""
+    highlighted_markers: list[CancerSnapshotHighlight] = Field(default_factory=list)
+
+
+class CancerResultCard(BaseModel):
+    model_config = ConfigDict(extra="ignore", ser_json_inf_nan="null")
+
+    cancer_code: str
+    cancer_name: str
+    result_type: str
+    marker_name: str | None = None
+    value: float | int | str | None = None
+    unit: str | None = None
+    reference_range: str | None = None
+    predicted_risk: float | int | str | None = None
+    source_classification: str | None = None
+    range_flag: str = "unknown"
+    display_status: str = "unknown"
+    interpretation: str = ""
+
+
+class CancerKeyInsights(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    heading: str = "Key Insights"
+    content: str = ""
+
+
+class DetailedCancerScreening(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = "Detailed Cancer Screening"
+    introduction: CancerDefinition
+    snapshot: CancerMarkerSnapshot
+    cancer_results: list[CancerResultCard] = Field(default_factory=list)
+    key_insights: CancerKeyInsights
+    status_legend: list[str] = Field(
+        default_factory=lambda: ["optimal", "marginal", "critical", "unknown"]
+    )
+    gender_filter_note: str | None = None
+
+
 class ReportMetadata(BaseModel):
     """Engine provenance for the assembled report."""
 
@@ -180,6 +266,10 @@ class BioReport(BaseModel):
     patient: PatientInfo
     executive_summary: ExecutiveSummary
     disease_sections: list[DiseaseSection] = Field(default_factory=list)
+    individual_cancer_information: list[IndividualCancerInformation] = Field(
+        default_factory=list
+    )
+    detailed_cancer_screening: DetailedCancerScreening
     report_metadata: ReportMetadata
 
     def to_dict(self) -> dict[str, Any]:
