@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Body, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -357,6 +359,28 @@ async def get_my_upcoming_slot(
 ):
     result: UpcomingSlotResponse = await users_service.get_upcoming_slots(db, user_id=current_user.user_id)
     return success_response(result.model_dump())
+
+
+@router.get("/me/consultations")
+async def list_my_consultations(
+    status: Literal["scheduled", "completed", "cancelled"] | None = Query(None),
+    page: int = 1,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+    users_service: UsersService = Depends(get_users_service),
+):
+    if page < 1 or limit < 1 or limit > 100:
+        raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+
+    data, total = await users_service.list_my_consultations(
+        db,
+        user_id=current_user.user_id,
+        status=status,
+        page=page,
+        limit=limit,
+    )
+    return success_response(data, meta={"page": page, "limit": limit, "total": total})
 
 
 @router.post("/{user_id}/book-bio-ai")

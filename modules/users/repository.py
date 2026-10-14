@@ -16,7 +16,8 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.users.models import User, UserAddress, UserPreference
-from modules.engagements.models import Engagement, EngagementParticipant, EngagementSlotInfo
+from modules.engagements.models import Engagement, EngagementParticipant, EngagementSlotInfo, EngagementType
+from modules.experts.models import ConsultationBooking
 from modules.organizations.models import Organization
 from modules.assessments.models import AssessmentCategoryProgress, AssessmentInstance
 from modules.auth.models import AuthOtpSession, AuthToken
@@ -426,6 +427,75 @@ class UsersRepository:
         )
         result = await db.execute(query)
         return result.all()
+
+    def _user_consultations_query(self, user_id: int, *, status: str | None = None):
+        query = (
+            select(ConsultationBooking, Engagement, EngagementType)
+            .join(
+                EngagementParticipant,
+                EngagementParticipant.engagement_participant_id
+                == ConsultationBooking.engagement_participant_id,
+            )
+            .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
+            .outerjoin(EngagementType, EngagementType.id == Engagement.engagement_type)
+            .where(EngagementParticipant.user_id == user_id)
+        )
+        cancelled_cond = or_(
+            Engagement.status == "cancelled",
+            ConsultationBooking.want.is_(False),
+        )
+        if status == "completed":
+            query = query.where(
+                ConsultationBooking.done.is_(True),
+                ConsultationBooking.want.is_(True),
+                Engagement.status != "cancelled",
+            )
+        elif status == "cancelled":
+            query = query.where(cancelled_cond)
+        elif status == "scheduled":
+            query = query.where(
+                ConsultationBooking.done.is_(False),
+                ConsultationBooking.want.is_(True),
+                Engagement.status != "cancelled",
+            )
+        return query
+
+    async def count_user_consultations(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        status: str | None = None,
+    ) -> int:
+        result = await db.execute(
+            self._user_consultations_query(user_id, status=status).with_only_columns(
+                func.count(ConsultationBooking.consultation_id)
+            )
+        )
+        return int(result.scalar_one() or 0)
+
+    async def list_user_consultations(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        status: str | None = None,
+        page: int = 1,
+        limit: int = 20,
+    ) -> list[tuple[ConsultationBooking, Engagement, EngagementType | None]]:
+        offset = (page - 1) * limit
+        query = (
+            self._user_consultations_query(user_id, status=status)
+            .order_by(
+                ConsultationBooking.consultation_date.desc().nulls_last(),
+                ConsultationBooking.consultation_slot.desc().nulls_last(),
+                ConsultationBooking.consultation_id.desc(),
+            )
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await db.execute(query)
+        return list(result.all())
 
     async def get_preferences(self, db: AsyncSession, user_id: int) -> Optional[UserPreference]:
         result = await db.execute(select(UserPreference).where(UserPreference.user_id == user_id))

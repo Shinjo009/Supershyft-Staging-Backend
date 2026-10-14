@@ -268,6 +268,64 @@ class UsersService:
     async def get_user_by_id(self, db: AsyncSession, user_id: int) -> Optional[User]:
         return await self._repository.get_user_by_id(db, user_id)
 
+    async def list_my_consultations(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        status: str | None,
+        page: int,
+        limit: int,
+    ) -> tuple[list[dict], int]:
+        from modules.engagements.consultation_booking_validation import effective_consultation_mode
+        from modules.experts.consultations import derive_user_consultation_status
+
+        total = await self._repository.count_user_consultations(
+            db, user_id=user_id, status=status
+        )
+        rows = await self._repository.list_user_consultations(
+            db,
+            user_id=user_id,
+            status=status,
+            page=page,
+            limit=limit,
+        )
+        data: list[dict] = []
+        for booking, engagement, engagement_type_row in rows:
+            eng_status = engagement.status
+            if hasattr(eng_status, "value"):
+                eng_status_str = eng_status.value
+            else:
+                eng_status_str = str(eng_status) if eng_status is not None else None
+
+            list_status = derive_user_consultation_status(
+                done=bool(booking.done),
+                want=bool(booking.want),
+                engagement_status=engagement.status,
+            )
+            date_val = (
+                booking.consultation_date.isoformat() if booking.consultation_date else None
+            )
+            data.append(
+                {
+                    "consultation_id": booking.consultation_id,
+                    "status": list_status,
+                    "engagement_id": engagement.engagement_id,
+                    "engagement_type": (
+                        engagement_type_row.code if engagement_type_row is not None else None
+                    ),
+                    "consultation_mode": effective_consultation_mode(engagement).value,
+                    "expert_type": booking.expert_type,
+                    "expert_id": booking.expert_id,
+                    "date": date_val,
+                    "slot": booking.consultation_slot,
+                    "want": bool(booking.want),
+                    "done": bool(booking.done),
+                    "engagement_status": eng_status_str,
+                }
+            )
+        return data, total
+
     async def get_upcoming_slots(self, db: AsyncSession, *, user_id: int) -> UpcomingSlotResponse:
         rows = await self._repository.get_upcoming_slots(db, user_id)
         if not rows:

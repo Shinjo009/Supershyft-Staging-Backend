@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from core.exceptions import AppError
 
@@ -144,6 +144,31 @@ def is_upcoming_slot(date_str: str | None, slot_str: str | None, *, now: datetim
         return False
     current = now or datetime.now()
     return when >= current
+
+
+UserConsultationListStatus = Literal["scheduled", "completed", "cancelled"]
+
+
+def _engagement_status_is_cancelled(engagement_status: Any) -> bool:
+    if engagement_status is None:
+        return False
+    if hasattr(engagement_status, "value"):
+        return str(engagement_status.value).lower() == "cancelled"
+    return str(engagement_status).lower() == "cancelled"
+
+
+def derive_user_consultation_status(
+    *,
+    done: bool,
+    want: bool,
+    engagement_status: Any,
+) -> UserConsultationListStatus:
+    """List status for GET /users/me/consultations."""
+    if _engagement_status_is_cancelled(engagement_status) or not want:
+        return "cancelled"
+    if done:
+        return "completed"
+    return "scheduled"
 
 
 def consultation_dashboard_status(
