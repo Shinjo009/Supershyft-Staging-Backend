@@ -435,6 +435,48 @@ async def reschedule_blood_collection(
     return success_response(data)
 
 
+
+
+async def _engagement_admin_detail_payload(
+    db: AsyncSession,
+    *,
+    engagement: Engagement,
+    engagements_service: EngagementsService,
+) -> dict:
+    engagement_id = int(engagement.engagement_id)
+    notifications = await _engagement_notifications_payload(db, engagement_id)
+    return _engagement_to_dict(
+        engagement,
+        participant_count=await engagements_service.count_participants_for_engagement(
+            db,
+            engagement_id=engagement_id,
+        ),
+        notifications=notifications,
+        slot_detail=await engagements_service.resolve_slot_detail(db, engagement),
+        public_slot_detail=await engagements_service.public_slot_detail_for_engagement(db, engagement),
+    )
+
+
+@router.get("/by-code/{engagement_code}")
+async def get_engagement_details_by_code(
+    engagement_code: str,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    engagements_service: EngagementsService = Depends(get_engagements_service),
+):
+    engagement = await engagements_service.get_engagement_by_code_for_employee(
+        db,
+        employee=employee,
+        engagement_code=engagement_code,
+    )
+    return success_response(
+        await _engagement_admin_detail_payload(
+            db,
+            engagement=engagement,
+            engagements_service=engagements_service,
+        )
+    )
+
 @router.get("/{engagement_id}")
 async def get_engagement_details(
     engagement_id: int,
@@ -447,18 +489,11 @@ async def get_engagement_details(
         employee=employee,
         engagement_id=engagement_id,
     )
-    notifications = await _engagement_notifications_payload(db, engagement_id)
-
     return success_response(
-        _engagement_to_dict(
-            engagement,
-            participant_count=await engagements_service.count_participants_for_engagement(
-                db,
-                engagement_id=engagement_id,
-            ),
-            notifications=notifications,
-            slot_detail=await engagements_service.resolve_slot_detail(db, engagement),
-            public_slot_detail=await engagements_service.public_slot_detail_for_engagement(db, engagement),
+        await _engagement_admin_detail_payload(
+            db,
+            engagement=engagement,
+            engagements_service=engagements_service,
         )
     )
 
@@ -1218,6 +1253,23 @@ async def get_engagement_questionnaire_status(
 ):
     """Per-participant questionnaire draft/submitted status for an engagement."""
     data = await engagements_service.get_questionnaire_status_for_engagement(
+        db,
+        employee=employee,
+        engagement_id=engagement_id,
+    )
+    return success_response(data)
+
+
+
+
+@router.get("/{engagement_id}/participant-progress")
+async def get_engagement_participant_progress(
+    engagement_id: int,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    engagements_service: EngagementsService = Depends(get_engagements_service),
+):
+    data = await engagements_service.get_participant_progress_for_engagement(
         db,
         employee=employee,
         engagement_id=engagement_id,

@@ -3844,6 +3844,73 @@ class EngagementsService:
             include_participants=True,
         )
 
+    async def get_engagement_by_code_for_employee(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        engagement_code: str,
+    ) -> Engagement:
+        ensure_admin(employee)
+        code = (engagement_code or "").strip()
+        if not code:
+            raise AppError(status_code=400, error_code="INVALID_INPUT", message="Engagement code is required")
+        engagement = await self._repository.get_engagement_by_code(db, code)
+        if engagement is None:
+            raise AppError(
+                status_code=404,
+                error_code="ENGAGEMENT_NOT_FOUND",
+                message="Engagement does not exist",
+            )
+        return engagement
+
+    async def get_participant_progress_for_engagement(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        engagement_id: int,
+    ) -> dict:
+        from modules.engagement_types.repository import EngagementTypesRepository
+        from modules.engagements.participant_progress import compute_participant_progress_payload
+
+        ensure_admin(employee)
+        engagement = await self._repository.get_engagement_by_id(db, engagement_id)
+        if engagement is None:
+            raise AppError(
+                status_code=404,
+                error_code="ENGAGEMENT_NOT_FOUND",
+                message="Engagement does not exist",
+            )
+
+        type_code: str | None = None
+        if engagement.engagement_type is not None:
+            type_row = await EngagementTypesRepository().get_by_id(db, int(engagement.engagement_type))
+            if type_row is not None:
+                type_code = (type_row.code or "").strip() or None
+
+        completeness = await self._build_engagement_data_completeness_payload(
+            db,
+            engagement_id=engagement_id,
+            include_participants=True,
+        )
+        rows = await self._repository.list_all_participants_by_engagement_id(
+            db,
+            engagement_id=engagement_id,
+            filters=None,
+        )
+        participant_dicts = await self._participant_rows_to_dicts(db, rows)
+        consultations_by_user = {
+            int(row["user_id"]): row.get("consultations") or {} for row in participant_dicts
+        }
+
+        return compute_participant_progress_payload(
+            engagement_type_code=type_code,
+            engagement_consultations=engagement.consultations,
+            completeness_participants=list(completeness.get("participants") or []),
+            consultations_by_user=consultations_by_user,
+        )
+
     async def list_engagements_data_completeness_summary(
         self,
         db: AsyncSession,
