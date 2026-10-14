@@ -3871,8 +3871,14 @@ class EngagementsService:
         employee: EmployeeContext,
         engagement_id: int,
     ) -> dict:
+        from modules.engagement_notifications.service_config import extract_service_keys
         from modules.engagement_types.repository import EngagementTypesRepository
-        from modules.engagements.participant_progress import compute_participant_progress_payload
+        from modules.engagements.models import AutoNotificationEvent, EngagementNotification
+        from modules.engagements.participant_progress_e2e import (
+            compute_e2e_participant_progress_payload,
+            load_notification_dispatch_maps,
+        )
+        from sqlalchemy import select
 
         ensure_admin(employee)
         engagement = await self._repository.get_engagement_by_id(db, engagement_id)
@@ -3903,12 +3909,61 @@ class EngagementsService:
         consultations_by_user = {
             int(row["user_id"]): row.get("consultations") or {} for row in participant_dicts
         }
+        participant_extras_by_user = {
+            int(row["user_id"]): {
+                "engagement_date": row.get("engagement_date"),
+                "slot_start_time": row.get("slot_start_time"),
+                "is_profile_created_on_metsights": row.get("is_profile_created_on_metsights"),
+            }
+            for row in participant_dicts
+        }
 
-        return compute_participant_progress_payload(
+        event_rows = await db.execute(
+            select(AutoNotificationEvent.event_code, EngagementNotification.notification_services)
+            .join(
+                AutoNotificationEvent,
+                AutoNotificationEvent.id == EngagementNotification.notification_event_id,
+            )
+            .where(EngagementNotification.engagement_id == engagement_id)
+        )
+        event_service_keys: dict[str, list[str]] = {}
+        all_service_keys: list[str] = []
+        for event_code, services in event_rows.all():
+            keys = extract_service_keys(services)
+            event_service_keys[str(event_code)] = keys
+            all_service_keys.extend(keys)
+        all_service_keys = list(dict.fromkeys(all_service_keys))
+
+        assistants = await self._repository.list_onboarding_assistant_assignments(
+            db, engagement_id=engagement_id
+        )
+        onboarding_assistant_count = len(assistants)
+
+        dispatch_per_user, dispatch_per_engagement = await load_notification_dispatch_maps(
+            db,
+            engagement_id=engagement_id,
+            service_keys=all_service_keys,
+        )
+
+        engagement_snapshot = {
+            "assessment_package_id": engagement.assessment_package_id,
+            "diagnostic_package_id": engagement.diagnostic_package_id,
+            "start_date": engagement.start_date,
+            "end_date": engagement.end_date,
+            "slot_detail": engagement.slot_detail,
+        }
+
+        return compute_e2e_participant_progress_payload(
             engagement_type_code=type_code,
+            engagement=engagement_snapshot,
             engagement_consultations=engagement.consultations,
             completeness_participants=list(completeness.get("participants") or []),
+            participant_extras_by_user=participant_extras_by_user,
             consultations_by_user=consultations_by_user,
+            event_service_keys=event_service_keys,
+            onboarding_assistant_count=onboarding_assistant_count,
+            dispatch_per_user=dispatch_per_user,
+            dispatch_per_engagement=dispatch_per_engagement,
         )
 
     async def list_engagements_data_completeness_summary(
