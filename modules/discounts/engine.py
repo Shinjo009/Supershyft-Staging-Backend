@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from modules.diagnostics.models import DiagnosticPackage
+from modules.experts.models import Expert
 from modules.discounts.models import (
     DiscountAllowlistUser,
     DiscountCode,
@@ -334,34 +335,58 @@ class DiscountEngine:
     async def _resolve_lines(self, db: AsyncSession, items: list[CartLine]) -> list[ResolvedLine]:
         out: list[ResolvedLine] = []
         for idx, item in enumerate(items):
-            if item.entity_type.strip() != "diagnostic_package":
-                continue
-            result = await db.execute(
-                select(DiagnosticPackage).where(
-                    DiagnosticPackage.diagnostic_package_id == item.entity_id,
-                    DiagnosticPackage.status == "active",
+            etype = item.entity_type.strip()
+            if etype == "diagnostic_package":
+                result = await db.execute(
+                    select(DiagnosticPackage).where(
+                        DiagnosticPackage.diagnostic_package_id == item.entity_id,
+                        DiagnosticPackage.status == "active",
+                    )
                 )
-            )
-            package = result.scalar_one_or_none()
-            if package is None:
-                continue
-            amount = item.amount_paise
-            if amount is None:
-                rupee = package.price if package.price is not None else package.original_price
-                amount = _price_to_paise(rupee)
-            min_paise = _price_to_paise(getattr(package, "min_price", None))
-            out.append(
-                ResolvedLine(
-                    index=idx,
-                    user_id=item.user_id,
-                    entity_type="diagnostic_package",
-                    entity_id=item.entity_id,
-                    amount_paise=amount,
-                    min_price_paise=min_paise,
-                    is_addon=bool(item.is_addon),
-                    package_name=package.package_name or "",
+                package = result.scalar_one_or_none()
+                if package is None:
+                    continue
+                amount = item.amount_paise
+                if amount is None:
+                    rupee = package.price if package.price is not None else package.original_price
+                    amount = _price_to_paise(rupee)
+                min_paise = _price_to_paise(getattr(package, "min_price", None))
+                out.append(
+                    ResolvedLine(
+                        index=idx,
+                        user_id=item.user_id,
+                        entity_type="diagnostic_package",
+                        entity_id=item.entity_id,
+                        amount_paise=amount,
+                        min_price_paise=min_paise,
+                        is_addon=bool(item.is_addon),
+                        package_name=package.package_name or "",
+                    )
                 )
-            )
+            elif etype == "expert":
+                result = await db.execute(
+                    select(Expert).where(Expert.expert_id == item.entity_id)
+                )
+                expert = result.scalar_one_or_none()
+                if expert is None or (expert.status or "").strip().lower() != "active":
+                    continue
+                fee = expert.appointment_fee_paise
+                if fee is None or int(fee) <= 0:
+                    continue
+                amount = item.amount_paise if item.amount_paise is not None else int(fee)
+                name = (expert.specialization or "").strip()
+                out.append(
+                    ResolvedLine(
+                        index=idx,
+                        user_id=item.user_id,
+                        entity_type="expert",
+                        entity_id=item.entity_id,
+                        amount_paise=amount,
+                        min_price_paise=0,
+                        is_addon=bool(item.is_addon),
+                        package_name=name,
+                    )
+                )
         return out
 
     def _filter_packages(self, code: DiscountCode, lines: list[ResolvedLine]) -> list[ResolvedLine]:
@@ -375,10 +400,15 @@ class DiscountEngine:
         for line in lines:
             if not code.include_addons and line.is_addon:
                 continue
+            entity_type = getattr(line, "entity_type", "diagnostic_package")
             if code.package_apply_mode == "include":
+                if entity_type != "diagnostic_package":
+                    continue
                 if line.entity_id not in include_ids:
                     continue
             elif code.package_apply_mode == "exclude":
+                if entity_type != "diagnostic_package":
+                    continue
                 if line.entity_id in exclude_ids:
                     continue
             eligible.append(line)

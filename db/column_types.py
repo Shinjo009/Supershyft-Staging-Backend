@@ -364,11 +364,13 @@ class HabitRuleConditionType(str, enum.Enum):
 
 class BookingEntityType(str, enum.Enum):
     diagnostic_package = "diagnostic_package"
+    expert = "expert"
 
 
 class BookingType(str, enum.Enum):
     bio_ai = "bio_ai"
     blood_test = "blood_test"
+    consultation = "consultation"
 
 
 class CurrencyCode(str, enum.Enum):

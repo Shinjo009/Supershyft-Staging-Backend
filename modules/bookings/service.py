@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, time
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.phone import to_healthians_mobile
@@ -33,7 +34,18 @@ from modules.engagements.diagnostic_package_resolution import (
     is_split_diagnostic_engagement,
     resolve_diagnostic_package_id,
 )
+from modules.engagements.enums import ConsultationMode
 from modules.engagements.models import BloodCollectionType, Engagement, EngagementKind, EngagementParticipant, EngagementType
+from modules.experts.consultation_bookings_repository import ConsultationBookingsRepository
+from modules.experts.consultations import normalize_hhmm
+from modules.experts.models import ConsultationBooking, ExpertAvailabilityOverrideModel
+from modules.experts.repository import (
+    ExpertAvailabilityOverrideRepository,
+    ExpertAvailabilityRepository,
+    ExpertsRepository,
+)
+from modules.experts.service import ExpertAvailabilityService
+from modules.experts.slot_engine import parse_slot_time
 from modules.engagements.repository import EngagementsRepository
 from modules.engagements.service import EngagementsService, _generate_engagement_code
 from modules.geocoding.client import search_places_for_booking
@@ -43,6 +55,9 @@ from modules.platform_settings.service import PlatformSettingsService
 from modules.users.models import User
 
 logger = logging.getLogger(__name__)
+
+_IST = ZoneInfo("Asia/Kolkata")
+_CONSULTATION_PAY_REUSE_MINUTES = 10
 
 
 def _is_healthians(pkg: DiagnosticPackage) -> bool:
@@ -2465,3 +2480,513 @@ async def get_user_draft_engagements(
             "address": address,
         })
     return output
+
+
+def _consultation_availability_service() -> ExpertAvailabilityService:
+    return ExpertAvailabilityService(
+        experts_repository=ExpertsRepository(),
+        availability_repository=ExpertAvailabilityRepository(),
+        override_repository=ExpertAvailabilityOverrideRepository(),
+        consultation_bookings_repository=ConsultationBookingsRepository(),
+    )
+
+
+async def _find_reusable_consultation_draft(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    expert_type: str,
+    expert_id: int,
+    consultation_date: date,
+    slot_hhmm: str,
+    consultation_type_id: int | None,
+) -> tuple[Engagement, EngagementParticipant] | None:
+    if consultation_type_id is None:
+        return None
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=_CONSULTATION_PAY_REUSE_MINUTES)
+    result = await db.execute(
+        select(Engagement, EngagementParticipant)
+        .join(
+            EngagementParticipant,
+            EngagementParticipant.engagement_id == Engagement.engagement_id,
+        )
+        .join(
+            ConsultationBooking,
+            ConsultationBooking.engagement_participant_id
+            == EngagementParticipant.engagement_participant_id,
+        )
+        .where(EngagementParticipant.user_id == user_id)
+        .where(Engagement.status == "draft")
+        .where(Engagement.engagement_type == consultation_type_id)
+        .where(ConsultationBooking.expert_type == expert_type)
+        .where(ConsultationBooking.expert_id == expert_id)
+        .where(ConsultationBooking.consultation_date == consultation_date)
+        .where(ConsultationBooking.consultation_slot == slot_hhmm)
+        .where(ConsultationBooking.want.is_(True))
+        .where(Engagement.created_at >= cutoff)
+        .order_by(Engagement.engagement_id.desc())
+        .limit(1)
+    )
+    row = result.first()
+    if row is None:
+        return None
+    return row[0], row[1]
+
+
+async def _create_consultation_slot_hold(
+    db: AsyncSession,
+    *,
+    expert_id: int,
+    consultation_date: date,
+    slot_hhmm: str,
+) -> ExpertAvailabilityOverrideModel:
+    override = ExpertAvailabilityOverrideModel(
+        expert_id=expert_id,
+        override_date=consultation_date,
+        status="booked",
+        start_time=parse_slot_time(slot_hhmm),
+        end_time=None,
+        buffer_time=None,
+    )
+    repo = ExpertAvailabilityOverrideRepository()
+    return await repo.create(db, override)
+
+
+async def _release_consultation_slot_hold(
+    db: AsyncSession,
+    *,
+    expert_id: int,
+    consultation_date: date,
+    slot_hhmm: str,
+) -> None:
+    slot_time = parse_slot_time(slot_hhmm)
+    await db.execute(
+        delete(ExpertAvailabilityOverrideModel).where(
+            ExpertAvailabilityOverrideModel.expert_id == expert_id,
+            ExpertAvailabilityOverrideModel.override_date == consultation_date,
+            ExpertAvailabilityOverrideModel.status == "booked",
+            ExpertAvailabilityOverrideModel.start_time == slot_time,
+        )
+    )
+
+
+async def create_consultation_pay_order(
+    db: AsyncSession,
+    *,
+    payer_user_id: int,
+    expert_type: str,
+    expert_id: int,
+    consultation_date: date,
+    slot: str,
+    discount_code: str | None = None,
+    client_ip: str | None = None,
+) -> dict[str, Any]:
+    """Validate slot, create draft consultation engagement, hold slot, and open Razorpay checkout."""
+    expert_type = expert_type.strip()
+    slot_hhmm = normalize_hhmm(slot)
+    today_ist = datetime.now(_IST).date()
+    if consultation_date < today_ist:
+        raise AppError(
+            status_code=400,
+            error_code="INVALID_INPUT",
+            message="Consultation date must be today or later",
+        )
+
+    experts_repo = ExpertsRepository()
+    expert = await experts_repo.get_by_id(db, expert_id)
+    if expert is None:
+        raise AppError(status_code=404, error_code="NOT_FOUND", message="Expert not found")
+    if (expert.status or "").strip().lower() != "active":
+        raise AppError(status_code=400, error_code="INVALID_INPUT", message="Expert is not active")
+    if expert.expert_type != expert_type:
+        raise AppError(
+            status_code=400,
+            error_code="INVALID_INPUT",
+            message="expert_id does not match expert_type",
+        )
+    fee = expert.appointment_fee_paise
+    if fee is None or int(fee) <= 0:
+        raise AppError(
+            status_code=400,
+            error_code="INVALID_INPUT",
+            message="Expert has no appointment fee configured",
+        )
+
+    consultation_type_id = await _resolve_engagement_type_id(db, "consultation")
+    availability = _consultation_availability_service()
+
+    reusable = await _find_reusable_consultation_draft(
+        db,
+        user_id=payer_user_id,
+        expert_type=expert_type,
+        expert_id=expert_id,
+        consultation_date=consultation_date,
+        slot_hhmm=slot_hhmm,
+        consultation_type_id=consultation_type_id,
+    )
+
+    if reusable is None:
+        available = await availability._slot_is_available(
+            db,
+            expert_type=expert_type,
+            day=consultation_date,
+            slot_hhmm=slot_hhmm,
+            expert_id=expert_id,
+        )
+        if not available:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message="Selected slot is not available",
+            )
+
+        user_result = await db.execute(select(User).where(User.user_id == payer_user_id))
+        user = user_result.scalar_one_or_none()
+        if user is None:
+            raise AppError(status_code=404, error_code="NOT_FOUND", message="User not found")
+
+        city = (user.city or "Online").strip() or "Online"
+        duration = expert.session_duration_mins or 30
+
+        engagement = Engagement(
+            engagement_name=f"{(user.first_name or 'user').strip()}-draft",
+            organization_id=None,
+            camp_no=None,
+            engagement_code=_generate_engagement_code(),
+            engagement_type=consultation_type_id,
+            consultations={expert_type: True},
+            consultation_mode=ConsultationMode.online,
+            diagnostic_package_id=None,
+            city=city,
+            slot_duration=duration,
+            status="draft",
+            create_profile_on_metsights=False,
+            enroll_for_fitprint_full=False,
+        )
+        db.add(engagement)
+        await db.flush()
+
+        participant = EngagementParticipant(
+            engagement_id=engagement.engagement_id,
+            user_id=payer_user_id,
+            booked_by_user_id=payer_user_id,
+        )
+        db.add(participant)
+        await db.flush()
+
+        cb_repo = ConsultationBookingsRepository()
+        await cb_repo.create_or_update_for_type(
+            db,
+            participant,
+            expert_type,
+            want=True,
+            consultation_date=consultation_date,
+            consultation_slot=slot_hhmm,
+            expert_id=expert_id,
+        )
+        await _create_consultation_slot_hold(
+            db,
+            expert_id=expert_id,
+            consultation_date=consultation_date,
+            slot_hhmm=slot_hhmm,
+        )
+        engagement_id = int(engagement.engagement_id)
+    else:
+        engagement, _participant = reusable
+        engagement_id = int(engagement.engagement_id)
+
+    metadata = {
+        "engagement_id": engagement_id,
+        "expert_type": expert_type,
+        "expert_id": expert_id,
+        "date": consultation_date.isoformat(),
+        "slot": slot_hhmm,
+    }
+    discount_context = {
+        "organization_id": engagement.organization_id,
+        "camp_no": str(engagement.camp_no) if engagement.camp_no is not None else None,
+        "engagement_id": engagement_id,
+        "city": getattr(engagement, "city", None),
+    }
+
+    payments_service = PaymentsService()
+    result = await payments_service.create_order(
+        db,
+        payer_user_id=payer_user_id,
+        items=[(payer_user_id, "expert", expert_id)],
+        authenticated_user_id=payer_user_id,
+        booking_type="consultation",
+        metadata_by_user={payer_user_id: metadata},
+        discount_code=discount_code.strip() if discount_code else None,
+        discount_context=discount_context,
+        client_ip=client_ip,
+    )
+    err = result.get("_error")
+    if err:
+        code, msg = err
+        raise AppError(status_code=code, error_code="PAYMENT_ERROR", message=msg)
+
+    out = {
+        "engagement_id": engagement_id,
+        "razorpay_order_id": result["razorpay_order_id"],
+        "amount_paise": result["amount_paise"],
+        "amount_rupees": result["amount_rupees"],
+        "currency": result["currency"],
+        "key_id": result["key_id"],
+        "booking_ids": result["booking_ids"],
+        "booking_id": result["booking_id"],
+    }
+    if result.get("discount"):
+        out["discount"] = result["discount"]
+    return out
+
+
+async def _finalize_one_consultation_engagement(
+    db: AsyncSession,
+    *,
+    engagement_id: int,
+    user_id: int,
+    engagements_service: EngagementsService | None,
+) -> dict[str, Any]:
+    consultation_type_id = await _resolve_engagement_type_id(db, "consultation")
+    engagement = await db.get(Engagement, engagement_id)
+    if engagement is None:
+        return {
+            "user_id": user_id,
+            "engagement_id": engagement_id,
+            "status": "error",
+            "message": "Engagement not found",
+        }
+
+    if (engagement.status or "").lower() == "scheduled":
+        return {
+            "user_id": user_id,
+            "engagement_id": engagement_id,
+            "status": "success",
+            "message": "Already scheduled",
+        }
+
+    if (engagement.status or "").lower() != "draft":
+        return {
+            "user_id": user_id,
+            "engagement_id": engagement_id,
+            "status": "error",
+            "message": "Engagement is not in draft status",
+        }
+    if consultation_type_id is not None and engagement.engagement_type != consultation_type_id:
+        return {
+            "user_id": user_id,
+            "engagement_id": engagement_id,
+            "status": "error",
+            "message": "Engagement is not a consultation booking",
+        }
+
+    participant_result = await db.execute(
+        select(EngagementParticipant)
+        .where(EngagementParticipant.engagement_id == engagement_id)
+        .where(EngagementParticipant.user_id == user_id)
+        .order_by(EngagementParticipant.engagement_participant_id.desc())
+        .limit(1)
+    )
+    participant = participant_result.scalar_one_or_none()
+    if participant is None:
+        return {
+            "user_id": user_id,
+            "engagement_id": engagement_id,
+            "status": "error",
+            "message": "Participant not found",
+        }
+
+    cb_result = await db.execute(
+        select(ConsultationBooking)
+        .where(ConsultationBooking.engagement_participant_id == participant.engagement_participant_id)
+        .where(ConsultationBooking.want.is_(True))
+        .limit(1)
+    )
+    consultation_row = cb_result.scalar_one_or_none()
+    if consultation_row is None or consultation_row.consultation_date is None:
+        return {
+            "user_id": user_id,
+            "engagement_id": engagement_id,
+            "status": "error",
+            "message": "Consultation slot is not set on engagement",
+        }
+
+    consultation_date = consultation_row.consultation_date
+    slot_hhmm = consultation_row.consultation_slot or ""
+    expert_type = consultation_row.expert_type
+
+    engagement.status = "scheduled"
+    engagement.start_date = consultation_date
+    engagement.end_date = consultation_date
+    user = await db.get(User, user_id)
+    if user is not None:
+        name_part = (user.first_name or "user").strip() or "user"
+        current_name = (engagement.engagement_name or "").strip()
+        if current_name.endswith("-draft"):
+            engagement.engagement_name = f"{name_part}-{consultation_date.isoformat()}"
+
+    db.add(engagement)
+    await db.flush()
+
+    if engagements_service is not None and user is not None:
+        slot_time = None
+        if slot_hhmm:
+            try:
+                slot_time = parse_slot_time(slot_hhmm)
+            except (ValueError, IndexError):
+                slot_time = None
+        await engagements_service.apply_b2c_defaults_and_notify_after_booking(
+            db,
+            engagement=engagement,
+            user=user,
+            collection_date=consultation_date,
+            collection_time=slot_time,
+        )
+        from modules.engagements.repository import EngagementsRepository
+        from modules.notifications.consultation_booking_alert_notify import (
+            notify_onboarding_assistants_on_consultation_booking,
+        )
+        from modules.notifications.repository import NotificationsRepository
+        from modules.notifications.service import NotificationsService
+
+        await notify_onboarding_assistants_on_consultation_booking(
+            db,
+            notifications_service=NotificationsService(repository=NotificationsRepository()),
+            notifications_repository=NotificationsRepository(),
+            engagements_repository=EngagementsRepository(),
+            engagement=engagement,
+            participant_user=user,
+            participant_user_id=user_id,
+            expert_type=expert_type,
+            expert_id=consultation_row.expert_id,
+            consultation_date=consultation_date,
+            consultation_slot=slot_hhmm,
+            consultation_cabin=consultation_row.consultation_cabin,
+        )
+        engagement.end_date = consultation_date
+        db.add(engagement)
+        await db.flush()
+
+    return {
+        "user_id": user_id,
+        "engagement_id": engagement_id,
+        "status": "success",
+        "message": "Consultation scheduled",
+        "booking_id": None,
+    }
+
+
+async def verify_and_finalize_consultation_booking(
+    db: AsyncSession,
+    *,
+    razorpay_payment_id: str,
+    razorpay_order_id: str,
+    razorpay_signature: str,
+    caller_user_id: int,
+    engagements_service: EngagementsService | None = None,
+) -> dict[str, Any]:
+    """Verify Razorpay payment and schedule paid consultation draft engagements."""
+    payments_service = PaymentsService()
+    verify_result = await payments_service.verify_payment(
+        db,
+        razorpay_payment_id=razorpay_payment_id,
+        razorpay_order_id=razorpay_order_id,
+        razorpay_signature=razorpay_signature,
+        authenticated_user_id=caller_user_id,
+        skip_fulfillment=True,
+    )
+
+    if verify_result.get("_signature_invalid"):
+        raise AppError(status_code=400, error_code="INVALID_SIGNATURE", message="Invalid payment signature")
+    err = verify_result.get("_error")
+    if err:
+        code, msg = err
+        raise AppError(status_code=code, error_code="PAYMENT_VERIFY_FAILED", message=msg)
+
+    bookings = verify_result.get("bookings") or []
+    if not bookings:
+        booking_ids = verify_result.get("booking_ids") or []
+        if booking_ids:
+            bookings_result = await db.execute(
+                select(Booking).where(Booking.booking_id.in_(booking_ids))
+            )
+            bookings = list(bookings_result.scalars().all())
+
+    member_results: list[dict[str, Any]] = []
+    for booking in bookings:
+        meta = booking.metadata_ or {}
+        engagement_id = meta.get("engagement_id")
+        if engagement_id is None:
+            member_results.append({
+                "user_id": int(booking.user_id),
+                "status": "error",
+                "message": "Missing engagement_id in booking metadata",
+            })
+            continue
+        member_results.append(
+            await _finalize_one_consultation_engagement(
+                db,
+                engagement_id=int(engagement_id),
+                user_id=int(booking.user_id),
+                engagements_service=engagements_service,
+            )
+        )
+
+    primary_engagement_id = None
+    if bookings:
+        meta0 = bookings[0].metadata_ or {}
+        if meta0.get("engagement_id") is not None:
+            primary_engagement_id = int(meta0["engagement_id"])
+
+    return {
+        "payment_verified": True,
+        "razorpay_order_id": razorpay_order_id,
+        "razorpay_payment_id": verify_result.get("payment_id") or razorpay_payment_id,
+        "booking_ids": verify_result.get("booking_ids") or [],
+        "engagement_id": primary_engagement_id,
+        "status": "scheduled",
+        "members": member_results,
+    }
+
+
+async def release_consultation_checkout_on_payment_failure(
+    db: AsyncSession,
+    booking_ids: list[int],
+) -> None:
+    """Cancel draft consultation engagements and release expert slot holds after failed checkout."""
+    if not booking_ids:
+        return
+    bookings_result = await db.execute(
+        select(Booking).where(Booking.booking_id.in_(booking_ids))
+    )
+    bookings = list(bookings_result.scalars().all())
+    for booking in bookings:
+        if (booking.booking_type or "") != "consultation" and (booking.entity_type or "") != "expert":
+            continue
+        meta = booking.metadata_ or {}
+        engagement_id = meta.get("engagement_id")
+        expert_id = meta.get("expert_id")
+        date_str = meta.get("date")
+        slot_val = meta.get("slot")
+        if expert_id is not None and date_str and slot_val:
+            try:
+                hold_date = date.fromisoformat(str(date_str))
+                await _release_consultation_slot_hold(
+                    db,
+                    expert_id=int(expert_id),
+                    consultation_date=hold_date,
+                    slot_hhmm=str(slot_val),
+                )
+            except (ValueError, TypeError):
+                logger.warning(
+                    "release_consultation_checkout: invalid hold metadata booking_id=%s",
+                    booking.booking_id,
+                )
+        if engagement_id is None:
+            continue
+        engagement = await db.get(Engagement, int(engagement_id))
+        if engagement is not None and (engagement.status or "").lower() == "draft":
+            engagement.status = "cancelled"
+            db.add(engagement)
+    await db.flush()

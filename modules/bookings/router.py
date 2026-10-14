@@ -22,6 +22,7 @@ from modules.bookings.schemas import (
     PublicCheckServiceabilityRequest,
     PublicLockSlotRequest,
     VerifyAndBookRequest,
+    ConsultationPayRequest,
 )
 from modules.bookings import service as booking_service
 from modules.engagements.dependencies import get_engagements_repository, get_engagements_service
@@ -72,6 +73,51 @@ async def book_bio_ai_batch(
         razorpay_signature=payload.razorpay_signature,
         caller_user_id=current_user.user_id,
         engagement_type_code="bio_ai",
+        engagements_service=engagements_service,
+    )
+    await db.commit()
+    return success_response(result)
+
+
+@router.post("/consultation/pay")
+@limiter.limit("5/minute")
+async def book_consultation_pay(
+    payload: ConsultationPayRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    from core.network import get_client_ip
+
+    result = await booking_service.create_consultation_pay_order(
+        db,
+        payer_user_id=current_user.user_id,
+        expert_type=payload.expert_type,
+        expert_id=payload.expert_id,
+        consultation_date=payload.date,
+        slot=payload.slot,
+        discount_code=payload.discount_code,
+        client_ip=get_client_ip(request),
+    )
+    await db.commit()
+    return success_response(result)
+
+
+@router.post("/consultation")
+@limiter.limit("5/minute")
+async def book_consultation_batch(
+    payload: VerifyAndBookRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+    engagements_service: EngagementsService = Depends(get_engagements_service),
+):
+    result = await booking_service.verify_and_finalize_consultation_booking(
+        db,
+        razorpay_payment_id=payload.razorpay_payment_id,
+        razorpay_order_id=payload.razorpay_order_id,
+        razorpay_signature=payload.razorpay_signature,
+        caller_user_id=current_user.user_id,
         engagements_service=engagements_service,
     )
     await db.commit()

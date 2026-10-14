@@ -17,6 +17,7 @@ from sqlalchemy.orm import aliased
 
 from core.config import settings
 from modules.diagnostics.models import DiagnosticPackage
+from modules.experts.models import Expert
 from modules.payments.models import Booking, Order, OrderBooking, Payment
 from modules.payments.razorpay_client import get_razorpay_client
 from modules.users.models import User
@@ -186,6 +187,20 @@ async def _resolve_line_pricing(
                 ),
             }
         return (_price_to_paise(rupee_price), package.package_name or "")
+    if entity_type == "expert":
+        expert_result = await db.execute(
+            select(Expert).where(Expert.expert_id == entity_id)
+        )
+        expert = expert_result.scalar_one_or_none()
+        if expert is None:
+            return {"_error": (400, "Expert not found")}
+        if (expert.status or "").strip().lower() != "active":
+            return {"_error": (400, "Expert is not active")}
+        fee = expert.appointment_fee_paise
+        if fee is None or int(fee) <= 0:
+            return {"_error": (400, "Expert has no appointment fee configured")}
+        name = (expert.specialization or "").strip() or f"Expert {entity_id}"
+        return (int(fee), name)
     return {"_error": (400, f"Unsupported entity_type: {entity_type}")}
 
 
@@ -724,6 +739,16 @@ class PaymentsService:
                 await DiscountService().release_for_order(db, order_row.order_id)
             except Exception:
                 logger.exception("discount release_for_order failed order_id=%s", order_row.order_id)
+
+            try:
+                from modules.bookings.service import release_consultation_checkout_on_payment_failure
+
+                await release_consultation_checkout_on_payment_failure(db, failed_booking_ids)
+            except Exception:
+                logger.exception(
+                    "release_consultation_checkout_on_payment_failure failed order_id=%s",
+                    order_row.order_id,
+                )
 
             await db.flush()
 

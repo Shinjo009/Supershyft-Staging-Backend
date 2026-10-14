@@ -82,6 +82,14 @@ class VerifyAndBookRequest(BaseModel):
     razorpay_signature: str = Field(min_length=1)
 
 
+class ConsultationPayRequest(BaseModel):
+    expert_type: ShortSafeText
+    expert_id: PositiveIntId
+    date: date
+    slot: str = Field(min_length=1, max_length=20)
+    discount_code: str | None = None
+
+
 class BookFromDraftMember(BaseModel):
     user_id: PositiveIntId
     engagement_id: PositiveIntId
