@@ -3945,11 +3945,21 @@ class EngagementsService:
             service_keys=all_service_keys,
         )
 
+        def _progress_date(value) -> str | None:
+            if value is None:
+                return None
+            if isinstance(value, str):
+                return value.strip() or None
+            iso = getattr(value, "isoformat", None)
+            if callable(iso):
+                return iso()
+            return str(value)
+
         engagement_snapshot = {
             "assessment_package_id": engagement.assessment_package_id,
             "diagnostic_package_id": engagement.diagnostic_package_id,
-            "start_date": engagement.start_date,
-            "end_date": engagement.end_date,
+            "start_date": _progress_date(engagement.start_date),
+            "end_date": _progress_date(engagement.end_date),
             "slot_detail": engagement.slot_detail,
         }
 
