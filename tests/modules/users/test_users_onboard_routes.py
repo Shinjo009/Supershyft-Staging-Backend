@@ -1840,14 +1840,21 @@ async def test_engagement_onboard_logs_metsights_integration_sync(async_client, 
 
     await test_db_session.execute(
         text(
-            "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status) "
-            "VALUES (8801, 'PK8801', 'Mets Pro', '2', 1) ON CONFLICT (package_id) DO NOTHING"
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status, subscription_id) "
+            "VALUES (8801, 'PK8801', 'Mets Pro', '2', 1, '01975457-63d4-c3eb-52f7-15bd67a7da7a') "
+            "ON CONFLICT (package_id) DO UPDATE SET subscription_id = EXCLUDED.subscription_id"
         )
     )
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
             "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO engagement_types (id, code, display_name, is_active) "
+            "VALUES (8801, 'bio_ai_mets8801', 'Bio AI', true) ON CONFLICT (code) DO NOTHING"
         )
     )
     await test_db_session.execute(
@@ -1860,10 +1867,10 @@ async def test_engagement_onboard_logs_metsights_integration_sync(async_client, 
         text(
             "INSERT INTO engagements (engagement_id, engagement_name, engagement_code, organization_id, "
             "engagement_type, assessment_package_id, diagnostic_package_id, city, slot_duration, "
-            "start_date, end_date, status, participant_count, create_profile_on_metsights, "
+            "start_date, end_date, status, create_profile_on_metsights, "
             "metsights_engagement_id, enroll_for_fitprint_full) "
-            "VALUES (8801, 'Mets Camp', 'METS8801', 8801, 'bio_ai', 8801, 1, 'BLR', 20, "
-            "'2026-02-01', '2026-02-28', 'running', 0, true, 'ms-eng-8801', false)"
+            "VALUES (8801, 'Mets Camp', 'METS8801', 8801, 8801, 8801, 1, 'BLR', 20, "
+            "'2026-02-01', '2026-02-28', 3, true, 'ms-eng-8801', false)"
         )
     )
     await test_db_session.commit()
@@ -1882,8 +1889,13 @@ async def test_engagement_onboard_logs_metsights_integration_sync(async_client, 
         assert profile_id == "ms-profile-8801"
         return {"data": [{"id": record_id, "date": "2026-02-01", "created_at": "2026-02-01T10:00:00Z"}]}
 
+    async def _fake_create_record(self, *, profile_id: str, data: dict):
+        assert profile_id == "ms-profile-8801"
+        return {"data": {"id": record_id}}
+
     monkeypatch.setattr("modules.metsights.client.MetsightsClient.create_profile", _fake_create_profile)
     monkeypatch.setattr("modules.metsights.client.MetsightsClient.list_profile_records", _fake_list_records)
+    monkeypatch.setattr("modules.metsights.client.MetsightsClient.create_profile_record", _fake_create_record)
 
     payload = {
         "age": 30,
@@ -1914,12 +1926,112 @@ async def test_engagement_onboard_logs_metsights_integration_sync(async_client, 
 
     assert len(rows) >= 2
     profile_row = next(r for r in rows if r["api_endpoint_url"].rstrip("/").endswith("/external/profiles"))
-    assert profile_row["status"] == "success"
+    assert profile_row["status"] in ("success", 2)
     assert profile_row["user_id"] == data["user_id"]
     assert profile_row["request_payload"]["gender"] == "1"
     assert profile_row["request_payload"]["age"] == 30
     assert "first_name" not in profile_row["request_payload"]
 
     records_row = next(r for r in rows if "/profiles/ms-profile-8801/records/" in r["api_endpoint_url"])
-    assert records_row["status"] == "success"
+    assert records_row["status"] in ("success", 2)
     assert records_row["user_id"] == data["user_id"]
+
+
+@pytest.mark.asyncio
+async def test_engagement_onboard_commits_before_metsights_sync_log(
+    async_client, test_db_session, monkeypatch
+):
+    """Regression: isolated integration_sync_logs must not run before user row is committed."""
+    from db.transaction import release_request_transaction
+    from modules.audit.cron_sync_logging import persist_integration_sync_log_isolated
+
+    monkeypatch.setattr(settings, "METSIGHTS_API_KEY", "test-key")
+    monkeypatch.setattr(settings, "METSIGHTS_BASE_URL", "https://api.metsights.test")
+
+    await test_db_session.execute(
+        text(
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, assessment_type_code, status, subscription_id) "
+            "VALUES (8802, 'PK8802', 'Mets Pro', '2', 1, '01975457-63d4-c3eb-52f7-15bd67a7da7a') "
+            "ON CONFLICT (package_id) DO UPDATE SET subscription_id = EXCLUDED.subscription_id"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO engagement_types (id, code, display_name, is_active) "
+            "VALUES (8802, 'bio_ai_mets8802', 'Bio AI', true) ON CONFLICT (code) DO NOTHING"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO organizations (organization_id, name, status) "
+            "VALUES (8802, 'Mets Org 2', 1)"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO engagements (engagement_id, engagement_name, engagement_code, organization_id, "
+            "engagement_type, assessment_package_id, diagnostic_package_id, city, slot_duration, "
+            "start_date, end_date, status, create_profile_on_metsights, "
+            "metsights_engagement_id, enroll_for_fitprint_full) "
+            "VALUES (8802, 'Mets Camp 2', 'METS8802', 8802, 8802, 8802, 1, 'BLR', 20, "
+            "'2026-02-01', '2026-02-28', 3, true, 'ms-eng-8802', false)"
+        )
+    )
+    await test_db_session.commit()
+
+    profile_id = "ms-profile-8802"
+    record_id = "ms-record-8802"
+    call_order: list[str] = []
+
+    async def _tracking_release(db):
+        call_order.append("release")
+        return await release_request_transaction(db)
+
+    async def _tracking_persist(**kwargs):
+        if kwargs.get("provider") == "metsights":
+            call_order.append("metsights_sync_log")
+        return await persist_integration_sync_log_isolated(**kwargs)
+
+    async def _fake_create_profile(self, *, data: dict):
+        return {"data": {"id": profile_id}}
+
+    async def _fake_list_records(self, *, profile_id: str, completed=None, code=None, search=None):
+        return {"data": [{"id": record_id, "date": "2026-02-01", "created_at": "2026-02-01T10:00:00Z"}]}
+
+    async def _fake_create_record(self, *, profile_id: str, data: dict):
+        return {"data": {"id": record_id}}
+
+    monkeypatch.setattr("modules.users.service.release_request_transaction", _tracking_release)
+    monkeypatch.setattr(
+        "modules.metsights.integration_logging.persist_integration_sync_log_isolated",
+        _tracking_persist,
+    )
+    monkeypatch.setattr("modules.metsights.client.MetsightsClient.create_profile", _fake_create_profile)
+    monkeypatch.setattr("modules.metsights.client.MetsightsClient.list_profile_records", _fake_list_records)
+    monkeypatch.setattr("modules.metsights.client.MetsightsClient.create_profile_record", _fake_create_record)
+
+    payload = {
+        "age": 30,
+        "first_name": "Mets",
+        "last_name": "Commit",
+        "phone": "8802880288",
+        "email": "mets.commit@example.com",
+        "gender": "male",
+        "city": "BLR",
+        "blood_collection_date": "2026-02-01",
+        "blood_collection_time_slot": "11:00",
+    }
+
+    response = await async_client.post("/users/code/METS8802/onboard", json=payload)
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["metsights_record_id"] == record_id
+
+    assert "metsights_sync_log" in call_order
+    first_log_idx = call_order.index("metsights_sync_log")
+    assert any(call_order[i] == "release" for i in range(first_log_idx))

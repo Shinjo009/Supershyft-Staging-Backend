@@ -2923,6 +2923,10 @@ class UsersService:
                 endpoint=endpoint,
             )
 
+        # Commit user/enrollment/assessments before Metsights I/O. integration_sync_logs
+        # is written on an isolated session and FK-references users.user_id.
+        await release_request_transaction(db)
+
         metsights_record_id: str | None = None
         sync_context = MetsightsSyncContext(
             db=db,
