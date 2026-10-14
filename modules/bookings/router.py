@@ -89,13 +89,20 @@ async def book_consultation_pay(
 ):
     from core.network import get_client_ip
 
+    members = [
+        {
+            "user_id": m.user_id,
+            "expert_type": m.expert_type,
+            "expert_id": m.expert_id,
+            "date": m.date,
+            "slot": m.slot,
+        }
+        for m in payload.members
+    ]
     result = await booking_service.create_consultation_pay_order(
         db,
-        payer_user_id=current_user.user_id,
-        expert_type=payload.expert_type,
-        expert_id=payload.expert_id,
-        consultation_date=payload.date,
-        slot=payload.slot,
+        caller_user_id=current_user.user_id,
+        members=members,
         discount_code=payload.discount_code,
         client_ip=get_client_ip(request),
     )

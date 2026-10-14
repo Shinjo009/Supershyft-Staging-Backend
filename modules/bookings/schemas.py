@@ -82,12 +82,24 @@ class VerifyAndBookRequest(BaseModel):
     razorpay_signature: str = Field(min_length=1)
 
 
-class ConsultationPayRequest(BaseModel):
+class ConsultationPayMember(BaseModel):
+    user_id: PositiveIntId
     expert_type: ShortSafeText
     expert_id: PositiveIntId
     date: date
     slot: str = Field(min_length=1, max_length=20)
+
+
+class ConsultationPayRequest(BaseModel):
+    members: list[ConsultationPayMember] = Field(..., min_length=1, max_length=10)
     discount_code: str | None = None
+
+    @model_validator(mode="after")
+    def unique_member_user_ids(self) -> "ConsultationPayRequest":
+        ids = [m.user_id for m in self.members]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Duplicate user_id in members")
+        return self
 
 
 class BookFromDraftMember(BaseModel):

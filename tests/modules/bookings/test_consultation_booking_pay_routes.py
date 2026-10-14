@@ -23,6 +23,36 @@ from tests.helpers.auth import user_auth_header
 CONSULTATION_SLOT = "09:00"
 
 
+def _consultation_pay_payload(
+    *,
+    user_id: int,
+    expert: Expert,
+    consult_date: date,
+    slot: str = CONSULTATION_SLOT,
+    discount_code: str | None = None,
+    extra_members: list[dict] | None = None,
+) -> dict:
+    members = [
+        {
+            "user_id": user_id,
+            "expert_type": expert.expert_type,
+            "expert_id": expert.expert_id,
+            "date": consult_date.isoformat(),
+            "slot": slot,
+        }
+    ]
+    if extra_members:
+        members.extend(extra_members)
+    body: dict = {"members": members}
+    if discount_code is not None:
+        body["discount_code"] = discount_code
+    return body
+
+
+def _engagement_id_from_pay(data: dict) -> int:
+    return int(data["members"][0]["engagement_id"])
+
+
 def _consultation_date(offset_days: int = 0) -> date:
     return date.today() + timedelta(days=14 + offset_days)
 
@@ -166,12 +196,12 @@ async def test_consultation_pay_rejects_invalid_slot(async_client, test_db_sessi
     response = await async_client.post(
         "/book/consultation/pay",
         headers=_auth_header(950001),
-        json={
-            "expert_type": "doctor",
-            "expert_id": expert.expert_id,
-            "date": _consultation_date().isoformat(),
-            "slot": "23:59",
-        },
+        json=_consultation_pay_payload(
+            user_id=950001,
+            expert=expert,
+            consult_date=_consultation_date(),
+            slot="23:59",
+        ),
     )
     assert response.status_code == 400
 
@@ -186,10 +216,15 @@ async def test_consultation_pay_rejects_expert_type_mismatch(async_client, test_
         "/book/consultation/pay",
         headers=_auth_header(950002),
         json={
-            "expert_type": "nutritionist",
-            "expert_id": expert.expert_id,
-            "date": _consultation_date().isoformat(),
-            "slot": CONSULTATION_SLOT,
+            "members": [
+                {
+                    "user_id": 950002,
+                    "expert_type": "nutritionist",
+                    "expert_id": expert.expert_id,
+                    "date": _consultation_date().isoformat(),
+                    "slot": CONSULTATION_SLOT,
+                }
+            ]
         },
     )
     assert response.status_code == 400
@@ -204,12 +239,11 @@ async def test_consultation_pay_rejects_missing_fee(async_client, test_db_sessio
     response = await async_client.post(
         "/book/consultation/pay",
         headers=_auth_header(950003),
-        json={
-            "expert_type": "doctor",
-            "expert_id": expert.expert_id,
-            "date": _consultation_date().isoformat(),
-            "slot": CONSULTATION_SLOT,
-        },
+        json=_consultation_pay_payload(
+            user_id=950003,
+            expert=expert,
+            consult_date=_consultation_date(),
+        ),
     )
     assert response.status_code == 400
 
@@ -231,21 +265,20 @@ async def test_consultation_pay_creates_draft_and_razorpay_order(
         response = await async_client.post(
             "/book/consultation/pay",
             headers=_auth_header(950010),
-            json={
-                "expert_type": "doctor",
-                "expert_id": expert.expert_id,
-                "date": consult_date.isoformat(),
-                "slot": CONSULTATION_SLOT,
-            },
+            json=_consultation_pay_payload(
+                user_id=950010,
+                expert=expert,
+                consult_date=consult_date,
+            ),
         )
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["engagement_id"]
+    assert data["members"][0]["engagement_id"]
     assert data["amount_paise"] == 50000
     assert data["razorpay_order_id"]
 
-    eng = await test_db_session.get(Engagement, data["engagement_id"])
+    eng = await test_db_session.get(Engagement, _engagement_id_from_pay(data))
     assert _engagement_status(eng) == EngagementStatus.draft.value
     type_row = await test_db_session.get(EngagementType, eng.engagement_type)
     assert type_row is not None and type_row.code == "consultation"
@@ -281,13 +314,13 @@ async def test_consultation_pay_applies_general_discount(
         response = await async_client.post(
             "/book/consultation/pay",
             headers=_auth_header(950011),
-            json={
-                "expert_type": "doctor",
-                "expert_id": expert.expert_id,
-                "date": consult_date.isoformat(),
-                "slot": "09:25",
-                "discount_code": "CONSULT10",
-            },
+            json=_consultation_pay_payload(
+                user_id=950011,
+                expert=expert,
+                consult_date=consult_date,
+                slot="09:25",
+                discount_code="CONSULT10",
+            ),
         )
 
     assert response.status_code == 200
@@ -315,13 +348,12 @@ async def test_consultation_pay_rejects_package_include_discount(
         response = await async_client.post(
             "/book/consultation/pay",
             headers=_auth_header(950012),
-            json={
-                "expert_type": "doctor",
-                "expert_id": expert.expert_id,
-                "date": consult_date.isoformat(),
-                "slot": "09:00",
-                "discount_code": "PKGONLY",
-            },
+            json=_consultation_pay_payload(
+                user_id=950012,
+                expert=expert,
+                consult_date=consult_date,
+                discount_code="PKGONLY",
+            ),
         )
 
     assert response.status_code == 400
@@ -342,12 +374,11 @@ async def test_consultation_finalize_schedules_engagement(async_client, test_db_
         pay_resp = await async_client.post(
             "/book/consultation/pay",
             headers=_auth_header(950020),
-            json={
-                "expert_type": "doctor",
-                "expert_id": expert.expert_id,
-                "date": consult_date.isoformat(),
-                "slot": "09:00",
-            },
+            json=_consultation_pay_payload(
+                user_id=950020,
+                expert=expert,
+                consult_date=consult_date,
+            ),
         )
     pay_data = pay_resp.json()["data"]
     order_id = pay_data["razorpay_order_id"]
@@ -374,7 +405,7 @@ async def test_consultation_finalize_schedules_engagement(async_client, test_db_
     assert body["status"] == "scheduled"
     assert body["members"][0]["status"] == "success"
 
-    eng = await test_db_session.get(Engagement, pay_data["engagement_id"])
+    eng = await test_db_session.get(Engagement, _engagement_id_from_pay(pay_data))
     assert _engagement_status(eng) == EngagementStatus.scheduled.value
     assert str(eng.start_date) == consult_date.isoformat()
     assert str(eng.end_date) == consult_date.isoformat()
@@ -395,15 +426,14 @@ async def test_consultation_finalize_rejects_bad_signature(async_client, test_db
         pay_resp = await async_client.post(
             "/book/consultation/pay",
             headers=_auth_header(950021),
-            json={
-                "expert_type": "doctor",
-                "expert_id": expert.expert_id,
-                "date": consult_date.isoformat(),
-                "slot": "09:00",
-            },
+            json=_consultation_pay_payload(
+                user_id=950021,
+                expert=expert,
+                consult_date=consult_date,
+            ),
         )
     order_id = pay_resp.json()["data"]["razorpay_order_id"]
-    engagement_id = pay_resp.json()["data"]["engagement_id"]
+    engagement_id = _engagement_id_from_pay(pay_resp.json()["data"])
 
     book_resp = await async_client.post(
         "/book/consultation",
@@ -437,16 +467,15 @@ async def test_consultation_payment_failed_releases_hold_and_cancels_draft(
         pay_resp = await async_client.post(
             "/book/consultation/pay",
             headers=_auth_header(950030),
-            json={
-                "expert_type": "doctor",
-                "expert_id": expert.expert_id,
-                "date": consult_date.isoformat(),
-                "slot": "09:00",
-            },
+            json=_consultation_pay_payload(
+                user_id=950030,
+                expert=expert,
+                consult_date=consult_date,
+            ),
         )
     pay_data = pay_resp.json()["data"]
     order_id = pay_data["razorpay_order_id"]
-    engagement_id = pay_data["engagement_id"]
+    engagement_id = _engagement_id_from_pay(pay_data)
 
     failed_resp = await async_client.post(
         "/payments/failed",
@@ -469,3 +498,210 @@ async def test_consultation_payment_failed_releases_hold_and_cancels_draft(
         )
     ).scalar_one()
     assert int(hold_count) == 0
+
+
+@pytest.mark.asyncio
+async def test_consultation_pay_rejects_duplicate_user_id(async_client, test_db_session):
+    await _ensure_consultation_engagement_type(test_db_session)
+    expert = await _seed_paid_consultation_expert(test_db_session)
+    await _seed_user(test_db_session, 950040)
+    consult_date = _consultation_date(6)
+    member_line = {
+        "user_id": 950040,
+        "expert_type": expert.expert_type,
+        "expert_id": expert.expert_id,
+        "date": consult_date.isoformat(),
+        "slot": CONSULTATION_SLOT,
+    }
+
+    response = await async_client.post(
+        "/book/consultation/pay",
+        headers=_auth_header(950040),
+        json={"members": [member_line, member_line]},
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_consultation_pay_rejects_duplicate_slot_in_request(async_client, test_db_session):
+    await _ensure_consultation_engagement_type(test_db_session)
+    expert = await _seed_paid_consultation_expert(test_db_session)
+    await _seed_user(test_db_session, 950041)
+    test_db_session.add(
+        User(
+            user_id=950042,
+            age=28,
+            phone="9500420001",
+            status="active",
+            first_name="Child",
+            parent_id=950041,
+        )
+    )
+    await test_db_session.commit()
+    consult_date = _consultation_date(7)
+
+    response = await async_client.post(
+        "/book/consultation/pay",
+        headers=_auth_header(950041),
+        json=_consultation_pay_payload(
+            user_id=950041,
+            expert=expert,
+            consult_date=consult_date,
+            extra_members=[
+                {
+                    "user_id": 950042,
+                    "expert_type": expert.expert_type,
+                    "expert_id": expert.expert_id,
+                    "date": consult_date.isoformat(),
+                    "slot": CONSULTATION_SLOT,
+                }
+            ],
+        ),
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_consultation_pay_forbidden_for_sub_profile_caller(async_client, test_db_session):
+    await _ensure_consultation_engagement_type(test_db_session)
+    expert = await _seed_paid_consultation_expert(test_db_session)
+    test_db_session.add(
+        User(
+            user_id=950051,
+            age=30,
+            phone="9500510001",
+            status="active",
+            first_name="Parent",
+        )
+    )
+    test_db_session.add(
+        User(
+            user_id=950052,
+            age=10,
+            phone="9500520001",
+            status="active",
+            first_name="Child",
+            parent_id=950051,
+        )
+    )
+    await test_db_session.commit()
+    consult_date = _consultation_date(8)
+
+    response = await async_client.post(
+        "/book/consultation/pay",
+        headers=_auth_header(950052),
+        json=_consultation_pay_payload(
+            user_id=950052,
+            expert=expert,
+            consult_date=consult_date,
+        ),
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_consultation_pay_forbidden_unrelated_member(async_client, test_db_session):
+    await _ensure_consultation_engagement_type(test_db_session)
+    expert = await _seed_paid_consultation_expert(test_db_session)
+    await _seed_user(test_db_session, 950061)
+    await _seed_user(test_db_session, 950062)
+    consult_date = _consultation_date(9)
+
+    response = await async_client.post(
+        "/book/consultation/pay",
+        headers=_auth_header(950061),
+        json=_consultation_pay_payload(
+            user_id=950062,
+            expert=expert,
+            consult_date=consult_date,
+        ),
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_consultation_pay_and_finalize_two_members(async_client, test_db_session, monkeypatch):
+    monkeypatch.setattr(settings, "RAZORPAY_KEY_SECRET", "test_razorpay_secret")
+    await _ensure_consultation_engagement_type(test_db_session)
+    expert = await _seed_paid_consultation_expert(test_db_session, fee_paise=50000)
+    test_db_session.add(
+        User(
+            user_id=950070,
+            age=35,
+            phone="9500700001",
+            status="active",
+            first_name="Parent",
+            city="Mumbai",
+        )
+    )
+    test_db_session.add(
+        User(
+            user_id=950071,
+            age=12,
+            phone="9500710001",
+            status="active",
+            first_name="Child",
+            parent_id=950070,
+            city="Mumbai",
+        )
+    )
+    await test_db_session.commit()
+    consult_date = _consultation_date(10)
+
+    with patch(
+        "modules.payments.services._create_razorpay_order_sync",
+        side_effect=_mock_razorpay_order,
+    ):
+        pay_resp = await async_client.post(
+            "/book/consultation/pay",
+            headers=_auth_header(950070),
+            json=_consultation_pay_payload(
+                user_id=950070,
+                expert=expert,
+                consult_date=consult_date,
+                slot="09:00",
+                extra_members=[
+                    {
+                        "user_id": 950071,
+                        "expert_type": expert.expert_type,
+                        "expert_id": expert.expert_id,
+                        "date": consult_date.isoformat(),
+                        "slot": "09:25",
+                    }
+                ],
+            ),
+        )
+
+    assert pay_resp.status_code == 200
+    pay_data = pay_resp.json()["data"]
+    assert len(pay_data["booking_ids"]) == 2
+    assert len(pay_data["members"]) == 2
+    assert pay_data["amount_paise"] == 100000
+
+    order_id = pay_data["razorpay_order_id"]
+    payment_id = "pay_consult_950070_batch"
+    signature = _razorpay_signature(order_id=order_id, payment_id=payment_id)
+
+    with patch(
+        "modules.notifications.consultation_booking_alert_notify.notify_onboarding_assistants_on_consultation_booking",
+        new_callable=AsyncMock,
+    ):
+        book_resp = await async_client.post(
+            "/book/consultation",
+            headers=_auth_header(950070),
+            json={
+                "razorpay_order_id": order_id,
+                "razorpay_payment_id": payment_id,
+                "razorpay_signature": signature,
+            },
+        )
+
+    assert book_resp.status_code == 200
+    body = book_resp.json()["data"]
+    assert body["payment_verified"] is True
+    assert len(body["members"]) == 2
+    assert all(m["status"] == "success" for m in body["members"])
+
+    for member in pay_data["members"]:
+        eng = await test_db_session.get(Engagement, member["engagement_id"])
+        assert _engagement_status(eng) == EngagementStatus.scheduled.value

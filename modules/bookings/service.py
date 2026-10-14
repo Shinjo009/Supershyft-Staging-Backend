@@ -38,7 +38,7 @@ from modules.engagements.enums import ConsultationMode
 from modules.engagements.models import BloodCollectionType, Engagement, EngagementKind, EngagementParticipant, EngagementType
 from modules.experts.consultation_bookings_repository import ConsultationBookingsRepository
 from modules.experts.consultations import normalize_hhmm
-from modules.experts.models import ConsultationBooking, ExpertAvailabilityOverrideModel
+from modules.experts.models import ConsultationBooking, Expert, ExpertAvailabilityOverrideModel
 from modules.experts.repository import (
     ExpertAvailabilityOverrideRepository,
     ExpertAvailabilityRepository,
@@ -2570,28 +2570,36 @@ async def _release_consultation_slot_hold(
     )
 
 
-async def create_consultation_pay_order(
+async def _assert_caller_may_book_consultation_for(
     db: AsyncSession,
     *,
-    payer_user_id: int,
+    caller_user_id: int,
+    member_user_id: int,
+) -> User:
+    """Primary account may book for self or sub-profiles (parent_id == caller)."""
+    if member_user_id == caller_user_id:
+        user = await db.get(User, caller_user_id)
+        if user is None:
+            raise AppError(status_code=404, error_code="NOT_FOUND", message="User not found")
+        return user
+
+    target = await db.get(User, member_user_id)
+    if target is None or target.parent_id != caller_user_id:
+        raise AppError(
+            status_code=403,
+            error_code="FORBIDDEN",
+            message="You do not have permission to book for this user",
+        )
+    return target
+
+
+async def _validate_consultation_expert_for_pay(
+    db: AsyncSession,
+    *,
     expert_type: str,
     expert_id: int,
-    consultation_date: date,
-    slot: str,
-    discount_code: str | None = None,
-    client_ip: str | None = None,
-) -> dict[str, Any]:
-    """Validate slot, create draft consultation engagement, hold slot, and open Razorpay checkout."""
+) -> Expert:
     expert_type = expert_type.strip()
-    slot_hhmm = normalize_hhmm(slot)
-    today_ist = datetime.now(_IST).date()
-    if consultation_date < today_ist:
-        raise AppError(
-            status_code=400,
-            error_code="INVALID_INPUT",
-            message="Consultation date must be today or later",
-        )
-
     experts_repo = ExpertsRepository()
     expert = await experts_repo.get_by_id(db, expert_id)
     if expert is None:
@@ -2611,112 +2619,208 @@ async def create_consultation_pay_order(
             error_code="INVALID_INPUT",
             message="Expert has no appointment fee configured",
         )
+    return expert
 
-    consultation_type_id = await _resolve_engagement_type_id(db, "consultation")
-    availability = _consultation_availability_service()
 
+async def _prepare_consultation_draft_for_member(
+    db: AsyncSession,
+    *,
+    caller_user_id: int,
+    member_user_id: int,
+    expert_type: str,
+    expert_id: int,
+    consultation_date: date,
+    slot_hhmm: str,
+    consultation_type_id: int | None,
+    availability: ExpertAvailabilityService,
+    expert: Expert,
+    member_user: User,
+) -> Engagement:
     reusable = await _find_reusable_consultation_draft(
         db,
-        user_id=payer_user_id,
+        user_id=member_user_id,
         expert_type=expert_type,
         expert_id=expert_id,
         consultation_date=consultation_date,
         slot_hhmm=slot_hhmm,
         consultation_type_id=consultation_type_id,
     )
+    if reusable is not None:
+        return reusable[0]
 
-    if reusable is None:
-        available = await availability._slot_is_available(
-            db,
-            expert_type=expert_type,
-            day=consultation_date,
-            slot_hhmm=slot_hhmm,
-            expert_id=expert_id,
+    available = await availability._slot_is_available(
+        db,
+        expert_type=expert_type,
+        day=consultation_date,
+        slot_hhmm=slot_hhmm,
+        expert_id=expert_id,
+    )
+    if not available:
+        raise AppError(
+            status_code=400,
+            error_code="INVALID_INPUT",
+            message="Selected slot is not available",
         )
-        if not available:
+
+    city = (member_user.city or "Online").strip() or "Online"
+    duration = expert.session_duration_mins or 30
+
+    engagement = Engagement(
+        engagement_name=f"{(member_user.first_name or 'user').strip()}-draft",
+        organization_id=None,
+        camp_no=None,
+        engagement_code=_generate_engagement_code(),
+        engagement_type=consultation_type_id,
+        consultations={expert_type: True},
+        consultation_mode=ConsultationMode.online,
+        diagnostic_package_id=None,
+        city=city,
+        slot_duration=duration,
+        status="draft",
+        create_profile_on_metsights=False,
+        enroll_for_fitprint_full=False,
+    )
+    db.add(engagement)
+    await db.flush()
+
+    participant = EngagementParticipant(
+        engagement_id=engagement.engagement_id,
+        user_id=member_user_id,
+        booked_by_user_id=caller_user_id,
+    )
+    db.add(participant)
+    await db.flush()
+
+    cb_repo = ConsultationBookingsRepository()
+    await cb_repo.create_or_update_for_type(
+        db,
+        participant,
+        expert_type,
+        want=True,
+        consultation_date=consultation_date,
+        consultation_slot=slot_hhmm,
+        expert_id=expert_id,
+    )
+    await _create_consultation_slot_hold(
+        db,
+        expert_id=expert_id,
+        consultation_date=consultation_date,
+        slot_hhmm=slot_hhmm,
+    )
+    return engagement
+
+
+async def create_consultation_pay_order(
+    db: AsyncSession,
+    *,
+    caller_user_id: int,
+    members: list[dict[str, Any]],
+    discount_code: str | None = None,
+    client_ip: str | None = None,
+) -> dict[str, Any]:
+    """Validate slots, create draft consultation engagements per member, and open one Razorpay checkout."""
+    if not members:
+        raise AppError(status_code=400, error_code="INVALID_INPUT", message="No members provided")
+
+    caller = await db.get(User, caller_user_id)
+    if caller is None:
+        raise AppError(status_code=404, error_code="NOT_FOUND", message="User not found")
+    if caller.parent_id is not None:
+        raise AppError(
+            status_code=403,
+            error_code="FORBIDDEN",
+            message="Consultation checkout is only available for primary accounts",
+        )
+
+    today_ist = datetime.now(_IST).date()
+    consultation_type_id = await _resolve_engagement_type_id(db, "consultation")
+    availability = _consultation_availability_service()
+
+    validated_items: list[tuple[int, str, int]] = []
+    metadata_by_user: dict[int, dict[str, Any]] = {}
+    member_statuses: list[dict[str, Any]] = []
+    discount_context: dict[str, Any] | None = None
+    slot_keys_seen: set[tuple[int, date, str]] = set()
+
+    for member in members:
+        member_user_id = int(member["user_id"])
+        expert_type = str(member["expert_type"]).strip()
+        expert_id = int(member["expert_id"])
+        consultation_date = member["date"]
+        if not isinstance(consultation_date, date):
+            consultation_date = date.fromisoformat(str(consultation_date))
+        slot_hhmm = normalize_hhmm(str(member["slot"]))
+
+        if consultation_date < today_ist:
             raise AppError(
                 status_code=400,
                 error_code="INVALID_INPUT",
-                message="Selected slot is not available",
+                message="Consultation date must be today or later",
             )
 
-        user_result = await db.execute(select(User).where(User.user_id == payer_user_id))
-        user = user_result.scalar_one_or_none()
-        if user is None:
-            raise AppError(status_code=404, error_code="NOT_FOUND", message="User not found")
+        slot_key = (expert_id, consultation_date, slot_hhmm)
+        if slot_key in slot_keys_seen:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message="Duplicate expert slot in the same checkout",
+            )
+        slot_keys_seen.add(slot_key)
 
-        city = (user.city or "Online").strip() or "Online"
-        duration = expert.session_duration_mins or 30
-
-        engagement = Engagement(
-            engagement_name=f"{(user.first_name or 'user').strip()}-draft",
-            organization_id=None,
-            camp_no=None,
-            engagement_code=_generate_engagement_code(),
-            engagement_type=consultation_type_id,
-            consultations={expert_type: True},
-            consultation_mode=ConsultationMode.online,
-            diagnostic_package_id=None,
-            city=city,
-            slot_duration=duration,
-            status="draft",
-            create_profile_on_metsights=False,
-            enroll_for_fitprint_full=False,
-        )
-        db.add(engagement)
-        await db.flush()
-
-        participant = EngagementParticipant(
-            engagement_id=engagement.engagement_id,
-            user_id=payer_user_id,
-            booked_by_user_id=payer_user_id,
-        )
-        db.add(participant)
-        await db.flush()
-
-        cb_repo = ConsultationBookingsRepository()
-        await cb_repo.create_or_update_for_type(
+        member_user = await _assert_caller_may_book_consultation_for(
             db,
-            participant,
-            expert_type,
-            want=True,
-            consultation_date=consultation_date,
-            consultation_slot=slot_hhmm,
+            caller_user_id=caller_user_id,
+            member_user_id=member_user_id,
+        )
+        expert = await _validate_consultation_expert_for_pay(
+            db,
+            expert_type=expert_type,
             expert_id=expert_id,
         )
-        await _create_consultation_slot_hold(
+        engagement = await _prepare_consultation_draft_for_member(
             db,
+            caller_user_id=caller_user_id,
+            member_user_id=member_user_id,
+            expert_type=expert_type,
             expert_id=expert_id,
             consultation_date=consultation_date,
             slot_hhmm=slot_hhmm,
+            consultation_type_id=consultation_type_id,
+            availability=availability,
+            expert=expert,
+            member_user=member_user,
         )
         engagement_id = int(engagement.engagement_id)
-    else:
-        engagement, _participant = reusable
-        engagement_id = int(engagement.engagement_id)
 
-    metadata = {
-        "engagement_id": engagement_id,
-        "expert_type": expert_type,
-        "expert_id": expert_id,
-        "date": consultation_date.isoformat(),
-        "slot": slot_hhmm,
-    }
-    discount_context = {
-        "organization_id": engagement.organization_id,
-        "camp_no": str(engagement.camp_no) if engagement.camp_no is not None else None,
-        "engagement_id": engagement_id,
-        "city": getattr(engagement, "city", None),
-    }
+        validated_items.append((member_user_id, "expert", expert_id))
+        metadata_by_user[member_user_id] = {
+            "engagement_id": engagement_id,
+            "expert_type": expert_type,
+            "expert_id": expert_id,
+            "date": consultation_date.isoformat(),
+            "slot": slot_hhmm,
+        }
+        member_statuses.append({
+            "user_id": member_user_id,
+            "engagement_id": engagement_id,
+            "status": "success",
+        })
+        if discount_context is None:
+            discount_context = {
+                "organization_id": engagement.organization_id,
+                "camp_no": str(engagement.camp_no) if engagement.camp_no is not None else None,
+                "engagement_id": engagement_id,
+                "city": getattr(engagement, "city", None),
+            }
 
     payments_service = PaymentsService()
     result = await payments_service.create_order(
         db,
-        payer_user_id=payer_user_id,
-        items=[(payer_user_id, "expert", expert_id)],
-        authenticated_user_id=payer_user_id,
+        payer_user_id=caller_user_id,
+        items=validated_items,
+        authenticated_user_id=caller_user_id,
         booking_type="consultation",
-        metadata_by_user={payer_user_id: metadata},
+        metadata_by_user=metadata_by_user,
         discount_code=discount_code.strip() if discount_code else None,
         discount_context=discount_context,
         client_ip=client_ip,
@@ -2727,7 +2831,6 @@ async def create_consultation_pay_order(
         raise AppError(status_code=code, error_code="PAYMENT_ERROR", message=msg)
 
     out = {
-        "engagement_id": engagement_id,
         "razorpay_order_id": result["razorpay_order_id"],
         "amount_paise": result["amount_paise"],
         "amount_rupees": result["amount_rupees"],
@@ -2735,6 +2838,7 @@ async def create_consultation_pay_order(
         "key_id": result["key_id"],
         "booking_ids": result["booking_ids"],
         "booking_id": result["booking_id"],
+        "members": member_statuses,
     }
     if result.get("discount"):
         out["discount"] = result["discount"]
@@ -2886,7 +2990,12 @@ async def verify_and_finalize_consultation_booking(
     caller_user_id: int,
     engagements_service: EngagementsService | None = None,
 ) -> dict[str, Any]:
-    """Verify Razorpay payment and schedule paid consultation draft engagements."""
+    """Verify Razorpay payment and schedule paid consultation draft engagements.
+
+    One Razorpay order may include multiple consultation booking lines; each line
+    is finalized via ``members`` (source of truth). Top-level ``engagement_id`` is
+    the first booking's engagement when present for backward compatibility.
+    """
     payments_service = PaymentsService()
     verify_result = await payments_service.verify_payment(
         db,
