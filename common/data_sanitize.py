@@ -38,7 +38,7 @@ from common.validation import (
 )
 
 _SCRIPT_PATTERN = re.compile(r"(?i)<\s*script|javascript\s*:|on\w+\s*=")
-_SAFE_DISPLAY_EXTRA = frozenset(".,&-'/()")
+_SAFE_DISPLAY_EXTRA = frozenset(".,&-'/()+")
 _CITY_STATE_EXTRA = frozenset(".-'")
 _PHONE_ALLOWED = frozenset("0123456789+ -()")
 

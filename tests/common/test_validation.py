@@ -126,7 +126,7 @@ def test_optional_person_name_empty_becomes_none():
 
 @pytest.mark.parametrize(
     "value",
-    ["Acme Corp.", "Org & Co", "Test (India)", "Building 42"],
+    ["Acme Corp.", "Org & Co", "Test (India)", "Building 42", "A+", "AB+", "O+"],
 )
 def test_safe_display_name_accepts_valid(value: str):
     assert _SafeDisplayNameModel(name=value).name == value

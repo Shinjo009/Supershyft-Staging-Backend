@@ -80,6 +80,11 @@ class TestSanitizeValue:
         assert "<" not in out.value
         assert ">" not in out.value
 
+    def test_safe_display_name_preserves_blood_group_plus(self):
+        out = sanitize_value("A+", kind=SanitizeKind.SAFE_DISPLAY_NAME)
+        assert out.status in {SanitizeStatus.OK, SanitizeStatus.UNCHANGED}
+        assert out.value == "A+"
+
 
 class TestNestedJson:
     def test_strips_script_from_nested(self):
