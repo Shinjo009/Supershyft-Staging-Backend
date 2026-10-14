@@ -1,0 +1,25 @@
+{
+  "cancer_code": "ovarian_cancer",
+  "cancer_name": "Ovarian Cancer",
+  "section_title": "Ovarian Cancer Screening (Female)",
+  "definition": {
+    "heading": "What is Ovarian Cancer?",
+    "content": "Ovarian cancer develops when abnormal cells grow uncontrollably in the ovaries or nearby tissues. The ovaries produce eggs and hormones. This cancer may spread within the abdomen, and its early symptoms can be difficult to recognize."
+  },
+  "actionable_insights": {
+    "heading": "Actionable Insights for Your Health",
+    "items": [
+      "Maintain a healthy weight and follow a balanced diet with regular physical activity.",
+      "Inform your doctor if close family members have had ovarian or breast cancer.",
+      "Report persistent bloating, pelvic discomfort, feeling full quickly, or frequent urination to a healthcare professional."
+    ]
+  },
+  "influencing_factors": {
+    "heading": "What May Influence Ovarian Cancer?",
+    "items": [
+      "Increasing Age",
+      "Family History",
+      "Endometriosis"
+    ]
+  }
+}

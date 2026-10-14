@@ -1,0 +1,25 @@
+{
+  "cancer_code": "colorectal_cancer",
+  "cancer_name": "Colorectal Cancer",
+  "section_title": "Colorectal Cancer Screening",
+  "definition": {
+    "heading": "What is Colorectal Cancer?",
+    "content": "Colorectal cancer develops in the colon or rectum, which are parts of the large intestine. It often begins as small growths called polyps that may gradually become cancerous and spread to surrounding tissues if left untreated."
+  },
+  "actionable_insights": {
+    "heading": "Actionable Insights for Your Health",
+    "items": [
+      "Eat fibre-rich foods such as fruits, vegetables, legumes, and whole grains.",
+      "Limit processed meat, stay physically active, and maintain a healthy body weight.",
+      "Discuss age-appropriate screening and report persistent bowel changes or blood in your stool to your doctor."
+    ]
+  },
+  "influencing_factors": {
+    "heading": "What May Influence Colorectal Cancer?",
+    "items": [
+      "Processed Meat Intake",
+      "Obesity",
+      "Family History"
+    ]
+  }
+}

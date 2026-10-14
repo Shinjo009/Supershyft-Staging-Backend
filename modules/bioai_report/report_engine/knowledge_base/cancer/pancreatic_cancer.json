@@ -1,0 +1,25 @@
+{
+  "cancer_code": "pancreatic_cancer",
+  "cancer_name": "Pancreatic Cancer",
+  "section_title": "Pancreatic Cancer Screening",
+  "definition": {
+    "heading": "What is Pancreatic Cancer?",
+    "content": "Pancreatic cancer occurs when abnormal cells grow uncontrollably in the pancreas, an organ that helps digest food and regulate blood sugar. These cells may form a tumour and spread to nearby organs or other parts of the body."
+  },
+  "actionable_insights": {
+    "heading": "Actionable Insights for Your Health",
+    "items": [
+      "Avoid smoking and maintain a healthy weight to support pancreatic health.",
+      "Include vegetables, fruits, and whole grains in your meals, and stay physically active.",
+      "Report persistent upper abdominal pain, unexplained weight loss, or yellowing of the skin to your doctor."
+    ]
+  },
+  "influencing_factors": {
+    "heading": "What May Influence Pancreatic Cancer?",
+    "items": [
+      "Smoking",
+      "Obesity",
+      "Long-standing Diabetes"
+    ]
+  }
+}
