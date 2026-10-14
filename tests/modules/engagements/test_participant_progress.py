@@ -143,3 +143,42 @@ def test_e2e_notification_sent_counts_complete():
     )
     assert payload["participants"][0]["stages"]["onboarding_notify"]["status"] == "complete"
     assert payload["summary"]["by_stage"]["consultation_booked"]["not_applicable"] == 1
+
+
+def test_e2e_bottleneck_skips_engagement_setup():
+    """Per-participant stuck-at must not be camp-wide engagement_setup."""
+    payload = compute_e2e_participant_progress_payload(
+        engagement_type_code="bio_ai_with_consultation",
+        engagement={
+            "assessment_package_id": None,
+            "diagnostic_package_id": None,
+            "start_date": "2026-01-01",
+            "end_date": "2026-01-02",
+        },
+        engagement_consultations={},
+        completeness_participants=[
+            {
+                "user_id": 1,
+                "first_name": "A",
+                "last_name": "B",
+                "has_booking_id": False,
+                "has_blood_report": False,
+                "has_blood_values": False,
+                "has_bio_ai_report": False,
+                "has_bio_ai_json": False,
+                "questionnaire_state": "not_started",
+            }
+        ],
+        participant_extras_by_user={},
+        consultations_by_user={1: {}},
+        event_service_keys={"onboarding": ["onboarding-whatsapp"]},
+        onboarding_assistant_count=0,
+        dispatch_per_user={},
+        dispatch_per_engagement={},
+    )
+    p = payload["participants"][0]
+    assert p["stages"]["engagement_setup"]["status"] == "pending"
+    assert p["bottleneck"] == "onboarding_notify"
+    assert p["bottleneck_scope"] == "participant"
+    camp_items = [b for b in payload["summary"]["bottlenecks"] if b.get("scope") == "engagement"]
+    assert camp_items and camp_items[0]["key"] == "engagement_setup"

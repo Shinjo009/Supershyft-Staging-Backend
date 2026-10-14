@@ -107,6 +107,11 @@ _GROUP_LABELS = {
     "comms": "Comms",
 }
 
+# Steps that must not drive per-participant "stuck at" (camp-wide or always complete).
+_PARTICIPANT_BOTTLENECK_EXCLUDE: frozenset[str] = frozenset(
+    {"engagement_setup", "booking_guide_phlebo", "enrolled"}
+)
+
 _CONSULTATION_TYPE_CODES = frozenset(
     {
         EngagementKind.bio_ai_with_consultation.value,
@@ -444,7 +449,11 @@ def compute_e2e_participant_progress_payload(
 
             by_stage[key] = _merge_status_count(by_stage[key], st)
 
-            if bottleneck is None and st in ("pending", "failed"):
+            if (
+                bottleneck is None
+                and key not in _PARTICIPANT_BOTTLENECK_EXCLUDE
+                and st in ("pending", "failed")
+            ):
                 bottleneck = key
 
         legacy_stages: dict[str, bool] = {}
@@ -477,6 +486,7 @@ def compute_e2e_participant_progress_payload(
                 "legacy_stages": legacy_stages,
                 "bottleneck": bottleneck,
                 "bottleneck_label": _stage_label(bottleneck) if bottleneck else None,
+                "bottleneck_scope": "participant" if bottleneck else None,
             }
         )
 
@@ -486,17 +496,28 @@ def compute_e2e_participant_progress_payload(
             if p["legacy_stages"].get(key):
                 legacy_stage_counts[key] += 1
 
+    total = len(participants_out)
+
     bottlenecks: list[dict[str, Any]] = []
+    if setup_status in ("pending", "failed") and total > 0:
+        bottlenecks.append(
+            {
+                "key": "engagement_setup",
+                "label": "Camp configuration",
+                "pending": total,
+                "scope": "engagement",
+            }
+        )
     for key in stage_keys:
-        if key in ("engagement_setup", "booking_guide_phlebo"):
+        if key in _PARTICIPANT_BOTTLENECK_EXCLUDE:
             continue
         pending = by_stage[key]["pending"] + by_stage[key]["failed"]
         if pending > 0 and by_stage[key]["applicable"] > 0:
-            bottlenecks.append({"key": key, "label": _stage_label(key), "pending": pending})
+            bottlenecks.append(
+                {"key": key, "label": _stage_label(key), "pending": pending, "scope": "participant"}
+            )
     bottlenecks.sort(key=lambda x: x["pending"], reverse=True)
-    bottlenecks = bottlenecks[:3]
-
-    total = len(participants_out)
+    bottlenecks = bottlenecks[:4]
 
     return {
         "engagement_type_code": engagement_type_code,
