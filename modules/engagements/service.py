@@ -3955,12 +3955,14 @@ class EngagementsService:
                 return iso()
             return str(value)
 
+        slot_detail = await self.resolve_slot_detail(db, engagement)
+
         engagement_snapshot = {
             "assessment_package_id": engagement.assessment_package_id,
             "diagnostic_package_id": engagement.diagnostic_package_id,
             "start_date": _progress_date(engagement.start_date),
             "end_date": _progress_date(engagement.end_date),
-            "slot_detail": engagement.slot_detail,
+            "slot_detail": slot_detail,
         }
 
         return compute_e2e_participant_progress_payload(
