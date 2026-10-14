@@ -1261,22 +1261,6 @@ async def get_engagement_questionnaire_status(
 
 
 
-
-@router.get("/{engagement_id}/participant-progress")
-async def get_engagement_participant_progress(
-    engagement_id: int,
-    db: AsyncSession = Depends(get_db),
-    employee: EmployeeContext = Depends(get_current_employee),
-    engagements_service: EngagementsService = Depends(get_engagements_service),
-):
-    data = await engagements_service.get_participant_progress_for_engagement(
-        db,
-        employee=employee,
-        engagement_id=engagement_id,
-    )
-    return success_response(data)
-
-
 @router.get("/{engagement_id}/data-completeness")
 async def get_engagement_data_completeness(
     engagement_id: int,
