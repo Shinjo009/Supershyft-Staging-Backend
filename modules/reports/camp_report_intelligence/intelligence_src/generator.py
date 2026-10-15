@@ -2426,9 +2426,26 @@ def generate_structured_insight(
 def generate_leadership_takeaways(profile: CompanyHealthProfile) -> list[LeadershipTakeawayCard]:
     from .formatter import format_leadership_cards
 
-    if len(profile.coverage) == 0:
+    if not _profile_has_measured_camp_data(profile):
         return []
     return format_leadership_cards(profile)
+
+
+def _profile_has_measured_camp_data(profile: CompanyHealthProfile) -> bool:
+    """True only when a camp section has a real sample, not empty zero-filled charts."""
+    for finding in profile.findings.values():
+        if (finding.sample_size or 0) > 0:
+            return True
+    nutrition = profile.findings.get("nutrition")
+    extras = nutrition.extras if nutrition is not None else None
+    if isinstance(extras, dict):
+        for key in ("nutritionScore", "fitnessScore", "lifestyleScore"):
+            try:
+                if float(extras.get(key) or 0) > 0:
+                    return True
+            except (TypeError, ValueError):
+                continue
+    return False
 
 
 def generate_positive_insights(profile: CompanyHealthProfile) -> ChartNarrative:

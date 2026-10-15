@@ -330,7 +330,10 @@ def _attach_leadership_takeaways(
         report[LEADERSHIP_TAKEAWAYS_SECTION] = section
         return
     intelligence = _leadership_intelligence_from_insights(insights)
-    section["intelligence"] = intelligence
+    if intelligence:
+        section["intelligence"] = intelligence
+    else:
+        section.pop("intelligence", None)
     report[LEADERSHIP_TAKEAWAYS_SECTION] = section
 
 

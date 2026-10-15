@@ -1206,14 +1206,16 @@ class CampReportsService:
                 )
             except ValueError:
                 intelligence = {}
-            return {
+            payload = {
                 "name": "Leadership Takeaways",
                 "description": (
                     "Workforce-level leadership observations and strategic next steps."
                 ),
                 "data": {},
-                "intelligence": intelligence,
             }
+            if intelligence:
+                payload["intelligence"] = intelligence
+            return payload
 
         section_row = await self._sections_repository.get_by_section_key(
             db,
@@ -1419,7 +1421,10 @@ class CampReportsService:
                 "Workforce-level leadership observations and strategic next steps.",
             )
             section_payload.setdefault("data", {})
-            section_payload["intelligence"] = intelligence
+            if intelligence:
+                section_payload["intelligence"] = intelligence
+            else:
+                section_payload.pop("intelligence", None)
         else:
             section_payload = dict(report[camp_section_key])
             section_payload["intelligence"] = intelligence
