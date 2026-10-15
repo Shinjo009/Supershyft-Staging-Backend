@@ -2553,12 +2553,36 @@ class EngagementsService:
         if not isinstance(engagement_consultations, dict):
             engagement_consultations = {}
 
+        from modules.reports.blood_booking_reports import get_current_report_root
+        from modules.reports.blood_report_archival import is_archived_blood_report_url
+        from modules.reports.models import IndividualHealthReport
+
+        blood_root = await get_current_report_root(
+            db,
+            user_id=user_id,
+            engagement_id=engagement_id,
+        )
+        blood_report_generated = bool(
+            blood_root
+            and is_archived_blood_report_url((blood_root.diagnostic_report_url or "").strip())
+        )
+
+        ihr_result = await db.execute(
+            select(IndividualHealthReport.report_url).where(
+                IndividualHealthReport.user_id == user_id,
+                IndividualHealthReport.engagement_id == engagement_id,
+            )
+        )
+        bio_ai_generated = any(bool((url or "").strip()) for (url,) in ihr_result.all())
+
         return {
             "engagement_id": engagement_id,
             "engagement_code": engagement.engagement_code,
             "consultation_mode": effective_consultation_mode(engagement).value,
             "my_consultations": my_consultations,
             "consultations": engagement_consultations,
+            "blood_report_generated": blood_report_generated,
+            "bio_ai_generated": bio_ai_generated,
         }
 
     async def update_participant_department_for_employee(

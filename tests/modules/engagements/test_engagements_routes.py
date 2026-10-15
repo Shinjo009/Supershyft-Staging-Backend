@@ -2005,6 +2005,7 @@ async def test_get_engagement_consultations_for_user(async_client, test_db_sessi
     engagement_id = 8706
     participant_id = 87061
     consultation_id = 870611
+    type_id = await _engagement_type_id(test_db_session, "consultation")
 
     test_db_session.add(User(user_id=user_id, age=30, phone="1037000000", status="active"))
     await test_db_session.flush()
@@ -2013,7 +2014,7 @@ async def test_get_engagement_consultations_for_user(async_client, test_db_sessi
             engagement_id=engagement_id,
             engagement_name="User Consultations Engagement",
             engagement_code="UCON8706",
-            engagement_type="consultation",
+            engagement_type=type_id,
             consultations={"doctor": True, "nutritionist": True},
             consultation_mode=ConsultationMode.offline,
             assessment_package_id=1,
@@ -2031,8 +2032,7 @@ async def test_get_engagement_consultations_for_user(async_client, test_db_sessi
             engagement_participant_id=participant_id,
             engagement_id=engagement_id,
             user_id=user_id,
-            engagement_date=date(2026, 2, 1),
-            slot_start_time=time(10, 0),
+            booked_by_user_id=user_id,
             consultation_booking_ids=[consultation_id, consultation_id + 1],
         )
     )
@@ -2083,6 +2083,76 @@ async def test_get_engagement_consultations_for_user(async_client, test_db_sessi
     assert by_type["nutritionist"]["want"] is True
     assert by_type["nutritionist"]["consultation_summary"] is None
     assert by_type["nutritionist"]["done"] is False
+    assert data["blood_report_generated"] is False
+    assert data["bio_ai_generated"] is False
+
+
+@pytest.mark.asyncio
+async def test_get_engagement_consultations_report_generated_flags(async_client, test_db_session):
+    from modules.engagements.blood_booking_enums import BloodBookingRelation, BloodBookingStatus
+    from modules.engagements.models import ConsultationMode, Engagement, EngagementParticipant, ParticipantBloodBooking
+    from modules.reports.models import IndividualHealthReport
+
+    user_id = 1039
+    engagement_id = 8708
+    participant_id = 87081
+    type_id = await _engagement_type_id(test_db_session, "consultation")
+
+    test_db_session.add(User(user_id=user_id, age=30, phone="1039000000", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Engagement(
+            engagement_id=engagement_id,
+            engagement_name="Report Flags Engagement",
+            engagement_code="RFLG8708",
+            engagement_type=type_id,
+            consultations={"doctor": True},
+            consultation_mode=ConsultationMode.online,
+            assessment_package_id=1,
+            diagnostic_package_id=1,
+            city="BLR",
+            slot_duration=20,
+            start_date=date(2026, 2, 1),
+            end_date=date(2026, 2, 1),
+            status="running",
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        EngagementParticipant(
+            engagement_participant_id=participant_id,
+            engagement_id=engagement_id,
+            user_id=user_id,
+            booked_by_user_id=user_id,
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        ParticipantBloodBooking(
+            engagement_participant_id=participant_id,
+            relation=BloodBookingRelation.primary.value,
+            status=BloodBookingStatus.active.value,
+            diagnostic_report_url="https://supershyft.com/reports/AbCdEfGhIjKlMnOp.pdf",
+        )
+    )
+    test_db_session.add(
+        IndividualHealthReport(
+            report_id=8708101,
+            user_id=user_id,
+            engagement_id=engagement_id,
+            report_url="https://bio-ai-reports.example/r/user8708.pdf",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        f"/engagements/{engagement_id}/consultation",
+        headers=user_auth_header(user_id),
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["blood_report_generated"] is True
+    assert data["bio_ai_generated"] is True
 
 
 @pytest.mark.asyncio
