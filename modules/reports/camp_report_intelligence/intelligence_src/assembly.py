@@ -323,7 +323,10 @@ def _attach_leadership_takeaways(
         "Workforce-level leadership observations and strategic next steps.",
     )
     section.setdefault("data", {})
-    section["intelligence"] = intelligence
+    if intelligence:
+        section["intelligence"] = intelligence
+    else:
+        section.pop("intelligence", None)
     report[LEADERSHIP_TAKEAWAYS_SECTION] = section
 
 

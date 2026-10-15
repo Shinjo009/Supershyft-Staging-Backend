@@ -337,7 +337,7 @@ def test_enrich_skips_missing_sections_without_creating_them():
 
 def test_enrich_empty_report_does_not_fabricate_leadership_or_wins():
     enriched = enrich_camp_report_with_intelligence({"meta": {}})
-    assert enriched[LEADERSHIP_TAKEAWAYS_SECTION]["intelligence"] == {}
+    assert "intelligence" not in enriched[LEADERSHIP_TAKEAWAYS_SECTION]
     assert "positive_wins" not in enriched
 
 
