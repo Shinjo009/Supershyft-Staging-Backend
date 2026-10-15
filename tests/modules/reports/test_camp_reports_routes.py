@@ -2566,6 +2566,7 @@ async def _seed_camp_participants_enriched(test_db_session, *, organization_id: 
             assessment_instance_id=assessment_id,
             diagnostic_report_url="https://supershyft.com/reports/AbCdEfGhIjKlMnOp.pdf",
             report_url="https://example.com/bio-ai.pdf",
+            reports={"metabolic_age": 34.0},
         )
     )
 
@@ -2689,6 +2690,140 @@ async def test_list_camp_participants_enriched_fields(async_client, test_db_sess
         "bio_ai_report_sent": True,
     }
     assert row["consultations"] is True
+
+
+@pytest.mark.asyncio
+async def test_list_camp_participants_bio_ai_requires_reports_json_not_stale_url(
+    async_client, test_db_session
+):
+    """Stale report_url on a fresh engagement must not mark Bio AI as generated.
+
+    Reproduces user 6820 / camp 6141026: prior camp has full IHR reports, current
+    engagement has an IHR shell with only report_url (no reports JSON).
+    """
+    from datetime import datetime, timezone
+
+    from modules.assessments.models import AssessmentInstance, AssessmentPackage
+    from modules.reports.models import IndividualHealthReport
+    from tests.helpers.engagement_types import engagement_type_id
+
+    await _seed_employee(test_db_session, user_id=7910, employee_id=219)
+
+    org_id = 9710
+    prev_engagement_id = 9710
+    current_engagement_id = 9711
+    user_id = 97110
+    pkg_id = 9710
+    prev_assessment_id = 97130
+    current_assessment_id = 97131
+
+    test_db_session.add(
+        AssessmentPackage(
+            package_id=pkg_id,
+            package_code="PKG-9710",
+            display_name="MetSights Essentials",
+            assessment_type_code="1",
+            status="active",
+        )
+    )
+    await test_db_session.flush()
+
+    camp_no, _ = await _seed_camp(
+        test_db_session,
+        organization_id=org_id,
+        engagement_id=current_engagement_id,
+    )
+    type_id = await engagement_type_id(test_db_session, "bio_ai")
+    test_db_session.add(
+        Engagement(
+            engagement_id=prev_engagement_id,
+            engagement_name="Prior Camp Engagement",
+            organization_id=org_id,
+            camp_no=compute_camp_no(org_id, date(2025, 1, 10)),
+            engagement_code="PRIOR9710",
+            engagement_type=type_id,
+            assessment_package_id=None,
+            diagnostic_package_id=None,
+            city="MUM",
+            slot_duration=20,
+            start_date=date(2025, 1, 10),
+            end_date=date(2025, 1, 12),
+            status="completed",
+        )
+    )
+    test_db_session.add(
+        User(
+            user_id=user_id,
+            first_name="Dnyaneshwar",
+            last_name="Kardore",
+            gender="male",
+            age=41,
+            phone="971100000000",
+            email="dnyaneshwar@example.com",
+            status="active",
+        )
+    )
+    await test_db_session.flush()
+
+    test_db_session.add_all(
+        [
+            EngagementParticipant(
+                engagement_participant_id=97120,
+                engagement_id=prev_engagement_id,
+                user_id=user_id,
+            ),
+            EngagementParticipant(
+                engagement_participant_id=97121,
+                engagement_id=current_engagement_id,
+                user_id=user_id,
+            ),
+            AssessmentInstance(
+                assessment_instance_id=prev_assessment_id,
+                user_id=user_id,
+                package_id=pkg_id,
+                engagement_id=prev_engagement_id,
+                status="complete",
+                metsights_record_id="PREV-REC",
+                assigned_at=datetime.now(timezone.utc),
+            ),
+            AssessmentInstance(
+                assessment_instance_id=current_assessment_id,
+                user_id=user_id,
+                package_id=pkg_id,
+                engagement_id=current_engagement_id,
+                status="active",
+                metsights_record_id="CURR-REC",
+                assigned_at=datetime.now(timezone.utc),
+            ),
+            IndividualHealthReport(
+                report_id=971300,
+                user_id=user_id,
+                engagement_id=prev_engagement_id,
+                assessment_instance_id=prev_assessment_id,
+                report_url="https://storages.metsights.com/reports/prev.pdf",
+                reports={"metabolic_age": 45.0},
+            ),
+            # Current engagement: URL present (stale) but no reports JSON yet.
+            IndividualHealthReport(
+                report_id=971301,
+                user_id=user_id,
+                engagement_id=current_engagement_id,
+                assessment_instance_id=current_assessment_id,
+                report_url="https://bio-ai-reports.supershyft.com/r/StaleUrlFromPrior",
+                reports=None,
+            ),
+        ]
+    )
+    await test_db_session.commit()
+
+    headers = _auth_header(219)
+    response = await async_client.get(f"/reports/camps/{camp_no}/participants", headers=headers)
+    assert response.status_code == 200
+    row = next(item for item in response.json()["data"] if item["user_id"] == user_id)
+
+    assert row["engagement_id"] == current_engagement_id
+    assert row["reports"]["bio_ai_report_generated"] is False
+    assert row["reports"]["bio_ai_report_sent"] is False
 
 
 @pytest.mark.asyncio

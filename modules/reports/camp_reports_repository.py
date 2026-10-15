@@ -154,10 +154,6 @@ class CampParticipantEnrichment:
     consultations: bool
 
 
-def _url_present(value: str | None) -> bool:
-    return bool(str(value).strip() if value else "")
-
-
 def _notification_user_ids(raw_user: Any) -> set[int]:
     if not isinstance(raw_user, dict):
         return set()
@@ -2594,7 +2590,7 @@ class CampReportsRepository:
             select(
                 IndividualHealthReport.user_id,
                 IndividualHealthReport.engagement_id,
-                IndividualHealthReport.report_url,
+                IndividualHealthReport.reports,
             ).where(
                 IndividualHealthReport.user_id.in_(user_ids),
                 IndividualHealthReport.engagement_id.in_(engagement_ids),
@@ -2608,11 +2604,15 @@ class CampReportsRepository:
                 continue
             if diagnostic_url and is_archived_blood_report_url(str(diagnostic_url).strip()):
                 blood_generated.add(key)
-        for user_id, engagement_id, report_url in ihr_result.all():
+        for user_id, engagement_id, reports in ihr_result.all():
             key = (int(user_id), int(engagement_id))
             if key not in enrollment_keys:
                 continue
-            if _url_present(report_url):
+            # Match compute_kpi_metrics: Bio AI is "generated" only when the
+            # reports JSON exists for this engagement. A leftover report_url
+            # (e.g. copied from a prior camp onto a fresh assessment shell)
+            # must not count as generated.
+            if _coerce_reports_dict(reports):
                 bio_generated.add(key)
 
         for key, participant_id in participant_by_key.items():
