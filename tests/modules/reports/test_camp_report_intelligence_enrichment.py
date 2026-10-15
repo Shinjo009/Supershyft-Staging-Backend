@@ -341,6 +341,28 @@ def test_enrich_empty_report_does_not_fabricate_leadership_or_wins():
     assert "positive_wins" not in enriched
 
 
+def test_enrich_preserves_manual_leadership_takeaways():
+    curated = {
+        "name": "Leadership Takeaways",
+        "description": "Custom copy",
+        "data": {},
+        "manual": True,
+        "intelligence": {
+            "workforce_health": {
+                "tone": "concern",
+                "statement": "Manually curated workforce statement.",
+            }
+        },
+    }
+    report = sample_camp_report()
+    report[LEADERSHIP_TAKEAWAYS_SECTION] = curated
+    enriched = enrich_camp_report_with_intelligence(report)
+    takeaways = enriched[LEADERSHIP_TAKEAWAYS_SECTION]
+    assert takeaways["manual"] is True
+    assert takeaways["intelligence"] == curated["intelligence"]
+    assert takeaways["description"] == "Custom copy"
+
+
 def test_leadership_takeaways_match_raw_leadership_cards():
     original = sample_camp_report()
     raw = generate_report_insights(original)

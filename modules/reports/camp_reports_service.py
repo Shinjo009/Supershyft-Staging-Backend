@@ -1194,7 +1194,10 @@ class CampReportsService:
 
         if normalized_section == LEADERSHIP_TAKEAWAYS_SECTION:
             stored = report.get(LEADERSHIP_TAKEAWAYS_SECTION)
-            if isinstance(stored, dict) and stored.get("intelligence"):
+            # Always return the stored payload when present. Never inject
+            # regenerated intelligence on read — that overwrote admin edits
+            # whenever ``intelligence`` was missing or empty.
+            if isinstance(stored, dict):
                 return dict(stored)
             try:
                 _, intelligence = generate_camp_section_intelligence(
@@ -1208,7 +1211,7 @@ class CampReportsService:
                 "description": (
                     "Workforce-level leadership observations and strategic next steps."
                 ),
-                "data": stored.get("data") if isinstance(stored, dict) else {},
+                "data": {},
                 "intelligence": intelligence,
             }
 
@@ -1397,6 +1400,15 @@ class CampReportsService:
                 message="Report section has not been refreshed",
             )
 
+        if leadership_section:
+            section_payload = dict(report.get(camp_section_key) or {})
+            # Honour admin lock: skip regeneration until ``manual`` is cleared.
+            if section_payload.get("manual"):
+                report[camp_section_key] = section_payload
+                existing_intel = section_payload.get("intelligence")
+                intelligence = existing_intel if isinstance(existing_intel, dict) else {}
+                return report, section_payload, intelligence
+
         _, intelligence = generate_camp_section_intelligence(report, normalized_section)
 
         if leadership_section:
@@ -1541,6 +1553,11 @@ class CampReportsService:
 
         report = dict(row.report or {})
         section_payload = dict(payload)
+        # Mark leadership takeaways as manually curated so refresh/enrich
+        # does not silently replace admin-edited intelligence.
+        if normalized_section == LEADERSHIP_TAKEAWAYS_SECTION:
+            if "manual" not in section_payload:
+                section_payload["manual"] = True
         report[normalized_section] = section_payload
         await self._repository.update_report(db, row, report)
 
