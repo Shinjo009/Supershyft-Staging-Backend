@@ -2,10 +2,24 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from core.exceptions import AppError
+
+_DATE_KEY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_SECTION_META_KEYS = frozenset({"is_enable"})
+
+
+def is_slot_detail_date_key(key: str) -> bool:
+    return bool(_DATE_KEY_RE.match(str(key)))
+
+
+def section_is_enabled(section: Any) -> bool:
+    if not isinstance(section, dict):
+        return True
+    return section.get("is_enable", True) is not False
 
 SLOT_UNAVAILABLE_CODE = "SLOT_UNAVAILABLE"
 SLOT_UNAVAILABLE_MESSAGE = "No such Slot Available"
@@ -155,6 +169,10 @@ def iter_section_date_cabins(section: Any) -> list[tuple[str, dict[str, Any], li
         return []
     result: list[tuple[str, dict[str, Any], list[Any]]] = []
     for date_key, raw in section.items():
+        if str(date_key) in _SECTION_META_KEYS:
+            continue
+        if not is_slot_detail_date_key(str(date_key)):
+            continue
         entry = normalize_date_entry(raw)
         result.append((str(date_key), entry, get_cabins_from_date_entry(entry)))
     return result
@@ -252,7 +270,7 @@ def locate_cabin(
     if not isinstance(slot_detail, dict):
         return None
     section_data = slot_detail.get(section)
-    if not isinstance(section_data, dict):
+    if not isinstance(section_data, dict) or not section_is_enabled(section_data):
         return None
     raw = section_data.get(date_key)
     if isinstance(raw, list):
@@ -310,7 +328,7 @@ def find_active_cabin(
     if not isinstance(slot_detail, dict):
         return None
     section_data = slot_detail.get(section) or {}
-    if not isinstance(section_data, dict):
+    if not isinstance(section_data, dict) or not section_is_enabled(section_data):
         return None
     entry = get_date_entry(section_data, date_key)
     if entry is None or not date_entry_is_enabled(entry):
@@ -415,7 +433,16 @@ def build_public_slot_detail(
         section = slot_detail.get(section_key)
         if not isinstance(section, dict) or not section:
             continue
-        public_section: dict[str, dict[str, Any]] = {}
+        section_enabled = section_is_enabled(section)
+        public_section: dict[str, Any] = {"is_enable": section_enabled}
+        if not section_enabled:
+            for date_key, _entry, _cabins in iter_section_date_cabins(section):
+                public_section[str(date_key)] = {"is_enable": False, "cabins": []}
+            if len(public_section) > 1:
+                result[section_key] = public_section
+            elif public_section.get("is_enable") is False:
+                result[section_key] = public_section
+            continue
         for date_key, entry, cabins in iter_section_date_cabins(section):
             if not date_entry_is_enabled(entry):
                 public_section[str(date_key)] = {"is_enable": False, "cabins": []}
@@ -457,6 +484,6 @@ def build_public_slot_detail(
                     public_cabin["expert_type"] = (cabin.get("expert_type") or "").strip()
                 public_cabins.append(public_cabin)
             public_section[str(date_key)] = {"is_enable": True, "cabins": public_cabins}
-        if public_section:
+        if len(public_section) > 1:
             result[section_key] = public_section
     return result

@@ -6,7 +6,7 @@ import re
 from datetime import date, datetime, time
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_serializer, model_validator
 
 from common.validation import (
     EngagementCode,
@@ -135,28 +135,82 @@ def _normalize_date_entry(value: Any) -> dict[str, Any]:
     return {"is_enable": True, "cabins": []}
 
 
-class SlotDetail(BaseModel):
-    blood_collection: Optional[dict[str, DateSlotConfig]] = None
-    consultation: Optional[dict[str, ConsultationDateSlotConfig]] = None
-
-    @field_validator("blood_collection", "consultation", mode="before")
-    @classmethod
-    def coerce_legacy_date_entries(cls, value: Any) -> Any:
-        if value is None:
-            return value
-        if not isinstance(value, dict):
-            return value
-        return {date_key: _normalize_date_entry(entry) for date_key, entry in value.items()}
-
-    @field_validator("blood_collection", "consultation")
-    @classmethod
-    def validate_date_keys(cls, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
-        if value is None:
-            return value
-        for date_key in value:
-            if not _DATE_RE.match(date_key):
-                raise ValueError(f"Invalid date key '{date_key}'; expected YYYY-MM-DD")
+def _parse_flat_slot_detail_section(
+    value: Any,
+    *,
+    date_config_cls: type[BaseModel],
+) -> dict[str, Any]:
+    """Parse storage shape {is_enable?, YYYY-MM-DD: dateEntry} into {is_enable, dates}."""
+    if value is None:
         return value
+    if isinstance(value, dict) and "dates" in value and "is_enable" in value:
+        is_enable = value.get("is_enable", True) is not False
+        raw_dates = value.get("dates")
+        if not isinstance(raw_dates, dict):
+            raw_dates = {}
+        dates = {
+            str(date_key): date_config_cls.model_validate(_normalize_date_entry(entry))
+            for date_key, entry in raw_dates.items()
+            if _DATE_RE.match(str(date_key))
+        }
+        return {"is_enable": is_enable, "dates": dates}
+    if not isinstance(value, dict):
+        return value
+    is_enable = value.get("is_enable", True) is not False
+    dates: dict[str, Any] = {}
+    for key, entry in value.items():
+        if key == "is_enable":
+            continue
+        date_key = str(key)
+        if not _DATE_RE.match(date_key):
+            raise ValueError(f"Invalid date key '{date_key}'; expected YYYY-MM-DD")
+        dates[date_key] = date_config_cls.model_validate(_normalize_date_entry(entry))
+    return {"is_enable": is_enable, "dates": dates}
+
+
+def _serialize_flat_slot_detail_section(section: BaseModel) -> dict[str, Any]:
+    is_enable = getattr(section, "is_enable", True)
+    dates = getattr(section, "dates", {}) or {}
+    out: dict[str, Any] = {"is_enable": is_enable is not False}
+    for date_key, entry in dates.items():
+        if hasattr(entry, "model_dump"):
+            out[str(date_key)] = entry.model_dump(mode="json")
+        else:
+            out[str(date_key)] = entry
+    return out
+
+
+class BloodCollectionSlotSection(BaseModel):
+    is_enable: bool = True
+    dates: dict[str, DateSlotConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_flat(cls, value: Any) -> Any:
+        return _parse_flat_slot_detail_section(value, date_config_cls=DateSlotConfig)
+
+    @model_serializer
+    def serialize_flat(self) -> dict[str, Any]:
+        return _serialize_flat_slot_detail_section(self)
+
+
+class ConsultationSlotSection(BaseModel):
+    is_enable: bool = True
+    dates: dict[str, ConsultationDateSlotConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_flat(cls, value: Any) -> Any:
+        return _parse_flat_slot_detail_section(value, date_config_cls=ConsultationDateSlotConfig)
+
+    @model_serializer
+    def serialize_flat(self) -> dict[str, Any]:
+        return _serialize_flat_slot_detail_section(self)
+
+
+class SlotDetail(BaseModel):
+    blood_collection: Optional[BloodCollectionSlotSection] = None
+    consultation: Optional[ConsultationSlotSection] = None
 
     @model_validator(mode="after")
     def unique_cabin_keys(self) -> SlotDetail:
@@ -164,7 +218,7 @@ class SlotDetail(BaseModel):
         for section in (self.blood_collection, self.consultation):
             if not section:
                 continue
-            for date_entry in section.values():
+            for date_entry in section.dates.values():
                 for cabin in date_entry.cabins:
                     keys.append(cabin.cabin_key)
         if len(keys) != len(set(keys)):

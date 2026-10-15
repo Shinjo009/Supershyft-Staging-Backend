@@ -142,6 +142,8 @@ def test_build_public_slot_detail_applies_occupancy_and_skips_inactive():
     occupancy = {occupancy_key("blood_test_cabin_1", date(2026, 8, 20), time(9, 0)): 5}
     consultation_occupancy = {occupancy_key("consultation_cabin_1", date(2026, 8, 20), time(9, 0)): 1}
     public = build_public_slot_detail(slot_detail, occupancy, consultation_occupancy)
+    assert public["blood_collection"]["is_enable"] is True
+    assert public["consultation"]["is_enable"] is True
     blood_day = public["blood_collection"]["2026-08-20"]
     assert blood_day["is_enable"] is True
     blood_cabins = blood_day["cabins"]
@@ -242,6 +244,7 @@ def test_build_public_slot_detail_includes_disabled_dates_with_empty_cabins():
         }
     }
     public = build_public_slot_detail(slot_detail)
+    assert public["blood_collection"]["is_enable"] is True
     assert public["blood_collection"]["2026-08-20"] == {"is_enable": False, "cabins": []}
     assert public["blood_collection"]["2026-08-21"]["is_enable"] is True
     assert [c["cabin_key"] for c in public["blood_collection"]["2026-08-21"]["cabins"]] == [
@@ -389,6 +392,92 @@ def test_build_public_slot_detail_applies_per_slot_capacity_override():
         {"slot": "10:00", "spot_left": 6},
         {"slot": "10:30", "spot_left": 5},
     ]
+
+
+def test_build_public_slot_detail_section_disabled():
+    slot_detail = {
+        "blood_collection": {
+            "is_enable": False,
+            "2026-08-20": {
+                "is_enable": True,
+                "cabins": [
+                    {
+                        "cabin_name": "Blood Test Cabin 1",
+                        "cabin_key": "blood_test_cabin_1",
+                        "start_time": "09:00",
+                        "end_time": "10:00",
+                        "slot_duration": 30,
+                        "capacity_per_slot": 6,
+                        "breaks": [],
+                        "is_active": True,
+                    }
+                ],
+            },
+        }
+    }
+    public = build_public_slot_detail(slot_detail)
+    assert public["blood_collection"]["is_enable"] is False
+    assert public["blood_collection"]["2026-08-20"] == {"is_enable": False, "cabins": []}
+
+
+def test_require_available_blood_collection_slot_rejects_disabled_section():
+    slot_detail = {
+        "blood_collection": {
+            "is_enable": False,
+            "2026-08-20": {
+                "is_enable": True,
+                "cabins": [
+                    {
+                        "cabin_name": "Blood Test Cabin 1",
+                        "cabin_key": "blood_test_cabin_1",
+                        "start_time": "09:00",
+                        "end_time": "17:00",
+                        "slot_duration": 30,
+                        "capacity_per_slot": 6,
+                        "breaks": [],
+                        "is_active": True,
+                    }
+                ],
+            }
+        }
+    }
+    with pytest.raises(AppError) as err:
+        require_available_blood_collection_slot(
+            slot_detail,
+            collection_date=date(2026, 8, 20),
+            cabin_key="blood_test_cabin_1",
+            slot_time=time(9, 0),
+        )
+    assert err.value.error_code == SLOT_UNAVAILABLE_CODE
+
+
+def test_slot_detail_schema_accepts_section_is_enable():
+    from modules.engagements.schemas import SlotDetail
+
+    payload = {
+        "blood_collection": {
+            "is_enable": True,
+            "2026-08-20": {
+                "is_enable": True,
+                "cabins": [
+                    {
+                        "cabin_name": "Blood Test Cabin 1",
+                        "cabin_key": "blood_test_cabin_1",
+                        "start_time": "09:00",
+                        "end_time": "10:00",
+                        "slot_duration": 30,
+                        "capacity_per_slot": 6,
+                        "breaks": [],
+                        "is_active": True,
+                    }
+                ],
+            },
+        }
+    }
+    model = SlotDetail.model_validate(payload)
+    dumped = model.model_dump(mode="json")
+    assert dumped["blood_collection"]["is_enable"] is True
+    assert dumped["blood_collection"]["2026-08-20"]["cabins"][0]["cabin_key"] == "blood_test_cabin_1"
 
 
 def test_build_cabin_slot_rows_includes_end_and_override():

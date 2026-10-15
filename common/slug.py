@@ -60,12 +60,16 @@ def derive_cabin_base_key(cabin_name: str, cabin_key: str) -> str:
 
 def iter_slot_detail_cabins(slot_detail: dict) -> list[dict]:
     """Collect cabin dicts from legacy list or {is_enable, cabins} date entries."""
+    from modules.engagements.slot_availability import is_slot_detail_date_key
+
     cabins: list[dict] = []
     for section_name in ("blood_collection", "consultation"):
         section = slot_detail.get(section_name)
         if not isinstance(section, dict):
             continue
-        for raw in section.values():
+        for date_key, raw in section.items():
+            if not is_slot_detail_date_key(str(date_key)):
+                continue
             if isinstance(raw, list):
                 cabin_list = raw
             elif isinstance(raw, dict) and isinstance(raw.get("cabins"), list):

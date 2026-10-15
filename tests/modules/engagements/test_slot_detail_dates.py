@@ -34,6 +34,16 @@ def test_engagement_collection_date_matches_start_date_fallback():
     )
 
 
+def test_blood_collection_dates_exclude_disabled_section():
+    slot_detail = {
+        "blood_collection": {
+            "is_enable": False,
+            "2026-06-02": {"is_enable": True, "cabins": []},
+        }
+    }
+    assert blood_collection_dates_include(slot_detail, date(2026, 6, 2)) is False
+
+
 def test_engagement_collection_date_does_not_fallback_when_blood_dates_exist():
     slot_detail = {
         "blood_collection": {

@@ -5,12 +5,16 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+from modules.engagements.slot_availability import is_slot_detail_date_key, section_is_enabled
+
 
 def _blood_collection_section(slot_detail: dict[str, Any] | None) -> dict[str, Any] | None:
     if not slot_detail:
         return None
     blood = slot_detail.get("blood_collection")
     if not isinstance(blood, dict) or not blood:
+        return None
+    if not section_is_enabled(blood):
         return None
     return blood
 
@@ -26,6 +30,8 @@ def blood_collection_dates_include(
 
     target_str = target.isoformat()
     for date_key, cfg in blood.items():
+        if not is_slot_detail_date_key(str(date_key)):
+            continue
         if date_key != target_str:
             continue
         if isinstance(cfg, dict) and cfg.get("is_enable") is False:
