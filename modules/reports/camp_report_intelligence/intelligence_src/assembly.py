@@ -313,8 +313,11 @@ def _attach_leadership_takeaways(
     report: MutableMapping[str, Any],
     insights: Mapping[str, Any],
 ) -> None:
-    """Source ``leadership_cards`` → camp section ``leadership_takeaways``."""
-    intelligence = _leadership_intelligence_from_insights(insights)
+    """Source ``leadership_cards`` → camp section ``leadership_takeaways``.
+
+    When the section was manually curated in admin (``manual: true``), keep the
+    stored intelligence and do not regenerate.
+    """
     existing = report.get(LEADERSHIP_TAKEAWAYS_SECTION)
     section: Dict[str, Any] = dict(existing) if isinstance(existing, dict) else {}
     section.setdefault("name", "Leadership Takeaways")
@@ -323,6 +326,10 @@ def _attach_leadership_takeaways(
         "Workforce-level leadership observations and strategic next steps.",
     )
     section.setdefault("data", {})
+    if section.get("manual"):
+        report[LEADERSHIP_TAKEAWAYS_SECTION] = section
+        return
+    intelligence = _leadership_intelligence_from_insights(insights)
     if intelligence:
         section["intelligence"] = intelligence
     else:

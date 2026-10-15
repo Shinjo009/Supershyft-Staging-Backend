@@ -888,6 +888,140 @@ async def test_update_camp_report_dashboard_section_payload(async_client, test_d
     assert row.report["participation_by_age"]["description"] == "manually edited"
 
 
+async def _seed_leadership_takeaways_section(test_db_session, *, report_sections: int = 9100):
+    existing = (
+        await test_db_session.execute(
+            select(CampReportSection).where(
+                CampReportSection.section_key == "leadership_takeaways"
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
+    row = CampReportSection(
+        report_sections=report_sections,
+        section="Leadership Takeaways",
+        section_key="leadership_takeaways",
+        description="Workforce-level leadership observations and strategic next steps.",
+    )
+    test_db_session.add(row)
+    await test_db_session.commit()
+    return row
+
+
+@pytest.mark.asyncio
+async def test_leadership_takeaways_get_preserves_stored_without_regenerating(
+    async_client, test_db_session
+):
+    """GET must not inject auto intelligence when a stored section exists."""
+    await _seed_employee(test_db_session, user_id=7710, employee_id=1710)
+    await _seed_leadership_takeaways_section(test_db_session, report_sections=9101)
+    camp_no, _ = await _seed_camp(test_db_session, organization_id=9410, engagement_id=9410)
+    headers = _auth_header(1710)
+
+    init = await async_client.post(f"/reports/camps/{camp_no}/init", headers=headers)
+    assert init.status_code == 201
+    report_id = init.json()["data"]["report_id"]
+
+    stored = {
+        "name": "Leadership Takeaways",
+        "description": "Workforce-level leadership observations and strategic next steps.",
+        "data": {},
+    }
+    row = (
+        await test_db_session.execute(select(CampReport).where(CampReport.report_id == report_id))
+    ).scalar_one()
+    report = dict(row.report or {})
+    report["leadership_takeaways"] = stored
+    row.report = report
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        f"/reports/camps/{camp_no}/dashboard",
+        headers=headers,
+        params={"section": "leadership_takeaways"},
+    )
+    assert response.status_code == 200
+    body = response.json()["data"]
+    assert body == stored
+    assert "intelligence" not in body
+
+
+@pytest.mark.asyncio
+async def test_leadership_takeaways_manual_edit_survives_refresh(
+    async_client, test_db_session
+):
+    await _seed_employee(test_db_session, user_id=7711, employee_id=1711)
+    await _seed_leadership_takeaways_section(test_db_session, report_sections=9102)
+    camp_no, _ = await _seed_camp(test_db_session, organization_id=9411, engagement_id=9411)
+    headers = _auth_header(1711)
+
+    init = await async_client.post(f"/reports/camps/{camp_no}/init", headers=headers)
+    assert init.status_code == 201
+    report_id = init.json()["data"]["report_id"]
+
+    curated = {
+        "name": "Leadership Takeaways",
+        "description": "Custom leadership copy",
+        "data": {},
+        "intelligence": {
+            "workforce_health": {
+                "tone": "concern",
+                "statement": "Admin-curated workforce takeaway.",
+            },
+            "lifestyle_priority": {
+                "tone": "positive",
+                "statement": "Admin-curated lifestyle takeaway.",
+            },
+            "disease_focus": {
+                "tone": "concern",
+                "statement": "Admin-curated disease takeaway.",
+            },
+            "strategic_next_step": {
+                "tone": "positive",
+                "statement": "Admin-curated next step.",
+            },
+        },
+    }
+    update = await async_client.put(
+        f"/reports/camps/{camp_no}/dashboard",
+        headers=headers,
+        json={"section": "leadership_takeaways", "payload": curated},
+    )
+    assert update.status_code == 200
+    saved = update.json()["data"]["section"]
+    assert saved["manual"] is True
+    assert saved["intelligence"]["workforce_health"]["statement"] == (
+        "Admin-curated workforce takeaway."
+    )
+
+    refresh = await async_client.put(
+        f"/reports/camps/{camp_no}/refresh",
+        headers=headers,
+        params={"async": "false"},
+        json={"section": "leadership_takeaways"},
+    )
+    assert refresh.status_code == 200
+    refreshed = refresh.json()["data"]["section"]
+    assert refreshed["manual"] is True
+    assert refreshed["intelligence"] == curated["intelligence"]
+
+    dashboard = await async_client.get(
+        f"/reports/camps/{camp_no}/dashboard",
+        headers=headers,
+        params={"section": "leadership_takeaways"},
+    )
+    assert dashboard.status_code == 200
+    assert dashboard.json()["data"]["intelligence"] == curated["intelligence"]
+
+    row = (
+        await test_db_session.execute(select(CampReport).where(CampReport.report_id == report_id))
+    ).scalar_one()
+    assert row.report["leadership_takeaways"]["intelligence"] == curated["intelligence"]
+    assert row.report["leadership_takeaways"]["manual"] is True
+
+
 @pytest.mark.asyncio
 async def test_get_camp_report_dashboard_section_not_found(async_client, test_db_session):
     await _seed_employee(test_db_session, user_id=7604, employee_id=74)
