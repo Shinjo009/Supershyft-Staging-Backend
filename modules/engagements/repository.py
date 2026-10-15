@@ -1672,18 +1672,43 @@ class EngagementsRepository:
             .order_by(Engagement.engagement_id.asc())
         )
         result = await db.execute(query)
+        rows = list(result.all())
+        if not rows:
+            return []
+
+        engagement_ids = [int(row.engagement_id) for row in rows]
+        pbb_result = await db.execute(
+            select(EngagementParticipant.engagement_id)
+            .join(
+                ParticipantBloodBooking,
+                ParticipantBloodBooking.engagement_participant_id
+                == EngagementParticipant.engagement_participant_id,
+            )
+            .where(
+                EngagementParticipant.engagement_id.in_(engagement_ids),
+                ParticipantBloodBooking.collection_date == collection_date,
+                ParticipantBloodBooking.status == "active",
+            )
+            .distinct()
+        )
+        engagements_with_booking_on_date = {int(eid) for (eid,) in pbb_result.all()}
+
         matches: list[tuple[int, list[NotificationServiceConfigItem]]] = []
-        for row in result.all():
+        for row in rows:
             service_configs = normalize_notification_services(row.notification_services)
             if not service_configs:
                 continue
+            engagement_id = int(row.engagement_id)
             if not engagement_collection_date_matches(
                 start_date=row.start_date,
                 slot_detail=row.slot_detail,
                 collection_date=collection_date,
+                has_participant_booking_on_date=(
+                    engagement_id in engagements_with_booking_on_date
+                ),
             ):
                 continue
-            matches.append((int(row.engagement_id), service_configs))
+            matches.append((engagement_id, service_configs))
         return matches
 
     async def list_participants_for_questionnaire_reminder(

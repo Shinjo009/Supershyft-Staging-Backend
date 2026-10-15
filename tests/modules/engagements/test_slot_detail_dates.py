@@ -55,3 +55,32 @@ def test_engagement_collection_date_does_not_fallback_when_blood_dates_exist():
         slot_detail=slot_detail,
         collection_date=date(2026, 6, 2),
     )
+
+
+def test_engagement_collection_date_matches_participant_booking_when_no_slot_blood():
+    assert engagement_collection_date_matches(
+        start_date=date(2026, 10, 14),
+        slot_detail=None,
+        collection_date=date(2026, 10, 16),
+        has_participant_booking_on_date=True,
+    )
+    assert not engagement_collection_date_matches(
+        start_date=date(2026, 10, 14),
+        slot_detail=None,
+        collection_date=date(2026, 10, 16),
+        has_participant_booking_on_date=False,
+    )
+
+
+def test_engagement_collection_date_ignores_booking_flag_when_slot_blood_exists():
+    slot_detail = {
+        "blood_collection": {
+            "2026-06-05": {"is_enable": True, "cabins": []},
+        }
+    }
+    assert not engagement_collection_date_matches(
+        start_date=date(2026, 6, 2),
+        slot_detail=slot_detail,
+        collection_date=date(2026, 6, 2),
+        has_participant_booking_on_date=True,
+    )

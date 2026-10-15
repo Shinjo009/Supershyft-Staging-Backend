@@ -1,8 +1,9 @@
-"""Dispatch booking guide notifications to onboarding assistants.
+"""Dispatch booking guide notifications to assigned phlebo partners.
 
 Finds scheduled or running engagements whose blood collection is tomorrow (IST)
-and dispatches booking_guide notifications to assigned admin and onboarding
-assistant employees. Intended to run once daily via an external scheduler.
+— from slot_detail blood_collection dates, else active participant blood-booking
+dates, else engagement start_date — and dispatches booking_guide notifications
+to assigned phlebo partners. Intended to run once daily via an external scheduler.
 
 Production example (Linux cron, IST):
 
