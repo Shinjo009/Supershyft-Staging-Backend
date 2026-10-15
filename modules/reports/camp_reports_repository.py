@@ -2586,14 +2586,29 @@ class CampReportsRepository:
                 EngagementParticipant.engagement_id.in_(engagement_ids),
             )
         )
+        # Match compute_kpi_metrics / count_bio_ai_reports: only Basic/Pro
+        # (assessment_type_code 1/2) with non-empty reports JSON count as Bio AI.
+        # FitPrint (type 7) also stores IHR.reports and must not flip this flag.
+        # A leftover report_url alone also must not count as generated.
         ihr_result = await db.execute(
             select(
                 IndividualHealthReport.user_id,
                 IndividualHealthReport.engagement_id,
                 IndividualHealthReport.reports,
-            ).where(
+            )
+            .join(
+                AssessmentInstance,
+                AssessmentInstance.assessment_instance_id
+                == IndividualHealthReport.assessment_instance_id,
+            )
+            .join(
+                AssessmentPackage,
+                AssessmentPackage.package_id == AssessmentInstance.package_id,
+            )
+            .where(
                 IndividualHealthReport.user_id.in_(user_ids),
                 IndividualHealthReport.engagement_id.in_(engagement_ids),
+                AssessmentPackage.assessment_type_code.in_(_METSIGHTS_PRO_BASIC_TYPE_CODES),
             )
         )
         blood_generated: set[tuple[int, int]] = set()
@@ -2608,10 +2623,6 @@ class CampReportsRepository:
             key = (int(user_id), int(engagement_id))
             if key not in enrollment_keys:
                 continue
-            # Match compute_kpi_metrics: Bio AI is "generated" only when the
-            # reports JSON exists for this engagement. A leftover report_url
-            # (e.g. copied from a prior camp onto a fresh assessment shell)
-            # must not count as generated.
             if _coerce_reports_dict(reports):
                 bio_generated.add(key)
 

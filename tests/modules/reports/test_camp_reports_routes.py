@@ -2827,6 +2827,129 @@ async def test_list_camp_participants_bio_ai_requires_reports_json_not_stale_url
 
 
 @pytest.mark.asyncio
+async def test_list_camp_participants_fitprint_reports_do_not_count_as_bio_ai(
+    async_client, test_db_session
+):
+    """FitPrint IHR.reports JSON must not set bio_ai_report_generated.
+
+    Reproduces camp 6141026 users 6711/6848/6951: FitPrint Full (type 7) has
+    reports JSON while Basic/Pro Bio AI reports JSON is still missing.
+    """
+    from datetime import datetime, timezone
+
+    from modules.assessments.models import AssessmentInstance, AssessmentPackage
+    from modules.reports.models import IndividualHealthReport
+
+    await _seed_employee(test_db_session, user_id=7911, employee_id=220)
+
+    org_id = 9720
+    engagement_id = 9720
+    user_id = 97210
+    basic_pkg_id = 9720
+    fitprint_pkg_id = 9721
+    basic_assessment_id = 97230
+    fitprint_assessment_id = 97231
+
+    test_db_session.add_all(
+        [
+            AssessmentPackage(
+                package_id=basic_pkg_id,
+                package_code="PKG-9720-BASIC",
+                display_name="MetSights Basic",
+                assessment_type_code="1",
+                status="active",
+            ),
+            AssessmentPackage(
+                package_id=fitprint_pkg_id,
+                package_code="PKG-9720-FITPRINT",
+                display_name="FitPrint Full",
+                assessment_type_code="7",
+                status="active",
+            ),
+        ]
+    )
+    await test_db_session.flush()
+
+    camp_no, _ = await _seed_camp(
+        test_db_session,
+        organization_id=org_id,
+        engagement_id=engagement_id,
+    )
+    test_db_session.add(
+        User(
+            user_id=user_id,
+            first_name="Gaurav",
+            last_name="Yadav",
+            gender="male",
+            age=45,
+            phone="972100000000",
+            email="gaurav@example.com",
+            status="active",
+        )
+    )
+    await test_db_session.flush()
+
+    test_db_session.add_all(
+        [
+            EngagementParticipant(
+                engagement_participant_id=97220,
+                engagement_id=engagement_id,
+                user_id=user_id,
+            ),
+            AssessmentInstance(
+                assessment_instance_id=basic_assessment_id,
+                user_id=user_id,
+                package_id=basic_pkg_id,
+                engagement_id=engagement_id,
+                status="active",
+                metsights_record_id="BASIC-REC",
+                assigned_at=datetime.now(timezone.utc),
+            ),
+            AssessmentInstance(
+                assessment_instance_id=fitprint_assessment_id,
+                user_id=user_id,
+                package_id=fitprint_pkg_id,
+                engagement_id=engagement_id,
+                status="active",
+                metsights_record_id="FIT-REC",
+                assigned_at=datetime.now(timezone.utc),
+            ),
+            # Basic: URL only, no Bio AI reports JSON yet.
+            IndividualHealthReport(
+                report_id=972300,
+                user_id=user_id,
+                engagement_id=engagement_id,
+                assessment_instance_id=basic_assessment_id,
+                report_url="https://bio-ai-reports.supershyft.com/r/OnlyUrl",
+                reports=None,
+            ),
+            # FitPrint: has reports JSON — must NOT count as Bio AI generated.
+            IndividualHealthReport(
+                report_id=972301,
+                user_id=user_id,
+                engagement_id=engagement_id,
+                assessment_instance_id=fitprint_assessment_id,
+                report_url=None,
+                reports={
+                    "record": "FIT-REC",
+                    "fitness_specification": {"score": 90, "status": "Excellent"},
+                    "activity_specification": {"score": 80, "status": "Good"},
+                },
+            ),
+        ]
+    )
+    await test_db_session.commit()
+
+    headers = _auth_header(220)
+    response = await async_client.get(f"/reports/camps/{camp_no}/participants", headers=headers)
+    assert response.status_code == 200
+    row = next(item for item in response.json()["data"] if item["user_id"] == user_id)
+
+    assert row["reports"]["bio_ai_report_generated"] is False
+    assert row["reports"]["bio_ai_report_sent"] is False
+
+
+@pytest.mark.asyncio
 async def test_list_camp_participants_organization_manager_own_camp(async_client, test_db_session):
     camp_no, _ = await _seed_organization_manager_for_camp(test_db_session)
     start = date(2026, 6, 23)
