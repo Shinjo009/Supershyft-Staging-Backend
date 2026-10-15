@@ -248,7 +248,7 @@ async def test_console_assessment_status_wrong_engagement_returns_404(async_clie
         headers=_auth_header(882),
     )
     assert response.status_code == 404
-    assert response.json()["error_code"] == "ASSESSMENT_NOT_FOUND"
+    assert response.json()["error_code"] == "PARTICIPANT_NOT_FOUND"
 
 
 @pytest.mark.asyncio

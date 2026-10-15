@@ -8,7 +8,12 @@ import pytest
 
 from modules.assessments.models import AssessmentPackage
 from modules.diagnostics.models import DiagnosticPackage
-from modules.engagements.models import Engagement, EngagementParticipant, OnboardingAssistantAssignment
+from modules.engagements.models import (
+    Engagement,
+    EngagementParticipant,
+    OnboardingAssistantAssignment,
+    ParticipantBloodBooking,
+)
 from modules.organizations.models import Organization
 from modules.users.models import User
 from tests.helpers.auth import employee_auth_header, partner_auth_header, seed_employee, seed_partner
@@ -337,8 +342,15 @@ async def test_console_participants_includes_age(async_client, test_db_session):
             engagement_participant_id=9001,
             engagement_id=6015,
             user_id=9201,
-            engagement_date=date.today(),
-            slot_start_time=time(10, 0),
+            booked_by_user_id=9201,
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        ParticipantBloodBooking(
+            engagement_participant_id=9001,
+            collection_date=date.today(),
+            collection_time=time(10, 0),
         )
     )
     await test_db_session.commit()

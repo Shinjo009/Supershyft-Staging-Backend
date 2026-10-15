@@ -12,6 +12,7 @@ from modules.diagnostics.models import DiagnosticPackage
 from modules.engagements.models import Engagement, EngagementParticipant
 from modules.users.models import User
 from tests.helpers.auth import employee_auth_header, seed_employee
+from tests.helpers.console_camp import get_current_blood_booking, upsert_camp_participant_with_schedule
 
 
 def _auth_header(employee_id: int) -> dict[str, str]:
@@ -38,14 +39,14 @@ async def test_console_cancel_booking_success(async_client, test_db_session):
                 reference_id="REF50",
                 package_name="Healthians Camp",
                 diagnostic_provider="healthians",
-                external_package_code=1001,
+                external_package_code="1001",
                 status="active",
                 bookings_count=0,
             )
         )
     else:
         existing_diag.diagnostic_provider = "healthians"
-        existing_diag.external_package_code = 1001
+        existing_diag.external_package_code = "1001"
     await seed_employee(test_db_session, employee_id=501, role="admin", commit=False)
 
     existing_eng = await test_db_session.get(Engagement, 7001)
@@ -55,7 +56,7 @@ async def test_console_cancel_booking_success(async_client, test_db_session):
                 engagement_id=7001,
                 engagement_name="Camp Eng",
                 engagement_code="CAMP7001",
-                engagement_type="diagnostic",
+                engagement_type=None,
                 assessment_package_id=1,
                 diagnostic_package_id=50,
                 external_camp_id=1001,
@@ -89,24 +90,16 @@ async def test_console_cancel_booking_success(async_client, test_db_session):
         )
     )
     await test_db_session.flush()
-    existing_participant = await test_db_session.get(EngagementParticipant, 95001)
-    if existing_participant is None:
-        test_db_session.add(
-            EngagementParticipant(
-                engagement_participant_id=95001,
-                engagement_id=7001,
-                user_id=93002,
-                booked_by_user_id=93002,
-                engagement_date=date.today(),
-                slot_start_time=time(10, 0),
-                booking_id="1715622590",
-                barcode="BC95001",
-            )
-        )
-    else:
-        existing_participant.booking_id = "1715622590"
-        existing_participant.barcode = "BC95001"
-        existing_participant.booked_by_user_id = 93002
+    await upsert_camp_participant_with_schedule(
+        test_db_session,
+        engagement_participant_id=95001,
+        engagement_id=7001,
+        user_id=93002,
+        collection_date=date.today(),
+        collection_time=time(10, 0),
+        booking_id="1715622590",
+        barcode="BC95001",
+    )
     await test_db_session.commit()
 
     mock_cancel = AsyncMock(
@@ -130,9 +123,12 @@ async def test_console_cancel_booking_success(async_client, test_db_session):
     assert call_kwargs["vendor_customer_id"] == "93002"
     assert call_kwargs["remarks"] == "Testing cancel"
 
-    participant = await test_db_session.get(EngagementParticipant, 95001)
-    assert participant.booking_id is None
-    assert participant.barcode is None
+    blood_row = await get_current_blood_booking(
+        test_db_session, engagement_participant_id=95001
+    )
+    assert blood_row is not None
+    assert blood_row.booking_id is None
+    assert blood_row.barcode is None
 
 
 @pytest.mark.asyncio
@@ -153,7 +149,7 @@ async def test_console_cancel_booking_requires_remarks(async_client, test_db_ses
             engagement_id=7002,
             engagement_name="Camp Eng 2",
             engagement_code="CAMP7002",
-            engagement_type="diagnostic",
+            engagement_type=None,
             assessment_package_id=1,
             diagnostic_package_id=1,
             status="running",

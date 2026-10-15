@@ -20,6 +20,7 @@ from modules.engagements.models import (
 )
 from modules.users.models import User
 from tests.helpers.auth import employee_auth_header, seed_employee
+from tests.helpers.console_camp import get_current_blood_booking, upsert_camp_participant_with_schedule
 
 
 def _auth_header(employee_id: int) -> dict[str, str]:
@@ -48,14 +49,14 @@ async def test_console_book_participant_uses_engagement_external_camp_id(async_c
                 reference_id="REF51",
                 package_name="Healthians Camp",
                 diagnostic_provider="healthians",
-                external_package_code=2002,
+                external_package_code="2002",
                 status="active",
                 bookings_count=0,
             )
         )
     else:
         existing_diag.diagnostic_provider = "healthians"
-        existing_diag.external_package_code = 2002
+        existing_diag.external_package_code = "2002"
 
     await seed_employee(test_db_session, employee_id=601, role="admin", commit=False)
 
@@ -104,24 +105,16 @@ async def test_console_book_participant_uses_engagement_external_camp_id(async_c
     )
     await test_db_session.flush()
 
-    existing_participant = await test_db_session.get(EngagementParticipant, 96001)
-    if existing_participant is None:
-        test_db_session.add(
-            EngagementParticipant(
-                engagement_participant_id=96001,
-                engagement_id=7101,
-                user_id=93102,
-                booked_by_user_id=93102,
-                engagement_date=date.today(),
-                slot_start_time=time(10, 0),
-            )
-        )
-    else:
-        existing_participant.booking_id = None
-        existing_participant.barcode = None
-        existing_participant.booked_by_user_id = 93102
-        existing_participant.engagement_date = date.today()
-        existing_participant.slot_start_time = time(10, 0)
+    await upsert_camp_participant_with_schedule(
+        test_db_session,
+        engagement_participant_id=96001,
+        engagement_id=7101,
+        user_id=93102,
+        collection_date=date.today(),
+        collection_time=time(10, 0),
+        booking_id=None,
+        barcode=None,
+    )
     await test_db_session.commit()
 
     mock_serviceability = AsyncMock(
@@ -165,11 +158,14 @@ async def test_console_book_participant_uses_engagement_external_camp_id(async_c
     assert customer["email"] == "pat.participant@example.com"
     assert booking_payload["email"] == "pat.participant@example.com"
 
-    participant = await test_db_session.get(EngagementParticipant, 96001)
-    assert participant.booking_id == "1715622999"
-    assert participant.barcode == "BC96001"
-    assert participant.engagement_date == date.today()
-    assert participant.slot_start_time == time(10, 0)
+    blood_row = await get_current_blood_booking(
+        test_db_session, engagement_participant_id=96001
+    )
+    assert blood_row is not None
+    assert blood_row.booking_id == "1715622999"
+    assert blood_row.barcode == "BC96001"
+    assert blood_row.collection_date == date.today()
+    assert blood_row.collection_time == time(10, 0)
 
 
 @pytest.mark.asyncio
@@ -385,7 +381,7 @@ async def test_console_home_collection_book_flow(async_client, test_db_session, 
                 reference_id="REF52",
                 package_name="Healthians Home",
                 diagnostic_provider="healthians",
-                external_package_code=2003,
+                external_package_code="2003",
                 original_price=999,
                 status="active",
                 bookings_count=0,
@@ -393,7 +389,7 @@ async def test_console_home_collection_book_flow(async_client, test_db_session, 
         )
     else:
         existing_diag.diagnostic_provider = "healthians"
-        existing_diag.external_package_code = 2003
+        existing_diag.external_package_code = "2003"
         existing_diag.original_price = 999
 
     await seed_employee(test_db_session, employee_id=611, role="admin", commit=False)
@@ -435,28 +431,26 @@ async def test_console_home_collection_book_flow(async_client, test_db_session, 
     )
     await test_db_session.flush()
 
-    existing_participant = await test_db_session.get(EngagementParticipant, 96002)
-    if existing_participant is None:
-        test_db_session.add(
-            EngagementParticipant(
-                engagement_participant_id=96002,
-                engagement_id=7102,
-                user_id=93112,
-                booked_by_user_id=93112,
-                engagement_date=date.today(),
-                slot_start_time=time(10, 0),
-            )
-        )
-    else:
-        existing_participant.booking_id = None
-        existing_participant.barcode = None
-        existing_participant.blood_collection_time_slot_id = None
-        existing_participant.healthians_zone_id = None
-        existing_participant.latitude = None
-        existing_participant.longitude = None
-        existing_participant.address = None
-        existing_participant.pincode = None
-        existing_participant.booked_by_user_id = 93112
+    participant = await upsert_camp_participant_with_schedule(
+        test_db_session,
+        engagement_participant_id=96002,
+        engagement_id=7102,
+        user_id=93112,
+        collection_date=date.today(),
+        collection_time=time(10, 0),
+        booking_id=None,
+        barcode=None,
+    )
+    participant.healthians_zone_id = None
+    participant.latitude = None
+    participant.longitude = None
+    participant.address = None
+    participant.pincode = None
+    blood_row = await get_current_blood_booking(
+        test_db_session, engagement_participant_id=96002
+    )
+    if blood_row is not None:
+        blood_row.collection_time_slot_id = None
     await test_db_session.commit()
 
     auth = _auth_header(611)
@@ -584,9 +578,13 @@ async def test_console_home_collection_book_flow(async_client, test_db_session, 
     assert booking_payload["slot"] == {"slot_id": "STM96002"}
 
     participant = await test_db_session.get(EngagementParticipant, 96002)
-    assert participant.booking_id == "1715623000"
     assert participant.healthians_zone_id == "77"
-    assert participant.blood_collection_time_slot_id == "STM96002"
+    blood_row = await get_current_blood_booking(
+        test_db_session, engagement_participant_id=96002
+    )
+    assert blood_row is not None
+    assert blood_row.booking_id == "1715623000"
+    assert blood_row.collection_time_slot_id == "STM96002"
 
 
 @pytest.mark.asyncio
@@ -604,7 +602,7 @@ async def test_console_home_collection_book_allows_blank_last_name(
                 reference_id="REF52",
                 package_name="Healthians Home",
                 diagnostic_provider="healthians",
-                external_package_code=2003,
+                external_package_code="2003",
                 original_price=999,
                 status="active",
                 bookings_count=0,
@@ -723,28 +721,28 @@ async def test_console_book_persists_barcode_when_healthians_fails(
                 reference_id="REF51",
                 package_name="Healthians Camp",
                 diagnostic_provider="healthians",
-                external_package_code=2002,
+                external_package_code="2002",
                 status="active",
                 bookings_count=0,
             )
         )
     else:
         existing_diag.diagnostic_provider = "healthians"
-        existing_diag.external_package_code = 2002
+        existing_diag.external_package_code = "2002"
 
     await seed_employee(test_db_session, employee_id=621, role="admin", commit=False)
 
-    existing_eng = await test_db_session.get(Engagement, 7103)
+    existing_eng = await test_db_session.get(Engagement, 7105)
     if existing_eng is None:
         test_db_session.add(
             Engagement(
-                engagement_id=7103,
+                engagement_id=7105,
                 engagement_name="Camp Eng Book Fail",
-                engagement_code="CAMP7103",
+                engagement_code="CAMP7105",
                 engagement_type=None,
                 assessment_package_id=1,
                 diagnostic_package_id=51,
-                external_camp_id=3004,
+                external_camp_id=3005,
                 status="running",
                 start_date=date.today(),
                 end_date=date.today(),
@@ -757,7 +755,7 @@ async def test_console_book_persists_barcode_when_healthians_fails(
         )
     else:
         existing_eng.diagnostic_package_id = 51
-        existing_eng.external_camp_id = 3004
+        existing_eng.external_camp_id = 3005
         existing_eng.status = "running"
         existing_eng.latitude = 28.6
         existing_eng.longitude = 77.2
@@ -766,9 +764,9 @@ async def test_console_book_persists_barcode_when_healthians_fails(
 
     test_db_session.add(
         User(
-            user_id=93103,
+            user_id=93104,
             age=35,
-            phone="9310300000",
+            phone="9310400000",
             email="fail.participant@example.com",
             status="active",
             first_name="Fail",
@@ -779,22 +777,16 @@ async def test_console_book_persists_barcode_when_healthians_fails(
     )
     await test_db_session.flush()
 
-    existing_participant = await test_db_session.get(EngagementParticipant, 96003)
-    if existing_participant is None:
-        test_db_session.add(
-            EngagementParticipant(
-                engagement_participant_id=96003,
-                engagement_id=7103,
-                user_id=93103,
-                booked_by_user_id=93103,
-                engagement_date=date.today(),
-                slot_start_time=time(10, 0),
-            )
-        )
-    else:
-        existing_participant.booking_id = None
-        existing_participant.barcode = None
-        existing_participant.booked_by_user_id = 93103
+    await upsert_camp_participant_with_schedule(
+        test_db_session,
+        engagement_participant_id=96004,
+        engagement_id=7105,
+        user_id=93104,
+        collection_date=date.today(),
+        collection_time=time(10, 0),
+        booking_id=None,
+        barcode=None,
+    )
     await test_db_session.commit()
 
     mock_serviceability = AsyncMock(
@@ -817,8 +809,8 @@ async def test_console_book_persists_barcode_when_healthians_fails(
                 AsyncMock(return_value="token"),
             ):
                 response = await async_client.post(
-                    "/engagements/7103/console/participants/93103/book",
-                    json={"barcode": "BC96003-KEEP"},
+                    "/engagements/7105/console/participants/93104/book",
+                    json={"barcode": "BC96004-KEEP"},
                     headers=_auth_header(621),
                 )
 
@@ -827,6 +819,9 @@ async def test_console_book_persists_barcode_when_healthians_fails(
 
     # Expire cached identity so we see the early commit from book_participant.
     test_db_session.expire_all()
-    participant = await test_db_session.get(EngagementParticipant, 96003)
-    assert participant.booking_id is None
-    assert participant.barcode == "BC96003-KEEP"
+    blood_row = await get_current_blood_booking(
+        test_db_session, engagement_participant_id=96004
+    )
+    assert blood_row is not None
+    assert blood_row.booking_id is None
+    assert blood_row.barcode == "BC96004-KEEP"
