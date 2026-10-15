@@ -103,18 +103,20 @@ async def run_import(
     on_progress = _make_progress_printer()
     print("Loading incomplete assessment instances for all engagements...", flush=True)
 
+    # Do not wrap in session.begin(): import paths call release_request_transaction().
     async with session_factory() as session:
-        async with session.begin():
-            result = await import_metsights_answers(
-                session,
-                metsights_service=metsights_service,
-                sync_service=sync_service,
-                questionnaire_repository=QuestionnaireRepository(),
-                as_of=as_of,
-                dry_run=dry_run,
-                all_engagements=True,
-                on_progress=on_progress,
-            )
+        result = await import_metsights_answers(
+            session,
+            metsights_service=metsights_service,
+            sync_service=sync_service,
+            questionnaire_repository=QuestionnaireRepository(),
+            as_of=as_of,
+            dry_run=dry_run,
+            all_engagements=True,
+            on_progress=on_progress,
+        )
+        if session.in_transaction():
+            await session.commit()
 
     await engine.dispose()
     return result

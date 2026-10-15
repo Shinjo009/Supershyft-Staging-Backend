@@ -106,16 +106,19 @@ async def run_push(
     on_progress = _make_progress_printer()
     print("Loading assessment instances for running engagements...", flush=True)
 
+    # Do not wrap in session.begin(): push_questionnaire_for_instance calls
+    # release_request_transaction() around MetSights HTTP I/O.
     async with session_factory() as session:
-        async with session.begin():
-            result = await push_questionnaires_to_metsights(
-                session,
-                sync_service=sync_service,
-                questionnaire_repository=QuestionnaireRepository(),
-                as_of=as_of,
-                dry_run=dry_run,
-                on_progress=on_progress,
-            )
+        result = await push_questionnaires_to_metsights(
+            session,
+            sync_service=sync_service,
+            questionnaire_repository=QuestionnaireRepository(),
+            as_of=as_of,
+            dry_run=dry_run,
+            on_progress=on_progress,
+        )
+        if session.in_transaction():
+            await session.commit()
 
     await engine.dispose()
     return result
