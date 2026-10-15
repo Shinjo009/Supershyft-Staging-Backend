@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import date, time
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -101,8 +100,6 @@ async def _seed_participant_with_assessment(
                 engagement_id=engagement_id,
                 user_id=participant_user_id,
                 booked_by_user_id=participant_user_id,
-                engagement_date=date.today(),
-                slot_start_time=time(10, 0),
             )
         )
 
@@ -188,6 +185,42 @@ async def test_console_assessment_routes_forbidden_for_unassigned_oa(async_clien
         response = await async_client.get(path, headers=headers)
         assert response.status_code == 403
         assert response.json()["error_code"] == "FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_console_list_participant_assessments_success_for_assigned_phlebo(
+    async_client, test_db_session
+):
+    engagement_id = 8808
+    participant_user_id = 88028
+    assessment_instance_id = 88038
+
+    await _seed_partner(test_db_session, partner_id=887)
+    await _seed_engagement(test_db_session, engagement_id=engagement_id, status="running")
+    await _assign_assistant(
+        test_db_session,
+        assignment_id=88051,
+        partner_id=887,
+        engagement_id=engagement_id,
+    )
+    await _seed_participant_with_assessment(
+        test_db_session,
+        engagement_id=engagement_id,
+        participant_user_id=participant_user_id,
+        assessment_instance_id=assessment_instance_id,
+        package_id=8818,
+        category_id=8819,
+    )
+
+    response = await async_client.get(
+        f"/engagements/{engagement_id}/console/participants/{participant_user_id}/assessments",
+        headers=_partner_auth_header(887),
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert len(data) == 1
+    assert data[0]["assessment_instance_id"] == assessment_instance_id
+    assert data[0]["engagement_id"] == engagement_id
 
 
 @pytest.mark.asyncio

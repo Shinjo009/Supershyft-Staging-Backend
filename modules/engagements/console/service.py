@@ -917,6 +917,7 @@ class ConsoleService:
         await self._ensure_console_participant_access(
             db,
             employee=employee,
+            partner=partner,
             engagement_id=engagement_id,
             user_id=user_id,
         )
@@ -949,6 +950,7 @@ class ConsoleService:
         await self._ensure_console_participant_access(
             db,
             employee=employee,
+            partner=partner,
             engagement_id=engagement_id,
             user_id=user_id,
         )
@@ -980,6 +982,7 @@ class ConsoleService:
         await self._ensure_console_participant_access(
             db,
             employee=employee,
+            partner=partner,
             engagement_id=engagement_id,
             user_id=user_id,
         )
@@ -1016,6 +1019,7 @@ class ConsoleService:
         await self._ensure_console_participant_access(
             db,
             employee=employee,
+            partner=partner,
             engagement_id=engagement_id,
             user_id=user_id,
         )
@@ -1053,6 +1057,7 @@ class ConsoleService:
         await self._ensure_console_participant_access(
             db,
             employee=employee,
+            partner=partner,
             engagement_id=engagement_id,
             user_id=user_id,
         )
