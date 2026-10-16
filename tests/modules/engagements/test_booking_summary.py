@@ -219,7 +219,7 @@ async def test_booking_summary_today_total_pending_mapping(
     assert data["today_pending_booking_count"] == 1
     assert data["today_booking_count"] == 1
     assert data["total_booking_count"] == 2
-    assert data["pending_booking_count"] == 4
+    assert data["pending_booking_count"] == 2
 
 
 @pytest.mark.asyncio
@@ -277,7 +277,7 @@ async def test_booking_summary_excludes_superseded_and_resample(
     assert data["today_pending_booking_count"] == 0
     assert data["total_booking_count"] == 1
     assert data["today_booking_count"] == 1
-    assert data["pending_booking_count"] == 1
+    assert data["pending_booking_count"] == 0
 
 
 @pytest.mark.asyncio
@@ -327,7 +327,7 @@ async def test_booking_summary_cancel_then_rebook_counts_active_only(
     assert data["today_pending_booking_count"] == 0
     assert data["total_booking_count"] == 1
     assert data["today_booking_count"] == 1
-    assert data["pending_booking_count"] == 1
+    assert data["pending_booking_count"] == 0
 
 
 @pytest.mark.asyncio

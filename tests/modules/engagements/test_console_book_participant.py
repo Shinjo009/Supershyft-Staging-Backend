@@ -166,6 +166,7 @@ async def test_console_book_participant_uses_engagement_external_camp_id(async_c
     assert blood_row.barcode == "BC96001"
     assert blood_row.collection_date == date.today()
     assert blood_row.collection_time == time(10, 0)
+    assert blood_row.collected_at is not None
 
 
 @pytest.mark.asyncio

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, time
+import re
+from datetime import date, datetime, time
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,6 +50,8 @@ logger = logging.getLogger(__name__)
 _PROVIDER_AURAE = "aurae"
 _VIFC = "vifc"
 _HEALTHIANS_NEW_BOOKING_STATUS = "BS005"
+_HEALTHIANS_COLLECTED_BOOKING_STATUS = "BS007"
+_IST = ZoneInfo("Asia/Kolkata")
 _BOOKING_CONFIRMATION_SERVICE_KEYS: tuple[str, ...] = (
     "booking-confirmation-whatsapp",
     "booking-confirmation-email",
@@ -73,6 +77,48 @@ def _is_healthians_new_booking_webhook(payload: dict) -> bool:
         data.get("booking_status") or data.get("customer_status") or ""
     ).strip().upper()
     return status == _HEALTHIANS_NEW_BOOKING_STATUS
+
+
+def _normalize_healthians_sample_collected_time_text(raw: object) -> str:
+    """Healthians may send ``07:19: AM`` (extra colon before AM/PM)."""
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    return re.sub(r":\s*(AM|PM)\b", r" \1", text, flags=re.IGNORECASE)
+
+
+def parse_healthians_sample_collected_time(raw: object) -> datetime | None:
+    """Parse ``sample_collected_time`` into an IST-aware datetime."""
+    text = _normalize_healthians_sample_collected_time_text(raw)
+    if not text:
+        return None
+    for fmt in (
+        "%Y-%m-%d %I:%M %p",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d %I:%M:%S %p",
+        "%Y-%m-%d %H:%M:%S",
+    ):
+        try:
+            naive = datetime.strptime(text, fmt)
+            return naive.replace(tzinfo=_IST)
+        except ValueError:
+            continue
+    return None
+
+
+def _is_healthians_sample_collected_webhook(payload: dict) -> bool:
+    event_type = str(payload.get("type") or "").strip()
+    if event_type == "sample_collected_confirmation":
+        return True
+    if event_type != "status_updated":
+        return False
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return False
+    status = str(
+        data.get("booking_status") or data.get("customer_status") or ""
+    ).strip().upper()
+    return status == _HEALTHIANS_COLLECTED_BOOKING_STATUS
 
 
 def _parse_healthians_collection_date(raw: object) -> date | None:
@@ -241,6 +287,30 @@ class WebhooksReceiverService:
                 return participant
 
         return None
+
+    async def _maybe_stamp_collected_at_from_healthians_webhook(
+        self,
+        db: AsyncSession,
+        *,
+        participant: EngagementParticipant,
+        payload: dict,
+    ) -> None:
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        collected_at = parse_healthians_sample_collected_time(data.get("sample_collected_time"))
+        if collected_at is None:
+            collected_at = datetime.now(_IST)
+
+        blood_repo = BloodBookingsRepository()
+        booking_id = str(payload.get("booking_id") or "").strip()
+        row = None
+        if booking_id:
+            row = await blood_repo.get_active_by_booking_id(db, booking_id=booking_id)
+        if row is None:
+            row = await blood_repo.get_current_collection(
+                db,
+                engagement_participant_id=participant.engagement_participant_id,
+            )
+        await blood_repo.set_collected_at_if_empty(db, row=row, collected_at=collected_at)
 
     async def _maybe_insert_resample_booking(
         self,
@@ -448,6 +518,12 @@ class WebhooksReceiverService:
 
         participant = await self._resolve_participant(db, payload_dict)
         if participant is not None:
+            if _is_healthians_sample_collected_webhook(payload_dict):
+                await self._maybe_stamp_collected_at_from_healthians_webhook(
+                    db,
+                    participant=participant,
+                    payload=payload_dict,
+                )
             await self._maybe_insert_resample_booking(
                 db,
                 participant=participant,

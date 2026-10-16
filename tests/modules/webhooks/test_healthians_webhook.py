@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from datetime import date, time
+from zoneinfo import ZoneInfo
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 
-from modules.engagements.models import Engagement, EngagementParticipant
+from modules.engagements.blood_booking_enums import BloodBookingRelation, BloodBookingStatus
+from modules.engagements.models import Engagement, EngagementParticipant, ParticipantBloodBooking
 from modules.users.models import User
+from modules.webhooks.receiver.service import parse_healthians_sample_collected_time
 
 
 def _sample_payload(
@@ -38,6 +41,29 @@ def _sample_payload(
         "booking_id": booking_id,
         "data": data,
     }
+
+
+def _sample_collected_confirmation_payload(
+    *,
+    booking_id: str = "20814258763",
+    sample_collected_time: str = "2026-10-16 07:19: AM",
+) -> dict:
+    return {
+        "type": "sample_collected_confirmation",
+        "booking_id": booking_id,
+        "data": {
+            "sample_collected_time": sample_collected_time,
+            "vendor_customer_id": "6625",
+        },
+    }
+
+
+def test_parse_healthians_sample_collected_time_normalizes_colon_before_ampm():
+    collected = parse_healthians_sample_collected_time("2026-10-16 07:19: AM")
+    assert collected is not None
+    assert collected.tzinfo == ZoneInfo("Asia/Kolkata")
+    assert collected.hour == 7
+    assert collected.minute == 19
 
 
 async def _seed_booking_confirmation_services(test_db_session) -> None:
@@ -213,7 +239,7 @@ async def _seed_engagement(test_db_session, *, engagement_id: int, engagement_co
             slot_duration=20,
             start_date=date(2026, 5, 1),
             end_date=date(2026, 5, 1),
-            status="active",
+            status="running",
         )
     )
     await test_db_session.commit()
@@ -349,6 +375,56 @@ async def test_receive_resolves_engagement_and_user(async_client, test_db_sessio
     row = result.mappings().one()
     assert row["engagement_id"] == 9701
     assert row["user_id"] == 9701
+
+
+@pytest.mark.asyncio
+async def test_sample_collected_confirmation_stamps_collected_at(
+    async_client, test_db_session, monkeypatch
+):
+    monkeypatch.setattr(
+        "modules.webhooks.sender.service.settings.HEALTHIANS_WEBHOOK_FORWARD_URL",
+        "",
+    )
+
+    await _seed_engagement(test_db_session, engagement_id=97150, engagement_code="ENG97150")
+    await _seed_user(test_db_session, user_id=97150)
+    test_db_session.add(
+        EngagementParticipant(
+            engagement_participant_id=971500,
+            engagement_id=97150,
+            user_id=97150,
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        ParticipantBloodBooking(
+            engagement_participant_id=971500,
+            booking_id="20814258763",
+            relation=BloodBookingRelation.primary.value,
+            status=BloodBookingStatus.active.value,
+            collection_date=date(2026, 10, 16),
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.post(
+        "/webhooks/healthians",
+        json=_sample_collected_confirmation_payload(),
+    )
+    assert response.status_code == 200, response.text
+
+    blood_row = (
+        await test_db_session.execute(
+            select(ParticipantBloodBooking).where(
+                ParticipantBloodBooking.engagement_participant_id == 971500
+            )
+        )
+    ).scalars().one()
+    assert blood_row.collected_at is not None
+    ist = blood_row.collected_at.astimezone(ZoneInfo("Asia/Kolkata"))
+    assert ist.date() == date(2026, 10, 16)
+    assert ist.hour == 7
+    assert ist.minute == 19
 
 
 @pytest.mark.asyncio

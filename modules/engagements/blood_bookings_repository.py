@@ -139,6 +139,21 @@ class BloodBookingsRepository:
         )
         return result.scalar_one_or_none()
 
+    async def set_collected_at_if_empty(
+        self,
+        db: AsyncSession,
+        *,
+        row: ParticipantBloodBooking | None,
+        collected_at: datetime,
+    ) -> bool:
+        """Set collection timestamp once; returns True when the row was updated."""
+        if row is None or row.collected_at is not None:
+            return False
+        row.collected_at = collected_at
+        db.add(row)
+        await db.flush()
+        return True
+
     async def get_or_create_current_collection(
         self,
         db: AsyncSession,
@@ -411,10 +426,7 @@ class BloodBookingsRepository:
             curr.c.booking_id.is_not(None),
             func.btrim(curr.c.booking_id) != "",
         )
-        missing_booking_id = or_(
-            curr.c.booking_id.is_(None),
-            func.btrim(func.coalesce(curr.c.booking_id, "")) == "",
-        )
+        not_collected = curr.c.collected_at.is_(None)
 
         query = (
             select(
@@ -434,7 +446,7 @@ class BloodBookingsRepository:
                                 and_(
                                     is_active,
                                     collection_date == today,
-                                    missing_booking_id,
+                                    not_collected,
                                 ),
                                 1,
                             ),
@@ -476,6 +488,7 @@ class BloodBookingsRepository:
                                     is_active,
                                     collection_date.is_not(None),
                                     collection_date >= today,
+                                    not_collected,
                                 ),
                                 1,
                             ),

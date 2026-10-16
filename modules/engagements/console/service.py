@@ -524,7 +524,7 @@ class ConsoleService:
         engagement_id: int,
         user_id: int,
         barcode: str,
-        sync_collection_to_now: bool = False,
+        sync_collection_to_now: bool | None = None,
     ) -> dict:
         await ensure_console_access(db, engagement_id, repository=self._repository, employee=employee, partner=partner)
 
@@ -836,7 +836,13 @@ class ConsoleService:
                 message=str(exc),
             ) from exc
 
-        collected_at = datetime.now(_IST) if sync_collection_to_now else None
+        if sync_collection_to_now is None:
+            effective_sync_collection = (
+                engagement.blood_collection_type != BloodCollectionType.home_collection
+            )
+        else:
+            effective_sync_collection = sync_collection_to_now
+        collected_at = datetime.now(_IST) if effective_sync_collection else None
 
         await self._repository.update_participant_healthians_booking(
             db,
