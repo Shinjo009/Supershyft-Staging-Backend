@@ -58,7 +58,7 @@ async def _seed_bioai_participant(
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'Test Diagnostic', 'healthians', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(
@@ -160,7 +160,7 @@ async def _seed_fitprint_participant(
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (1, 'Test Diagnostic', 'healthians', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
     await test_db_session.execute(

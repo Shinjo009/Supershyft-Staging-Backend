@@ -57,12 +57,8 @@ from modules.diagnostics.repository import DiagnosticsRepository
 from modules.metsights.service import MetsightsService
 from modules.metsights.sync_service import MetsightsSyncService
 from modules.diagnostics.healthians import client as healthians_client
-from modules.engagement_notifications.service_config import (
-    NotificationServiceConfigItem,
-    normalize_notification_services,
-)
-from modules.notifications.dedup import should_skip_notification
-from modules.notifications.schemas import DispatchRequest
+from modules.engagement_notifications.service_config import normalize_notification_services
+from modules.notifications.report_notifications import send_report_notifications
 from modules.notifications.service import NotificationsService
 from modules.reports.blood_parameters_normalizer import build_grouped_from_healthians
 from modules.reports.blood_report_archival import (
@@ -658,55 +654,6 @@ async def _get_or_create_blood_root(
         user_id=user_id,
         engagement_id=engagement_id,
     )
-
-
-async def _send_report_notifications(
-    db: AsyncSession,
-    *,
-    notifications_service: NotificationsService,
-    service_configs: list[NotificationServiceConfigItem],
-    user_id: int,
-    engagement_id: int,
-    assessment_instance_id: int,
-    details: list[dict[str, Any]],
-) -> int:
-    """Dispatch configured notification services that have not already been sent."""
-    sent_count = 0
-
-    for cfg in service_configs:
-        sk = cfg.service_key
-        skip_reason = await should_skip_notification(
-            db, service_key=sk, user_id=user_id, engagement_id=engagement_id,
-        )
-        if skip_reason:
-            details.append({
-                "user_id": user_id,
-                "engagement_id": engagement_id,
-                "action": "skipped",
-                "reason": f"notification '{sk}' {skip_reason}",
-            })
-            continue
-
-        await notifications_service.dispatch(
-            db,
-            payload=DispatchRequest(
-                service_key=sk,
-                user_ids=[user_id],
-                engagement_id=engagement_id,
-                assessment_instance_id=assessment_instance_id,
-                external_link=cfg.external_link,
-            ),
-            triggered_by_user_id=None,
-        )
-        sent_count += 1
-        details.append({
-            "user_id": user_id,
-            "engagement_id": engagement_id,
-            "action": "notified",
-            "reason": f"dispatched '{sk}'",
-        })
-
-    return sent_count
 
 
 async def _backfill_missing_metsights_record(
@@ -1308,7 +1255,7 @@ async def load_blood_reports(
                         })
                         continue
 
-                    notified += await _send_report_notifications(
+                    notified += await send_report_notifications(
                         db,
                         notifications_service=notifications_service,
                         service_configs=service_configs,

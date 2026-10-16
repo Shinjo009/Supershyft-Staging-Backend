@@ -37,12 +37,8 @@ from modules.bioai_report.pdf_registration import (
 )
 from modules.engagements.models import Engagement, EngagementParticipant
 from modules.metsights.service import MetsightsService
-from modules.engagement_notifications.service_config import (
-    NotificationServiceConfigItem,
-    normalize_notification_services,
-)
-from modules.notifications.dedup import should_skip_notification
-from modules.notifications.schemas import DispatchRequest
+from modules.engagement_notifications.service_config import normalize_notification_services
+from modules.notifications.report_notifications import send_report_notifications
 from modules.notifications.service import NotificationsService
 from modules.notifications.load_blood_reports import _get_or_create_ihr
 from modules.reports.blood_booking_reports import has_archived_diagnostic_blood_report
@@ -396,55 +392,6 @@ async def _get_eligible_participants(
     )
     result = await db.execute(query)
     return result.all()
-
-
-async def _send_report_notifications(
-    db: AsyncSession,
-    *,
-    notifications_service: NotificationsService,
-    service_configs: list[NotificationServiceConfigItem],
-    user_id: int,
-    engagement_id: int,
-    assessment_instance_id: int,
-    details: list[dict[str, Any]],
-) -> int:
-    """Dispatch configured notification services that have not already been sent."""
-    sent_count = 0
-
-    for cfg in service_configs:
-        sk = cfg.service_key
-        skip_reason = await should_skip_notification(
-            db, service_key=sk, user_id=user_id, engagement_id=engagement_id,
-        )
-        if skip_reason:
-            details.append({
-                "user_id": user_id,
-                "engagement_id": engagement_id,
-                "action": "skipped",
-                "reason": f"notification '{sk}' {skip_reason}",
-            })
-            continue
-
-        await notifications_service.dispatch(
-            db,
-            payload=DispatchRequest(
-                service_key=sk,
-                user_ids=[user_id],
-                engagement_id=engagement_id,
-                assessment_instance_id=assessment_instance_id,
-                external_link=cfg.external_link,
-            ),
-            triggered_by_user_id=None,
-        )
-        sent_count += 1
-        details.append({
-            "user_id": user_id,
-            "engagement_id": engagement_id,
-            "action": "notified",
-            "reason": f"dispatched '{sk}'",
-        })
-
-    return sent_count
 
 
 async def _try_recover_missing_blood_parameters(
@@ -1028,7 +975,7 @@ async def load_bioai_reports(
                         })
                         continue
 
-                    notified += await _send_report_notifications(
+                    notified += await send_report_notifications(
                         db,
                         notifications_service=notifications_service,
                         service_configs=service_configs,
