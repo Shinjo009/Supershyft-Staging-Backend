@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from modules.metsights.strategies import apply_pull_strategy, pull_passthrough, pull_string_boolean
+from modules.metsights.strategies import (
+    apply_pull_strategy,
+    apply_push_strategy,
+    pull_passthrough,
+    pull_string_boolean,
+)
 
 
 def test_pull_string_boolean_accepts_yes_no_labels():
@@ -18,6 +23,18 @@ def test_pull_string_boolean_accepts_yes_no_labels():
 def test_pull_string_boolean_direct():
     assert pull_string_boolean("iodized_salt_status", {"iodized_salt_status": "Y"}, {}) == "true"
     assert pull_string_boolean("iodized_salt_status", {"iodized_salt_status": "n"}, {}) == "false"
+
+
+def test_pull_string_boolean_accepts_capitalized_true_false():
+    cfg = {"pull": {"enabled": True, "strategy": "string_boolean"}}
+    assert apply_pull_strategy("iodized_salt_status", {"iodized_salt_status": "True"}, cfg) == "true"
+    assert apply_pull_strategy("iodized_salt_status", {"iodized_salt_status": "False"}, cfg) == "false"
+
+
+def test_push_boolean_string_from_local_true_false():
+    cfg = {"push": {"enabled": True, "strategy": "boolean_string"}}
+    assert apply_push_strategy("iodized_salt_status", "true", cfg) == {"iodized_salt_status": True}
+    assert apply_push_strategy("iodized_salt_status", "false", cfg) == {"iodized_salt_status": False}
 
 
 def test_pull_passthrough_empty_list_maps_to_none_for_disease_fields():

@@ -574,7 +574,7 @@ def test_answer_to_metsights_field_conversions():
     from modules.metsights.sync_service import _answer_to_metsights_fields
 
     assert _answer_to_metsights_fields("iodized_salt_status", "single_choice", "true") == {
-        "iodized_salt_status": "true"
+        "iodized_salt_status": True
     }
     hp = _answer_to_metsights_fields("health_priorities", "multiple_choice", ["2", "4"])
     assert hp["health_priorities"] == ["2", "4"]

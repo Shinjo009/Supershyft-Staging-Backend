@@ -98,6 +98,37 @@ def test_validate_payload_keeps_required_scale_fields_without_choices():
     assert cleaned == payload
 
 
+def test_validate_payload_maps_iodized_salt_lowercase_to_metsights_choices():
+    meta = {
+        "iodized_salt_status": _FieldMeta(valid_choices={"True", "False"}, required=True),
+    }
+    assert _validate_payload_against_options({"iodized_salt_status": "true"}, meta) == {
+        "iodized_salt_status": "True"
+    }
+    assert _validate_payload_against_options({"iodized_salt_status": "false"}, meta) == {
+        "iodized_salt_status": "False"
+    }
+    assert _validate_payload_against_options({"iodized_salt_status": True}, meta) == {
+        "iodized_salt_status": "True"
+    }
+
+
+def test_metsights_fields_for_response_uses_push_strategy_when_enabled():
+    from types import SimpleNamespace
+
+    from modules.metsights.sync_service import _metsights_fields_for_response
+
+    qdef = SimpleNamespace(
+        question_key="iodized_salt_status",
+        question_type="single_choice",
+        metsights_sync={
+            "pull": {"enabled": True, "strategy": "string_boolean"},
+            "push": {"enabled": True, "strategy": "boolean_string"},
+        },
+    )
+    assert _metsights_fields_for_response(qdef, "true") == {"iodized_salt_status": True}
+
+
 def test_validate_measurement_ranges_rejects_tiny_weight():
     from modules.metsights.anthropometry_validation import validate_metsights_payload_ranges
     from core.exceptions import AppError

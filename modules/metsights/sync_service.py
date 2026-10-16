@@ -52,7 +52,7 @@ from modules.metsights.integration_logging import metsights_api_url
 from modules.metsights.service import MetsightsService
 from modules.metsights.strategies import apply_pull_strategy, apply_push_strategy
 from modules.platform_settings.service import PlatformSettingsService
-from modules.questionnaire.models import QuestionnaireCategory, QuestionnaireResponse
+from modules.questionnaire.models import QuestionnaireCategory, QuestionnaireDefinition, QuestionnaireResponse
 from modules.questionnaire.repository import QuestionnaireRepository
 from modules.users.repository import UsersRepository
 
@@ -367,12 +367,12 @@ def _answer_to_metsights_fields(question_key: str, question_type: str, answer: A
 
         if qkey == "iodized_salt_status":
             if isinstance(answer, bool):
-                return {qkey: "true" if answer else "false"}
+                return {qkey: answer}
             low = str(answer).strip().lower()
             if low in ("true", "1", "yes"):
-                return {qkey: "true"}
+                return {qkey: True}
             if low in ("false", "0", "no"):
-                return {qkey: "false"}
+                return {qkey: False}
             return {}
 
         s = str(answer).strip()
@@ -390,6 +390,18 @@ def _answer_to_metsights_fields(question_key: str, question_type: str, answer: A
         return {qkey: s}
 
     return {}
+
+
+def _metsights_fields_for_response(qdef: QuestionnaireDefinition, answer: Any) -> dict[str, Any]:
+    """Map one questionnaire response using Metsights sync config when push is enabled."""
+    key = (qdef.question_key or "").strip()
+    if not key:
+        return {}
+    sync_cfg = qdef.metsights_sync or {}
+    push_cfg = sync_cfg.get("push") or {}
+    if push_cfg.get("enabled", False):
+        return apply_push_strategy(key, answer, sync_cfg)
+    return _answer_to_metsights_fields(key, str(qdef.question_type or ""), answer)
 
 
 def _pick_metsights_payload_for_bases(merged: dict[str, Any], bases: frozenset[str]) -> dict[str, Any]:
@@ -430,6 +442,37 @@ def _choice_label_keys(label: str) -> list[str]:
     return keys
 
 
+_BOOLEAN_CHOICE_TRUTHY = frozenset({"true", "1", "yes", "y"})
+_BOOLEAN_CHOICE_FALSY = frozenset({"false", "0", "no", "n"})
+
+
+def _is_boolean_choice_set(allowed: set[str]) -> bool:
+    if not allowed or len(allowed) > 4:
+        return False
+    lowered = {str(v).strip().lower() for v in allowed if str(v).strip()}
+    return bool(lowered) and lowered <= {"true", "false"}
+
+
+def _resolve_boolean_choice(raw: str | bool, allowed: set[str]) -> str | None:
+    """Map local true/false (or bool) to the exact Metsights OPTIONS choice code."""
+    if not _is_boolean_choice_set(allowed):
+        return None
+    if isinstance(raw, bool):
+        target = "true" if raw else "false"
+    else:
+        low = str(raw).strip().lower()
+        if low in _BOOLEAN_CHOICE_TRUTHY:
+            target = "true"
+        elif low in _BOOLEAN_CHOICE_FALSY:
+            target = "false"
+        else:
+            return None
+    for choice in allowed:
+        if str(choice).strip().lower() == target:
+            return str(choice).strip()
+    return None
+
+
 def _resolve_choice_value(raw: str, meta: _FieldMeta) -> str | None:
     """Resolve a stored answer (code or display label) to a Metsights choice code."""
     sv = (raw or "").strip()
@@ -446,6 +489,9 @@ def _resolve_choice_value(raw: str, meta: _FieldMeta) -> str | None:
     unit_code = normalize_metsights_unit_code(sv)
     if unit_code is not None and unit_code in meta.valid_choices:
         return unit_code
+    boolean_hit = _resolve_boolean_choice(sv, meta.valid_choices)
+    if boolean_hit is not None:
+        return boolean_hit
     return None
 
 
@@ -543,6 +589,10 @@ def _validate_payload_against_options(
                     filtered.append(resolved)
             cleaned[key] = filtered
         elif isinstance(value, bool):
+            resolved_bool = _resolve_boolean_choice(value, allowed)
+            if resolved_bool is not None:
+                cleaned[key] = resolved_bool
+                continue
             bool_str = "true" if value else "false"
             if bool_str in allowed:
                 cleaned[key] = bool_str
@@ -1743,7 +1793,7 @@ class MetsightsSyncService:
             key = (qdef.question_key or "").strip()
             if not key:
                 continue
-            merged.update(_answer_to_metsights_fields(key, str(qdef.question_type or ""), resp.answer))
+            merged.update(_metsights_fields_for_response(qdef, resp.answer))
 
         patched: list[str] = []
         skipped_sections: list[str] = []
@@ -1884,7 +1934,7 @@ class MetsightsSyncService:
             key = (qdef.question_key or "").strip()
             if not key:
                 continue
-            merged.update(_answer_to_metsights_fields(key, str(qdef.question_type or ""), resp.answer))
+            merged.update(_metsights_fields_for_response(qdef, resp.answer))
 
         if not merged:
             await self._log_skipped_metsights_sync(
