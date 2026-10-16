@@ -107,9 +107,16 @@ from db.session import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
-# Camps where participants list must always report Bio AI as not generated
-# (data still has FitPrint / stale IHR rows that would otherwise flip the flag).
-BIO_AI_REPORT_GENERATED_FALSE_CAMP_NOS: frozenset[int] = frozenset({6141026})
+# Camps where participants list must always report all report flags as false
+# (data still has FitPrint / stale IHR / notification rows that would otherwise flip them).
+REPORTS_ALL_FALSE_CAMP_NOS: frozenset[int] = frozenset({6141026})
+
+_REPORTS_ALL_FALSE_FIELDS: tuple[str, ...] = (
+    "blood_report_generated",
+    "blood_report_sent",
+    "bio_ai_report_generated",
+    "bio_ai_report_sent",
+)
 
 # (base_seconds, per_unit_seconds, unit_kind)
 # unit_kind: "participants" | "fitprint" | "health" | "kpi_metsights"
@@ -1032,7 +1039,7 @@ class CampReportsService:
             db,
             rows=rows,
         )
-        force_bio_ai_false = int(camp_no) in BIO_AI_REPORT_GENERATED_FALSE_CAMP_NOS
+        force_reports_false = int(camp_no) in REPORTS_ALL_FALSE_CAMP_NOS
         participants = [
             self._camp_participant_to_dict(
                 row,
@@ -1040,11 +1047,12 @@ class CampReportsService:
             )
             for row in rows
         ]
-        if force_bio_ai_false:
+        if force_reports_false:
             for participant in participants:
                 reports = participant.get("reports")
                 if isinstance(reports, dict):
-                    reports["bio_ai_report_generated"] = False
+                    for field in _REPORTS_ALL_FALSE_FIELDS:
+                        reports[field] = False
         return participants, total
 
     async def _get_camp_report_row(

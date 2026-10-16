@@ -2693,10 +2693,10 @@ async def test_list_camp_participants_enriched_fields(async_client, test_db_sess
 
 
 @pytest.mark.asyncio
-async def test_list_camp_participants_hardcodes_bio_ai_false_for_camp_6141026(
+async def test_list_camp_participants_hardcodes_all_report_flags_false_for_camp_6141026(
     async_client, test_db_session
 ):
-    """Camp 6141026 must always return bio_ai_report_generated=false for every row.
+    """Camp 6141026 must always return all four reports.* flags as false.
 
     Even when Basic/Pro IHR.reports JSON would otherwise mark Bio AI as generated.
     """
@@ -2781,7 +2781,12 @@ async def test_list_camp_participants_hardcodes_bio_ai_false_for_camp_6141026(
     assert response.status_code == 200
     row = next(item for item in response.json()["data"] if item["user_id"] == user_id)
 
-    assert row["reports"]["bio_ai_report_generated"] is False
+    assert row["reports"] == {
+        "blood_report_generated": False,
+        "blood_report_sent": False,
+        "bio_ai_report_generated": False,
+        "bio_ai_report_sent": False,
+    }
 
 
 @pytest.mark.asyncio
