@@ -626,6 +626,7 @@ class ParticipantBloodBookingAdminCreate(BaseModel):
     collection_cabin: Optional[str] = Field(default=None, max_length=100)
     collection_time_slot_id: Optional[str] = Field(default=None, max_length=100)
     parent_booking_id: Optional[str] = Field(default=None, max_length=100)
+    collected_at: Optional[datetime] = None
 
 
 class ParticipantBloodBookingAdminUpdate(BaseModel):
@@ -638,6 +639,7 @@ class ParticipantBloodBookingAdminUpdate(BaseModel):
     collection_cabin: Optional[str] = Field(default=None, max_length=100)
     collection_time_slot_id: Optional[str] = Field(default=None, max_length=100)
     parent_booking_id: Optional[str] = Field(default=None, max_length=100)
+    collected_at: Optional[datetime] = None
 
 
 class ConsultationConsentRequest(BaseModel):

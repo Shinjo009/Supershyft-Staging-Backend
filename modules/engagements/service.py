@@ -2213,6 +2213,7 @@ class EngagementsService:
             collection_cabin=(data.get("collection_cabin") or "").strip() or None,
             collection_time_slot_id=(data.get("collection_time_slot_id") or "").strip() or None,
             parent_booking_id=(data.get("parent_booking_id") or "").strip() or None,
+            collected_at=data.get("collected_at"),
         )
         db.add(row)
         try:
@@ -2268,6 +2269,8 @@ class EngagementsService:
                 exclude_pbb_id=int(row.id),
             )
             row.booking_id = bid
+        if "collected_at" in updates:
+            row.collected_at = updates["collected_at"]
         for field in (
             "relation",
             "status",
