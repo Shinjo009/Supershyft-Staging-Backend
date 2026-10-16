@@ -107,6 +107,10 @@ from db.session import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
+# Camps where participants list must always report Bio AI as not generated
+# (data still has FitPrint / stale IHR rows that would otherwise flip the flag).
+BIO_AI_REPORT_GENERATED_FALSE_CAMP_NOS: frozenset[int] = frozenset({6141026})
+
 # (base_seconds, per_unit_seconds, unit_kind)
 # unit_kind: "participants" | "fitprint" | "health" | "kpi_metsights"
 _SECTION_ESTIMATE_COSTS: dict[str, tuple[float, float, str]] = {
@@ -1028,13 +1032,20 @@ class CampReportsService:
             db,
             rows=rows,
         )
-        return [
+        force_bio_ai_false = int(camp_no) in BIO_AI_REPORT_GENERATED_FALSE_CAMP_NOS
+        participants = [
             self._camp_participant_to_dict(
                 row,
                 enrichment=enrichment_by_participant.get(int(row[0])),
             )
             for row in rows
-        ], total
+        ]
+        if force_bio_ai_false:
+            for participant in participants:
+                reports = participant.get("reports")
+                if isinstance(reports, dict):
+                    reports["bio_ai_report_generated"] = False
+        return participants, total
 
     async def _get_camp_report_row(
         self,
