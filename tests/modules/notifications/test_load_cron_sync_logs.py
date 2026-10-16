@@ -19,6 +19,7 @@ from modules.notifications.service import NotificationsService
 from modules.reports.models import IndividualHealthReport
 from modules.assessments.models import AssessmentInstance
 from modules.users.models import User
+from tests.helpers.archived_blood_report import seed_archived_diagnostic_blood_report
 
 
 async def _seed_bioai_participant(
@@ -30,6 +31,7 @@ async def _seed_bioai_participant(
     assessment_type_code: str = "2",
     metsights_record_id: str = "MS-BIOAI-CRON",
     bioai_notification: str | None = "booking-alert-whatsapp",
+    seed_archived_blood: bool = True,
 ):
     await test_db_session.execute(
         text(
@@ -139,6 +141,12 @@ async def _seed_bioai_participant(
         )
     )
     await test_db_session.commit()
+    if seed_archived_blood:
+        await seed_archived_diagnostic_blood_report(
+            test_db_session,
+            user_id=user_id,
+            engagement_id=engagement_id,
+        )
 
 
 async def _seed_fitprint_participant(

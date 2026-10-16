@@ -11,6 +11,7 @@ from modules.bioai_report.pdf_registration import (
     register_permanent_bio_ai_report_url,
 )
 from modules.metsights.service import MetsightsService
+from modules.reports.blood_booking_reports import require_archived_diagnostic_blood_report
 from modules.reports.models import IndividualHealthReport
 from modules.reports.repository import ReportsRepository
 
@@ -101,6 +102,12 @@ async def resolve_bio_ai_report_url(
             error_code="INVALID_STATE",
             message="Metsights record id is missing for this assessment",
         )
+
+    await require_archived_diagnostic_blood_report(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    )
 
     report_payload = await metsights_service.get_report(
         record_id=record_id,

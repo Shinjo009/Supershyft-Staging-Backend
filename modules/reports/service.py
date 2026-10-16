@@ -931,6 +931,14 @@ class ReportsService:
                 message="Metsights record id is missing for this assessment",
             )
 
+        from modules.reports.blood_booking_reports import require_archived_diagnostic_blood_report
+
+        await require_archived_diagnostic_blood_report(
+            db,
+            user_id=user_id,
+            engagement_id=int(assessment_instance.engagement_id),
+        )
+
         report_url = await register_permanent_bio_ai_report_url(
             db,
             assessment_instance_id=assessment_id,

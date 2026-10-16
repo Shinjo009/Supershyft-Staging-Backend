@@ -45,6 +45,7 @@ from modules.notifications.dedup import should_skip_notification
 from modules.notifications.schemas import DispatchRequest
 from modules.notifications.service import NotificationsService
 from modules.notifications.load_blood_reports import _get_or_create_ihr
+from modules.reports.blood_booking_reports import has_archived_diagnostic_blood_report
 from modules.reports.repository import ReportsRepository
 
 if TYPE_CHECKING:
@@ -460,7 +461,23 @@ async def _try_recover_missing_blood_parameters(
 
     Used when MetSights has no blood-parameters row (404) or ``is_complete`` is
     false, so BioAI load can proceed after a successful push.
+
+    Requires an archived diagnostic-partner blood report PDF; internal averages
+    only fill missing keys after that report exists.
     """
+    if not await has_archived_diagnostic_blood_report(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    ):
+        details.append({
+            "user_id": user_id,
+            "engagement_id": engagement_id,
+            "action": "skipped",
+            "reason": "diagnostic blood report not available yet",
+        })
+        return False
+
     try:
         draft_result = await assessments_service.draft_blood_parameters_from_report(
             db,
@@ -634,6 +651,23 @@ async def load_bioai_reports(
                 details.append({
                     "user_id": user_id, "engagement_id": engagement_id,
                     "action": "skipped", "reason": "no metsights_record_id",
+                })
+                continue
+
+            needs_new_bioai = not _bioai_report_data_complete(
+                existing_reports, existing_report_url
+            )
+            if needs_new_bioai and not await has_archived_diagnostic_blood_report(
+                db,
+                user_id=user_id,
+                engagement_id=engagement_id,
+            ):
+                skipped += 1
+                details.append({
+                    "user_id": user_id,
+                    "engagement_id": engagement_id,
+                    "action": "skipped",
+                    "reason": "diagnostic blood report not available yet",
                 })
                 continue
 

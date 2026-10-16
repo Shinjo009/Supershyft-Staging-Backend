@@ -26,7 +26,11 @@ from modules.assessments.schemas import MetsightsRecordIdUpdate
 from modules.employee.service import EmployeeContext
 from modules.questionnaire.models import QuestionnaireOption, QuestionnaireResponse
 from modules.questionnaire.repository import QuestionnaireRepository
-from modules.reports.blood_booking_reports import get_current_report_root, merged_blood_parameters_blob
+from modules.reports.blood_booking_reports import (
+    get_current_report_root,
+    has_archived_diagnostic_blood_report,
+    merged_blood_parameters_blob,
+)
 from modules.reports.blood_parameters_read_service import build_parameter_value_map
 from modules.reports.blood_parameters_schemas import has_usable_provider_blood_parameters
 from modules.reports.repository import ReportsRepository
@@ -795,11 +799,24 @@ class AssessmentsService:
             assessment_instance_id=assessment_instance_id,
             allow_completed=allow_completed,
         )
-        fallback_result = await self.draft_blood_parameter_internal_fallbacks(
-            db,
-            user_id=user_id,
-            assessment_instance_id=assessment_instance_id,
+        instance = await self._repository.get_instance_by_id(
+            db, assessment_instance_id=assessment_instance_id
         )
+        fallback_result: dict[str, Any] = {"responses_drafted": 0, "category_keys": []}
+        if (
+            instance is not None
+            and instance.engagement_id is not None
+            and await has_archived_diagnostic_blood_report(
+                db,
+                user_id=user_id,
+                engagement_id=int(instance.engagement_id),
+            )
+        ):
+            fallback_result = await self.draft_blood_parameter_internal_fallbacks(
+                db,
+                user_id=user_id,
+                assessment_instance_id=assessment_instance_id,
+            )
         from_report = int(report_result.get("responses_drafted") or 0)
         from_fallbacks = int(fallback_result.get("responses_drafted") or 0)
         return {

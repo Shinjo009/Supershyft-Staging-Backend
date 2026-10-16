@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.engagements.blood_booking_enums import BloodBookingStatus
 from modules.engagements.blood_bookings_repository import BloodBookingsRepository
 from modules.engagements.models import EngagementParticipant, ParticipantBloodBooking
+from core.exceptions import AppError
 from modules.reports.blood_parameters_schemas import has_usable_provider_blood_parameters
 from modules.reports.blood_report_archival import is_archived_blood_report_url
 
@@ -48,6 +49,43 @@ async def get_current_report_root(
     if current is None:
         return None
     return await repo.get_report_root(db, collection_row=current)
+
+
+async def has_archived_diagnostic_blood_report(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    engagement_id: int,
+) -> bool:
+    """True when the participant's current blood booking has an archived partner PDF."""
+    root = await get_current_report_root(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    )
+    if root is None:
+        return False
+    url = (root.diagnostic_report_url or "").strip()
+    return is_archived_blood_report_url(url)
+
+
+async def require_archived_diagnostic_blood_report(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    engagement_id: int,
+) -> None:
+    """Raise when diagnostic partner blood report PDF is not archived yet."""
+    if not await has_archived_diagnostic_blood_report(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    ):
+        raise AppError(
+            status_code=422,
+            error_code="INVALID_STATE",
+            message="Diagnostic blood report is not available yet",
+        )
 
 
 def merged_blood_parameters_blob(root: ParticipantBloodBooking | None) -> Any | None:

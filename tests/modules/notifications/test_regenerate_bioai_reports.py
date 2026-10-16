@@ -15,6 +15,7 @@ from modules.metsights.service import MetsightsService
 from modules.notifications.regenerate_bioai_reports import regenerate_bioai_reports
 from modules.reports.models import IndividualHealthReport
 from modules.users.models import User
+from tests.helpers.archived_blood_report import seed_archived_diagnostic_blood_report
 from db.seed.blood_parameters_registry import ADVANCED_BLOOD_PARAMETER_CATEGORY_KEY
 
 
@@ -121,6 +122,11 @@ async def _seed_regenerate_participant(
             )
         )
     await test_db_session.commit()
+    await seed_archived_diagnostic_blood_report(
+        test_db_session,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    )
 
 
 @pytest.mark.asyncio

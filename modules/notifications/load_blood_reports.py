@@ -50,6 +50,7 @@ from modules.engagements.models import Engagement, EngagementParticipant, Partic
 from modules.reports.blood_booking_reports import (
     get_current_report_root,
     get_participant_for_user_engagement,
+    has_archived_diagnostic_blood_report,
 )
 from modules.engagements.blood_bookings_access import get_or_create_current
 from modules.diagnostics.repository import DiagnosticsRepository
@@ -329,7 +330,13 @@ async def _sync_unsubmitted_blood_to_metsights(
                 "reason": f"blood draft failed: {str(exc)[:120]}",
             })
 
-    if is_full_report:
+    has_archived_pdf = await has_archived_diagnostic_blood_report(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    )
+
+    if is_full_report and has_archived_pdf:
         try:
             proactive_result = await assessments_service.draft_blood_parameter_internal_fallbacks(
                 db,
@@ -404,7 +411,7 @@ async def _sync_unsubmitted_blood_to_metsights(
                 ),
             })
 
-            if not is_full_report:
+            if not is_full_report or not has_archived_pdf:
                 continue
 
             try:

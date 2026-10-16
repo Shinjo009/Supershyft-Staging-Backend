@@ -25,6 +25,7 @@ from modules.questionnaire.models import QuestionnaireResponse
 from modules.questionnaire.repository import QuestionnaireRepository
 from modules.users.models import User
 from modules.users.repository import UsersRepository
+from tests.helpers.archived_blood_report import seed_archived_diagnostic_blood_report
 
 
 async def _seed_bioai_participant(
@@ -105,6 +106,11 @@ async def _seed_bioai_participant(
         )
     )
     await test_db_session.commit()
+    await seed_archived_diagnostic_blood_report(
+        test_db_session,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    )
 
 
 def _build_sync_service(metsights_service: MetsightsService) -> MetsightsSyncService:

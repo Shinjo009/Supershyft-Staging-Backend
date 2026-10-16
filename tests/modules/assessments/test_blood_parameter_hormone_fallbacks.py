@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -16,6 +16,9 @@ from modules.assessments.service import (
 @pytest.mark.asyncio
 async def test_redraft_blood_questionnaire_responses_orchestrates_report_then_fallbacks():
     service = AssessmentsService(AsyncMock())
+    service._repository.get_instance_by_id = AsyncMock(
+        return_value=MagicMock(engagement_id=1049, user_id=12399)
+    )
     service.draft_blood_parameters_from_report = AsyncMock(
         return_value={"responses_drafted": 33}
     )
@@ -23,17 +26,49 @@ async def test_redraft_blood_questionnaire_responses_orchestrates_report_then_fa
         return_value={"responses_drafted": 3, "fallback_keys": ["lh_value", "fsh_value", "testosterone"]}
     )
 
-    result = await service.redraft_blood_questionnaire_responses(
-        AsyncMock(),
-        user_id=12399,
-        assessment_instance_id=1049,
-    )
+    with patch(
+        "modules.assessments.service.has_archived_diagnostic_blood_report",
+        AsyncMock(return_value=True),
+    ):
+        result = await service.redraft_blood_questionnaire_responses(
+            AsyncMock(),
+            user_id=12399,
+            assessment_instance_id=1049,
+        )
 
     service.draft_blood_parameters_from_report.assert_awaited_once()
     service.draft_blood_parameter_internal_fallbacks.assert_awaited_once()
     assert result["responses_drafted"] == 36
     assert result["responses_drafted_from_report"] == 33
     assert result["responses_drafted_from_fallbacks"] == 3
+
+
+@pytest.mark.asyncio
+async def test_redraft_skips_internal_fallbacks_without_archived_blood_pdf():
+    service = AssessmentsService(AsyncMock())
+    service._repository.get_instance_by_id = AsyncMock(
+        return_value=MagicMock(engagement_id=1049, user_id=12399)
+    )
+    service.draft_blood_parameters_from_report = AsyncMock(
+        return_value={"responses_drafted": 10}
+    )
+    service.draft_blood_parameter_internal_fallbacks = AsyncMock(
+        return_value={"responses_drafted": 5}
+    )
+
+    with patch(
+        "modules.assessments.service.has_archived_diagnostic_blood_report",
+        AsyncMock(return_value=False),
+    ):
+        result = await service.redraft_blood_questionnaire_responses(
+            AsyncMock(),
+            user_id=12399,
+            assessment_instance_id=1049,
+        )
+
+    service.draft_blood_parameter_internal_fallbacks.assert_not_awaited()
+    assert result["responses_drafted"] == 10
+    assert result["responses_drafted_from_fallbacks"] == 0
 
 
 def test_lh_and_fsh_defaults_apply_for_male_participants():

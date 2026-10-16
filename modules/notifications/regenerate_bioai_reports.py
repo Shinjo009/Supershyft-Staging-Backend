@@ -450,6 +450,22 @@ async def regenerate_bioai_reports(
                 })
                 continue
 
+            from modules.reports.blood_booking_reports import has_archived_diagnostic_blood_report
+
+            if not await has_archived_diagnostic_blood_report(
+                db,
+                user_id=int(user_id),
+                engagement_id=int(row_engagement_id),
+            ):
+                skipped += 1
+                details.append({
+                    "user_id": user_id,
+                    "engagement_id": row_engagement_id,
+                    "action": "skipped",
+                    "reason": "diagnostic blood report not available yet",
+                })
+                continue
+
             canonical_report_url = await resolve_canonical_bio_ai_report_url(
                 db,
                 user_id=user_id,
