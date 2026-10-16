@@ -492,6 +492,21 @@ class QuestionnaireRepository:
         )
         return int(result.rowcount or 0)
 
+    async def delete_responses_for_instance_category(
+        self,
+        db: AsyncSession,
+        *,
+        assessment_instance_id: int,
+        category_id: int,
+    ) -> int:
+        result = await db.execute(
+            delete(QuestionnaireResponse).where(
+                QuestionnaireResponse.assessment_instance_id == assessment_instance_id,
+                QuestionnaireResponse.category_ids.any(category_id),
+            )
+        )
+        return int(result.rowcount or 0)
+
     async def list_question_ids_for_package(self, db: AsyncSession, *, package_id: int) -> list[int]:
         result = await db.execute(
             select(QuestionnaireCategoryQuestion.question_id)

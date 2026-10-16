@@ -332,6 +332,21 @@ class AssessmentsRepository:
         )
         return int(result.rowcount or 0)
 
+    async def delete_category_progress_for_instance_category(
+        self,
+        db: AsyncSession,
+        *,
+        assessment_instance_id: int,
+        category_id: int,
+    ) -> int:
+        result = await db.execute(
+            delete(AssessmentCategoryProgress).where(
+                AssessmentCategoryProgress.assessment_instance_id == assessment_instance_id,
+                AssessmentCategoryProgress.category_id == category_id,
+            )
+        )
+        return int(result.rowcount or 0)
+
     async def delete_instance(
         self,
         db: AsyncSession,
