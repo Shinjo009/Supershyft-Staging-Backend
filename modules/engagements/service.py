@@ -2822,9 +2822,13 @@ class EngagementsService:
                         "has_blood_report": complete.get("has_blood_report"),
                         "has_blood_values": complete.get("has_blood_values"),
                         "has_bio_ai_report": complete.get("has_bio_ai_report"),
+                        "has_bio_ai_values": complete.get("has_bio_ai_values"),
                         "has_bio_ai_json": complete.get("has_bio_ai_json"),
+                        "has_fitprint_report": complete.get("has_fitprint_report"),
+                        "has_fitprint_values": complete.get("has_fitprint_values"),
                         "blood_report_url": complete.get("blood_report_url"),
                         "bio_ai_report_url": complete.get("bio_ai_report_url"),
+                        "fitprint_report_url": complete.get("fitprint_report_url"),
                         "questionnaire_state": complete.get("questionnaire_state"),
                     }
                 )
@@ -2920,28 +2924,13 @@ class EngagementsService:
                     blood_report_url = candidate
                     break
 
-        from modules.reports.camp_reports_repository import _coerce_reports_dict
-        from modules.reports.models import IndividualHealthReport
-        from sqlalchemy import select
+        from modules.engagements.participant_report_flags import engagement_user_scoped_report_payloads
 
-        ihr_row = (
-            await db.execute(
-                select(
-                    IndividualHealthReport.report_url,
-                    IndividualHealthReport.reports,
-                ).where(
-                    IndividualHealthReport.engagement_id == engagement_id,
-                    IndividualHealthReport.user_id == user_id,
-                )
-            )
-        ).first()
-        bio_ai_report_url = blood_flags.get("bio_ai_report_url")
-        bio_ai_reports: dict[str, Any] | None = None
-        if ihr_row is not None:
-            ihr_url = str(ihr_row.report_url or "").strip()
-            if ihr_url:
-                bio_ai_report_url = bio_ai_report_url or ihr_url
-            bio_ai_reports = _coerce_reports_dict(ihr_row.reports)
+        bio_ai_reports, fitprint_reports = await engagement_user_scoped_report_payloads(
+            db,
+            engagement_id=engagement_id,
+            user_id=user_id,
+        )
 
         return {
             "engagement_id": engagement_id,
@@ -2953,12 +2942,17 @@ class EngagementsService:
                 "blood_bookings": blood_bookings,
             },
             "bio_ai": {
-                "has_bio_ai_report": bool(blood_flags.get("has_bio_ai_report"))
-                or bool(bio_ai_report_url and str(bio_ai_report_url).strip()),
-                "has_bio_ai_json": bool(blood_flags.get("has_bio_ai_json"))
-                or bool(bio_ai_reports),
-                "bio_ai_report_url": bio_ai_report_url,
+                "has_bio_ai_report": bool(blood_flags.get("has_bio_ai_report")),
+                "has_bio_ai_values": bool(blood_flags.get("has_bio_ai_values")),
+                "has_bio_ai_json": bool(blood_flags.get("has_bio_ai_json")),
+                "bio_ai_report_url": blood_flags.get("bio_ai_report_url"),
                 "reports": bio_ai_reports,
+            },
+            "fitprint": {
+                "has_fitprint_report": bool(blood_flags.get("has_fitprint_report")),
+                "has_fitprint_values": bool(blood_flags.get("has_fitprint_values")),
+                "fitprint_report_url": blood_flags.get("fitprint_report_url"),
+                "reports": fitprint_reports,
             },
             "questionnaires": {
                 "questionnaire_state": questionnaire_state,
@@ -4172,6 +4166,9 @@ class EngagementsService:
             )
         ).all()
 
+        from modules.assessments.models import AssessmentInstance, AssessmentPackage
+        from modules.engagements.participant_report_flags import _apply_ihr_row
+
         ihr_flags: dict[tuple[int, int], dict[str, bool]] = {}
         ihr_result = await db.execute(
             select(
@@ -4179,7 +4176,19 @@ class EngagementsService:
                 IndividualHealthReport.user_id,
                 IndividualHealthReport.report_url,
                 IndividualHealthReport.reports,
-            ).where(IndividualHealthReport.engagement_id.in_(engagement_ids))
+                AssessmentPackage.assessment_type_code,
+            )
+            .select_from(IndividualHealthReport)
+            .outerjoin(
+                AssessmentInstance,
+                AssessmentInstance.assessment_instance_id
+                == IndividualHealthReport.assessment_instance_id,
+            )
+            .outerjoin(
+                AssessmentPackage,
+                AssessmentPackage.package_id == AssessmentInstance.package_id,
+            )
+            .where(IndividualHealthReport.engagement_id.in_(engagement_ids))
         )
         for row in ihr_result.all():
             key = (int(row.engagement_id), int(row.user_id))
@@ -4192,10 +4201,12 @@ class EngagementsService:
                     "has_bio_ai_json": False,
                 },
             )
-            if row.report_url and str(row.report_url).strip():
-                flags["has_bio_ai_report"] = True
-            if _coerce_reports_dict(row.reports):
-                flags["has_bio_ai_json"] = True
+            _apply_ihr_row(
+                flags,
+                report_url=row.report_url,
+                reports=row.reports,
+                assessment_type_code=row.assessment_type_code,
+            )
 
         blood_result = await db.execute(
             select(
@@ -4370,6 +4381,9 @@ class EngagementsService:
             "blood_values": 0,
             "bio_ai_report": 0,
             "bio_ai_json": 0,
+            "bio_ai_values": 0,
+            "fitprint_report": 0,
+            "fitprint_values": 0,
             "questionnaire_filled": 0,
             "questionnaire_partially_filled": 0,
             "questionnaire_not_started": 0,
@@ -4410,6 +4424,9 @@ class EngagementsService:
                 rollup["blood_values"] += summary["blood_values"]
                 rollup["bio_ai_report"] += summary["bio_ai_report"]
                 rollup["bio_ai_json"] += summary["bio_ai_json"]
+                rollup["bio_ai_values"] += summary.get("bio_ai_values", summary["bio_ai_json"])
+                rollup["fitprint_report"] += summary.get("fitprint_report", 0)
+                rollup["fitprint_values"] += summary.get("fitprint_values", 0)
                 rollup["questionnaire_filled"] += summary["questionnaire_filled"]
                 rollup["questionnaire_partially_filled"] += summary["questionnaire_partially_filled"]
                 rollup["questionnaire_not_started"] += summary["questionnaire_not_started"]
@@ -4441,6 +4458,9 @@ class EngagementsService:
                 rollup["blood_values"] += summary["blood_values"]
                 rollup["bio_ai_report"] += summary["bio_ai_report"]
                 rollup["bio_ai_json"] += summary["bio_ai_json"]
+                rollup["bio_ai_values"] += summary.get("bio_ai_values", summary["bio_ai_json"])
+                rollup["fitprint_report"] += summary.get("fitprint_report", 0)
+                rollup["fitprint_values"] += summary.get("fitprint_values", 0)
                 rollup["questionnaire_filled"] += summary["questionnaire_filled"]
                 rollup["questionnaire_partially_filled"] += summary["questionnaire_partially_filled"]
                 rollup["questionnaire_not_started"] += summary["questionnaire_not_started"]
@@ -4473,10 +4493,6 @@ class EngagementsService:
     ) -> dict:
         from modules.engagements.blood_bookings_repository import current_blood_booking_subquery
         from modules.engagements.models import EngagementParticipant
-        from modules.reports.blood_parameters_schemas import has_usable_provider_blood_parameters
-        from modules.reports.blood_report_archival import is_archived_blood_report_url
-        from modules.reports.camp_reports_repository import _coerce_reports_dict
-        from modules.reports.models import IndividualHealthReport
         from modules.users.models import User
 
         curr_pbb = current_blood_booking_subquery()
@@ -4509,79 +4525,13 @@ class EngagementsService:
             for participant in q_status["participants"]
         }
 
-        ihr_query = select(
-            IndividualHealthReport.user_id,
-            IndividualHealthReport.report_url,
-            IndividualHealthReport.reports,
-        ).where(IndividualHealthReport.engagement_id == engagement_id)
-        ihr_result = await db.execute(ihr_query)
-
-        ihr_flags: dict[int, dict[str, Any]] = {}
-        for row in ihr_result.all():
-            uid = int(row.user_id)
-            flags = ihr_flags.setdefault(
-                uid,
-                {
-                    "has_blood_report": False,
-                    "has_blood_values": False,
-                    "has_bio_ai_report": False,
-                    "has_bio_ai_json": False,
-                    "blood_report_url": None,
-                    "bio_ai_report_url": None,
-                },
-            )
-            report_url = str(row.report_url or "").strip()
-            if report_url:
-                flags["has_bio_ai_report"] = True
-                flags["bio_ai_report_url"] = report_url
-            if _coerce_reports_dict(row.reports):
-                flags["has_bio_ai_json"] = True
-
-        blood_query = (
-            select(
-                EngagementParticipant.user_id,
-                curr_pbb.c.diagnostic_report_url,
-                curr_pbb.c.blood_parameters,
-            )
-            .select_from(EngagementParticipant)
-            .join(
-                curr_pbb,
-                curr_pbb.c.engagement_participant_id
-                == EngagementParticipant.engagement_participant_id,
-            )
-            .where(EngagementParticipant.engagement_id == engagement_id)
+        from modules.engagements.participant_report_flags import (
+            default_participant_report_flags,
+            engagement_report_flags_by_user,
         )
-        blood_result = await db.execute(blood_query)
-        for row in blood_result.all():
-            uid = int(row.user_id)
-            flags = ihr_flags.setdefault(
-                uid,
-                {
-                    "has_blood_report": False,
-                    "has_blood_values": False,
-                    "has_bio_ai_report": False,
-                    "has_bio_ai_json": False,
-                    "blood_report_url": None,
-                    "bio_ai_report_url": None,
-                },
-            )
-            diagnostic_url = str(row.diagnostic_report_url or "").strip()
-            if diagnostic_url:
-                if not flags.get("blood_report_url"):
-                    flags["blood_report_url"] = diagnostic_url
-                if is_archived_blood_report_url(diagnostic_url):
-                    flags["has_blood_report"] = True
-            if has_usable_provider_blood_parameters(row.blood_parameters):
-                flags["has_blood_values"] = True
 
-        default_flags: dict[str, Any] = {
-            "has_blood_report": False,
-            "has_blood_values": False,
-            "has_bio_ai_report": False,
-            "has_bio_ai_json": False,
-            "blood_report_url": None,
-            "bio_ai_report_url": None,
-        }
+        ihr_flags = await engagement_report_flags_by_user(db, engagement_id=engagement_id)
+        default_flags = default_participant_report_flags()
 
         participants: list[dict] = []
         summary = {
@@ -4591,6 +4541,9 @@ class EngagementsService:
             "blood_values": 0,
             "bio_ai_report": 0,
             "bio_ai_json": 0,
+            "bio_ai_values": 0,
+            "fitprint_report": 0,
+            "fitprint_values": 0,
             "questionnaire_filled": 0,
             "questionnaire_partially_filled": 0,
             "questionnaire_not_started": 0,
@@ -4619,9 +4572,13 @@ class EngagementsService:
                         "has_blood_report": flags["has_blood_report"],
                         "has_blood_values": flags["has_blood_values"],
                         "has_bio_ai_report": flags["has_bio_ai_report"],
+                        "has_bio_ai_values": flags["has_bio_ai_values"],
                         "has_bio_ai_json": flags["has_bio_ai_json"],
+                        "has_fitprint_report": flags["has_fitprint_report"],
+                        "has_fitprint_values": flags["has_fitprint_values"],
                         "blood_report_url": flags.get("blood_report_url"),
                         "bio_ai_report_url": flags.get("bio_ai_report_url"),
+                        "fitprint_report_url": flags.get("fitprint_report_url"),
                         "questionnaire_state": q_state,
                     }
                 )
@@ -4635,8 +4592,13 @@ class EngagementsService:
                 summary["blood_values"] += 1
             if flags["has_bio_ai_report"]:
                 summary["bio_ai_report"] += 1
-            if flags["has_bio_ai_json"]:
+            if flags["has_bio_ai_values"]:
+                summary["bio_ai_values"] += 1
                 summary["bio_ai_json"] += 1
+            if flags["has_fitprint_report"]:
+                summary["fitprint_report"] += 1
+            if flags["has_fitprint_values"]:
+                summary["fitprint_values"] += 1
             if q_state == "filled":
                 summary["questionnaire_filled"] += 1
             elif q_state == "partially_filled":
