@@ -2785,7 +2785,7 @@ class EngagementsService:
         *,
         engagement_id: int,
         participants: list[dict[str, Any]],
-    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any] | None]:
         """Merge data-completeness and questionnaire category status into participant rows."""
         if not participants:
             payload = await self._build_engagement_data_completeness_payload(
@@ -2793,7 +2793,10 @@ class EngagementsService:
                 engagement_id=engagement_id,
                 include_participants=False,
             )
-            return participants, payload.get("summary", {})
+            columns = await self._resolve_engagement_questionnaire_column_defs(
+                db, engagement_id=engagement_id
+            )
+            return participants, payload.get("summary", {}), columns
 
         completeness = await self._build_engagement_data_completeness_payload(
             db,
@@ -2801,6 +2804,7 @@ class EngagementsService:
             include_participants=True,
         )
         q_status = await self._build_engagement_questionnaire_status(db, engagement_id=engagement_id)
+        questionnaire_columns = q_status.get("questionnaire_columns")
         by_user_complete = {
             int(row["user_id"]): row for row in completeness.get("participants") or []
         }
@@ -2826,12 +2830,108 @@ class EngagementsService:
                 )
             q_row = by_user_q.get(uid)
             if q_row:
-                row["questionnaire_categories"] = q_row.get("categories") or {}
+                nested = q_row.get("questionnaire_categories")
+                if nested:
+                    row["questionnaire_categories"] = nested
+                else:
+                    row["questionnaire_categories"] = {
+                        "metsights": q_row.get("categories") or {},
+                        "supershyft": {},
+                    }
                 if not row.get("questionnaire_state"):
                     row["questionnaire_state"] = q_row.get("questionnaire_state")
             enriched.append(row)
 
-        return enriched, completeness.get("summary") or {}
+        return enriched, completeness.get("summary") or {}, questionnaire_columns
+
+    async def get_participant_clinical_snapshot_for_engagement(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        engagement_id: int,
+        user_id: int,
+    ) -> dict[str, Any]:
+        """Blood, Bio AI, and questionnaire status for one enrolled participant."""
+        ensure_admin(employee)
+
+        engagement = await self._repository.get_engagement_by_id(db, engagement_id)
+        if engagement is None:
+            raise AppError(
+                status_code=404,
+                error_code="ENGAGEMENT_NOT_FOUND",
+                message="Engagement does not exist",
+            )
+
+        ep = await self._repository.get_participant_for_user_engagement(
+            db, engagement_id=engagement_id, user_id=user_id
+        )
+        if ep is None:
+            raise AppError(
+                status_code=404,
+                error_code="PARTICIPANT_NOT_FOUND",
+                message="Participant is not enrolled in this engagement",
+            )
+
+        from modules.engagements.blood_bookings_repository import (
+            BloodBookingsRepository,
+            blood_bookings_to_api_list,
+        )
+
+        completeness = await self._build_engagement_data_completeness_payload(
+            db,
+            engagement_id=engagement_id,
+            include_participants=True,
+        )
+        complete_row = next(
+            (row for row in completeness.get("participants") or [] if int(row["user_id"]) == user_id),
+            None,
+        )
+        q_status = await self._build_engagement_questionnaire_status(db, engagement_id=engagement_id)
+        q_row = next(
+            (row for row in q_status.get("participants") or [] if int(row["user_id"]) == user_id),
+            None,
+        )
+        blood_repo = BloodBookingsRepository()
+        blood_rows = await blood_repo.list_for_participant(
+            db, engagement_participant_id=int(ep.engagement_participant_id)
+        )
+        blood_bookings = blood_bookings_to_api_list(blood_rows)
+
+        questionnaire_categories = {"metsights": {}, "supershyft": {}}
+        questionnaire_state = "not_started"
+        if q_row:
+            questionnaire_state = q_row.get("questionnaire_state") or questionnaire_state
+            nested = q_row.get("questionnaire_categories")
+            if nested:
+                questionnaire_categories = nested
+            else:
+                questionnaire_categories = {
+                    "metsights": q_row.get("categories") or {},
+                    "supershyft": {},
+                }
+
+        blood_flags = complete_row or {}
+        return {
+            "engagement_id": engagement_id,
+            "user_id": user_id,
+            "blood": {
+                "has_blood_report": bool(blood_flags.get("has_blood_report")),
+                "has_blood_values": bool(blood_flags.get("has_blood_values")),
+                "blood_report_url": blood_flags.get("blood_report_url"),
+                "blood_bookings": blood_bookings,
+            },
+            "bio_ai": {
+                "has_bio_ai_report": bool(blood_flags.get("has_bio_ai_report")),
+                "has_bio_ai_json": bool(blood_flags.get("has_bio_ai_json")),
+                "bio_ai_report_url": blood_flags.get("bio_ai_report_url"),
+            },
+            "questionnaires": {
+                "questionnaire_state": questionnaire_state,
+                "categories": questionnaire_categories,
+            },
+            "questionnaire_columns": q_status.get("questionnaire_columns"),
+        }
 
     async def participant_stats_for_engagement_id(
         self,
@@ -4512,6 +4612,78 @@ class EngagementsService:
             return {"summary": summary, "participants": participants}
         return {"summary": summary}
 
+    async def _resolve_engagement_questionnaire_column_defs(
+        self,
+        db: AsyncSession,
+        *,
+        engagement_id: int,
+    ) -> dict[str, list[dict[str, str]]]:
+        """Assigned questionnaire categories for roster columns (MetSights + SuperShyft)."""
+        from modules.assessments.models import AssessmentPackageCategory
+        from modules.questionnaire.models import QuestionnaireCategory
+        from sqlalchemy import select
+
+        engagement = await self._repository.get_engagement_by_id(db, engagement_id)
+        if engagement is None:
+            return {"metsights": [], "supershyft": []}
+
+        package_ids: list[int] = []
+        if engagement.assessment_package_id is not None:
+            package_ids.append(int(engagement.assessment_package_id))
+        if bool(engagement.enroll_for_fitprint_full) and self._assessments_service is not None:
+            fitprint = await self._assessments_service.get_package_by_assessment_type_code(
+                db, assessment_type_code="7"
+            )
+            if fitprint is not None:
+                package_ids.append(int(fitprint.package_id))
+        package_ids = list(dict.fromkeys(package_ids))
+        if not package_ids:
+            return {"metsights": [], "supershyft": []}
+
+        result = await db.execute(
+            select(
+                AssessmentPackageCategory.package_id,
+                AssessmentPackageCategory.display_order,
+                AssessmentPackageCategory.id,
+                QuestionnaireCategory.category_key,
+                QuestionnaireCategory.category_of,
+                QuestionnaireCategory.display_name,
+            )
+            .join(
+                QuestionnaireCategory,
+                QuestionnaireCategory.category_id == AssessmentPackageCategory.category_id,
+            )
+            .where(AssessmentPackageCategory.package_id.in_(package_ids))
+            .where(QuestionnaireCategory.category_of.in_(("metsights", "supershyft")))
+            .order_by(
+                AssessmentPackageCategory.package_id.asc(),
+                AssessmentPackageCategory.display_order.asc().nulls_last(),
+                AssessmentPackageCategory.id.asc(),
+            )
+        )
+        seen_m: set[str] = set()
+        seen_s: set[str] = set()
+        metsights: list[dict[str, str]] = []
+        supershyft: list[dict[str, str]] = []
+        for row in result.all():
+            key = (row.category_key or "").strip()
+            if not key:
+                continue
+            cat_of = (row.category_of or "supershyft").strip().lower()
+            label = (row.display_name or key).strip()
+            col = {"key": key, "label": label, "category_of": cat_of}
+            if cat_of == "metsights":
+                if key in seen_m:
+                    continue
+                seen_m.add(key)
+                metsights.append(col)
+            else:
+                if key in seen_s:
+                    continue
+                seen_s.add(key)
+                supershyft.append(col)
+        return {"metsights": metsights, "supershyft": supershyft}
+
     async def _build_engagement_questionnaire_status(
         self,
         db: AsyncSession,
@@ -4529,12 +4701,12 @@ class EngagementsService:
         from modules.users.models import User
         from sqlalchemy import select, func
 
-        _METSIGHTS_CATEGORY_KEYS = [
-            "physical-measurement",
-            "diet-lifestyle-parameters",
-            "vitals",
-            "fitness-parameters",
-        ]
+        questionnaire_columns = await self._resolve_engagement_questionnaire_column_defs(
+            db, engagement_id=engagement_id
+        )
+        column_keys_metsights = [c["key"] for c in questionnaire_columns.get("metsights") or []]
+        column_keys_supershyft = [c["key"] for c in questionnaire_columns.get("supershyft") or []]
+        all_category_keys = list(dict.fromkeys(column_keys_metsights + column_keys_supershyft))
 
         instances_query = (
             select(
@@ -4558,6 +4730,7 @@ class EngagementsService:
             return {
                 "summary": {"filled": 0, "partially_filled": 0, "not_started": 0},
                 "participants": [],
+                "questionnaire_columns": questionnaire_columns,
             }
 
         instance_ids = [row.assessment_instance_id for row in instance_rows]
@@ -4608,15 +4781,19 @@ class EngagementsService:
             select(
                 AssessmentPackageCategory.package_id,
                 QuestionnaireCategory.category_key,
+                QuestionnaireCategory.category_of,
             )
             .join(QuestionnaireCategory, QuestionnaireCategory.category_id == AssessmentPackageCategory.category_id)
             .where(AssessmentPackageCategory.package_id.in_(package_ids))
-            .where(QuestionnaireCategory.category_of == "metsights")
+            .where(QuestionnaireCategory.category_of.in_(("metsights", "supershyft")))
         )
         pkg_cat_result = await db.execute(pkg_cat_query)
-        pkg_categories: dict[int, set[str]] = {}
+        pkg_categories: dict[int, set[tuple[str, str]]] = {}
         for pc in pkg_cat_result.all():
-            pkg_categories.setdefault(int(pc.package_id), set()).add(pc.category_key)
+            key = (pc.category_key or "").strip()
+            cat_of = (pc.category_of or "supershyft").strip().lower()
+            if key:
+                pkg_categories.setdefault(int(pc.package_id), set()).add((key, cat_of))
 
         pkg_type_query = select(
             AssessmentPackage.package_id,
@@ -4636,19 +4813,31 @@ class EngagementsService:
         for iid in instance_ids:
             cat_resp_map[int(iid)] = {}
 
-        # Query category_id for each metsights category key (single batch)
-        cat_key_to_id: dict[str, int] = {}
+        cat_key_to_id: dict[tuple[str, str], int] = {}
+        if not all_category_keys:
+            return {
+                "summary": {"filled": 0, "partially_filled": 0, "not_started": 0},
+                "participants": [],
+                "questionnaire_columns": questionnaire_columns,
+            }
+
         cat_rows = await db.execute(
-            select(QuestionnaireCategory.category_id, QuestionnaireCategory.category_key)
-            .where(QuestionnaireCategory.category_key.in_(_METSIGHTS_CATEGORY_KEYS))
-            .where(QuestionnaireCategory.category_of == "metsights")
+            select(
+                QuestionnaireCategory.category_id,
+                QuestionnaireCategory.category_key,
+                QuestionnaireCategory.category_of,
+            )
+            .where(QuestionnaireCategory.category_key.in_(all_category_keys))
+            .where(QuestionnaireCategory.category_of.in_(("metsights", "supershyft")))
         )
         for row in cat_rows.all():
-            if row.category_key is not None:
-                cat_key_to_id[str(row.category_key)] = int(row.category_id)
+            key = (row.category_key or "").strip()
+            cat_of = (row.category_of or "supershyft").strip().lower()
+            if key:
+                cat_key_to_id[(key, cat_of)] = int(row.category_id)
 
         # Check if responses exist per category per instance
-        for ck, cid in cat_key_to_id.items():
+        for (ck, _cat_of), cid in cat_key_to_id.items():
             has_resp_query = (
                 select(
                     QuestionnaireResponse.assessment_instance_id,
@@ -4666,7 +4855,7 @@ class EngagementsService:
         from modules.questionnaire.models import QuestionnaireCategoryQuestion, QuestionnaireDefinition
 
         unanswered_map: dict[int, dict[str, list[dict]]] = {}
-        for ck, cid in cat_key_to_id.items():
+        for (ck, _cat_of), cid in cat_key_to_id.items():
             unanswered_query = (
                 select(
                     AssessmentInstance.assessment_instance_id,
@@ -4723,6 +4912,7 @@ class EngagementsService:
                     "phone": mask_phone(row.phone),
                     "email": mask_email(row.email),
                     "categories": {},
+                    "categories_by_of": {"metsights": {}, "supershyft": {}},
                     "has_any_responses": False,
                     "all_assigned_complete": True,
                     "assigned_cats": set(),
@@ -4736,29 +4926,29 @@ class EngagementsService:
 
             inst_progress = progress_map.get(iid, {})
 
-            for ck in _METSIGHTS_CATEGORY_KEYS:
-                assigned = ck in assigned_cats
+            for ck, cat_of in assigned_cats:
+                assigned = True
                 prog = inst_progress.get(ck, {})
                 has_resp = cat_resp_map.get(iid, {}).get(ck, False)
                 cat_status = prog.get("status", "incomplete")
                 cat_submitted = prog.get("is_submitted", False)
                 unanswered = unanswered_map.get(iid, {}).get(ck, []) if assigned else []
 
-                # Infer complete from required-question coverage when progress row is missing/stale
                 if assigned and cat_status != "complete" and has_resp and not unanswered:
                     cat_status = "complete"
 
-                existing = entry["categories"].get(ck)
+                bucket = entry["categories_by_of"].setdefault(cat_of, {})
+                existing = bucket.get(ck)
+                cat_payload = {
+                    "status": cat_status,
+                    "is_submitted": cat_submitted,
+                    "has_responses": has_resp,
+                    "assigned": assigned,
+                    "unanswered_required": unanswered if cat_status != "complete" else [],
+                }
                 if existing is None or (assigned and not existing.get("assigned")):
-                    entry["categories"][ck] = {
-                        "status": cat_status,
-                        "is_submitted": cat_submitted,
-                        "has_responses": has_resp,
-                        "assigned": assigned,
-                        "unanswered_required": unanswered if cat_status != "complete" else [],
-                    }
+                    bucket[ck] = cat_payload
                 elif assigned:
-                    # Merge: take best status
                     if cat_status == "complete":
                         existing["status"] = "complete"
                         existing["unanswered_required"] = []
@@ -4771,8 +4961,20 @@ class EngagementsService:
                         if len(unanswered) <= len(prev):
                             existing["unanswered_required"] = unanswered
 
+                if cat_of == "metsights":
+                    existing_flat = entry["categories"].get(ck)
+                    if existing_flat is None or (assigned and not existing_flat.get("assigned")):
+                        entry["categories"][ck] = dict(bucket[ck])
+                    elif assigned:
+                        if cat_status == "complete":
+                            existing_flat["status"] = "complete"
+                        if cat_submitted:
+                            existing_flat["is_submitted"] = True
+                        if has_resp:
+                            existing_flat["has_responses"] = True
+
                 if assigned and cat_status != "complete":
-                    if pkg_essentials.get(pid) and category_optional_for_essentials_completion(ck):
+                    if cat_of == "metsights" and pkg_essentials.get(pid) and category_optional_for_essentials_completion(ck):
                         pass
                     else:
                         entry["all_assigned_complete"] = False
@@ -4797,16 +4999,31 @@ class EngagementsService:
                 summary_not_started += 1
                 state = "not_started"
 
-            # Fill default for unset categories
-            cats_output = {}
-            for ck in _METSIGHTS_CATEGORY_KEYS:
-                cats_output[ck] = entry["categories"].get(ck, {
+            def _default_cat(key: str, cat_of: str, is_assigned: bool) -> dict:
+                return {
                     "status": "incomplete",
                     "is_submitted": False,
                     "has_responses": False,
-                    "assigned": ck in assigned_cats,
+                    "assigned": is_assigned,
                     "unanswered_required": [],
-                })
+                }
+
+            assigned_keys_m = {(k, o) for k, o in assigned_cats if o == "metsights"}
+            assigned_keys_s = {(k, o) for k, o in assigned_cats if o == "supershyft"}
+            cats_metsights: dict[str, dict] = {}
+            for col in questionnaire_columns.get("metsights") or []:
+                ck = col["key"]
+                cats_metsights[ck] = entry["categories_by_of"].get("metsights", {}).get(
+                    ck,
+                    _default_cat(ck, "metsights", (ck, "metsights") in assigned_keys_m),
+                )
+            cats_supershyft: dict[str, dict] = {}
+            for col in questionnaire_columns.get("supershyft") or []:
+                ck = col["key"]
+                cats_supershyft[ck] = entry["categories_by_of"].get("supershyft", {}).get(
+                    ck,
+                    _default_cat(ck, "supershyft", (ck, "supershyft") in assigned_keys_s),
+                )
 
             participants.append({
                 "user_id": entry["user_id"],
@@ -4815,7 +5032,11 @@ class EngagementsService:
                 "phone": entry["phone"],
                 "email": entry["email"],
                 "questionnaire_state": state,
-                "categories": cats_output,
+                "categories": cats_metsights,
+                "questionnaire_categories": {
+                    "metsights": cats_metsights,
+                    "supershyft": cats_supershyft,
+                },
             })
 
         return {
@@ -4825,6 +5046,7 @@ class EngagementsService:
                 "not_started": summary_not_started,
             },
             "participants": participants,
+            "questionnaire_columns": questionnaire_columns,
         }
 
     def _build_phone_lookup_index(self, users: list[User]) -> dict[str, list[User]]:

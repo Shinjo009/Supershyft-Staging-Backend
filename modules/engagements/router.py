@@ -804,19 +804,40 @@ async def get_engagement_participants_bootstrap(
         "participants": participants,
     }
     if include_roster_progress:
-        participants, roster_summary = await engagements_service.attach_roster_progress_to_participants(
-            db,
-            engagement_id=engagement_id,
-            participants=participants,
+        participants, roster_summary, questionnaire_columns = (
+            await engagements_service.attach_roster_progress_to_participants(
+                db,
+                engagement_id=engagement_id,
+                participants=participants,
+            )
         )
         payload["participants"] = participants
         payload["roster_summary"] = roster_summary
+        if questionnaire_columns:
+            payload["questionnaire_columns"] = questionnaire_columns
     if include_expert_types:
         types = await expert_types_service.list_expert_types(db)
         payload["expert_types"] = [
             {"id": t.id, "type_key": t.type_key, "type": t.type} for t in types
         ]
     return success_response(payload, meta={"page": page, "limit": limit, "total": total})
+
+
+@router.get("/{engagement_id}/participants/{user_id}/clinical-snapshot")
+async def get_engagement_participant_clinical_snapshot(
+    engagement_id: int,
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    engagements_service: EngagementsService = Depends(get_engagements_service),
+):
+    data = await engagements_service.get_participant_clinical_snapshot_for_engagement(
+        db,
+        employee=employee,
+        engagement_id=engagement_id,
+        user_id=user_id,
+    )
+    return success_response(data)
 
 
 @router.get("/{engagement_id}/participants/ids")
