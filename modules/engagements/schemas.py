@@ -648,5 +648,10 @@ class ConsultationConsentRequest(BaseModel):
     questionnaire: bool = False
 
 
+class ClearParticipantClinicalDataRequest(BaseModel):
+    product: str = Field(..., pattern=r"^(blood|bio_ai|fitprint)$")
+    field: str = Field(..., pattern=r"^(report_url|values)$")
+
+
 # Backward-compatible alias
 EngagementParticipantDepartmentUpdateRequest = EngagementParticipantUpdateRequest

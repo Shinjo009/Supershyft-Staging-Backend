@@ -129,6 +129,29 @@ async def engagement_report_flags_by_user(
     return by_user
 
 
+def merge_report_flags_into_participant_row(
+    row: dict[str, Any],
+    flags: dict[str, Any],
+) -> None:
+    """Apply completeness report flags onto a participant list row."""
+    row.update(
+        {
+            "has_blood_report": flags["has_blood_report"],
+            "has_blood_values": flags["has_blood_values"],
+            "has_bio_ai_report": flags["has_bio_ai_report"],
+            "has_bio_ai_values": flags["has_bio_ai_values"],
+            "has_bio_ai_json": flags["has_bio_ai_json"],
+            "has_fitprint_report": flags["has_fitprint_report"],
+            "has_fitprint_values": flags["has_fitprint_values"],
+            "blood_report_url": flags.get("blood_report_url"),
+            "bio_ai_report_url": flags.get("bio_ai_report_url"),
+            "fitprint_report_url": flags.get("fitprint_report_url"),
+        }
+    )
+    booking_id = row.get("booking_id")
+    row["has_booking_id"] = bool(booking_id and str(booking_id).strip())
+
+
 async def engagement_user_scoped_report_payloads(
     db: AsyncSession,
     *,

@@ -2785,37 +2785,61 @@ class EngagementsService:
         *,
         engagement_id: int,
         participants: list[dict[str, Any]],
+        include_questionnaire_maps: bool = True,
     ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any] | None]:
         """Merge data-completeness and questionnaire category status into participant rows."""
-        if not participants:
-            payload = await self._build_engagement_data_completeness_payload(
-                db,
-                engagement_id=engagement_id,
-                include_participants=False,
-            )
-            columns = await self._resolve_engagement_questionnaire_column_defs(
-                db, engagement_id=engagement_id
-            )
-            return participants, payload.get("summary", {}), columns
+        from modules.engagements.participant_report_flags import (
+            default_participant_report_flags,
+            engagement_report_flags_by_user,
+            merge_report_flags_into_participant_row,
+        )
 
-        completeness = await self._build_engagement_data_completeness_payload(
+        summary_payload = await self._build_engagement_data_completeness_payload(
             db,
             engagement_id=engagement_id,
-            include_participants=True,
+            include_participants=False,
         )
-        q_status = await self._build_engagement_questionnaire_status(db, engagement_id=engagement_id)
-        questionnaire_columns = q_status.get("questionnaire_columns")
-        by_user_complete = {
-            int(row["user_id"]): row for row in completeness.get("participants") or []
-        }
-        by_user_q = {int(row["user_id"]): row for row in q_status.get("participants") or []}
+        summary = summary_payload.get("summary") or {}
 
+        if not participants:
+            columns = (
+                await self._resolve_engagement_questionnaire_column_defs(
+                    db, engagement_id=engagement_id
+                )
+                if include_questionnaire_maps
+                else None
+            )
+            return participants, summary, columns
+
+        questionnaire_columns: dict[str, Any] | None = None
+        by_user_q: dict[int, dict[str, Any]] = {}
+
+        if include_questionnaire_maps:
+            completeness = await self._build_engagement_data_completeness_payload(
+                db,
+                engagement_id=engagement_id,
+                include_participants=True,
+            )
+            summary = completeness.get("summary") or summary
+            q_status = await self._build_engagement_questionnaire_status(
+                db, engagement_id=engagement_id
+            )
+            questionnaire_columns = q_status.get("questionnaire_columns")
+            by_user_complete = {
+                int(row["user_id"]): row for row in completeness.get("participants") or []
+            }
+            by_user_q = {int(row["user_id"]): row for row in q_status.get("participants") or []}
+        else:
+            flags_by_user = await engagement_report_flags_by_user(db, engagement_id=engagement_id)
+            by_user_complete = flags_by_user
+
+        default_flags = default_participant_report_flags()
         enriched: list[dict[str, Any]] = []
         for participant in participants:
             row = dict(participant)
             uid = int(row["user_id"])
             complete = by_user_complete.get(uid)
-            if complete:
+            if include_questionnaire_maps and complete:
                 row.update(
                     {
                         "has_booking_id": complete.get("has_booking_id"),
@@ -2832,6 +2856,10 @@ class EngagementsService:
                         "questionnaire_state": complete.get("questionnaire_state"),
                     }
                 )
+            elif not include_questionnaire_maps:
+                merge_report_flags_into_participant_row(
+                    row, complete if complete is not None else default_flags
+                )
             q_row = by_user_q.get(uid)
             if q_row:
                 nested = q_row.get("questionnaire_categories")
@@ -2846,7 +2874,7 @@ class EngagementsService:
                     row["questionnaire_state"] = q_row.get("questionnaire_state")
             enriched.append(row)
 
-        return enriched, completeness.get("summary") or {}, questionnaire_columns
+        return enriched, summary, questionnaire_columns
 
     async def get_participant_clinical_snapshot_for_engagement(
         self,
@@ -2960,6 +2988,50 @@ class EngagementsService:
             },
             "questionnaire_columns": q_status.get("questionnaire_columns"),
         }
+
+    async def clear_participant_clinical_data_for_engagement(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        engagement_id: int,
+        user_id: int,
+        product: str,
+        field: str,
+    ) -> dict[str, Any]:
+        """Admin: null report URL or values for blood / Bio AI / FitPrint."""
+        ensure_admin(employee)
+
+        ep = await self._repository.get_participant_for_user_engagement(
+            db, engagement_id=engagement_id, user_id=user_id
+        )
+        if ep is None:
+            raise AppError(
+                status_code=404,
+                error_code="PARTICIPANT_NOT_FOUND",
+                message="Participant is not enrolled in this engagement",
+            )
+
+        from modules.engagements.clinical_data_clear import clear_participant_clinical_data
+
+        updated = await clear_participant_clinical_data(
+            db,
+            engagement_id=engagement_id,
+            engagement_participant_id=int(ep.engagement_participant_id),
+            user_id=user_id,
+            product=product,  # type: ignore[arg-type]
+            field=field,  # type: ignore[arg-type]
+        )
+        await db.commit()
+
+        snapshot = await self.get_participant_clinical_snapshot_for_engagement(
+            db,
+            employee=employee,
+            engagement_id=engagement_id,
+            user_id=user_id,
+        )
+        snapshot["cleared_rows"] = updated
+        return snapshot
 
     async def participant_stats_for_engagement_id(
         self,

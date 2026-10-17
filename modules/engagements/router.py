@@ -32,6 +32,7 @@ from modules.organizations.dependencies import get_organizations_service
 from modules.organizations.service import OrganizationsService
 from modules.engagements.schemas import (
     AssignParticipantsBatchRequest,
+    ClearParticipantClinicalDataRequest,
     ConsultationConsentRequest,
     CreateMetsightsProfilesRequest,
     EngagementCreateRequest,
@@ -750,6 +751,7 @@ async def get_engagement_participants_bootstrap(
     limit: int = 20,
     include_expert_types: bool = False,
     include_roster_progress: bool = True,
+    include_questionnaire_maps: bool = True,
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
     engagements_service: EngagementsService = Depends(get_engagements_service),
@@ -809,12 +811,14 @@ async def get_engagement_participants_bootstrap(
                 db,
                 engagement_id=engagement_id,
                 participants=participants,
+                include_questionnaire_maps=include_questionnaire_maps,
             )
         )
         payload["participants"] = participants
-        payload["roster_summary"] = roster_summary
-        if questionnaire_columns:
-            payload["questionnaire_columns"] = questionnaire_columns
+        if include_questionnaire_maps:
+            payload["roster_summary"] = roster_summary
+            if questionnaire_columns:
+                payload["questionnaire_columns"] = questionnaire_columns
     if include_expert_types:
         types = await expert_types_service.list_expert_types(db)
         payload["expert_types"] = [
@@ -836,6 +840,26 @@ async def get_engagement_participant_clinical_snapshot(
         employee=employee,
         engagement_id=engagement_id,
         user_id=user_id,
+    )
+    return success_response(data)
+
+
+@router.patch("/{engagement_id}/participants/{user_id}/clinical-data")
+async def clear_engagement_participant_clinical_data(
+    engagement_id: int,
+    user_id: int,
+    body: ClearParticipantClinicalDataRequest,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    engagements_service: EngagementsService = Depends(get_engagements_service),
+):
+    data = await engagements_service.clear_participant_clinical_data_for_engagement(
+        db,
+        employee=employee,
+        engagement_id=engagement_id,
+        user_id=user_id,
+        product=body.product,
+        field=body.field,
     )
     return success_response(data)
 
