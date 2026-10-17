@@ -167,19 +167,28 @@ async def test_import_metsights_profiles_order_fitprint_skip_and_female_diagnost
         assert er.create_profile_on_metsights is True
         assert er.enroll_for_fitprint_full is False
 
-    part = (
+    profile_row = (
+        await test_db_session.execute(
+            text("SELECT metsights_profile_id FROM users WHERE user_id = :u"),
+            {"u": uid},
+        )
+    ).one()
+    assert (profile_row.metsights_profile_id or "").strip()
+
+    primary_records = (
         await test_db_session.execute(
             text(
-                "SELECT is_profile_created_on_metsights, is_primary_record_id_synced "
-                "FROM engagement_participants WHERE user_id = :u"
+                "SELECT ai.metsights_record_id "
+                "FROM assessment_instances ai "
+                "JOIN engagements e ON e.engagement_id = ai.engagement_id "
+                "WHERE ai.user_id = :u AND ai.package_id = e.assessment_package_id"
             ),
             {"u": uid},
         )
     ).all()
-    assert len(part) == 2
-    for p in part:
-        assert p.is_profile_created_on_metsights is True
-        assert p.is_primary_record_id_synced is True
+    assert len(primary_records) == 2
+    for row in primary_records:
+        assert (row.metsights_record_id or "").strip()
 
 
 @pytest.mark.asyncio

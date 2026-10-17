@@ -291,7 +291,12 @@ def _to_metsights_gender(raw: str | None) -> str | None:
     return None
 
 
-def _participant_enrollment_to_dict(row: tuple, *, consultations: dict[str, Any] | None = None) -> dict[str, Any]:
+def _participant_enrollment_to_dict(
+    row: tuple,
+    *,
+    consultations: dict[str, Any] | None = None,
+    sync_flags: dict[str, bool] | None = None,
+) -> dict[str, Any]:
     (
         engagement_participant_id,
         engagement_id,
@@ -314,14 +319,17 @@ def _participant_enrollment_to_dict(row: tuple, *, consultations: dict[str, Any]
         participant_department,
         participant_blood_group,
         _consultation_booking_ids,
-        is_profile_created_on_metsights,
-        is_primary_record_id_synced,
-        is_fitprint_record_id_synced,
+        metsights_profile_id,
         barcode,
         booking_id,
         blood_collection_time_slot_id,
         booked_by_user_id,
     ) = row
+    flags = sync_flags or {
+        "is_profile_created_on_metsights": bool((metsights_profile_id or "").strip()),
+        "is_primary_record_id_synced": False,
+        "is_fitprint_record_id_synced": False,
+    }
     return {
         "engagement_participant_id": engagement_participant_id,
         "engagement_id": engagement_id,
@@ -344,9 +352,9 @@ def _participant_enrollment_to_dict(row: tuple, *, consultations: dict[str, Any]
         "participant_department": participant_department,
         "participant_blood_group": participant_blood_group,
         "consultations": consultations or {},
-        "is_profile_created_on_metsights": is_profile_created_on_metsights,
-        "is_primary_record_id_synced": is_primary_record_id_synced,
-        "is_fitprint_record_id_synced": is_fitprint_record_id_synced,
+        "is_profile_created_on_metsights": flags["is_profile_created_on_metsights"],
+        "is_primary_record_id_synced": flags["is_primary_record_id_synced"],
+        "is_fitprint_record_id_synced": flags["is_fitprint_record_id_synced"],
         "barcode": barcode,
         "booking_id": booking_id,
         "blood_collection_time_slot_id": blood_collection_time_slot_id,
@@ -440,18 +448,41 @@ class EngagementsService:
 
         return await self._slot_info_repository.create(db, data)
 
-    async def _participant_rows_to_dicts(self, db: AsyncSession, rows: list[tuple]) -> list[dict[str, Any]]:
+    async def _participant_rows_to_dicts(
+        self,
+        db: AsyncSession,
+        rows: list[tuple],
+        *,
+        engagement: Engagement | None = None,
+    ) -> list[dict[str, Any]]:
         from modules.engagements.blood_bookings_repository import (
             BloodBookingsRepository,
             blood_bookings_to_api_list,
         )
+        from modules.engagements.participant_sync_status import (
+            load_engagement_sync_user_sets,
+            participant_sync_flags,
+        )
 
         all_booking_ids: list[int] = []
         ep_ids: list[int] = []
+        user_ids: list[int] = []
+        engagement_id: int | None = None
         for row in rows:
             ep_ids.append(int(row[0]))
+            if engagement_id is None:
+                engagement_id = int(row[1])
+            user_ids.append(int(row[2]))
             ids = row[20] or []
             all_booking_ids.extend(int(i) for i in ids)
+
+        sync_sets = None
+        if engagement is None and engagement_id is not None:
+            engagement = await self._repository.get_engagement_by_id(db, engagement_id)
+        if engagement is not None and user_ids:
+            sync_sets = await load_engagement_sync_user_sets(
+                db, engagement=engagement, user_ids=list(dict.fromkeys(user_ids))
+            )
 
         bookings = await self._consultation_bookings.get_by_ids(db, list(dict.fromkeys(all_booking_ids)))
         bookings_by_id = {booking.consultation_id: booking for booking in bookings}
@@ -466,7 +497,17 @@ class EngagementsService:
             ids = row[20] or []
             participant_bookings = [bookings_by_id[i] for i in ids if i in bookings_by_id]
             consultations = bookings_to_consultations_map(participant_bookings)
-            participant = _participant_enrollment_to_dict(row, consultations=consultations)
+            uid = int(row[2])
+            flags = (
+                participant_sync_flags(
+                    user_id=uid,
+                    metsights_profile_id=row[21],
+                    sync_sets=sync_sets,
+                )
+                if sync_sets is not None
+                else None
+            )
+            participant = _participant_enrollment_to_dict(row, consultations=consultations, sync_flags=flags)
             participant["blood_test_complete"] = None
             participant["blood_bookings"] = blood_bookings_to_api_list(
                 blood_by_ep.get(int(row[0]), [])
@@ -1861,9 +1902,6 @@ class EngagementsService:
         participant_blood_group: str | None = None,
         blood_collection_cabin: str | None = None,
         consultations: dict | None = None,
-        is_profile_created_on_metsights: bool = False,
-        is_primary_record_id_synced: bool = False,
-        is_fitprint_record_id_synced: bool = False,
         booked_by_user_id: int | None = None,
     ) -> EngagementParticipant:
         if (engagement.status or "").lower() not in ("scheduled", "running", "draft"):
@@ -1898,9 +1936,6 @@ class EngagementsService:
             participants_employee_id=participants_employee_id,
             participant_department=participant_department,
             participant_blood_group=participant_blood_group,
-            is_profile_created_on_metsights=is_profile_created_on_metsights,
-            is_primary_record_id_synced=is_primary_record_id_synced,
-            is_fitprint_record_id_synced=is_fitprint_record_id_synced,
         )
         created = await self._repository.create_participant(db, participant)
         cabin = (blood_collection_cabin or "").strip() or None
@@ -2616,23 +2651,6 @@ class EngagementsService:
             endpoint=endpoint,
         )
 
-    async def update_participant_sync_flags(
-        self,
-        db: AsyncSession,
-        *,
-        participant: EngagementParticipant,
-        is_profile_created_on_metsights: bool | None = None,
-        is_primary_record_id_synced: bool | None = None,
-        is_fitprint_record_id_synced: bool | None = None,
-    ) -> EngagementParticipant:
-        if is_profile_created_on_metsights is not None:
-            participant.is_profile_created_on_metsights = is_profile_created_on_metsights
-        if is_primary_record_id_synced is not None:
-            participant.is_primary_record_id_synced = is_primary_record_id_synced
-        if is_fitprint_record_id_synced is not None:
-            participant.is_fitprint_record_id_synced = is_fitprint_record_id_synced
-        return await self._repository.update_participant(db, participant)
-
     async def list_participants_for_engagement_code(
         self,
         db: AsyncSession,
@@ -2673,7 +2691,7 @@ class EngagementsService:
             engagement_id=int(engagement.engagement_id),
         )
 
-        result = await self._participant_rows_to_dicts(db, participants)
+        result = await self._participant_rows_to_dicts(db, participants, engagement=engagement)
         return result, total
 
     async def _resolve_participant_list_filters(
@@ -2757,8 +2775,63 @@ class EngagementsService:
             filters=resolved_filters,
         )
 
-        result = await self._participant_rows_to_dicts(db, participants)
+        engagement = await self._ensure_engagement_exists(db, engagement_id)
+        result = await self._participant_rows_to_dicts(db, participants, engagement=engagement)
         return result, total
+
+    async def attach_roster_progress_to_participants(
+        self,
+        db: AsyncSession,
+        *,
+        engagement_id: int,
+        participants: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Merge data-completeness and questionnaire category status into participant rows."""
+        if not participants:
+            payload = await self._build_engagement_data_completeness_payload(
+                db,
+                engagement_id=engagement_id,
+                include_participants=False,
+            )
+            return participants, payload.get("summary", {})
+
+        completeness = await self._build_engagement_data_completeness_payload(
+            db,
+            engagement_id=engagement_id,
+            include_participants=True,
+        )
+        q_status = await self._build_engagement_questionnaire_status(db, engagement_id=engagement_id)
+        by_user_complete = {
+            int(row["user_id"]): row for row in completeness.get("participants") or []
+        }
+        by_user_q = {int(row["user_id"]): row for row in q_status.get("participants") or []}
+
+        enriched: list[dict[str, Any]] = []
+        for participant in participants:
+            row = dict(participant)
+            uid = int(row["user_id"])
+            complete = by_user_complete.get(uid)
+            if complete:
+                row.update(
+                    {
+                        "has_booking_id": complete.get("has_booking_id"),
+                        "has_blood_report": complete.get("has_blood_report"),
+                        "has_blood_values": complete.get("has_blood_values"),
+                        "has_bio_ai_report": complete.get("has_bio_ai_report"),
+                        "has_bio_ai_json": complete.get("has_bio_ai_json"),
+                        "blood_report_url": complete.get("blood_report_url"),
+                        "bio_ai_report_url": complete.get("bio_ai_report_url"),
+                        "questionnaire_state": complete.get("questionnaire_state"),
+                    }
+                )
+            q_row = by_user_q.get(uid)
+            if q_row:
+                row["questionnaire_categories"] = q_row.get("categories") or {}
+                if not row.get("questionnaire_state"):
+                    row["questionnaire_state"] = q_row.get("questionnaire_state")
+            enriched.append(row)
+
+        return enriched, completeness.get("summary") or {}
 
     async def participant_stats_for_engagement_id(
         self,
@@ -4309,7 +4382,7 @@ class EngagementsService:
         ).where(IndividualHealthReport.engagement_id == engagement_id)
         ihr_result = await db.execute(ihr_query)
 
-        ihr_flags: dict[int, dict[str, bool]] = {}
+        ihr_flags: dict[int, dict[str, Any]] = {}
         for row in ihr_result.all():
             uid = int(row.user_id)
             flags = ihr_flags.setdefault(
@@ -4319,10 +4392,14 @@ class EngagementsService:
                     "has_blood_values": False,
                     "has_bio_ai_report": False,
                     "has_bio_ai_json": False,
+                    "blood_report_url": None,
+                    "bio_ai_report_url": None,
                 },
             )
-            if row.report_url and str(row.report_url).strip():
+            report_url = str(row.report_url or "").strip()
+            if report_url:
                 flags["has_bio_ai_report"] = True
+                flags["bio_ai_report_url"] = report_url
             if _coerce_reports_dict(row.reports):
                 flags["has_bio_ai_json"] = True
 
@@ -4350,20 +4427,24 @@ class EngagementsService:
                     "has_blood_values": False,
                     "has_bio_ai_report": False,
                     "has_bio_ai_json": False,
+                    "blood_report_url": None,
+                    "bio_ai_report_url": None,
                 },
             )
-            if row.diagnostic_report_url and is_archived_blood_report_url(
-                str(row.diagnostic_report_url).strip()
-            ):
+            diagnostic_url = str(row.diagnostic_report_url or "").strip()
+            if diagnostic_url and is_archived_blood_report_url(diagnostic_url):
                 flags["has_blood_report"] = True
+                flags["blood_report_url"] = diagnostic_url
             if has_usable_provider_blood_parameters(row.blood_parameters):
                 flags["has_blood_values"] = True
 
-        default_flags = {
+        default_flags: dict[str, Any] = {
             "has_blood_report": False,
             "has_blood_values": False,
             "has_bio_ai_report": False,
             "has_bio_ai_json": False,
+            "blood_report_url": None,
+            "bio_ai_report_url": None,
         }
 
         participants: list[dict] = []
@@ -4403,6 +4484,8 @@ class EngagementsService:
                         "has_blood_values": flags["has_blood_values"],
                         "has_bio_ai_report": flags["has_bio_ai_report"],
                         "has_bio_ai_json": flags["has_bio_ai_json"],
+                        "blood_report_url": flags.get("blood_report_url"),
+                        "bio_ai_report_url": flags.get("bio_ai_report_url"),
                         "questionnaire_state": q_state,
                     }
                 )
@@ -5065,9 +5148,7 @@ class EngagementsService:
                             engagement=engagement,
                             user_id=user_id,
                             engagement_date=engagement_date,
-                            slot_start_time=default_slot,
-                            is_profile_created_on_metsights=profile_on_metsights,
-                            is_primary_record_id_synced=False,
+                            slot_start_time=default_slot
                         )
                         newly_enrolled = True
                         enrolled_user_ids.add(user_id)
@@ -5105,16 +5186,6 @@ class EngagementsService:
                         )
                         if participant is not None:
                             participants_by_user[user_id] = participant
-
-                    if participant is not None:
-                        await self.update_participant_sync_flags(
-                            db,
-                            participant=participant,
-                            is_profile_created_on_metsights=(
-                                True if profile_on_metsights else None
-                            ),
-                            is_primary_record_id_synced=True,
-                        )
 
                 base["status"] = "assigned"
                 base["assessment_instance_id"] = int(instance.assessment_instance_id)
@@ -5290,18 +5361,6 @@ class EngagementsService:
                 user_id,
                 {"metsights_profile_id": profile_id},
             )
-
-            participant = await self._repository.get_participant_for_user_engagement(
-                db,
-                user_id=user_id,
-                engagement_id=engagement_id,
-            )
-            if participant is not None:
-                await self.update_participant_sync_flags(
-                    db,
-                    participant=participant,
-                    is_profile_created_on_metsights=True,
-                )
 
             base["status"] = "created"
             base["metsights_profile_id"] = profile_id

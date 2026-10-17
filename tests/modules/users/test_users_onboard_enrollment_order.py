@@ -13,9 +13,10 @@ from modules.users.dependencies import get_users_service
 def _patch_metsights_record_order(monkeypatch) -> list[str]:
     order: list[str] = []
 
-    async def _fake_create_record(self, *, profile_id, assessment_type_code, sync_context=None):
-        order.append(assessment_type_code)
-        return f"record-{assessment_type_code}"
+    async def _fake_create_record(self, *, profile_id, assessment_type_code=None, subscription_id=None, sync_context=None):
+        code = assessment_type_code or (subscription_id or "unknown")
+        order.append(str(code))
+        return f"record-{code}"
 
     monkeypatch.setattr(
         "modules.metsights.service.MetsightsService.create_record_for_profile",
@@ -96,16 +97,21 @@ async def test_engagement_onboard_enrolls_fitprint_before_primary(async_client, 
     assert "2" in record_order
     assert record_order.index("7") < record_order.index("2")
 
-    participant_row = (
+    user_id = response.json()["data"]["user_id"]
+    synced_rows = (
         await test_db_session.execute(
             text(
-                "SELECT is_fitprint_record_id_synced, is_primary_record_id_synced "
-                "FROM engagement_participants WHERE engagement_id = 9911"
-            )
+                "SELECT ap.assessment_type_code, ai.metsights_record_id "
+                "FROM assessment_instances ai "
+                "JOIN assessment_packages ap ON ap.package_id = ai.package_id "
+                "WHERE ai.engagement_id = 9911 AND ai.user_id = :uid"
+            ),
+            {"uid": user_id},
         )
-    ).one()
-    assert participant_row.is_fitprint_record_id_synced is True
-    assert participant_row.is_primary_record_id_synced is True
+    ).all()
+    by_type = {str(r.assessment_type_code): (r.metsights_record_id or "").strip() for r in synced_rows}
+    assert by_type.get("7")
+    assert by_type.get("2")
 
 
 @pytest.mark.asyncio

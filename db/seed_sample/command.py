@@ -177,7 +177,6 @@ class SeedParticipant:
     participants_employee_id: str | None = None
     participant_department: str | None = None
     participant_blood_group: str | None = None
-    is_profile_created_on_metsights: bool = False
     booking_id: str | None = None
     barcode: str | None = None
     blood_collection_cabin: str | None = None
@@ -591,7 +590,6 @@ async def _upsert_participants(session: AsyncSession, slots: Iterable[SeedPartic
         row.participants_employee_id = seed.participants_employee_id
         row.participant_department = seed.participant_department
         row.participant_blood_group = seed.participant_blood_group
-        row.is_profile_created_on_metsights = seed.is_profile_created_on_metsights
 
         blood = await session.execute(
             select(ParticipantBloodBooking)

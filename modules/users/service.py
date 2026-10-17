@@ -1305,13 +1305,6 @@ class UsersService:
         fresh_user = await self._repository.get_user_by_id(db, user.user_id)
         profile_id = (fresh_user.metsights_profile_id or "").strip() if fresh_user else ""
 
-        if profile_id:
-            await self._engagements_service.update_participant_sync_flags(
-                db,
-                participant=time_slot,
-                is_profile_created_on_metsights=True,
-            )
-
         ip_address = "system"
         user_agent = "post-payment-fulfillment"
         endpoint = "/payments/verify"
@@ -1342,11 +1335,6 @@ class UsersService:
                         user_agent=user_agent,
                         endpoint=endpoint,
                         metsights_record_id=fitprint_record_id,
-                    )
-                    await self._engagements_service.update_participant_sync_flags(
-                        db,
-                        participant=time_slot,
-                        is_fitprint_record_id_synced=True,
                     )
             except Exception as exc:
                 logger.warning(
@@ -1384,12 +1372,6 @@ class UsersService:
                 endpoint=endpoint,
                 metsights_record_id=metsights_record_id,
             )
-            if metsights_record_id:
-                await self._engagements_service.update_participant_sync_flags(
-                    db,
-                    participant=time_slot,
-                    is_primary_record_id_synced=True,
-                )
 
         assessment_instance_id = (
             int(primary_instance.assessment_instance_id) if primary_instance is not None else None
@@ -1980,17 +1962,6 @@ class UsersService:
         if updated is None:
             raise AppError(status_code=404, error_code="USER_NOT_FOUND", message="User does not exist")
 
-        if self._engagements_service is not None:
-            result = await db.execute(
-                select(EngagementParticipant).where(EngagementParticipant.user_id == user_id)
-            )
-            for participant in result.scalars().all():
-                await self._engagements_service.update_participant_sync_flags(
-                    db,
-                    participant=participant,
-                    is_profile_created_on_metsights=True,
-                )
-
         if self._audit_service is None:
             raise RuntimeError("Audit service is required")
 
@@ -2443,10 +2414,7 @@ class UsersService:
             participants_employee_id=payload.participants_employee_id,
             participant_department=payload.participant_department,
             participant_blood_group=payload.participant_blood_group,
-            consultations=consultations,
-            is_profile_created_on_metsights=False,
-            is_primary_record_id_synced=False,
-            is_fitprint_record_id_synced=False,
+            consultations=consultations
         )
 
         if self._assessments_service is None:
@@ -2490,13 +2458,6 @@ class UsersService:
 
         fresh_user = await self._repository.get_user_by_id(db, user.user_id)
         profile_id = (fresh_user.metsights_profile_id or "").strip() if fresh_user else ""
-        if profile_id:
-            await self._engagements_service.update_participant_sync_flags(
-                db,
-                participant=time_slot,
-                is_profile_created_on_metsights=True,
-            )
-
         if profile_id and engagement.enroll_for_fitprint_full and self._metsights_service is not None:
             try:
                 fitprint_package = await self._assessments_service.get_package_by_assessment_type_code(
@@ -2522,11 +2483,6 @@ class UsersService:
                     user_agent=user_agent,
                     endpoint=endpoint,
                     metsights_record_id=fitprint_record_id,
-                )
-                await self._engagements_service.update_participant_sync_flags(
-                    db,
-                    participant=time_slot,
-                    is_fitprint_record_id_synced=True,
                 )
             except Exception as exc:
                 logger.warning(
@@ -2560,11 +2516,6 @@ class UsersService:
                         user_agent=user_agent,
                         endpoint=endpoint,
                         metsights_record_id=record_id,
-                    )
-                    await self._engagements_service.update_participant_sync_flags(
-                        db,
-                        participant=time_slot,
-                        is_primary_record_id_synced=True,
                     )
             except Exception as exc:
                 logger.warning(
@@ -2890,10 +2841,7 @@ class UsersService:
             participant_department=validated_department,
             participant_blood_group=payload.participant_blood_group,
             blood_collection_cabin=blood_collection_cabin,
-            consultations=consultations,
-            is_profile_created_on_metsights=False,
-            is_primary_record_id_synced=False,
-            is_fitprint_record_id_synced=False,
+            consultations=consultations
         )
 
         assessment_instance = None
@@ -2941,48 +2889,36 @@ class UsersService:
                 engagement=engagement,
                 sync_context=sync_context,
             )
-            if profile_id:
-                await self._engagements_service.update_participant_sync_flags(
+            if profile_id and bool(engagement.enroll_for_fitprint_full):
+                await release_request_transaction(db)
+                fitprint_package = await self._assessments_service.get_package_by_assessment_type_code(
                     db,
-                    participant=time_slot,
-                    is_profile_created_on_metsights=True,
+                    assessment_type_code="7",
                 )
-
-                if bool(engagement.enroll_for_fitprint_full):
-                    await release_request_transaction(db)
-                    fitprint_package = await self._assessments_service.get_package_by_assessment_type_code(
+                fitprint_sub = (
+                    (getattr(fitprint_package, "subscription_id", None) or "").strip()
+                    if fitprint_package is not None
+                    else ""
+                )
+                if fitprint_sub:
+                    fitprint_record_id = await self._metsights_service.create_record_for_profile(
+                        profile_id=profile_id,
+                        subscription_id=fitprint_sub,
+                        sync_context=sync_context,
+                    )
+                else:
+                    fitprint_record_id = None
+                if fitprint_package is not None:
+                    await self._assessments_service.ensure_instance_assigned(
                         db,
-                        assessment_type_code="7",
+                        user_id=user.user_id,
+                        engagement_id=engagement.engagement_id,
+                        package_id=int(fitprint_package.package_id),
+                        ip_address=ip_address,
+                        user_agent=user_agent,
+                        endpoint=endpoint,
+                        metsights_record_id=fitprint_record_id,
                     )
-                    fitprint_sub = (
-                        (getattr(fitprint_package, "subscription_id", None) or "").strip()
-                        if fitprint_package is not None
-                        else ""
-                    )
-                    if fitprint_sub:
-                        fitprint_record_id = await self._metsights_service.create_record_for_profile(
-                            profile_id=profile_id,
-                            subscription_id=fitprint_sub,
-                            sync_context=sync_context,
-                        )
-                    else:
-                        fitprint_record_id = None
-                    if fitprint_package is not None:
-                        await self._assessments_service.ensure_instance_assigned(
-                            db,
-                            user_id=user.user_id,
-                            engagement_id=engagement.engagement_id,
-                            package_id=int(fitprint_package.package_id),
-                            ip_address=ip_address,
-                            user_agent=user_agent,
-                            endpoint=endpoint,
-                            metsights_record_id=fitprint_record_id,
-                        )
-                        await self._engagements_service.update_participant_sync_flags(
-                            db,
-                            participant=time_slot,
-                            is_fitprint_record_id_synced=True,
-                        )
         except Exception as exc:
             logger.warning(
                 "Metsights sync failed for user_id=%s engagement_id=%s: %s",
@@ -3017,11 +2953,6 @@ class UsersService:
                         metsights_record_id=primary_record_id,
                     )
                     metsights_record_id = primary_record_id
-                    await self._engagements_service.update_participant_sync_flags(
-                        db,
-                        participant=time_slot,
-                        is_primary_record_id_synced=True,
-                    )
             except Exception as exc:
                 logger.warning(
                     "Metsights primary record sync failed for user_id=%s engagement_id=%s: %s",
@@ -3055,11 +2986,6 @@ class UsersService:
                         user_agent=user_agent,
                         endpoint=endpoint,
                         metsights_record_id=record_id,
-                    )
-                    await self._engagements_service.update_participant_sync_flags(
-                        db,
-                        participant=time_slot,
-                        is_primary_record_id_synced=True,
                     )
                     metsights_record_id = record_id
             except Exception as exc:
@@ -4069,9 +3995,7 @@ class UsersService:
                     engagement=engagement,
                     user_id=user.user_id,
                     engagement_date=engagement_date,
-                    slot_start_time=default_slot,
-                    is_profile_created_on_metsights=True,
-                    is_primary_record_id_synced=False,
+                    slot_start_time=default_slot
                 )
 
                 await self._notify_onboarding_assistants_for_user(
@@ -4101,11 +4025,6 @@ class UsersService:
                     profile_block["records"].append(rec_out)
                     continue
 
-                await self._engagements_service.update_participant_sync_flags(
-                    db,
-                    participant=participant,
-                    is_primary_record_id_synced=True,
-                )
 
                 rec_out["status"] = "imported"
                 rec_out["engagement_id"] = int(engagement.engagement_id)
@@ -4471,9 +4390,6 @@ class UsersService:
                         user_id=user.user_id,
                         engagement_date=start_date,
                         slot_start_time=default_slot,
-                        is_profile_created_on_metsights=True,
-                        is_primary_record_id_synced=True,
-                        is_fitprint_record_id_synced=False,
                         booked_by_user_id=int(user.user_id),
                     )
 

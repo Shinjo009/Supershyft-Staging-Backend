@@ -1220,8 +1220,7 @@ class MetsightsSyncService:
                         engagement=engagement,
                         user_id=target_user_id,
                         engagement_date=eng_date,
-                        slot_start_time=default_slot,
-                        is_profile_created_on_metsights=True,
+                        slot_start_time=default_slot
                     )
                 except AppError as exc:
                     errors.append({"metsights_record_id": mrid, "reason": str(exc.message)})

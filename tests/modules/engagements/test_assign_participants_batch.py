@@ -455,16 +455,16 @@ async def test_assign_participants_batch_sets_profile_on_metsights_when_user_lin
     row = response.json()["data"]["results"][0]
     assert row["status"] == "assigned"
 
-    flags = (
-        await test_db_session.execute(
-            text(
-                "SELECT is_profile_created_on_metsights, is_primary_record_id_synced "
-                "FROM engagement_participants WHERE engagement_id = 9001 AND user_id = 5004"
-            )
-        )
-    ).first()
-    assert flags.is_profile_created_on_metsights is True
-    assert flags.is_primary_record_id_synced is True
+    list_response = await async_client.get(
+        "/engagements/9001/participants",
+        headers=_auth_header(1),
+    )
+    assert list_response.status_code == 200
+    participant = next(
+        row for row in list_response.json()["data"] if row["user_id"] == 5004
+    )
+    assert participant["is_profile_created_on_metsights"] is True
+    assert participant["is_primary_record_id_synced"] is True
 
 
 @pytest.mark.asyncio

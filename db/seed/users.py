@@ -426,8 +426,7 @@ async def _seed_one_engagement_per_user(
         booked_by_user_id=uid,
         participants_employee_id=None,
         participant_department=None,
-        participant_blood_group=None,
-        is_profile_created_on_metsights=False,
+        participant_blood_group=None
     )
     await er.create_participant(session, participant)
     if slot_date is not None or slot_start is not None:

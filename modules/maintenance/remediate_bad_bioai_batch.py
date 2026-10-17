@@ -319,7 +319,6 @@ async def remediate_bad_bioai_batch(
                 engagement_id=eng_id,
             )
             if participant is not None:
-                participant.is_primary_record_id_synced = True
                 db.add(participant)
 
             push_summary: dict[str, Any] = {}

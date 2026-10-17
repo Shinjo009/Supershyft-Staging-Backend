@@ -60,9 +60,8 @@ async def _seed_participant(
     )
     await test_db_session.execute(
         text(
-            "INSERT INTO engagement_participants (engagement_id, user_id, engagement_date, slot_start_time, "
-            "is_profile_created_on_metsights) "
-            "VALUES (:eid, :uid, '2026-02-10', '09:00:00', false)"
+            "INSERT INTO engagement_participants (engagement_id, user_id, engagement_date, slot_start_time) "
+            "VALUES (:eid, :uid, '2026-02-10', '09:00:00')"
         ),
         {"eid": engagement_id, "uid": user_id},
     )
@@ -143,15 +142,15 @@ async def test_create_metsights_profiles_creates_and_stores_id(async_client, tes
     ).first()
     assert user_row.metsights_profile_id == NEW_PROFILE_ID
 
-    participant_row = (
-        await test_db_session.execute(
-            text(
-                "SELECT is_profile_created_on_metsights FROM engagement_participants "
-                "WHERE engagement_id = 9102 AND user_id = 5102"
-            )
-        )
-    ).first()
-    assert participant_row.is_profile_created_on_metsights is True
+    list_response = await async_client.get(
+        "/engagements/9102/participants",
+        headers=_auth_header(1),
+    )
+    assert list_response.status_code == 200
+    participant = next(
+        row for row in list_response.json()["data"] if row["user_id"] == 5102
+    )
+    assert participant["is_profile_created_on_metsights"] is True
 
 
 @pytest.mark.asyncio

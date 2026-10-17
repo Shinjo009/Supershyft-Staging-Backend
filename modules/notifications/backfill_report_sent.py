@@ -424,10 +424,7 @@ async def _backfill_cohort(
                 participant = EngagementParticipant(
                     engagement_id=int(engagement.engagement_id),
                     user_id=int(user.user_id),
-                    booked_by_user_id=int(user.user_id),
-                    is_profile_created_on_metsights=False,
-                    is_primary_record_id_synced=False,
-                    is_fitprint_record_id_synced=False,
+                    booked_by_user_id=int(user.user_id)
                 )
                 await engagements_repo.create_participant(db, participant)
                 result.enrollments_created += 1

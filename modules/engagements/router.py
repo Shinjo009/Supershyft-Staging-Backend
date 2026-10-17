@@ -749,6 +749,7 @@ async def get_engagement_participants_bootstrap(
     page: int = 1,
     limit: int = 20,
     include_expert_types: bool = False,
+    include_roster_progress: bool = True,
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
     engagements_service: EngagementsService = Depends(get_engagements_service),
@@ -802,6 +803,14 @@ async def get_engagement_participants_bootstrap(
         "filter_options": filter_options,
         "participants": participants,
     }
+    if include_roster_progress:
+        participants, roster_summary = await engagements_service.attach_roster_progress_to_participants(
+            db,
+            engagement_id=engagement_id,
+            participants=participants,
+        )
+        payload["participants"] = participants
+        payload["roster_summary"] = roster_summary
     if include_expert_types:
         types = await expert_types_service.list_expert_types(db)
         payload["expert_types"] = [

@@ -723,7 +723,6 @@ async def _backfill_missing_metsights_record(
         engagement_id=engagement_id,
     )
     if participant is not None:
-        participant.is_primary_record_id_synced = True
         db.add(participant)
     await db.commit()
     details.append({
