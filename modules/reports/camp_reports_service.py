@@ -107,17 +107,6 @@ from db.session import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
-# Camps where participants list must always report all report flags as false
-# (data still has FitPrint / stale IHR / notification rows that would otherwise flip them).
-REPORTS_ALL_FALSE_CAMP_NOS: frozenset[int] = frozenset({6141026})
-
-_REPORTS_ALL_FALSE_FIELDS: tuple[str, ...] = (
-    "blood_report_generated",
-    "blood_report_sent",
-    "bio_ai_report_generated",
-    "bio_ai_report_sent",
-)
-
 # (base_seconds, per_unit_seconds, unit_kind)
 # unit_kind: "participants" | "fitprint" | "health" | "kpi_metsights"
 _SECTION_ESTIMATE_COSTS: dict[str, tuple[float, float, str]] = {
@@ -1039,21 +1028,13 @@ class CampReportsService:
             db,
             rows=rows,
         )
-        force_reports_false = int(camp_no) in REPORTS_ALL_FALSE_CAMP_NOS
-        participants = [
+        return [
             self._camp_participant_to_dict(
                 row,
                 enrichment=enrichment_by_participant.get(int(row[0])),
             )
             for row in rows
-        ]
-        if force_reports_false:
-            for participant in participants:
-                reports = participant.get("reports")
-                if isinstance(reports, dict):
-                    for field in _REPORTS_ALL_FALSE_FIELDS:
-                        reports[field] = False
-        return participants, total
+        ], total
 
     async def _get_camp_report_row(
         self,
