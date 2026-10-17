@@ -781,6 +781,7 @@ class EngagementsService:
         audience: str | None = None,
         sort_by: str | None = None,
         sort_dir: str | None = None,
+        include_readiness: bool = True,
     ) -> tuple[list[Engagement], int, dict[int, ChecklistReadiness]]:
         ensure_admin(employee)
 
@@ -826,10 +827,13 @@ class EngagementsService:
             engagement_ids=[int(row.engagement_id) for row in engagements],
         )
 
-        checklists = self.lazy_checklists_service()
         readiness_by_id: dict[int, ChecklistReadiness] = {}
-        for row in engagements:
-            readiness_by_id[row.engagement_id] = await checklists.get_engagement_readiness(db, row.engagement_id)
+        if include_readiness:
+            checklists = self.lazy_checklists_service()
+            for row in engagements:
+                readiness_by_id[row.engagement_id] = await checklists.get_engagement_readiness(
+                    db, row.engagement_id
+                )
 
         return engagements, total, readiness_by_id, counts_by_id
 
@@ -3891,6 +3895,212 @@ class EngagementsService:
                 message="Engagement does not exist",
             )
         return engagement
+
+    async def list_dashboard_participant_issues_block(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        limit: int = 20,
+    ) -> tuple[list[dict], dict | None]:
+        """Fast dashboard rollup + sample issues for running/scheduled engagements."""
+        from modules.engagements.blood_bookings_repository import current_blood_booking_subquery
+        from modules.engagements.models import EngagementParticipant
+        from modules.reports.blood_parameters_schemas import has_usable_provider_blood_parameters
+        from modules.reports.blood_report_archival import is_archived_blood_report_url
+        from modules.reports.camp_reports_repository import _coerce_reports_dict
+        from modules.reports.models import IndividualHealthReport
+        from modules.users.models import User
+
+        ensure_admin(employee)
+        if limit < 1 or limit > 500:
+            raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+
+        engagements = await self._repository.list_engagements_for_filters(
+            db,
+            limit=limit,
+            organization_id=None,
+            camp_no=None,
+            statuses=["running", "scheduled"],
+            city=None,
+            on_date=None,
+            search=None,
+            engagement_type=None,
+            audience=None,
+            sort_by=None,
+            sort_dir=None,
+        )
+        if not engagements:
+            return [], {
+                "participants_in_scope": 0,
+                "engagements_in_scope": 0,
+                "limit_reached": False,
+                "missing_blood_slot": 0,
+                "missing_questionnaire": 0,
+                "missing_blood_report": 0,
+                "missing_bio_ai_report": 0,
+            }
+
+        engagement_ids = [int(e.engagement_id) for e in engagements]
+        curr_pbb = current_blood_booking_subquery()
+
+        enrolled_rows = (
+            await db.execute(
+                select(
+                    EngagementParticipant.engagement_id,
+                    User.user_id,
+                    User.first_name,
+                    User.last_name,
+                    curr_pbb.c.booking_id,
+                )
+                .select_from(EngagementParticipant)
+                .join(User, User.user_id == EngagementParticipant.user_id)
+                .outerjoin(
+                    curr_pbb,
+                    curr_pbb.c.engagement_participant_id
+                    == EngagementParticipant.engagement_participant_id,
+                )
+                .where(EngagementParticipant.engagement_id.in_(engagement_ids))
+                .order_by(EngagementParticipant.engagement_id.asc(), User.user_id.asc())
+            )
+        ).all()
+
+        ihr_flags: dict[tuple[int, int], dict[str, bool]] = {}
+        ihr_result = await db.execute(
+            select(
+                IndividualHealthReport.engagement_id,
+                IndividualHealthReport.user_id,
+                IndividualHealthReport.report_url,
+                IndividualHealthReport.reports,
+            ).where(IndividualHealthReport.engagement_id.in_(engagement_ids))
+        )
+        for row in ihr_result.all():
+            key = (int(row.engagement_id), int(row.user_id))
+            flags = ihr_flags.setdefault(
+                key,
+                {
+                    "has_blood_report": False,
+                    "has_blood_values": False,
+                    "has_bio_ai_report": False,
+                    "has_bio_ai_json": False,
+                },
+            )
+            if row.report_url and str(row.report_url).strip():
+                flags["has_bio_ai_report"] = True
+            if _coerce_reports_dict(row.reports):
+                flags["has_bio_ai_json"] = True
+
+        blood_result = await db.execute(
+            select(
+                EngagementParticipant.engagement_id,
+                EngagementParticipant.user_id,
+                curr_pbb.c.diagnostic_report_url,
+                curr_pbb.c.blood_parameters,
+            )
+            .select_from(EngagementParticipant)
+            .join(
+                curr_pbb,
+                curr_pbb.c.engagement_participant_id
+                == EngagementParticipant.engagement_participant_id,
+            )
+            .where(EngagementParticipant.engagement_id.in_(engagement_ids))
+        )
+        for row in blood_result.all():
+            key = (int(row.engagement_id), int(row.user_id))
+            flags = ihr_flags.setdefault(
+                key,
+                {
+                    "has_blood_report": False,
+                    "has_blood_values": False,
+                    "has_bio_ai_report": False,
+                    "has_bio_ai_json": False,
+                },
+            )
+            if row.diagnostic_report_url and is_archived_blood_report_url(
+                str(row.diagnostic_report_url).strip()
+            ):
+                flags["has_blood_report"] = True
+            if has_usable_provider_blood_parameters(row.blood_parameters):
+                flags["has_blood_values"] = True
+
+        default_flags = {
+            "has_blood_report": False,
+            "has_blood_values": False,
+            "has_bio_ai_report": False,
+            "has_bio_ai_json": False,
+        }
+
+        q_state_by_engagement_user: dict[tuple[int, int], str] = {}
+        for engagement in engagements:
+            q_status = await self._build_engagement_questionnaire_status(
+                db, engagement_id=int(engagement.engagement_id)
+            )
+            for participant in q_status["participants"]:
+                q_state_by_engagement_user[
+                    (int(engagement.engagement_id), int(participant["user_id"]))
+                ] = participant["questionnaire_state"]
+
+        rollup = {
+            "total_participants": 0,
+            "with_booking_id": 0,
+            "blood_report": 0,
+            "bio_ai_report": 0,
+            "questionnaire_not_started": 0,
+            "questionnaire_partially_filled": 0,
+        }
+        participant_issues: list[dict] = []
+        engagement_by_id = {int(e.engagement_id): e for e in engagements}
+        seen: set[tuple[int, int]] = set()
+
+        for row in enrolled_rows:
+            engagement_id = int(row.engagement_id)
+            user_id = int(row.user_id)
+            key = (engagement_id, user_id)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            flags = ihr_flags.get(key, default_flags)
+            q_state = q_state_by_engagement_user.get(key, "not_started")
+            has_booking_id = bool(row.booking_id and str(row.booking_id).strip())
+            engagement = engagement_by_id[engagement_id]
+
+            participant = {
+                "user_id": user_id,
+                "first_name": row.first_name,
+                "last_name": row.last_name,
+                "has_booking_id": has_booking_id,
+                "has_blood_report": flags["has_blood_report"],
+                "has_bio_ai_report": flags["has_bio_ai_report"],
+                "questionnaire_state": q_state,
+            }
+            participant_issues.extend(_participant_issues_from_completeness(engagement, [participant]))
+
+            rollup["total_participants"] += 1
+            if has_booking_id:
+                rollup["with_booking_id"] += 1
+            if flags["has_blood_report"]:
+                rollup["blood_report"] += 1
+            if flags["has_bio_ai_report"]:
+                rollup["bio_ai_report"] += 1
+            if q_state == "partially_filled":
+                rollup["questionnaire_partially_filled"] += 1
+            elif q_state != "filled":
+                rollup["questionnaire_not_started"] += 1
+
+        participants_in_scope = rollup["total_participants"]
+        engagements_in_scope = len(engagements)
+        questionnaire_missing = rollup["questionnaire_not_started"] + rollup["questionnaire_partially_filled"]
+        summary = {
+            "participants_in_scope": participants_in_scope,
+            "engagements_in_scope": engagements_in_scope,
+            "limit_reached": engagements_in_scope >= limit,
+            "missing_blood_slot": max(0, participants_in_scope - rollup["with_booking_id"]),
+            "missing_questionnaire": questionnaire_missing,
+            "missing_blood_report": max(0, participants_in_scope - rollup["blood_report"]),
+            "missing_bio_ai_report": max(0, participants_in_scope - rollup["bio_ai_report"]),
+        }
+        return participant_issues, summary
 
     async def list_engagements_data_completeness_summary(
         self,

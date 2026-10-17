@@ -31,11 +31,14 @@ class SupportRepository:
         db: AsyncSession,
         *,
         status: str | None = None,
+        limit: int | None = None,
     ) -> list[SupportTicket]:
         query = select(SupportTicket)
         if status is not None:
             query = query.where(SupportTicket.status == status)
         query = query.order_by(SupportTicket.ticket_id.desc())
+        if limit is not None:
+            query = query.limit(limit)
         result = await db.execute(query)
         return list(result.scalars().all())
 

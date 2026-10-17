@@ -150,6 +150,8 @@ async def _engagement_rows_for_list(
     employee: EmployeeContext,
     engagements_service,
     on_date: date | None,
+    include_readiness: bool = False,
+    include_slot_details: bool = False,
 ) -> tuple[list[dict], bool]:
     from modules.engagements.router import _engagement_to_dict
     status_filter = "running,scheduled"
@@ -168,16 +170,19 @@ async def _engagement_rows_for_list(
         audience=None,
         sort_by="start_date",
         sort_dir="asc",
+        include_readiness=include_readiness,
     )
-    slot_details_map = await engagements_service.resolve_slot_details_map(db, engagements)
+    slot_details_map: dict[int, dict] = {}
+    if include_slot_details and engagements:
+        slot_details_map = await engagements_service.resolve_slot_details_map(db, engagements)
     rows = [
         _engagement_to_dict(
             engagement,
-            readiness=readiness_by_id[engagement.engagement_id],
+            readiness=readiness_by_id.get(engagement.engagement_id) if include_readiness else None,
             participant_count=counts_by_id.get(int(engagement.engagement_id), 0),
             slot_detail=(
                 slot_details_map.get(int(engagement.slot_detail_id))
-                if engagement.slot_detail_id is not None
+                if include_slot_details and engagement.slot_detail_id is not None
                 else None
             ),
         )
@@ -247,44 +252,13 @@ async def build_dashboard_participant_issues_block(
     *,
     employee: EmployeeContext,
 ) -> tuple[list[dict], dict | None]:
-    """Completeness rollup for dashboard participant-issue card (independent of full ops snapshot)."""
+    """Completeness rollup for dashboard participant-issue card (batched queries)."""
     engagements_service = get_engagements_service()
-    data = await engagements_service.list_engagements_data_completeness_summary(
+    return await engagements_service.list_dashboard_participant_issues_block(
         db,
         employee=employee,
-        organization_id=None,
-        camp_no=None,
-        status="running,scheduled",
-        city=None,
-        on_date=None,
-        search=None,
-        engagement_type=None,
-        audience=None,
-        sort_by=None,
-        sort_dir=None,
         limit=DASHBOARD_PARTICIPANT_ISSUES_LIMIT,
-        include_participant_issues=True,
     )
-    issues = list(data.get("participant_issues") or [])
-    rollup = data.get("rollup") if isinstance(data.get("rollup"), dict) else {}
-    participants_in_scope = int(rollup.get("total_participants") or 0)
-    engagements_in_scope = int(rollup.get("engagement_count") or 0)
-    with_booking = int(rollup.get("with_booking_id") or 0)
-    blood_report = int(rollup.get("blood_report") or 0)
-    bio_ai_report = int(rollup.get("bio_ai_report") or 0)
-    questionnaire_missing = int(rollup.get("questionnaire_not_started") or 0) + int(
-        rollup.get("questionnaire_partially_filled") or 0
-    )
-    summary = {
-        "participants_in_scope": participants_in_scope,
-        "engagements_in_scope": engagements_in_scope,
-        "limit_reached": engagements_in_scope >= DASHBOARD_PARTICIPANT_ISSUES_LIMIT,
-        "missing_blood_slot": max(0, participants_in_scope - with_booking),
-        "missing_questionnaire": questionnaire_missing,
-        "missing_blood_report": max(0, participants_in_scope - blood_report),
-        "missing_bio_ai_report": max(0, participants_in_scope - bio_ai_report),
-    }
-    return issues, summary
 
 
 async def build_operations_snapshot(
@@ -305,14 +279,16 @@ async def build_operations_snapshot(
     today = date.today()
     week_start, week_end = _week_range_local()
 
-    async def load_engagements_block() -> dict:
+    async def load_engagements_block(session: AsyncSession) -> dict:
         today_rows, today_trunc = await _engagement_rows_for_list(
-            db, employee=employee, engagements_service=engagements_service, on_date=today
+            session, employee=employee, engagements_service=engagements_service, on_date=today
         )
         active_rows, active_trunc = await _engagement_rows_for_list(
-            db, employee=employee, engagements_service=engagements_service, on_date=None
+            session, employee=employee, engagements_service=engagements_service, on_date=None
         )
-        org_names = await _org_names_map(db, employee=employee, organizations_service=organizations_service)
+        org_names = await _org_names_map(
+            session, employee=employee, organizations_service=organizations_service
+        )
         running_today = _keep_active(today_rows)
         running_this_week = [
             row
@@ -326,9 +302,9 @@ async def build_operations_snapshot(
             "truncated": today_trunc or active_trunc,
         }
 
-    async def load_pending_payments() -> list[dict]:
+    async def load_pending_payments(session: AsyncSession) -> list[dict]:
         payload = await payments_service.list_bookings_admin(
-            db,
+            session,
             page=1,
             limit=PAGE_SIZE,
             search=None,
@@ -345,17 +321,19 @@ async def build_operations_snapshot(
             rows.append({**booking, "pending_minutes": minutes})
         return rows
 
-    async def load_failed_notifications() -> list[dict]:
+    async def load_failed_notifications(session: AsyncSession) -> list[dict]:
         items, _total = await notifications_service.list_notifications(
-            db,
+            session,
             page=1,
             limit=PAGE_SIZE,
             status="failed",
         )
         return items
 
-    async def load_tickets() -> dict:
-        open_tickets = await support_service.list_tickets(db, status_filter="open")
+    async def load_tickets(session: AsyncSession) -> dict:
+        open_tickets = await support_service.list_tickets(
+            session, status_filter="open", limit=PAGE_SIZE
+        )
         return {
             "open": [
                 {
@@ -370,9 +348,9 @@ async def build_operations_snapshot(
             ],
         }
 
-    async def load_serviceability() -> list[dict]:
+    async def load_serviceability(session: AsyncSession) -> list[dict]:
         logs, _total = await audit_service.list_integration_sync_logs(
-            db,
+            session,
             page=1,
             limit=PAGE_SIZE,
             provider="healthians",
@@ -380,7 +358,13 @@ async def build_operations_snapshot(
             search="checkServiceabilityByLocation",
             payload_search=None,
         )
-        return await _hydrate_serviceability_labels(db, logs)
+        return await _hydrate_serviceability_labels(session, logs)
+
+    from db.session import AsyncSessionLocal
+
+    async def _with_session(coro):
+        async with AsyncSessionLocal() as session:
+            return await coro(session)
 
     (
         engagements_block,
@@ -389,11 +373,11 @@ async def build_operations_snapshot(
         tickets_block,
         serviceability,
     ) = await asyncio.gather(
-        load_engagements_block(),
-        load_pending_payments(),
-        load_failed_notifications(),
-        load_tickets(),
-        load_serviceability(),
+        _with_session(load_engagements_block),
+        _with_session(load_pending_payments),
+        _with_session(load_failed_notifications),
+        _with_session(load_tickets),
+        _with_session(load_serviceability),
     )
 
     return {

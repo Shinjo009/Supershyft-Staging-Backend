@@ -10,7 +10,11 @@ from common.responses import success_response
 from db.session import get_db
 from modules.employee.dependencies import get_current_employee
 from modules.employee.service import EmployeeContext
-from modules.dashboard.service import build_dashboard_overview, year_stats_payload
+from modules.dashboard.service import (
+    build_dashboard_operations,
+    build_dashboard_overview,
+    year_stats_payload,
+)
 from modules.engagements.models import Engagement, EngagementParticipant
 
 router = APIRouter(prefix="/admin/dashboard", tags=["dashboard"])
@@ -51,4 +55,13 @@ async def get_dashboard_overview(
     employee: EmployeeContext = Depends(get_current_employee),
 ):
     payload = await build_dashboard_overview(db, employee=employee)
+    return success_response(payload)
+
+
+@router.get("/operations")
+async def get_dashboard_operations(
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+):
+    payload = await build_dashboard_operations(db, employee=employee)
     return success_response(payload)

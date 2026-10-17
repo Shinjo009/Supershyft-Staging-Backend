@@ -111,9 +111,15 @@ class SupportService:
 
         return ticket
 
-    async def list_tickets(self, db: AsyncSession, *, status_filter: str | None = None) -> list[SupportTicket]:
+    async def list_tickets(
+        self,
+        db: AsyncSession,
+        *,
+        status_filter: str | None = None,
+        limit: int | None = None,
+    ) -> list[SupportTicket]:
         normalized_status = self._normalize_status(status_filter) if status_filter is not None else None
-        return await self._repository.get_all_tickets(db, status=normalized_status)
+        return await self._repository.get_all_tickets(db, status=normalized_status, limit=limit)
 
     async def get_ticket(self, db: AsyncSession, ticket_id: int) -> SupportTicket:
         ticket = await self._repository.get_ticket_by_id(db, ticket_id)

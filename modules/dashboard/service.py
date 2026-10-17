@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import date, datetime, timezone
+from typing import Any, Awaitable, Callable, TypeVar
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,7 @@ from modules.dashboard.operations_snapshot import (
     build_operations_snapshot,
     empty_operations_snapshot,
 )
+from modules.dashboard.overview_cache import get_cached_overview, overview_cache_key, set_cached_overview
 from modules.employee.service import EmployeeContext
 from modules.payments.models import Booking
 from modules.engagements.blood_booking_enums import BloodBookingStatus
@@ -22,11 +24,21 @@ from modules.experts.models import ConsultationBooking
 from modules.notifications.models import Notification
 from modules.support.models import SupportTicket
 from modules.users.repository import UsersRepository
+from db.session import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
 # Keep below typical reverse-proxy read timeouts (often 60s).
 DASHBOARD_OPERATIONS_TIMEOUT_SECONDS = 50.0
+
+_T = TypeVar("_T")
+
+
+async def _with_isolated_session(
+    coro: Callable[[AsyncSession], Awaitable[_T]],
+) -> _T:
+    async with AsyncSessionLocal() as session:
+        return await coro(session)
 
 
 async def _operations_for_overview(db: AsyncSession, *, employee: EmployeeContext) -> dict:
@@ -131,11 +143,9 @@ async def year_stats_payload(db: AsyncSession, *, year: int) -> dict:
 
 async def _users_overview(db: AsyncSession) -> dict:
     users_repo = UsersRepository()
-    total, active, year_counts = await asyncio.gather(
-        users_repo.count_users(db),
-        users_repo.count_users(db, status="active"),
-        users_repo.count_users_created_by_year(db),
-    )
+    total = await users_repo.count_users(db)
+    active = await users_repo.count_users(db, status="active")
+    year_counts = await users_repo.count_users_created_by_year(db)
     yearly_totals: list[dict] = []
     if year_counts:
         by_year = dict(year_counts)
@@ -234,33 +244,15 @@ async def _failed_notifications_count(db: AsyncSession) -> int:
     return int(count or 0)
 
 
-async def build_dashboard_overview(db: AsyncSession, *, employee: EmployeeContext) -> dict:
-    """Single read snapshot for admin Action Center (first page only)."""
-    year = date.today().year
-    (
-        year_stats,
-        users,
-        engagement_participants_total,
-        payment_status_totals,
-        ticket_counts,
-        failed_notifications_count,
-        operations,
-        participant_issues_block,
-    ) = await asyncio.gather(
-        year_stats_payload(db, year=year),
-        _users_overview(db),
-        _participant_stats(db),
-        booking_status_totals(db),
-        ticket_status_counts(db),
-        _failed_notifications_count(db),
-        _operations_for_overview(db, employee=employee),
-        _participant_issues_for_overview(db, employee=employee),
-    )
-
-    participant_issues, participant_issue_summary = participant_issues_block
-    operations["participant_issues"] = participant_issues
-    operations["participant_issue_summary"] = participant_issue_summary
-
+def _format_overview_kpis(
+    *,
+    year_stats: dict,
+    users: dict,
+    engagement_participants_total: int,
+    payment_status_totals: dict[str, int],
+    ticket_counts: dict[str, int],
+    failed_notifications_count: int,
+) -> dict[str, Any]:
     return {
         "year_stats": year_stats,
         "users": users,
@@ -272,6 +264,56 @@ async def build_dashboard_overview(db: AsyncSession, *, employee: EmployeeContex
         },
         "ticket_counts": ticket_counts,
         "failed_notifications_count": failed_notifications_count,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def build_dashboard_overview(_db: AsyncSession, *, employee: EmployeeContext) -> dict:
+    """Fast KPI snapshot for admin Action Center (no heavy operations block)."""
+    cache_key = overview_cache_key(employee_id=employee.employee_id)
+    cached = get_cached_overview(cache_key)
+    if cached is not None:
+        return cached
+
+    year = date.today().year
+    (
+        year_stats,
+        users,
+        engagement_participants_total,
+        payment_status_totals,
+        ticket_counts,
+        failed_notifications_count,
+    ) = await asyncio.gather(
+        _with_isolated_session(lambda session: year_stats_payload(session, year=year)),
+        _with_isolated_session(_users_overview),
+        _with_isolated_session(_participant_stats),
+        _with_isolated_session(booking_status_totals),
+        _with_isolated_session(ticket_status_counts),
+        _with_isolated_session(_failed_notifications_count),
+    )
+
+    payload = _format_overview_kpis(
+        year_stats=year_stats,
+        users=users,
+        engagement_participants_total=engagement_participants_total,
+        payment_status_totals=payment_status_totals,
+        ticket_counts=ticket_counts,
+        failed_notifications_count=failed_notifications_count,
+    )
+    set_cached_overview(cache_key, payload)
+    return payload
+
+
+async def build_dashboard_operations(_db: AsyncSession, *, employee: EmployeeContext) -> dict:
+    """Heavy Action Center operations snapshot (separate from KPI overview)."""
+    operations, participant_issues_block = await asyncio.gather(
+        _with_isolated_session(lambda session: _operations_for_overview(session, employee=employee)),
+        _with_isolated_session(lambda session: _participant_issues_for_overview(session, employee=employee)),
+    )
+    participant_issues, participant_issue_summary = participant_issues_block
+    operations["participant_issues"] = participant_issues
+    operations["participant_issue_summary"] = participant_issue_summary
+    return {
         "operations": operations,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }

@@ -20,7 +20,18 @@ async def test_dashboard_overview_returns_kpis(async_client, test_db_session):
     assert "year_stats" in data
     assert "payment_status_totals" in data
     assert "engagement_participants_total" in data
-    assert "operations" in data
+    assert "operations" not in data
+
+
+@pytest.mark.asyncio
+async def test_dashboard_operations_returns_ops_block(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=8804, role="admin")
+    response = await async_client.get(
+        "/admin/dashboard/operations",
+        headers=employee_auth_header(8804),
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
     ops = data["operations"]
     assert "engagements" in ops
     assert "participant_issues" in ops
