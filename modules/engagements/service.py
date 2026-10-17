@@ -2912,19 +2912,53 @@ class EngagementsService:
                 }
 
         blood_flags = complete_row or {}
+        blood_report_url = blood_flags.get("blood_report_url")
+        if not (blood_report_url and str(blood_report_url).strip()):
+            for bb in blood_bookings:
+                candidate = str(bb.get("diagnostic_report_url") or "").strip()
+                if candidate:
+                    blood_report_url = candidate
+                    break
+
+        from modules.reports.camp_reports_repository import _coerce_reports_dict
+        from modules.reports.models import IndividualHealthReport
+        from sqlalchemy import select
+
+        ihr_row = (
+            await db.execute(
+                select(
+                    IndividualHealthReport.report_url,
+                    IndividualHealthReport.reports,
+                ).where(
+                    IndividualHealthReport.engagement_id == engagement_id,
+                    IndividualHealthReport.user_id == user_id,
+                )
+            )
+        ).first()
+        bio_ai_report_url = blood_flags.get("bio_ai_report_url")
+        bio_ai_reports: dict[str, Any] | None = None
+        if ihr_row is not None:
+            ihr_url = str(ihr_row.report_url or "").strip()
+            if ihr_url:
+                bio_ai_report_url = bio_ai_report_url or ihr_url
+            bio_ai_reports = _coerce_reports_dict(ihr_row.reports)
+
         return {
             "engagement_id": engagement_id,
             "user_id": user_id,
             "blood": {
                 "has_blood_report": bool(blood_flags.get("has_blood_report")),
                 "has_blood_values": bool(blood_flags.get("has_blood_values")),
-                "blood_report_url": blood_flags.get("blood_report_url"),
+                "blood_report_url": blood_report_url,
                 "blood_bookings": blood_bookings,
             },
             "bio_ai": {
-                "has_bio_ai_report": bool(blood_flags.get("has_bio_ai_report")),
-                "has_bio_ai_json": bool(blood_flags.get("has_bio_ai_json")),
-                "bio_ai_report_url": blood_flags.get("bio_ai_report_url"),
+                "has_bio_ai_report": bool(blood_flags.get("has_bio_ai_report"))
+                or bool(bio_ai_report_url and str(bio_ai_report_url).strip()),
+                "has_bio_ai_json": bool(blood_flags.get("has_bio_ai_json"))
+                or bool(bio_ai_reports),
+                "bio_ai_report_url": bio_ai_report_url,
+                "reports": bio_ai_reports,
             },
             "questionnaires": {
                 "questionnaire_state": questionnaire_state,
@@ -4532,9 +4566,11 @@ class EngagementsService:
                 },
             )
             diagnostic_url = str(row.diagnostic_report_url or "").strip()
-            if diagnostic_url and is_archived_blood_report_url(diagnostic_url):
-                flags["has_blood_report"] = True
-                flags["blood_report_url"] = diagnostic_url
+            if diagnostic_url:
+                if not flags.get("blood_report_url"):
+                    flags["blood_report_url"] = diagnostic_url
+                if is_archived_blood_report_url(diagnostic_url):
+                    flags["has_blood_report"] = True
             if has_usable_provider_blood_parameters(row.blood_parameters):
                 flags["has_blood_values"] = True
 
