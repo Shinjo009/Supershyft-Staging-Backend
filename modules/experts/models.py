@@ -143,3 +143,28 @@ class ConsultationBooking(Base):
     attachments = Column(ARRAY(Text), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class CampConsultationRequestOtpContext(Base):
+    """Pending expert-initiated camp consultation request (consent + OTP verification)."""
+
+    __tablename__ = "camp_consultation_request_otp_contexts"
+    __table_args__ = (
+        Index("ix_camp_consult_req_otp_engagement_participant", "engagement_id", "engagement_participant_id"),
+        Index("ix_camp_consult_req_otp_session", "auth_otp_session_id", unique=True),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    auth_otp_session_id = Column(Integer, nullable=False)
+    engagement_id = Column(Integer, ForeignKey("engagements.engagement_id", ondelete="CASCADE"), nullable=False)
+    engagement_participant_id = Column(
+        Integer,
+        ForeignKey("engagement_participants.engagement_participant_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    expert_type = Column(String(100), nullable=False)
+    consent = Column(JSON, nullable=False)
+    initiated_by_partner_id = Column(Integer, nullable=True)
+    initiated_by_employee_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    consumed_at = Column(DateTime(timezone=True), nullable=True)

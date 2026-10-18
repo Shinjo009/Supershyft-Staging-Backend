@@ -30,6 +30,7 @@ from modules.engagements.models import Engagement, EngagementParticipant, Onboar
 from modules.engagements.slot_availability import slot_detail_is_configured
 from modules.engagements.slot_info_repository import EngagementSlotInfoRepository
 from modules.experts.consultation_bookings_repository import ConsultationBookingsRepository
+from modules.experts.camp_consultation_request_otp_repository import CampConsultationRequestOtpRepository
 from modules.experts.consultations import (
     booking_to_api_preference,
     consultation_dashboard_status,
@@ -39,6 +40,7 @@ from modules.experts.consultations import (
     normalize_preference,
 )
 from modules.experts.models import (
+    CampConsultationRequestOtpContext,
     ConsultationBooking,
     Expert,
     ExpertAvailabilityModel,
@@ -56,6 +58,8 @@ from modules.experts.repository import (
 from modules.experts.schemas import (
     AvailabilityBlockCreate,
     AvailabilityBulkSave,
+    CampConsultationRequestSendOtpRequest,
+    CampConsultationRequestVerifyOtpRequest,
     ConsultationBookRequest,
     ConsultationCancelRequest,
     ConsultationConfirmRequest,
@@ -2235,31 +2239,285 @@ class ExpertAvailabilityService:
                 if booking is None and bookings:
                     booking = bookings[0]
 
-            pref = booking_to_api_preference(booking) if booking is not None else {}
             row_expert_type = (
                 booking.expert_type
                 if booking is not None
                 else (expert_type_filter or "")
             )
             items.append(
-                {
-                    "engagement_participant_id": participant.engagement_participant_id,
-                    "consultation_id": booking.consultation_id if booking is not None else None,
-                    "user_id": user.user_id,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "email": mask_email(user.email),
-                    "phone": mask_phone(user.phone),
-                    "date": pref.get("date"),
-                    "slot": pref.get("slot"),
-                    "cabin": pref.get("cabin"),
-                    "done": bool(booking.done) if booking is not None else False,
-                    "expert_type": row_expert_type,
-                    "requested": requested,
-                    "want": requested,
-                }
+                self._camp_participant_list_item(
+                    participant,
+                    user,
+                    booking,
+                    expert_type_label=row_expert_type,
+                    requested=requested,
+                )
             )
         return items
+
+    @staticmethod
+    def _camp_participant_list_item(
+        participant: EngagementParticipant,
+        user: User,
+        booking: ConsultationBooking | None,
+        *,
+        expert_type_label: str,
+        requested: bool,
+    ) -> dict[str, Any]:
+        pref = booking_to_api_preference(booking) if booking is not None else {}
+        consent = (
+            normalize_consent(booking.consent) if booking is not None else None
+        )
+        return {
+            "engagement_participant_id": participant.engagement_participant_id,
+            "consultation_id": booking.consultation_id if booking is not None else None,
+            "user_id": user.user_id,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "email": mask_email(user.email),
+            "phone": mask_phone(user.phone),
+            "date": pref.get("date"),
+            "slot": pref.get("slot"),
+            "cabin": pref.get("cabin"),
+            "done": bool(booking.done) if booking is not None else False,
+            "expert_type": expert_type_label,
+            "requested": requested,
+            "want": requested,
+            "consent": consent,
+        }
+
+    def _resolve_camp_request_expert_type(
+        self,
+        *,
+        employee: EmployeeContext | None,
+        partner: Partner | None,
+        actor_expert: Expert | None,
+        payload_expert_type: str | None,
+    ) -> str:
+        if partner is not None:
+            if actor_expert is None:
+                raise AppError(
+                    status_code=400,
+                    error_code="INVALID_INPUT",
+                    message="Current user is not linked to an expert profile",
+                )
+            return actor_expert.expert_type
+        if employee is not None and (
+            employee.role == EmployeeRole.admin or has_route_admin_scope(employee)
+        ):
+            expert_type = (payload_expert_type or "").strip()
+            if not expert_type:
+                raise AppError(
+                    status_code=400,
+                    error_code="INVALID_INPUT",
+                    message="expert_type is required",
+                )
+            return expert_type
+        raise AppError(
+            status_code=403,
+            error_code="FORBIDDEN",
+            message="You do not have permission to perform this action",
+        )
+
+    async def _get_camp_participant_for_request(
+        self,
+        db,
+        *,
+        engagement_id: int,
+        engagement_participant_id: int,
+    ) -> tuple[EngagementParticipant, User]:
+        participant = await db.get(EngagementParticipant, engagement_participant_id)
+        if participant is None or participant.engagement_id != engagement_id:
+            raise AppError(status_code=404, error_code="NOT_FOUND", message="Participant not found")
+        user = await db.get(User, participant.user_id)
+        if user is None:
+            raise AppError(status_code=404, error_code="NOT_FOUND", message="Participant not found")
+        return participant, user
+
+    async def send_camp_consultation_request_otp(
+        self,
+        db,
+        *,
+        auth_service: Any,
+        employee: EmployeeContext | None = None,
+        partner: Partner | None = None,
+        engagement_id: int,
+        engagement_participant_id: int,
+        payload: CampConsultationRequestSendOtpRequest,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> tuple[dict[str, Any], Any]:
+        from modules.auth.service import AuthService
+
+        if not isinstance(auth_service, AuthService):
+            raise TypeError("auth_service must be AuthService")
+
+        ensure_expert_portal_access(employee, partner=partner)
+        engagement = await db.get(Engagement, engagement_id)
+        if engagement is None:
+            raise AppError(status_code=404, error_code="NOT_FOUND", message="Engagement not found")
+
+        actor_expert = await self._resolve_portal_actor_expert(db, employee=employee, partner=partner)
+        await self._ensure_camp_engagement_list_access(
+            db,
+            employee=employee,
+            partner=partner,
+            engagement=engagement,
+            actor_expert=actor_expert,
+        )
+
+        expert_type = self._resolve_camp_request_expert_type(
+            employee=employee,
+            partner=partner,
+            actor_expert=actor_expert,
+            payload_expert_type=payload.expert_type,
+        )
+
+        allowed = engagement.consultations if isinstance(engagement.consultations, dict) else {}
+        if allowed.get(expert_type) is not True:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message=f"Consultation not available for this engagement: {expert_type}",
+            )
+
+        consent_payload = normalize_consent(payload.consent.model_dump())
+        if not any(consent_payload.values()):
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message="At least one consent option must be granted",
+            )
+
+        participant, user = await self._get_camp_participant_for_request(
+            db,
+            engagement_id=engagement_id,
+            engagement_participant_id=engagement_participant_id,
+        )
+
+        existing = await self._consultation_bookings.get_by_participant_and_type(
+            db,
+            participant.engagement_participant_id,
+            expert_type,
+        )
+        if existing is not None and bool(existing.want):
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message="Participant has already requested this consultation",
+            )
+
+        session_id, delivery = await auth_service.send_otp_for_user_id(
+            db,
+            user_id=user.user_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            endpoint=endpoint,
+        )
+
+        otp_repo = CampConsultationRequestOtpRepository()
+        context = CampConsultationRequestOtpContext(
+            auth_otp_session_id=session_id,
+            engagement_id=engagement_id,
+            engagement_participant_id=engagement_participant_id,
+            expert_type=expert_type,
+            consent=consent_payload,
+            initiated_by_partner_id=partner.partner_id if partner is not None else None,
+            initiated_by_employee_id=employee.employee_id if employee is not None else None,
+        )
+        await otp_repo.create(db, context)
+
+        return (
+            {
+                "session_id": session_id,
+                "masked_phone": mask_phone(user.phone),
+            },
+            delivery,
+        )
+
+    async def verify_camp_consultation_request_otp(
+        self,
+        db,
+        *,
+        auth_service: Any,
+        employee: EmployeeContext | None = None,
+        partner: Partner | None = None,
+        engagement_id: int,
+        engagement_participant_id: int,
+        payload: CampConsultationRequestVerifyOtpRequest,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> dict[str, Any]:
+        from modules.auth.service import AuthService
+
+        if not isinstance(auth_service, AuthService):
+            raise TypeError("auth_service must be AuthService")
+
+        ensure_expert_portal_access(employee, partner=partner)
+        engagement = await db.get(Engagement, engagement_id)
+        if engagement is None:
+            raise AppError(status_code=404, error_code="NOT_FOUND", message="Engagement not found")
+
+        actor_expert = await self._resolve_portal_actor_expert(db, employee=employee, partner=partner)
+        await self._ensure_camp_engagement_list_access(
+            db,
+            employee=employee,
+            partner=partner,
+            engagement=engagement,
+            actor_expert=actor_expert,
+        )
+
+        participant, user = await self._get_camp_participant_for_request(
+            db,
+            engagement_id=engagement_id,
+            engagement_participant_id=engagement_participant_id,
+        )
+
+        otp_repo = CampConsultationRequestOtpRepository()
+        context = await otp_repo.get_active_for_verify(
+            db,
+            engagement_id=engagement_id,
+            engagement_participant_id=engagement_participant_id,
+            auth_otp_session_id=payload.session_id,
+            initiated_by_partner_id=partner.partner_id if partner is not None else None,
+            initiated_by_employee_id=employee.employee_id if employee is not None else None,
+        )
+        if context is None:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message="OTP session not found or expired. Please request a new code.",
+            )
+
+        await auth_service.verify_otp_for_user_session(
+            db,
+            user_id=user.user_id,
+            session_id=payload.session_id,
+            otp=payload.otp.strip(),
+            ip_address=ip_address,
+            user_agent=user_agent,
+            endpoint=endpoint,
+        )
+
+        consent = normalize_consent(context.consent)
+        booking = await self._consultation_bookings.create_or_update_for_type(
+            db,
+            participant,
+            context.expert_type,
+            want=True,
+            consent=consent,
+        )
+        await otp_repo.mark_consumed(db, context.id)
+
+        return self._camp_participant_list_item(
+            participant,
+            user,
+            booking,
+            expert_type_label=context.expert_type,
+            requested=True,
+        )
 
     async def _load_assigned_consultation_context(
         self,

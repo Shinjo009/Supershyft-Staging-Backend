@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from typing import Any
 
 import pytest
 
+from core.config import settings
+from modules.auth.service import AuthService
 from modules.engagements.enums import ConsultationMode
 from modules.engagements.models import Engagement, EngagementParticipant, OnboardingAssistantAssignment
 from modules.experts.models import ConsultationBooking, Expert
@@ -130,6 +133,57 @@ async def _seed_camp_setup(
     )
     await test_db_session.commit()
     return expert
+
+
+async def _seed_unrequested_participant(
+    test_db_session,
+    *,
+    engagement_id: int,
+    participant_id: int,
+    user_id: int,
+    phone: str = "886000000099",
+) -> None:
+    test_db_session.add(
+        User(
+            user_id=user_id,
+            age=29,
+            phone=phone,
+            email=f"unrequested.{user_id}@example.com",
+            first_name="Pending",
+            last_name="Participant",
+            status="active",
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        EngagementParticipant(
+            engagement_participant_id=participant_id,
+            engagement_id=engagement_id,
+            user_id=user_id,
+            booked_by_user_id=user_id,
+            consultation_booking_ids=[],
+        )
+    )
+    await test_db_session.commit()
+
+
+def _send_otp_url(engagement_id: int, engagement_participant_id: int) -> str:
+    return (
+        f"/experts/portal/camp-consultations/engagements/{engagement_id}/participants/"
+        f"{engagement_participant_id}/request-consultation/send-otp"
+    )
+
+
+def _verify_otp_url(engagement_id: int, engagement_participant_id: int) -> str:
+    return (
+        f"/experts/portal/camp-consultations/engagements/{engagement_id}/participants/"
+        f"{engagement_participant_id}/request-consultation/verify-otp"
+    )
+
+
+_CONSENT_BODY = {
+    "consent": {"bio_ai": True, "blood_report": False, "questionnaire": True},
+}
 
 
 @pytest.mark.asyncio
@@ -343,3 +397,189 @@ async def test_camp_consultation_manage_rejects_wrong_expert_type(async_client, 
         headers=partner_auth_header(expert_partner_id),
     )
     assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_camp_request_consultation_otp_happy_path(
+    async_client, test_db_session, monkeypatch
+):
+    engagement_id = 88607
+    expert_partner_id = 88607
+    participant_id = 88671
+    participant_user_id = 88671
+
+    await _seed_camp_setup(
+        test_db_session,
+        engagement_id=engagement_id,
+        expert_partner_id=expert_partner_id,
+        participant_user_id=88670,
+        participant_id=88670,
+        nutritionist_consultation_id=886701,
+        doctor_consultation_id=886702,
+    )
+    await _seed_unrequested_participant(
+        test_db_session,
+        engagement_id=engagement_id,
+        participant_id=participant_id,
+        user_id=participant_user_id,
+    )
+
+    captured: dict[str, Any] = {}
+
+    async def _capture_delivery(self, db, *, delivery):
+        captured["otp"] = delivery.otp
+
+    monkeypatch.setattr(AuthService, "deliver_otp_via_notifications", _capture_delivery)
+
+    expert_headers = partner_auth_header(expert_partner_id)
+    send = await async_client.post(
+        _send_otp_url(engagement_id, participant_id),
+        headers=expert_headers,
+        json=_CONSENT_BODY,
+    )
+    assert send.status_code == 200
+    send_data = send.json()["data"]
+    assert send_data["session_id"] is not None
+    assert "masked_phone" in send_data
+    assert captured.get("otp")
+
+    verify = await async_client.post(
+        _verify_otp_url(engagement_id, participant_id),
+        headers=expert_headers,
+        json={"session_id": send_data["session_id"], "otp": captured["otp"]},
+    )
+    assert verify.status_code == 200
+    row = verify.json()["data"]
+    assert row["requested"] is True
+    assert row["engagement_participant_id"] == participant_id
+    assert row["consultation_id"] is not None
+    assert row["consent"] == _CONSENT_BODY["consent"]
+
+    listed = await async_client.get(
+        f"/experts/portal/camp-consultations/engagements/{engagement_id}/participants",
+        headers=expert_headers,
+    )
+    assert listed.status_code == 200
+    updated = next(
+        item
+        for item in listed.json()["data"]
+        if item["engagement_participant_id"] == participant_id
+    )
+    assert updated["requested"] is True
+    assert updated["consent"] == _CONSENT_BODY["consent"]
+
+
+@pytest.mark.asyncio
+async def test_camp_request_consultation_send_otp_forbidden_without_oa(
+    async_client, test_db_session, monkeypatch
+):
+    engagement_id = 88608
+    expert_partner_id = 88608
+    participant_id = 88681
+
+    await _seed_camp_setup(
+        test_db_session,
+        engagement_id=engagement_id,
+        expert_partner_id=expert_partner_id,
+        participant_user_id=88680,
+        participant_id=88680,
+        nutritionist_consultation_id=886801,
+        doctor_consultation_id=886802,
+        assign_expert_as_oa=False,
+    )
+    await _seed_unrequested_participant(
+        test_db_session,
+        engagement_id=engagement_id,
+        participant_id=participant_id,
+        user_id=88681,
+    )
+
+    async def _noop_delivery(self, db, *, delivery):
+        return None
+
+    monkeypatch.setattr(AuthService, "deliver_otp_via_notifications", _noop_delivery)
+
+    response = await async_client.post(
+        _send_otp_url(engagement_id, participant_id),
+        headers=partner_auth_header(expert_partner_id),
+        json=_CONSENT_BODY,
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_camp_request_consultation_send_otp_already_requested(
+    async_client, test_db_session, monkeypatch
+):
+    engagement_id = 88609
+    expert_partner_id = 88609
+    participant_id = 88690
+
+    await _seed_camp_setup(
+        test_db_session,
+        engagement_id=engagement_id,
+        expert_partner_id=expert_partner_id,
+        participant_user_id=participant_id,
+        participant_id=participant_id,
+        nutritionist_consultation_id=886901,
+        doctor_consultation_id=886902,
+    )
+
+    async def _noop_delivery(self, db, *, delivery):
+        return None
+
+    monkeypatch.setattr(AuthService, "deliver_otp_via_notifications", _noop_delivery)
+
+    response = await async_client.post(
+        _send_otp_url(engagement_id, participant_id),
+        headers=partner_auth_header(expert_partner_id),
+        json=_CONSENT_BODY,
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_camp_request_consultation_verify_invalid_otp(
+    async_client, test_db_session, monkeypatch
+):
+    engagement_id = 88610
+    expert_partner_id = 88610
+    participant_id = 88701
+
+    await _seed_camp_setup(
+        test_db_session,
+        engagement_id=engagement_id,
+        expert_partner_id=expert_partner_id,
+        participant_user_id=88700,
+        participant_id=88700,
+        nutritionist_consultation_id=887001,
+        doctor_consultation_id=887002,
+    )
+    await _seed_unrequested_participant(
+        test_db_session,
+        engagement_id=engagement_id,
+        participant_id=participant_id,
+        user_id=88701,
+    )
+
+    async def _noop_delivery(self, db, *, delivery):
+        return None
+
+    monkeypatch.setattr(AuthService, "deliver_otp_via_notifications", _noop_delivery)
+    monkeypatch.setattr(settings, "ALLOW_BYPASS_OTP", False, raising=False)
+
+    expert_headers = partner_auth_header(expert_partner_id)
+    send = await async_client.post(
+        _send_otp_url(engagement_id, participant_id),
+        headers=expert_headers,
+        json=_CONSENT_BODY,
+    )
+    assert send.status_code == 200
+    session_id = send.json()["data"]["session_id"]
+
+    verify = await async_client.post(
+        _verify_otp_url(engagement_id, participant_id),
+        headers=expert_headers,
+        json={"session_id": session_id, "otp": "000000"},
+    )
+    assert verify.status_code == 401

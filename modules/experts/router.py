@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.responses import success_response
 from core.dependencies import get_current_user
 from core.exceptions import AppError
+from core.network import get_client_ip
+from core.rate_limit import limiter
 from db.session import get_db
+from modules.auth.dependencies import get_auth_service
+from modules.auth.service import AuthService
 from modules.employee.dependencies import get_current_employee, get_optional_employee_if_authenticated
 from modules.employee.service import EmployeeContext
 from modules.experts.portal_actor import ExpertPortalActor, get_expert_portal_actor
@@ -21,6 +25,8 @@ from modules.experts.dependencies import get_expert_types_service, get_experts_s
 from modules.experts.schemas import (
     AvailabilityBlockCreate,
     AvailabilityBulkSave,
+    CampConsultationRequestSendOtpRequest,
+    CampConsultationRequestVerifyOtpRequest,
     ConsultationBookRequest,
     ConsultationCancelRequest,
     ConsultationConfirmRequest,
@@ -326,6 +332,69 @@ async def portal_list_camp_consultation_participants(
         employee=actor.employee, partner=actor.partner,
         engagement_id=engagement_id,
     )
+    return success_response(data)
+
+
+@portal_router.post(
+    "/camp-consultations/engagements/{engagement_id}/participants/{engagement_participant_id}/request-consultation/send-otp"
+)
+@limiter.limit("5/minute")
+async def portal_send_camp_consultation_request_otp(
+    engagement_id: int,
+    engagement_participant_id: int,
+    payload: CampConsultationRequestSendOtpRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: ExpertPortalActor = Depends(get_expert_portal_actor),
+    availability_service: ExpertAvailabilityService = Depends(get_availability_service),
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    data, delivery = await availability_service.send_camp_consultation_request_otp(
+        db,
+        auth_service=auth_service,
+        employee=actor.employee,
+        partner=actor.partner,
+        engagement_id=engagement_id,
+        engagement_participant_id=engagement_participant_id,
+        payload=payload,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    if delivery is not None:
+        await auth_service.deliver_otp_via_notifications(db, delivery=delivery)
+        await db.commit()
+    return success_response(data)
+
+
+@portal_router.post(
+    "/camp-consultations/engagements/{engagement_id}/participants/{engagement_participant_id}/request-consultation/verify-otp"
+)
+@limiter.limit("10/minute")
+async def portal_verify_camp_consultation_request_otp(
+    engagement_id: int,
+    engagement_participant_id: int,
+    payload: CampConsultationRequestVerifyOtpRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: ExpertPortalActor = Depends(get_expert_portal_actor),
+    availability_service: ExpertAvailabilityService = Depends(get_availability_service),
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    data = await availability_service.verify_camp_consultation_request_otp(
+        db,
+        auth_service=auth_service,
+        employee=actor.employee,
+        partner=actor.partner,
+        engagement_id=engagement_id,
+        engagement_participant_id=engagement_participant_id,
+        payload=payload,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
     return success_response(data)
 
 

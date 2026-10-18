@@ -268,6 +268,66 @@ class AuthService:
 
         return created.session_id, delivery
 
+    async def send_otp_for_user_id(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> tuple[int, OtpDelivery | None]:
+        user = await self._repository.get_user_by_id(db, user_id)
+        if user is None:
+            raise AppError(status_code=404, error_code="USER_NOT_FOUND", message="User does not exist")
+
+        phone = (user.phone or "").strip()
+        if not phone:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message="Participant does not have a phone number on file",
+            )
+
+        phone_candidates, skip_send = self._split_send_otp_phone(phone)
+        if not skip_send:
+            service_key = settings.OTP_PHONE_SERVICE_KEY
+        else:
+            service_key = None
+
+        otp = str(secrets.randbelow(1_000_000)).zfill(6)
+        otp_hash = _hash_otp(otp, self._otp_secret())
+
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(minutes=5)
+
+        session = AuthOtpSession(
+            user_id=user.user_id,
+            otp_hash=otp_hash,
+            otp_expires_at=expires_at,
+            created_at=now,
+        )
+
+        await self._repository.delete_expired_otp_sessions(db)
+        await self._repository.delete_all_otp_sessions_for_user(db, user.user_id)
+        created = await self._repository.create_otp_session(db, session)
+
+        delivery: OtpDelivery | None = None
+        if not skip_send and service_key:
+            delivery = _make_otp_delivery(user, otp, service_key)
+
+        await self._audit_service.log_event(
+            db,
+            action="AUTH_SEND_OTP",
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=user.user_id,
+            session_id=created.session_id,
+        )
+
+        return created.session_id, delivery
+
     async def _resolve_user_for_resend(
         self,
         db: AsyncSession,
@@ -484,6 +544,67 @@ class AuthService:
         await self._repository.delete_otp_session(db, session.session_id)
 
         return user.user_id, tokens
+
+    async def verify_otp_for_user_session(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        session_id: int,
+        otp: str,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> None:
+        user = await self._repository.get_user_by_id(db, user_id)
+        if user is None:
+            raise AppError(status_code=401, error_code="AUTH_FAILED", message="Authentication failed")
+
+        session = await self._repository.get_otp_session_by_id(db, session_id)
+        if session is None or session.user_id != user.user_id:
+            raise AppError(
+                status_code=401,
+                error_code="AUTH_FAILED",
+                message="OTP expired or not found. Please request a new code.",
+            )
+
+        _MAX_OTP_ATTEMPTS = 5
+        now = datetime.now(timezone.utc)
+        if now >= session.otp_expires_at:
+            await self._repository.delete_otp_session(db, session.session_id)
+            raise AppError(
+                status_code=401,
+                error_code="AUTH_FAILED",
+                message="OTP expired or not found. Please request a new code.",
+            )
+
+        if getattr(session, "failed_attempts", 0) >= _MAX_OTP_ATTEMPTS:
+            await self._repository.delete_otp_session(db, session.session_id)
+            raise AppError(status_code=429, error_code="RATE_LIMITED", message="Too many failed attempts")
+
+        phone_candidates = self._phone_lookup_candidates(user.phone or "")
+        bypass_allowed = _per_phone_bypass_allowed(phone_candidates, otp) or (
+            settings.ALLOW_BYPASS_OTP
+            and settings.BYPASS_OTP
+            and hmac.compare_digest(otp, settings.BYPASS_OTP)
+        )
+        if not bypass_allowed and not _verify_otp(otp, session.otp_hash, self._otp_secret()):
+            session.failed_attempts = getattr(session, "failed_attempts", 0) + 1
+            await db.flush()
+            raise AppError(status_code=401, error_code="AUTH_FAILED", message="Invalid OTP")
+
+        session_id_for_audit = session.session_id
+        await self._audit_service.log_event(
+            db,
+            action="AUTH_VERIFY_OTP",
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=user.user_id,
+            session_id=session_id_for_audit,
+        )
+        await db.flush()
+        await self._repository.delete_otp_session(db, session.session_id)
 
     async def switch_account(
         self,

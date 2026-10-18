@@ -32,6 +32,10 @@ class AuthRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_otp_session_by_id(self, db: AsyncSession, session_id: int) -> Optional[AuthOtpSession]:
+        result = await db.execute(select(AuthOtpSession).where(AuthOtpSession.session_id == session_id))
+        return result.scalar_one_or_none()
+
     async def delete_otp_session(self, db: AsyncSession, session_id: int) -> None:
         await db.execute(delete(AuthOtpSession).where(AuthOtpSession.session_id == session_id))
 

@@ -211,3 +211,19 @@ class ConsultationDoneRequest(BaseModel):
     expert_type: str = Field(min_length=1, max_length=100)
     expert_id: Optional[int] = Field(default=None, gt=0)
     meet_link: str = Field(min_length=1, max_length=500)
+
+
+class CampConsultationRequestConsent(BaseModel):
+    bio_ai: bool = False
+    blood_report: bool = False
+    questionnaire: bool = False
+
+
+class CampConsultationRequestSendOtpRequest(BaseModel):
+    consent: CampConsultationRequestConsent
+    expert_type: Optional[str] = Field(default=None, min_length=1, max_length=100)
+
+
+class CampConsultationRequestVerifyOtpRequest(BaseModel):
+    session_id: int = Field(gt=0)
+    otp: str = Field(min_length=4, max_length=10)
