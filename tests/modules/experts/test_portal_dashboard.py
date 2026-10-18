@@ -172,6 +172,13 @@ async def _seed_dashboard_data(test_db_session) -> int:
             engagement_id=88702,
         )
     )
+    test_db_session.add(
+        OnboardingAssistantAssignment(
+            onboarding_assistant_id=785802,
+            partner_id=expert_partner_id,
+            engagement_id=88701,
+        )
+    )
 
     participant_specs = [
         (78521, 88701, 78591, 887101),

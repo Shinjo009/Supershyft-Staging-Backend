@@ -16,8 +16,10 @@ from modules.experts.models import Expert
 from modules.experts.repository import ExpertsRepository
 from modules.notifications.consultation_booking_alert_notify import (
     notify_onboarding_assistants_on_consultation_booking,
+    resolve_consultation_booking_alert_contacts,
     resolve_consultation_booking_alert_user_ids,
 )
+from modules.partners.models import Partner, PartnerRole
 from modules.notifications.repository import NotificationsRepository
 from modules.notifications.service import NotificationsService
 from modules.users.models import User
@@ -214,46 +216,103 @@ async def test_consultation_booking_alert_offline_uses_admin_and_expert_oa_roles
 
 
 @pytest.mark.asyncio
-async def test_consultation_booking_alert_online_without_expert_id_includes_type_experts(test_db_session):
+async def test_consultation_booking_alert_online_without_expert_id_uses_oa_experts_of_type(test_db_session):
+    engagement_id = 99104
     engagement = Engagement(
-        engagement_id=99104,
-        engagement_name="Online All Experts",
+        engagement_id=engagement_id,
+        engagement_name="Online OA Experts",
         organization_id=None,
         engagement_code="CBAT04",
-        engagement_type="consultation",
-        assessment_package_id=None,
+        engagement_type=1,
+        assessment_package_id=1,
         diagnostic_package_id=1,
         city="BLR",
         slot_duration=20,
         start_date=date(2026, 3, 1),
         end_date=date(2026, 3, 1),
         status="running",
-        consultations={"doctor": True},
+        consultations={"doctor": True, "nutritionist": True},
         consultation_mode=ConsultationMode.online,
     )
+    test_db_session.add(engagement)
 
-    engagements_repo = EngagementsRepository()
-    experts_repo = ExpertsRepository()
-    from modules.employee.repository import EmployeeRepository
+    oa_doctor_partner = Partner(
+        partner_id=991041,
+        name="OA Doctor",
+        phone="991041000001",
+        email="oa.doctor@test.example",
+        role=PartnerRole.expert,
+        status="active",
+    )
+    oa_nutritionist_partner = Partner(
+        partner_id=991042,
+        name="OA Nutritionist",
+        phone="991042000002",
+        email="oa.nutritionist@test.example",
+        role=PartnerRole.expert,
+        status="active",
+    )
+    global_doctor_partner = Partner(
+        partner_id=991043,
+        name="Global Doctor",
+        phone="991043000003",
+        email="global.doctor@test.example",
+        role=PartnerRole.expert,
+        status="active",
+    )
+    test_db_session.add_all([oa_doctor_partner, oa_nutritionist_partner, global_doctor_partner])
+    await test_db_session.flush()
 
-    engagements_repo.list_onboarding_assistant_user_ids = AsyncMock(return_value=[301])
-    experts_repo.list_active_user_ids_by_type = AsyncMock(return_value=[401, 402])
+    test_db_session.add_all(
+        [
+            OnboardingAssistantAssignment(
+                onboarding_assistant_id=9910410,
+                engagement_id=engagement_id,
+                partner_id=oa_doctor_partner.partner_id,
+            ),
+            OnboardingAssistantAssignment(
+                onboarding_assistant_id=9910420,
+                engagement_id=engagement_id,
+                partner_id=oa_nutritionist_partner.partner_id,
+            ),
+            Expert(
+                expert_id=991041,
+                partner_id=oa_doctor_partner.partner_id,
+                expert_type="doctor",
+                specialization="GP",
+                status="active",
+            ),
+            Expert(
+                expert_id=991042,
+                partner_id=oa_nutritionist_partner.partner_id,
+                expert_type="nutritionist",
+                specialization="Nutrition",
+                status="active",
+            ),
+            Expert(
+                expert_id=991043,
+                partner_id=global_doctor_partner.partner_id,
+                expert_type="doctor",
+                specialization="GP",
+                status="active",
+            ),
+        ]
+    )
+    await test_db_session.commit()
 
-    user_ids = await resolve_consultation_booking_alert_user_ids(
+    contacts = await resolve_consultation_booking_alert_contacts(
         test_db_session,
         engagement=engagement,
         expert_type="doctor",
         expert_id=None,
-        engagements_repository=engagements_repo,
-        experts_repository=experts_repo,
-        employee_repository=EmployeeRepository(),
+        engagements_repository=EngagementsRepository(),
+        experts_repository=ExpertsRepository(),
     )
 
-    assert user_ids == [301, 401, 402]
-    experts_repo.list_active_user_ids_by_type.assert_awaited_once_with(
-        test_db_session,
-        expert_type="doctor",
-    )
+    partner_ids = {int(c["partner_id"]) for c in contacts}
+    assert oa_doctor_partner.partner_id in partner_ids
+    assert oa_nutritionist_partner.partner_id not in partner_ids
+    assert global_doctor_partner.partner_id not in partner_ids
 
 
 @pytest.mark.asyncio

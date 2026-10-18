@@ -26,7 +26,7 @@ from modules.engagements.consultation_booking_validation import (
     effective_consultation_mode,
     validate_consultation_cabin_slot_for_booking,
 )
-from modules.engagements.models import Engagement, EngagementParticipant
+from modules.engagements.models import Engagement, EngagementParticipant, OnboardingAssistantAssignment
 from modules.engagements.slot_availability import slot_detail_is_configured
 from modules.engagements.slot_info_repository import EngagementSlotInfoRepository
 from modules.experts.consultation_bookings_repository import ConsultationBookingsRepository
@@ -1273,9 +1273,8 @@ class ExpertAvailabilityService:
         """Engagements eligible for expert portal request flow."""
         return Engagement.consultation_mode == ConsultationMode.online
 
-    async def list_consultation_requests(self, db, *, employee: EmployeeContext | None = None, partner: Partner | None = None) -> list[dict[str, Any]]:
-        ensure_expert_portal_access(employee, partner=partner)
-        result = await db.execute(
+    def _pending_online_consultation_requests_base_query(self):
+        return (
             select(ConsultationBooking, EngagementParticipant, Engagement, User)
             .join(
                 EngagementParticipant,
@@ -1287,9 +1286,87 @@ class ExpertAvailabilityService:
             .where(self._online_consultation_engagement_sql_filter())
             .where(ConsultationBooking.want.is_(True))
             .where(ConsultationBooking.expert_id.is_(None))
-            .order_by(ConsultationBooking.consultation_id.desc())
         )
-        rows = result.all()
+
+    def _portal_pending_requests_admin_scope(
+        self,
+        *,
+        employee: EmployeeContext | None,
+    ) -> bool:
+        return employee is not None and (
+            employee.role == EmployeeRole.admin or has_route_admin_scope(employee)
+        )
+
+    async def _apply_portal_pending_request_actor_scope(
+        self,
+        query,
+        db,
+        *,
+        employee: EmployeeContext | None = None,
+        partner: Partner | None = None,
+    ):
+        if self._portal_pending_requests_admin_scope(employee=employee):
+            return query
+        if partner is not None:
+            actor_expert = await self._resolve_portal_actor_expert(db, employee=employee, partner=partner)
+            if actor_expert is None:
+                return query.where(ConsultationBooking.consultation_id < 0)
+            query = query.where(ConsultationBooking.expert_type == actor_expert.expert_type)
+            return query.join(
+                OnboardingAssistantAssignment,
+                (OnboardingAssistantAssignment.engagement_id == Engagement.engagement_id)
+                & (OnboardingAssistantAssignment.partner_id == partner.partner_id),
+            )
+        return query.where(ConsultationBooking.consultation_id < 0)
+
+    async def _fetch_pending_online_consultation_request_rows(
+        self,
+        db,
+        *,
+        employee: EmployeeContext | None = None,
+        partner: Partner | None = None,
+    ):
+        query = self._pending_online_consultation_requests_base_query().order_by(
+            ConsultationBooking.consultation_id.desc()
+        )
+        query = await self._apply_portal_pending_request_actor_scope(
+            query,
+            db,
+            employee=employee,
+            partner=partner,
+        )
+        result = await db.execute(query)
+        return result.all()
+
+    async def _ensure_online_portal_partner_engagement_assignment(
+        self,
+        db,
+        *,
+        partner: Partner,
+        engagement_id: int,
+    ) -> None:
+        from modules.engagements.repository import EngagementsRepository
+
+        repo = EngagementsRepository()
+        assignment = await repo.get_onboarding_assistant_assignment(
+            db,
+            engagement_id=engagement_id,
+            partner_id=partner.partner_id,
+        )
+        if assignment is None:
+            raise AppError(
+                status_code=403,
+                error_code="FORBIDDEN",
+                message="You are not assigned to this engagement",
+            )
+
+    async def list_consultation_requests(self, db, *, employee: EmployeeContext | None = None, partner: Partner | None = None) -> list[dict[str, Any]]:
+        ensure_expert_portal_access(employee, partner=partner)
+        rows = await self._fetch_pending_online_consultation_request_rows(
+            db,
+            employee=employee,
+            partner=partner,
+        )
         items: list[dict[str, Any]] = []
         for booking, participant, engagement, user in rows:
             pref = booking_to_api_preference(booking)
@@ -1355,6 +1432,13 @@ class ExpertAvailabilityService:
                 status_code=400,
                 error_code="INVALID_INPUT",
                 message="Consultation requests are only available for online engagements",
+            )
+
+        if partner is not None:
+            await self._ensure_online_portal_partner_engagement_assignment(
+                db,
+                partner=partner,
+                engagement_id=payload.engagement_id,
             )
 
         result = await db.execute(
@@ -1603,21 +1687,11 @@ class ExpertAvailabilityService:
         week_start = today - timedelta(days=today.weekday())
         week_end = week_start + timedelta(days=6)
 
-        request_result = await db.execute(
-            select(ConsultationBooking, EngagementParticipant, Engagement, User)
-            .join(
-                EngagementParticipant,
-                EngagementParticipant.engagement_participant_id == ConsultationBooking.engagement_participant_id,
-            )
-            .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
-            .join(User, User.user_id == EngagementParticipant.user_id)
-            .where(Engagement.status.in_(("running", "scheduled")))
-            .where(self._online_consultation_engagement_sql_filter())
-            .where(ConsultationBooking.want.is_(True))
-            .where(ConsultationBooking.expert_id.is_(None))
-            .order_by(ConsultationBooking.consultation_id.desc())
+        request_rows = await self._fetch_pending_online_consultation_request_rows(
+            db,
+            employee=employee,
+            partner=partner,
         )
-        request_rows = request_result.all()
         requests_waiting: list[dict[str, Any]] = []
         for booking, participant, engagement, user in request_rows[: self._DASHBOARD_REQUESTS_PREVIEW]:
             pref = booking_to_api_preference(booking)

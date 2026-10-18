@@ -70,6 +70,47 @@ async def _list_phlebo_contacts(
     )
 
 
+async def _list_online_oa_expert_contacts_for_type(
+    db: AsyncSession,
+    *,
+    engagements_repository: EngagementsRepository,
+    experts_repository: ExpertsRepository,
+    engagement_id: int,
+    expert_type: str,
+) -> list[dict]:
+    """Onboarding-assistant experts on the engagement whose profile matches expert_type."""
+    expert_contacts = await engagements_repository.list_onboarding_assistant_partner_contacts(
+        db,
+        engagement_id=engagement_id,
+        roles=_EXPERT_ROLES,
+    )
+    matched: list[dict] = []
+    for contact in expert_contacts:
+        partner_id = contact.get("partner_id")
+        if not isinstance(partner_id, int):
+            continue
+        if (contact.get("status") or "").lower() != "active":
+            continue
+        expert = await experts_repository.get_by_partner_id(db, partner_id)
+        if expert is None or (expert.status or "").lower() != "active":
+            continue
+        if expert.expert_type != expert_type:
+            continue
+        matched.append(
+            {
+                "partner_id": partner_id,
+                "name": contact.get("name") or "",
+                "first_name": contact.get("first_name") or "",
+                "last_name": contact.get("last_name") or "",
+                "phone": contact.get("phone"),
+                "email": contact.get("email"),
+                "role": contact.get("role"),
+                "status": contact.get("status"),
+            }
+        )
+    return matched
+
+
 async def _ensure_expert_partner_assigned(
     db: AsyncSession,
     *,
@@ -163,13 +204,13 @@ async def resolve_consultation_booking_alert_contacts(
         )
         return _dedupe_contacts(phlebo_contacts + [_partner_to_contact(partner)])
 
-    partner_ids = await experts_repository.list_active_partner_ids_by_type(db, expert_type=expert_type)
-    type_contacts: list[dict] = []
-    for partner_id in partner_ids:
-        partner = await partners_repo.get_by_id(db, partner_id)
-        if partner is None or (partner.status or "").lower() != "active":
-            continue
-        type_contacts.append(_partner_to_contact(partner))
+    type_contacts = await _list_online_oa_expert_contacts_for_type(
+        db,
+        engagements_repository=engagements_repository,
+        experts_repository=experts_repository,
+        engagement_id=engagement_id,
+        expert_type=expert_type,
+    )
     return _dedupe_contacts(phlebo_contacts + type_contacts)
 
 
