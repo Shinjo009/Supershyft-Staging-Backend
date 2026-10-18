@@ -11,6 +11,9 @@ from modules.engagements.assessment_packages_service import (
 )
 from modules.engagements.console.service import ConsoleService
 from modules.engagements.onboarding_assistants_service import OnboardingAssistantsService
+from modules.engagement_types.repository import EngagementTypesRepository
+from modules.engagements.engagement_feedback_repository import EngagementFeedbackRepository
+from modules.engagements.engagement_feedback_service import EngagementFeedbackService
 from modules.engagements.repository import EngagementsRepository
 from modules.engagements.service import EngagementsService
 from modules.experts.dependencies import get_expert_types_service
@@ -26,6 +29,14 @@ from modules.users.repository import UsersRepository
 
 def get_engagements_repository() -> EngagementsRepository:
     return EngagementsRepository()
+
+
+def get_engagement_feedback_service() -> EngagementFeedbackService:
+    return EngagementFeedbackService(
+        feedback_repository=EngagementFeedbackRepository(),
+        engagements_repository=EngagementsRepository(),
+        engagement_types_repository=EngagementTypesRepository(),
+    )
 
 
 def get_engagements_service() -> EngagementsService:

@@ -38,6 +38,7 @@ from modules.engagements.blood_booking_enums import BloodBookingRelation
 from modules.engagements.enums import (
     BloodCollectionType,
     ConsultationMode,
+    EngagementFeedbackOverallRating,
     EngagementKind,
     EngagementStatus,
 )
@@ -52,6 +53,13 @@ _engagement_kind = SAEnum(
     EngagementKind,
     name="engagement_kind",
     native_enum=True,
+    values_callable=lambda obj: [e.value for e in obj],
+    validate_strings=True,
+    create_type=False,
+)
+_engagement_feedback_overall_rating = SAEnum(
+    EngagementFeedbackOverallRating,
+    name="engagement_feedback_overall_rating",
     values_callable=lambda obj: [e.value for e in obj],
     validate_strings=True,
     create_type=False,
@@ -300,6 +308,30 @@ class EngagementNotification(Base):
     engagement_id = Column(Integer, ForeignKey("engagements.engagement_id"), nullable=False)
     notification_event_id = Column(Integer, ForeignKey("auto_notification_events.id"), nullable=False)
     notification_services = Column(JSON, nullable=False)
+
+
+class EngagementFeedback(Base):
+    """Participant experience feedback for one engagement enrollment."""
+
+    __tablename__ = "engagement_feedbacks"
+    __table_args__ = (
+        UniqueConstraint(
+            "engagement_participant_id",
+            name="uq_engagement_feedbacks_participant",
+        ),
+        Index("ix_engagement_feedbacks_created_at", "created_at"),
+    )
+
+    feedback_id = Column(Integer, primary_key=True, autoincrement=True)
+    engagement_participant_id = Column(
+        Integer,
+        ForeignKey("engagement_participants.engagement_participant_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    overall_rating = Column(_engagement_feedback_overall_rating, nullable=False)
+    category_ratings = Column(JSON, nullable=False, server_default=text("'{}'"))
+    comment = Column(String(2000), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class EngagementNotificationDefault(Base):

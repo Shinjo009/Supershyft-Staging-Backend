@@ -17,7 +17,12 @@ from modules.employee.service import EmployeeContext
 
 # NOTE: The occupied-slots endpoints are intentionally public (no auth).
 from modules.engagement_notifications.schemas import configs_to_api
-from modules.engagements.dependencies import get_engagements_service, get_onboarding_assistants_service
+from modules.engagements.dependencies import (
+    get_engagement_feedback_service,
+    get_engagements_service,
+    get_onboarding_assistants_service,
+)
+from modules.engagements.engagement_feedback_service import EngagementFeedbackService
 from modules.engagements.onboarding_assistants_service import OnboardingAssistantsService
 from modules.assessments.dependencies import get_assessment_packages_service
 from modules.assessments.packages_service import AssessmentPackagesService
@@ -986,6 +991,30 @@ async def remove_reports_for_engagement_participants(
     )
     await db.commit()
     return success_response(data)
+
+
+@router.get("/{engagement_id}/feedback")
+async def list_engagement_feedback(
+    engagement_id: int,
+    page: int = 1,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    feedback_service: EngagementFeedbackService = Depends(get_engagement_feedback_service),
+):
+    if page < 1 or limit < 1 or limit > 100:
+        raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+    rows, total = await feedback_service.list_for_engagement_admin(
+        db,
+        employee=employee,
+        engagement_id=engagement_id,
+        page=page,
+        limit=limit,
+    )
+    return success_response(
+        [row.model_dump(mode="json") for row in rows],
+        meta={"page": page, "limit": limit, "total": total},
+    )
 
 
 @router.get("/{engagement_id}/participants")

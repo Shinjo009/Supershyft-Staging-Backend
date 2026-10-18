@@ -18,6 +18,9 @@ from core.rate_limit import limiter
 from db.session import get_db
 from modules.auth.dependencies import get_auth_service
 from modules.auth.service import AuthService
+from modules.engagements.dependencies import get_engagement_feedback_service
+from modules.engagements.engagement_feedback_schemas import EngagementFeedbackSubmitRequest
+from modules.engagements.engagement_feedback_service import EngagementFeedbackService
 from modules.users.dependencies import get_participant_journey_service, get_users_service
 from modules.users.participant_journey_service import ParticipantJourneyService
 from modules.employee.dependencies import get_current_employee, get_optional_employee
@@ -680,6 +683,49 @@ async def get_my_status(
             "is_active": status == "active",
         }
     )
+
+
+@router.get("/me/engagement-feedback/pending")
+async def get_my_pending_engagement_feedback(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+    feedback_service: EngagementFeedbackService = Depends(get_engagement_feedback_service),
+):
+    result = await feedback_service.get_pending_for_user(db, user_id=current_user.user_id)
+    return success_response(result.model_dump())
+
+
+@router.get("/me/engagements/{engagement_id}/feedback")
+async def get_my_engagement_feedback(
+    engagement_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+    feedback_service: EngagementFeedbackService = Depends(get_engagement_feedback_service),
+):
+    result = await feedback_service.get_for_user_engagement(
+        db,
+        user_id=current_user.user_id,
+        engagement_id=engagement_id,
+    )
+    return success_response(result.model_dump(mode="json"))
+
+
+@router.post("/me/engagements/{engagement_id}/feedback", status_code=201)
+async def submit_my_engagement_feedback(
+    engagement_id: int,
+    payload: EngagementFeedbackSubmitRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+    feedback_service: EngagementFeedbackService = Depends(get_engagement_feedback_service),
+):
+    result = await feedback_service.submit_for_user_engagement(
+        db,
+        user_id=current_user.user_id,
+        engagement_id=engagement_id,
+        payload=payload,
+    )
+    await db.commit()
+    return success_response(result.model_dump(mode="json"))
 
 
 @router.post("")

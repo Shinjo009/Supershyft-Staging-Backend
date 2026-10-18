@@ -38,3 +38,13 @@ class EngagementStatus(str, enum.Enum):
     completed = "completed"
     cancelled = "cancelled"
     published = "published"  # legacy rows only
+
+
+class EngagementFeedbackOverallRating(str, enum.Enum):
+    """PostgreSQL enum `engagement_feedback_overall_rating`."""
+
+    excellent = "excellent"
+    very_good = "very_good"
+    good = "good"
+    could_be_better = "could_be_better"
+    bad = "bad"
