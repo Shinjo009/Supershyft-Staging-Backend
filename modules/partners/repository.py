@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import String, cast, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.listing import apply_sort, ilike_pattern
@@ -43,7 +43,8 @@ class PartnersRepository:
                     Partner.name.ilike(pattern),
                     Partner.phone.ilike(pattern),
                     Partner.email.ilike(pattern),
-                    Partner.role.ilike(pattern),
+                    # role is a native PG enum; cast to text before ILIKE
+                    cast(Partner.role, String).ilike(pattern),
                 )
             )
         return query

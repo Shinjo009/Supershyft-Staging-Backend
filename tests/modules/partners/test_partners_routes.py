@@ -31,6 +31,26 @@ async def test_list_partners_requires_employee(async_client):
 
 
 @pytest.mark.asyncio
+async def test_list_partners_with_search(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=7150, role="admin")
+    create = await async_client.post(
+        "/partners",
+        headers=employee_auth_header(7150),
+        json={"name": "Searchable Partner Xyzzy", "phone": "7150000001", "role": "phlebo"},
+    )
+    assert create.status_code in {200, 201}, create.text
+
+    listed = await async_client.get(
+        "/partners",
+        headers=employee_auth_header(7150),
+        params={"search": "xyzzy"},
+    )
+    assert listed.status_code == 200
+    names = [row["name"] for row in listed.json()["data"]]
+    assert any("Xyzzy" in (n or "") for n in names)
+
+
+@pytest.mark.asyncio
 async def test_create_and_list_partner(async_client, test_db_session):
     await seed_employee(test_db_session, employee_id=7101, role="admin")
 
