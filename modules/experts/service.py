@@ -2205,32 +2205,46 @@ class ExpertAvailabilityService:
             actor_expert=actor_expert,
         )
 
-        query = (
-            select(ConsultationBooking, EngagementParticipant, User)
-            .join(
-                EngagementParticipant,
-                EngagementParticipant.engagement_participant_id
-                == ConsultationBooking.engagement_participant_id,
-            )
+        participant_result = await db.execute(
+            select(EngagementParticipant, User)
             .join(User, User.user_id == EngagementParticipant.user_id)
             .where(EngagementParticipant.engagement_id == engagement_id)
-            .where(ConsultationBooking.want.is_(True))
+            .order_by(
+                User.first_name.asc().nulls_last(),
+                User.last_name.asc().nulls_last(),
+                EngagementParticipant.engagement_participant_id.asc(),
+            )
         )
-        if expert_type_filter is not None:
-            query = query.where(ConsultationBooking.expert_type == expert_type_filter)
-        query = query.order_by(
-            ConsultationBooking.consultation_date.asc().nulls_last(),
-            ConsultationBooking.consultation_slot.asc().nulls_last(),
-            User.first_name.asc().nulls_last(),
-            User.last_name.asc().nulls_last(),
+        participant_rows = participant_result.all()
+        participant_ids = [participant.engagement_participant_id for participant, _user in participant_rows]
+        bookings_by_participant = await self._consultation_bookings.get_for_participants_batch(
+            db,
+            participant_ids,
         )
-        result = await db.execute(query)
+
         items: list[dict[str, Any]] = []
-        for booking, _participant, user in result.all():
-            pref = booking_to_api_preference(booking)
+        for participant, user in participant_rows:
+            bookings = bookings_by_participant.get(participant.engagement_participant_id, [])
+            booking: ConsultationBooking | None
+            if expert_type_filter is not None:
+                booking = next((b for b in bookings if b.expert_type == expert_type_filter), None)
+                requested = booking is not None and bool(booking.want)
+            else:
+                requested = any(bool(b.want) for b in bookings)
+                booking = next((b for b in bookings if b.want), None)
+                if booking is None and bookings:
+                    booking = bookings[0]
+
+            pref = booking_to_api_preference(booking) if booking is not None else {}
+            row_expert_type = (
+                booking.expert_type
+                if booking is not None
+                else (expert_type_filter or "")
+            )
             items.append(
                 {
-                    "consultation_id": booking.consultation_id,
+                    "engagement_participant_id": participant.engagement_participant_id,
+                    "consultation_id": booking.consultation_id if booking is not None else None,
                     "user_id": user.user_id,
                     "first_name": user.first_name,
                     "last_name": user.last_name,
@@ -2239,8 +2253,10 @@ class ExpertAvailabilityService:
                     "date": pref.get("date"),
                     "slot": pref.get("slot"),
                     "cabin": pref.get("cabin"),
-                    "done": bool(booking.done),
-                    "expert_type": booking.expert_type,
+                    "done": bool(booking.done) if booking is not None else False,
+                    "expert_type": row_expert_type,
+                    "requested": requested,
+                    "want": requested,
                 }
             )
         return items

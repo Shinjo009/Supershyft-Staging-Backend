@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -98,8 +98,7 @@ async def _seed_camp_setup(
             engagement_participant_id=participant_id,
             engagement_id=engagement_id,
             user_id=participant_user_id,
-            engagement_date=date.today(),
-            slot_start_time=time(9, 0),
+            booked_by_user_id=participant_user_id,
             consultation_booking_ids=[nutritionist_consultation_id, doctor_consultation_id],
         )
     )
@@ -200,6 +199,28 @@ async def test_camp_consultation_participants_filter_by_expert_type_and_mask_pii
         nutritionist_consultation_id=886301,
         doctor_consultation_id=886302,
     )
+    test_db_session.add(
+        User(
+            user_id=88617,
+            age=28,
+            phone="886000000017",
+            email="not.requested@example.com",
+            first_name="No",
+            last_name="Request",
+            status="active",
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        EngagementParticipant(
+            engagement_participant_id=88617,
+            engagement_id=engagement_id,
+            user_id=88617,
+            booked_by_user_id=88617,
+            consultation_booking_ids=[],
+        )
+    )
+    await test_db_session.commit()
 
     response = await async_client.get(
         f"/experts/portal/camp-consultations/engagements/{engagement_id}/participants",
@@ -207,14 +228,20 @@ async def test_camp_consultation_participants_filter_by_expert_type_and_mask_pii
     )
     assert response.status_code == 200
     data = response.json()["data"]
-    assert len(data) == 1
-    item = data[0]
+    assert len(data) == 2
+    requested_rows = [row for row in data if row["requested"]]
+    assert len(requested_rows) == 1
+    item = requested_rows[0]
     assert item["expert_type"] == "nutritionist"
     assert item["consultation_id"] == 886301
+    assert item["engagement_participant_id"] == 88613
     assert item["phone"] == "********0002"
     assert item["email"].endswith("@example.com")
     assert "*" in item["email"]
     assert item["cabin"] == "C1"
+    not_requested = next(row for row in data if row["engagement_participant_id"] == 88617)
+    assert not_requested["requested"] is False
+    assert not_requested["consultation_id"] is None
 
 
 @pytest.mark.asyncio
