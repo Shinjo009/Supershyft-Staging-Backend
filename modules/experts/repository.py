@@ -5,10 +5,11 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import asc, desc, exists, func, nulls_last, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from common.listing import apply_sort, ilike_pattern
+from common.listing import apply_sort, ilike_pattern, normalize_sort_dir
+from modules.partners.models import Partner
 from modules.experts.models import (
     Expert,
     ExpertAvailabilityModel,
@@ -55,6 +56,8 @@ class ExpertsRepository:
         "specialization": Expert.specialization,
         "status": Expert.status,
         "experience_years": Expert.experience_years,
+        "rating": Expert.rating,
+        "review_count": Expert.review_count,
     }
 
     def _apply_expert_list_filters(
@@ -71,11 +74,18 @@ class ExpertsRepository:
             query = query.where(Expert.status == status)
         if search is not None and search.strip():
             pattern = ilike_pattern(search)
+            partner_name_match = exists(
+                select(1).where(
+                    Partner.partner_id == Expert.partner_id,
+                    Partner.name.ilike(pattern),
+                )
+            )
             query = query.where(
                 or_(
                     Expert.specialization.ilike(pattern),
                     Expert.qualifications.ilike(pattern),
                     Expert.about_text.ilike(pattern),
+                    partner_name_match,
                 )
             )
         return query
@@ -123,13 +133,22 @@ class ExpertsRepository:
         offset = (page - 1) * limit
         query = select(Expert)
         query = self._apply_expert_list_filters(query, expert_type=expert_type, status=status, search=search)
-        query = apply_sort(
-            query,
-            sort_by=sort_by,
-            sort_dir=sort_dir,
-            columns=self._EXPERT_SORT_COLUMNS,
-            default_column=Expert.expert_id,
-        )
+        sort_key = (sort_by or "").strip()
+        if sort_key == "name":
+            direction_fn = asc if normalize_sort_dir(sort_dir) == "asc" else desc
+            query = query.outerjoin(Partner, Expert.partner_id == Partner.partner_id)
+            query = query.order_by(
+                nulls_last(direction_fn(Partner.name)),
+                direction_fn(Expert.expert_id),
+            )
+        else:
+            query = apply_sort(
+                query,
+                sort_by=sort_by,
+                sort_dir=sort_dir,
+                columns=self._EXPERT_SORT_COLUMNS,
+                default_column=Expert.expert_id,
+            )
         query = query.offset(offset).limit(limit)
         result = await db.execute(query)
         return list(result.scalars().all())

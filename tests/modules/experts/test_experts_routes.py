@@ -117,6 +117,17 @@ async def test_list_experts_public_includes_card_fields(async_client, test_db_se
     assert row["availability"]["hours_label"] == "9-5 PM"
     assert "display_name" not in row
 
+    search_response = await async_client.get("/experts?search=Sarah+Jenkins&page=1&limit=100")
+    assert search_response.status_code == 200
+    search_rows = search_response.json()["data"]
+    assert any(r["expert_id"] == expert.expert_id for r in search_rows)
+
+    sort_name_response = await async_client.get("/experts?sort_by=name&sort_dir=asc&page=1&limit=100")
+    assert sort_name_response.status_code == 200
+
+    sort_rating_response = await async_client.get("/experts?sort_by=rating&sort_dir=desc&page=1&limit=100")
+    assert sort_rating_response.status_code == 200
+
     detail_response = await async_client.get(f"/experts/{expert.expert_id}")
     assert detail_response.status_code == 200
     detail = detail_response.json()["data"]
