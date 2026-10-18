@@ -219,6 +219,10 @@ class CampConsultationRequestConsent(BaseModel):
     questionnaire: bool = False
 
 
+class CampConsultationDirectRequestBody(BaseModel):
+    expert_type: Optional[str] = Field(default=None, min_length=1, max_length=100)
+
+
 class CampConsultationRequestSendOtpRequest(BaseModel):
     consent: CampConsultationRequestConsent
     expert_type: Optional[str] = Field(default=None, min_length=1, max_length=100)

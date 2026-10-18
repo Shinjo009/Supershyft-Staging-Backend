@@ -11,6 +11,7 @@ from core.config import settings
 from modules.auth.service import AuthService
 from modules.engagements.enums import ConsultationMode
 from modules.engagements.models import Engagement, EngagementParticipant, OnboardingAssistantAssignment
+from modules.experts.consultations import empty_consent
 from modules.experts.models import ConsultationBooking, Expert
 from modules.organizations.models import Organization
 from modules.users.models import User
@@ -167,6 +168,13 @@ async def _seed_unrequested_participant(
     await test_db_session.commit()
 
 
+def _direct_request_url(engagement_id: int, engagement_participant_id: int) -> str:
+    return (
+        f"/experts/portal/camp-consultations/engagements/{engagement_id}/participants/"
+        f"{engagement_participant_id}/request-consultation"
+    )
+
+
 def _send_otp_url(engagement_id: int, engagement_participant_id: int) -> str:
     return (
         f"/experts/portal/camp-consultations/engagements/{engagement_id}/participants/"
@@ -178,6 +186,20 @@ def _verify_otp_url(engagement_id: int, engagement_participant_id: int) -> str:
     return (
         f"/experts/portal/camp-consultations/engagements/{engagement_id}/participants/"
         f"{engagement_participant_id}/request-consultation/verify-otp"
+    )
+
+
+def _send_consent_otp_url(engagement_id: int, engagement_participant_id: int) -> str:
+    return (
+        f"/experts/portal/camp-consultations/engagements/{engagement_id}/participants/"
+        f"{engagement_participant_id}/update-consent/send-otp"
+    )
+
+
+def _verify_consent_otp_url(engagement_id: int, engagement_participant_id: int) -> str:
+    return (
+        f"/experts/portal/camp-consultations/engagements/{engagement_id}/participants/"
+        f"{engagement_participant_id}/update-consent/verify-otp"
     )
 
 
@@ -400,6 +422,97 @@ async def test_camp_consultation_manage_rejects_wrong_expert_type(async_client, 
 
 
 @pytest.mark.asyncio
+async def test_camp_direct_request_without_otp_happy_path(async_client, test_db_session):
+    engagement_id = 88616
+    expert_partner_id = 88616
+    participant_id = 886161
+
+    await _seed_camp_setup(
+        test_db_session,
+        engagement_id=engagement_id,
+        expert_partner_id=expert_partner_id,
+        participant_user_id=886160,
+        participant_id=886160,
+        nutritionist_consultation_id=8861601,
+        doctor_consultation_id=8861602,
+    )
+    await _seed_unrequested_participant(
+        test_db_session,
+        engagement_id=engagement_id,
+        participant_id=participant_id,
+        user_id=886161,
+    )
+
+    expert_headers = partner_auth_header(expert_partner_id)
+    response = await async_client.post(
+        _direct_request_url(engagement_id, participant_id),
+        headers=expert_headers,
+        json={},
+    )
+    assert response.status_code == 200
+    row = response.json()["data"]
+    assert row["requested"] is True
+    assert row["engagement_participant_id"] == participant_id
+    assert row["consultation_id"] is not None
+    assert row["consent"] == empty_consent()
+
+
+@pytest.mark.asyncio
+async def test_camp_direct_request_already_requested(async_client, test_db_session):
+    engagement_id = 88617
+    expert_partner_id = 88617
+    participant_id = 88617
+
+    await _seed_camp_setup(
+        test_db_session,
+        engagement_id=engagement_id,
+        expert_partner_id=expert_partner_id,
+        participant_user_id=participant_id,
+        participant_id=participant_id,
+        nutritionist_consultation_id=8861701,
+        doctor_consultation_id=8861702,
+    )
+
+    response = await async_client.post(
+        _direct_request_url(engagement_id, participant_id),
+        headers=partner_auth_header(expert_partner_id),
+        json={},
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_camp_direct_request_forbidden_without_oa(async_client, test_db_session):
+    engagement_id = 88618
+    expert_partner_id = 88618
+    participant_id = 886181
+
+    await _seed_camp_setup(
+        test_db_session,
+        engagement_id=engagement_id,
+        expert_partner_id=expert_partner_id,
+        participant_user_id=886180,
+        participant_id=886180,
+        nutritionist_consultation_id=8861801,
+        doctor_consultation_id=8861802,
+        assign_expert_as_oa=False,
+    )
+    await _seed_unrequested_participant(
+        test_db_session,
+        engagement_id=engagement_id,
+        participant_id=participant_id,
+        user_id=886181,
+    )
+
+    response = await async_client.post(
+        _direct_request_url(engagement_id, participant_id),
+        headers=partner_auth_header(expert_partner_id),
+        json={},
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_camp_request_consultation_otp_happy_path(
     async_client, test_db_session, monkeypatch
 ):
@@ -579,6 +692,207 @@ async def test_camp_request_consultation_verify_invalid_otp(
 
     verify = await async_client.post(
         _verify_otp_url(engagement_id, participant_id),
+        headers=expert_headers,
+        json={"session_id": session_id, "otp": "000000"},
+    )
+    assert verify.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_camp_update_consent_otp_happy_path(async_client, test_db_session, monkeypatch):
+    engagement_id = 88611
+    expert_partner_id = 88611
+    participant_id = 88611
+    nutritionist_consultation_id = 886111
+
+    await _seed_camp_setup(
+        test_db_session,
+        engagement_id=engagement_id,
+        expert_partner_id=expert_partner_id,
+        participant_user_id=participant_id,
+        participant_id=participant_id,
+        nutritionist_consultation_id=nutritionist_consultation_id,
+        doctor_consultation_id=886112,
+    )
+    booking = await test_db_session.get(ConsultationBooking, nutritionist_consultation_id)
+    booking.consent = empty_consent()
+    await test_db_session.commit()
+
+    captured: dict[str, Any] = {}
+
+    async def _capture_delivery(self, db, *, delivery):
+        captured["otp"] = delivery.otp
+
+    monkeypatch.setattr(AuthService, "deliver_otp_via_notifications", _capture_delivery)
+
+    expert_headers = partner_auth_header(expert_partner_id)
+    send = await async_client.post(
+        _send_consent_otp_url(engagement_id, participant_id),
+        headers=expert_headers,
+        json=_CONSENT_BODY,
+    )
+    assert send.status_code == 200
+    send_data = send.json()["data"]
+    assert captured.get("otp")
+
+    verify = await async_client.post(
+        _verify_consent_otp_url(engagement_id, participant_id),
+        headers=expert_headers,
+        json={"session_id": send_data["session_id"], "otp": captured["otp"]},
+    )
+    assert verify.status_code == 200
+    row = verify.json()["data"]
+    assert row["requested"] is True
+    assert row["consent"] == _CONSENT_BODY["consent"]
+    assert row["consultation_id"] == nutritionist_consultation_id
+
+
+@pytest.mark.asyncio
+async def test_camp_update_consent_send_otp_not_requested_yet(
+    async_client, test_db_session, monkeypatch
+):
+    engagement_id = 88612
+    expert_partner_id = 88612
+    participant_id = 886122
+
+    await _seed_camp_setup(
+        test_db_session,
+        engagement_id=engagement_id,
+        expert_partner_id=expert_partner_id,
+        participant_user_id=886120,
+        participant_id=886120,
+        nutritionist_consultation_id=886121,
+        doctor_consultation_id=886122,
+    )
+    await _seed_unrequested_participant(
+        test_db_session,
+        engagement_id=engagement_id,
+        participant_id=participant_id,
+        user_id=886122,
+    )
+
+    async def _noop_delivery(self, db, *, delivery):
+        return None
+
+    monkeypatch.setattr(AuthService, "deliver_otp_via_notifications", _noop_delivery)
+
+    response = await async_client.post(
+        _send_consent_otp_url(engagement_id, participant_id),
+        headers=partner_auth_header(expert_partner_id),
+        json=_CONSENT_BODY,
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_camp_update_consent_send_otp_already_complete(
+    async_client, test_db_session, monkeypatch
+):
+    engagement_id = 88613
+    expert_partner_id = 88613
+    participant_id = 88613
+
+    await _seed_camp_setup(
+        test_db_session,
+        engagement_id=engagement_id,
+        expert_partner_id=expert_partner_id,
+        participant_user_id=participant_id,
+        participant_id=participant_id,
+        nutritionist_consultation_id=886131,
+        doctor_consultation_id=886132,
+    )
+    booking = await test_db_session.get(ConsultationBooking, 886131)
+    booking.consent = {
+        "bio_ai": True,
+        "blood_report": True,
+        "questionnaire": True,
+    }
+    await test_db_session.commit()
+
+    async def _noop_delivery(self, db, *, delivery):
+        return None
+
+    monkeypatch.setattr(AuthService, "deliver_otp_via_notifications", _noop_delivery)
+
+    response = await async_client.post(
+        _send_consent_otp_url(engagement_id, participant_id),
+        headers=partner_auth_header(expert_partner_id),
+        json=_CONSENT_BODY,
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_camp_update_consent_send_otp_forbidden_without_oa(
+    async_client, test_db_session, monkeypatch
+):
+    engagement_id = 88614
+    expert_partner_id = 88614
+    participant_id = 88614
+
+    await _seed_camp_setup(
+        test_db_session,
+        engagement_id=engagement_id,
+        expert_partner_id=expert_partner_id,
+        participant_user_id=participant_id,
+        participant_id=participant_id,
+        nutritionist_consultation_id=886141,
+        doctor_consultation_id=886142,
+        assign_expert_as_oa=False,
+    )
+
+    async def _noop_delivery(self, db, *, delivery):
+        return None
+
+    monkeypatch.setattr(AuthService, "deliver_otp_via_notifications", _noop_delivery)
+
+    response = await async_client.post(
+        _send_consent_otp_url(engagement_id, participant_id),
+        headers=partner_auth_header(expert_partner_id),
+        json=_CONSENT_BODY,
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_camp_update_consent_verify_invalid_otp(
+    async_client, test_db_session, monkeypatch
+):
+    engagement_id = 88615
+    expert_partner_id = 88615
+    participant_id = 88615
+    nutritionist_consultation_id = 886151
+
+    await _seed_camp_setup(
+        test_db_session,
+        engagement_id=engagement_id,
+        expert_partner_id=expert_partner_id,
+        participant_user_id=participant_id,
+        participant_id=participant_id,
+        nutritionist_consultation_id=nutritionist_consultation_id,
+        doctor_consultation_id=886152,
+    )
+    booking = await test_db_session.get(ConsultationBooking, nutritionist_consultation_id)
+    booking.consent = empty_consent()
+    await test_db_session.commit()
+
+    async def _noop_delivery(self, db, *, delivery):
+        return None
+
+    monkeypatch.setattr(AuthService, "deliver_otp_via_notifications", _noop_delivery)
+    monkeypatch.setattr(settings, "ALLOW_BYPASS_OTP", False, raising=False)
+
+    expert_headers = partner_auth_header(expert_partner_id)
+    send = await async_client.post(
+        _send_consent_otp_url(engagement_id, participant_id),
+        headers=expert_headers,
+        json=_CONSENT_BODY,
+    )
+    assert send.status_code == 200
+    session_id = send.json()["data"]["session_id"]
+
+    verify = await async_client.post(
+        _verify_consent_otp_url(engagement_id, participant_id),
         headers=expert_headers,
         json={"session_id": session_id, "otp": "000000"},
     )

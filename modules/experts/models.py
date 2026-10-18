@@ -145,6 +145,10 @@ class ConsultationBooking(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
 
+CAMP_CONSULTATION_OTP_INTENT_REQUEST = "request"
+CAMP_CONSULTATION_OTP_INTENT_CONSENT = "consent"
+
+
 class CampConsultationRequestOtpContext(Base):
     """Pending expert-initiated camp consultation request (consent + OTP verification)."""
 
@@ -163,6 +167,7 @@ class CampConsultationRequestOtpContext(Base):
         nullable=False,
     )
     expert_type = Column(String(100), nullable=False)
+    intent = Column(String(32), nullable=False, server_default=CAMP_CONSULTATION_OTP_INTENT_REQUEST)
     consent = Column(JSON, nullable=False)
     initiated_by_partner_id = Column(Integer, nullable=True)
     initiated_by_employee_id = Column(Integer, nullable=True)

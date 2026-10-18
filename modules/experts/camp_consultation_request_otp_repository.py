@@ -42,12 +42,14 @@ class CampConsultationRequestOtpRepository:
         auth_otp_session_id: int,
         initiated_by_partner_id: int | None,
         initiated_by_employee_id: int | None,
+        intent: str,
     ) -> CampConsultationRequestOtpContext | None:
         query = (
             select(CampConsultationRequestOtpContext)
             .where(CampConsultationRequestOtpContext.engagement_id == engagement_id)
             .where(CampConsultationRequestOtpContext.engagement_participant_id == engagement_participant_id)
             .where(CampConsultationRequestOtpContext.auth_otp_session_id == auth_otp_session_id)
+            .where(CampConsultationRequestOtpContext.intent == intent)
             .where(CampConsultationRequestOtpContext.consumed_at.is_(None))
         )
         if initiated_by_partner_id is not None:
