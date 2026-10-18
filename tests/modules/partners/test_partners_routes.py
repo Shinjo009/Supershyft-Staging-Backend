@@ -8,8 +8,20 @@ import pytest
 
 from common.subject_otp import hash_otp
 from core.config import settings
+from modules.experts.models import Expert, ExpertTypeModel
 from modules.partners.models import Partner, PartnerAuthOtpSession
 from tests.helpers.auth import employee_auth_header, partner_auth_header, seed_employee, seed_partner
+
+
+async def _ensure_expert_type_doctor(test_db_session) -> None:
+    from sqlalchemy import select
+
+    result = await test_db_session.execute(
+        select(ExpertTypeModel).where(ExpertTypeModel.type_key == "doctor")
+    )
+    if result.scalar_one_or_none() is None:
+        test_db_session.add(ExpertTypeModel(type_key="doctor", type="Doctor"))
+        await test_db_session.commit()
 
 
 @pytest.mark.asyncio
@@ -205,3 +217,118 @@ async def test_create_employee_rejects_partner_phone(async_client, test_db_sessi
     )
     assert create.status_code == 409
     assert create.json()["error_code"] == "IDENTIFIER_ALREADY_EXISTS"
+
+
+@pytest.mark.asyncio
+async def test_create_expert_partner_requires_expert_profile(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=7401, role="admin")
+    response = await async_client.post(
+        "/partners",
+        headers=employee_auth_header(7401),
+        json={"name": "Dr No Profile", "phone": "7401000001", "role": "expert"},
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_create_expert_partner_with_profile_creates_expert_row(async_client, test_db_session):
+    await _ensure_expert_type_doctor(test_db_session)
+    await seed_employee(test_db_session, employee_id=7402, role="admin")
+    create = await async_client.post(
+        "/partners",
+        headers=employee_auth_header(7402),
+        json={
+            "name": "Dr With Profile",
+            "phone": "7402000001",
+            "role": "expert",
+            "expert_profile": {"expert_type": "doctor", "specialization": "General medicine"},
+        },
+    )
+    assert create.status_code in {200, 201}, create.text
+    partner_id = create.json()["data"]["partner_id"]
+    expert_id = create.json()["data"].get("expert_id")
+    assert expert_id is not None
+
+    row = await test_db_session.get(Expert, expert_id)
+    assert row is not None
+    assert row.partner_id == partner_id
+    assert row.specialization == "General medicine"
+
+    listed = await async_client.get(
+        "/experts",
+        headers=employee_auth_header(7402),
+        params={"page": 1, "limit": 50},
+    )
+    assert listed.status_code == 200
+    ids = {r["expert_id"] for r in listed.json()["data"]}
+    assert expert_id in ids
+
+
+@pytest.mark.asyncio
+async def test_create_phlebo_rejects_expert_profile(async_client, test_db_session):
+    await _ensure_expert_type_doctor(test_db_session)
+    await seed_employee(test_db_session, employee_id=7403, role="admin")
+    response = await async_client.post(
+        "/partners",
+        headers=employee_auth_header(7403),
+        json={
+            "name": "Phlebo Bad",
+            "phone": "7403000001",
+            "role": "phlebo",
+            "expert_profile": {"expert_type": "doctor", "specialization": "X"},
+        },
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_update_expert_partner_without_profile_requires_expert_profile(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=7404, role="admin")
+    partner = await seed_partner(
+        test_db_session,
+        partner_id=74041,
+        role="expert",
+        phone="7404100001",
+        email="expert74041@test.example",
+    )
+    response = await async_client.put(
+        f"/partners/{partner.partner_id}",
+        headers=employee_auth_header(7404),
+        json={
+            "name": partner.name,
+            "phone": partner.phone,
+            "email": partner.email,
+            "role": "expert",
+        },
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_update_expert_partner_creates_expert_profile(async_client, test_db_session):
+    await _ensure_expert_type_doctor(test_db_session)
+    await seed_employee(test_db_session, employee_id=7405, role="admin")
+    partner = await seed_partner(
+        test_db_session,
+        partner_id=74051,
+        role="expert",
+        phone="7405100001",
+        email="expert74051@test.example",
+    )
+    response = await async_client.put(
+        f"/partners/{partner.partner_id}",
+        headers=employee_auth_header(7405),
+        json={
+            "name": partner.name,
+            "phone": partner.phone,
+            "email": partner.email,
+            "role": "expert",
+            "expert_profile": {"expert_type": "doctor", "specialization": "Cardiology"},
+        },
+    )
+    assert response.status_code == 200
+    expert_id = response.json()["data"].get("expert_id")
+    assert expert_id is not None
+    row = await test_db_session.get(Expert, expert_id)
+    assert row is not None
+    assert row.specialization == "Cardiology"

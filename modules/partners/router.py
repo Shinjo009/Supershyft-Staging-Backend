@@ -166,7 +166,7 @@ async def create_partner(
     employee: EmployeeContext = Depends(get_current_employee),
     partners_service: PartnersService = Depends(get_partners_service),
 ):
-    created = await partners_service.create_partner(
+    created, expert_id = await partners_service.create_partner(
         db,
         employee=employee,
         payload=payload,
@@ -175,7 +175,10 @@ async def create_partner(
         endpoint=str(request.url.path),
     )
     await db.commit()
-    return success_response({"partner_id": created.partner_id})
+    data: dict = {"partner_id": created.partner_id}
+    if expert_id is not None:
+        data["expert_id"] = expert_id
+    return success_response(data)
 
 
 @router.get("")
@@ -214,8 +217,11 @@ async def get_partner(
     employee: EmployeeContext = Depends(get_current_employee),
     partners_service: PartnersService = Depends(get_partners_service),
 ):
-    row = await partners_service.get_partner_details(db, employee=employee, partner_id=partner_id)
-    return success_response(_partner_to_dict(row))
+    row, expert_id = await partners_service.get_partner_details(db, employee=employee, partner_id=partner_id)
+    payload = _partner_to_dict(row)
+    payload["has_expert_profile"] = expert_id is not None
+    payload["expert_id"] = expert_id
+    return success_response(payload)
 
 
 @router.put("/{partner_id}")
@@ -227,7 +233,7 @@ async def update_partner(
     employee: EmployeeContext = Depends(get_current_employee),
     partners_service: PartnersService = Depends(get_partners_service),
 ):
-    updated = await partners_service.update_partner(
+    updated, expert_id = await partners_service.update_partner(
         db,
         employee=employee,
         partner_id=partner_id,
@@ -237,7 +243,10 @@ async def update_partner(
         endpoint=str(request.url.path),
     )
     await db.commit()
-    return success_response({"partner_id": updated.partner_id})
+    data: dict = {"partner_id": updated.partner_id}
+    if expert_id is not None:
+        data["expert_id"] = expert_id
+    return success_response(data)
 
 
 @router.patch("/{partner_id}/status")

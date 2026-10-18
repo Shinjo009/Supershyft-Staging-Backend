@@ -7,8 +7,13 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field, model_validator
 
-from common.validation import OptionalPhoneStr, OtpCode, PhoneStr, PositiveIntId, SafeDisplayName, StatusStr
+from common.validation import OptionalPhoneStr, OtpCode, PhoneStr, PositiveIntId, SafeDisplayName, SlugKey, StatusStr
 from modules.partners.models import PartnerRole
+
+
+class PartnerExpertProfileIn(BaseModel):
+    expert_type: SlugKey
+    specialization: SafeDisplayName
 
 
 class PartnerCreateRequest(BaseModel):
@@ -17,6 +22,11 @@ class PartnerCreateRequest(BaseModel):
     email: EmailStr | None = Field(default=None, max_length=254)
     role: PartnerRole
     status: Optional[StatusStr] = "active"
+    expert_profile: PartnerExpertProfileIn | None = None
+
+    @staticmethod
+    def _role_value(role: PartnerRole) -> str:
+        return role.value if isinstance(role, PartnerRole) else str(role)
 
     @model_validator(mode="after")
     def require_phone_or_email(self) -> PartnerCreateRequest:
@@ -26,12 +36,23 @@ class PartnerCreateRequest(BaseModel):
             raise ValueError("Provide at least one of phone or email")
         return self
 
+    @model_validator(mode="after")
+    def expert_profile_rules(self) -> PartnerCreateRequest:
+        role = self._role_value(self.role)
+        if role == PartnerRole.expert.value:
+            if self.expert_profile is None:
+                raise ValueError("expert_profile is required when role is expert")
+        elif self.expert_profile is not None:
+            raise ValueError("expert_profile is only allowed when role is expert")
+        return self
+
 
 class PartnerUpdateRequest(BaseModel):
     name: SafeDisplayName
     phone: OptionalPhoneStr = None
     email: EmailStr | None = Field(default=None, max_length=254)
     role: PartnerRole
+    expert_profile: PartnerExpertProfileIn | None = None
 
     @model_validator(mode="after")
     def require_phone_or_email(self) -> PartnerUpdateRequest:
@@ -39,6 +60,13 @@ class PartnerUpdateRequest(BaseModel):
         has_email = self.email is not None and str(self.email).strip() != ""
         if not has_phone and not has_email:
             raise ValueError("Provide at least one of phone or email")
+        return self
+
+    @model_validator(mode="after")
+    def expert_profile_role(self) -> PartnerUpdateRequest:
+        role = self.role.value if isinstance(self.role, PartnerRole) else str(self.role)
+        if role != PartnerRole.expert.value and self.expert_profile is not None:
+            raise ValueError("expert_profile is only allowed when role is expert")
         return self
 
 
@@ -58,6 +86,8 @@ class PartnerListItem(BaseModel):
 class PartnerDetailsResponse(PartnerListItem):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    has_expert_profile: bool = False
+    expert_id: int | None = None
 
 
 class PartnerSendOtpRequest(BaseModel):

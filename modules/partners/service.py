@@ -10,9 +10,12 @@ from modules.audit.service import AuditService
 from modules.employee.access_control import ensure_admin
 from modules.employee.repository import EmployeeRepository
 from modules.employee.service import EmployeeContext
+from modules.experts.models import Expert
+from modules.experts.repository import ExpertsRepository
+from modules.experts.service import ExpertTypesService
 from modules.partners.models import Partner, PartnerRole
 from modules.partners.repository import PartnersRepository
-from modules.partners.schemas import PartnerCreateRequest, PartnerUpdateRequest
+from modules.partners.schemas import PartnerCreateRequest, PartnerExpertProfileIn, PartnerUpdateRequest
 
 
 _ALLOWED_STATUS = {"active", "inactive", "archived"}
@@ -50,10 +53,14 @@ class PartnersService:
         repository: PartnersRepository,
         audit_service: AuditService | None = None,
         employee_repository: EmployeeRepository | None = None,
+        experts_repository: ExpertsRepository | None = None,
+        expert_types_service: ExpertTypesService | None = None,
     ):
         self._repository = repository
         self._audit_service = audit_service
         self._employee_repository = employee_repository or EmployeeRepository()
+        self._experts_repository = experts_repository or ExpertsRepository()
+        self._expert_types_service = expert_types_service
 
     def _require_audit(self) -> AuditService:
         if self._audit_service is None:
@@ -84,6 +91,47 @@ class PartnersService:
                     message="Phone or email already exists on an employee",
                 )
 
+    def _role_value(self, role: PartnerRole | str) -> str:
+        return role.value if isinstance(role, PartnerRole) else str(role)
+
+    def _require_expert_types(self) -> ExpertTypesService:
+        if self._expert_types_service is None:
+            raise RuntimeError("Expert types service is required for expert partners")
+        return self._expert_types_service
+
+    async def _create_expert_profile_for_partner(
+        self,
+        db: AsyncSession,
+        *,
+        partner_id: int,
+        profile: PartnerExpertProfileIn,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> Expert:
+        existing = await self._experts_repository.get_by_partner_id(db, partner_id)
+        if existing is not None:
+            return existing
+
+        await self._require_expert_types().validate_type_key(db, profile.expert_type)
+        expert = Expert(
+            partner_id=partner_id,
+            expert_type=profile.expert_type,
+            specialization=profile.specialization.strip(),
+            status="active",
+        )
+        expert = await self._experts_repository.create(db, expert)
+        await self._require_audit().log_event(
+            db,
+            action="EMPLOYEE_CREATE_EXPERT",
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=None,
+            session_id=None,
+        )
+        return expert
+
     async def create_partner(
         self,
         db: AsyncSession,
@@ -93,7 +141,7 @@ class PartnersService:
         ip_address: str,
         user_agent: str,
         endpoint: str,
-    ) -> Partner:
+    ) -> tuple[Partner, int | None]:
         ensure_admin(employee)
 
         status_value = _normalize_status(payload.status)
@@ -140,7 +188,19 @@ class PartnersService:
             user_id=None,
             session_id=None,
         )
-        return row
+
+        expert_id: int | None = None
+        if role == PartnerRole.expert.value and payload.expert_profile is not None:
+            expert = await self._create_expert_profile_for_partner(
+                db,
+                partner_id=row.partner_id,
+                profile=payload.expert_profile,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                endpoint=endpoint,
+            )
+            expert_id = expert.expert_id
+        return row, expert_id
 
     async def list_partners(
         self,
@@ -192,12 +252,13 @@ class PartnersService:
         *,
         employee: EmployeeContext,
         partner_id: int,
-    ) -> Partner:
+    ) -> tuple[Partner, int | None]:
         ensure_admin(employee)
         row = await self._repository.get_by_id(db, partner_id)
         if row is None:
             raise AppError(status_code=404, error_code="PARTNER_NOT_FOUND", message="Partner does not exist")
-        return row
+        expert = await self._experts_repository.get_by_partner_id(db, partner_id)
+        return row, expert.expert_id if expert is not None else None
 
     async def update_partner(
         self,
@@ -209,7 +270,7 @@ class PartnersService:
         ip_address: str,
         user_agent: str,
         endpoint: str,
-    ) -> Partner:
+    ) -> tuple[Partner, int | None]:
         ensure_admin(employee)
         row = await self._repository.get_by_id(db, partner_id)
         if row is None:
@@ -217,7 +278,18 @@ class PartnersService:
 
         phone = _normalize_phone(payload.phone)
         email = _normalize_email(str(payload.email) if payload.email else None)
-        role = payload.role.value if isinstance(payload.role, PartnerRole) else str(payload.role)
+        role = self._role_value(payload.role)
+
+        existing_expert = await self._experts_repository.get_by_partner_id(db, partner_id)
+        if role == PartnerRole.expert.value:
+            if existing_expert is None and payload.expert_profile is None:
+                raise AppError(
+                    status_code=400,
+                    error_code="INVALID_INPUT",
+                    message="expert_profile is required when role is expert and no expert profile exists",
+                )
+        elif payload.expert_profile is not None:
+            raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
 
         await self._reject_if_employee_identifier_exists(db, phone=phone, email=email)
 
@@ -252,7 +324,23 @@ class PartnersService:
             user_id=None,
             session_id=None,
         )
-        return row
+
+        expert_id: int | None = existing_expert.expert_id if existing_expert is not None else None
+        if (
+            role == PartnerRole.expert.value
+            and existing_expert is None
+            and payload.expert_profile is not None
+        ):
+            expert = await self._create_expert_profile_for_partner(
+                db,
+                partner_id=row.partner_id,
+                profile=payload.expert_profile,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                endpoint=endpoint,
+            )
+            expert_id = expert.expert_id
+        return row, expert_id
 
     async def change_partner_status(
         self,
