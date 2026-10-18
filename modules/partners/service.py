@@ -15,6 +15,7 @@ from modules.experts.repository import ExpertsRepository
 from modules.experts.service import ExpertTypesService
 from modules.partners.models import Partner, PartnerRole
 from modules.partners.repository import PartnersRepository
+from modules.partners.role_utils import partner_role_value
 from modules.partners.schemas import PartnerCreateRequest, PartnerExpertProfileIn, PartnerUpdateRequest
 
 
@@ -281,6 +282,17 @@ class PartnersService:
         role = self._role_value(payload.role)
 
         existing_expert = await self._experts_repository.get_by_partner_id(db, partner_id)
+        current_role = partner_role_value(row.role)
+        if (
+            role != PartnerRole.expert.value
+            and existing_expert is not None
+            and role != current_role
+        ):
+            raise AppError(
+                status_code=400,
+                error_code="EXPERT_PROFILE_EXISTS",
+                message="Delete this partner's expert profile on the Experts page before changing role",
+            )
         if role == PartnerRole.expert.value:
             if existing_expert is None and payload.expert_profile is None:
                 raise AppError(

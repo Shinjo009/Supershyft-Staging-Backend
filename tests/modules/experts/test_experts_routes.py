@@ -312,6 +312,54 @@ async def test_create_expert_persists_specialization(async_client, test_db_sessi
 
 
 @pytest.mark.asyncio
+async def test_list_experts_excludes_non_expert_partner_role(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=402, role="admin")
+    partner = await seed_partner(
+        test_db_session,
+        partner_id=78599,
+        role="organization_manager",
+        name="Org Manager Expert Orphan",
+        phone="785990000001",
+        email="expert78599@test.example",
+    )
+    expert = Expert(
+        partner_id=partner.partner_id,
+        expert_type="doctor",
+        specialization="MBBS",
+        status="active",
+    )
+    test_db_session.add(expert)
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        "/experts",
+        headers=employee_auth_header(402),
+        params={"page": 1, "limit": 100},
+    )
+    assert response.status_code == 200
+    ids = {row["expert_id"] for row in response.json()["data"]}
+    assert expert.expert_id not in ids
+
+
+@pytest.mark.asyncio
+async def test_delete_expert_removes_row(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=403, role="admin")
+    partner, expert = await _seed_expert(
+        test_db_session,
+        partner_id=78598,
+        specialization="To delete",
+    )
+    response = await async_client.delete(
+        f"/experts/{expert.expert_id}",
+        headers=employee_auth_header(403),
+    )
+    assert response.status_code == 200
+    row = await test_db_session.get(Expert, expert.expert_id)
+    assert row is None
+    assert partner.partner_id is not None
+
+
+@pytest.mark.asyncio
 async def test_experts_portal_me_returns_own_expert(async_client, test_db_session):
     partner, expert = await _seed_expert(
         test_db_session,

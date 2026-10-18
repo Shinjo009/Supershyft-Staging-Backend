@@ -167,10 +167,38 @@ class ExpertsService:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
         return partner
 
-    def _expert_visible_to_public(self, expert: Expert, employee: EmployeeContext | None) -> bool:
+    async def _partner_eligible_for_expert_catalog(
+        self,
+        db,
+        expert: Expert,
+        *,
+        require_active_partner: bool,
+    ) -> bool:
+        if expert.partner_id is None:
+            return False
+        partner = await self._partners_repository.get_by_id(db, expert.partner_id)
+        if partner is None:
+            return False
+        role = partner_role_value(partner.role)
+        if role != PartnerRole.expert.value:
+            return False
+        if require_active_partner and (partner.status or "").lower() != "active":
+            return False
+        return True
+
+    async def _expert_visible_to_public(
+        self,
+        db,
+        expert: Expert,
+        employee: EmployeeContext | None,
+    ) -> bool:
         if employee is not None:
             return True
-        return (expert.status or "").lower() == "active"
+        if (expert.status or "").lower() != "active":
+            return False
+        return await self._partner_eligible_for_expert_catalog(
+            db, expert, require_active_partner=True
+        )
 
     async def list_experts(
         self,
@@ -198,6 +226,7 @@ class ExpertsService:
         elif employee is not None and status_query is None:
             status_filter = None
 
+        require_active_partner = employee is None
         experts = await self._repository.list_experts(
             db,
             page=page,
@@ -207,12 +236,14 @@ class ExpertsService:
             search=search,
             sort_by=sort_by,
             sort_dir=sort_dir,
+            require_active_partner=require_active_partner,
         )
         total = await self._repository.count_experts(
             db,
             expert_type=expert_type_filter,
             status=status_filter,
             search=search,
+            require_active_partner=require_active_partner,
         )
         return experts, total
 
@@ -257,7 +288,7 @@ class ExpertsService:
         expert = await self._repository.get_by_id(db, expert_id)
         if expert is None:
             raise AppError(status_code=404, error_code="NOT_FOUND", message="Expert does not exist")
-        if not self._expert_visible_to_public(expert, employee):
+        if not await self._expert_visible_to_public(db, expert, employee):
             raise AppError(status_code=404, error_code="NOT_FOUND", message="Expert does not exist")
         tags = await self._repository.list_tags(db, expert_id)
         return expert, tags
@@ -273,7 +304,7 @@ class ExpertsService:
         expert = await self._repository.get_by_id(db, expert_id)
         if expert is None:
             raise AppError(status_code=404, error_code="NOT_FOUND", message="Expert does not exist")
-        if not self._expert_visible_to_public(expert, employee):
+        if not await self._expert_visible_to_public(db, expert, employee):
             raise AppError(status_code=404, error_code="NOT_FOUND", message="Expert does not exist")
 
         total = await self._repository.count_reviews(db, expert_id)
@@ -413,6 +444,31 @@ class ExpertsService:
         )
         return expert
 
+    async def delete_expert_for_employee(
+        self,
+        db,
+        *,
+        employee: EmployeeContext,
+        expert_id: int,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> None:
+        ensure_not_expert_employee(employee)
+        expert = await self._repository.get_by_id(db, expert_id)
+        if expert is None:
+            raise AppError(status_code=404, error_code="NOT_FOUND", message="Expert does not exist")
+        await self._repository.delete(db, expert)
+        audit = self._require_audit()
+        await audit.log_event(
+            db,
+            action="EMPLOYEE_DELETE_EXPERT",
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=None,
+        )
+
     async def add_tag_for_employee(
         self,
         db,
@@ -534,7 +590,7 @@ class ExpertsService:
         expert = await self._repository.get_by_id(db, expert_id)
         if expert is None:
             raise AppError(status_code=404, error_code="NOT_FOUND", message="Expert does not exist")
-        if not self._expert_visible_to_public(expert, employee):
+        if not await self._expert_visible_to_public(db, expert, employee):
             raise AppError(status_code=404, error_code="NOT_FOUND", message="Expert does not exist")
 
         reviews = await self._repository.list_reviews(db, expert_id=expert_id, page=page, limit=limit)

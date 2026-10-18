@@ -525,6 +525,26 @@ async def patch_expert_status(
     return success_response({"expert_id": expert.expert_id, "status": expert.status})
 
 
+@router.delete("/{expert_id}")
+async def delete_expert(
+    expert_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    experts_service: ExpertsService = Depends(get_experts_service),
+):
+    await experts_service.delete_expert_for_employee(
+        db,
+        employee=employee,
+        expert_id=expert_id,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response({"expert_id": expert_id})
+
+
 @router.post("/{expert_id}/tags", status_code=201)
 async def add_expert_tag(
     expert_id: int,

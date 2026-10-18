@@ -352,3 +352,86 @@ async def test_update_expert_partner_creates_expert_profile(async_client, test_d
     row = await test_db_session.get(Expert, expert_id)
     assert row is not None
     assert row.specialization == "Cardiology"
+
+
+@pytest.mark.asyncio
+async def test_update_partner_role_blocked_while_expert_profile_exists(async_client, test_db_session):
+    await _ensure_expert_type_doctor(test_db_session)
+    await seed_employee(test_db_session, employee_id=7410, role="admin")
+    partner = await seed_partner(
+        test_db_session,
+        partner_id=74101,
+        role="expert",
+        phone="7410100001",
+        email="expert74101@test.example",
+    )
+    test_db_session.add(
+        Expert(
+            partner_id=partner.partner_id,
+            expert_type="doctor",
+            specialization="General medicine",
+            status="active",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.put(
+        f"/partners/{partner.partner_id}",
+        headers=employee_auth_header(7410),
+        json={
+            "name": partner.name,
+            "phone": partner.phone,
+            "email": partner.email,
+            "role": "organization_manager",
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "EXPERT_PROFILE_EXISTS"
+
+    refreshed = await test_db_session.get(Partner, partner.partner_id)
+    assert refreshed is not None
+    assert str(refreshed.role).endswith("expert") or refreshed.role == "expert"
+
+
+@pytest.mark.asyncio
+async def test_update_partner_role_after_expert_deleted(async_client, test_db_session):
+    await _ensure_expert_type_doctor(test_db_session)
+    await seed_employee(test_db_session, employee_id=7411, role="admin")
+    partner = await seed_partner(
+        test_db_session,
+        partner_id=74111,
+        role="expert",
+        phone="7411100001",
+        email="expert74111@test.example",
+    )
+    expert = Expert(
+        partner_id=partner.partner_id,
+        expert_type="doctor",
+        specialization="General medicine",
+        status="active",
+    )
+    test_db_session.add(expert)
+    await test_db_session.commit()
+    await test_db_session.refresh(expert)
+
+    delete = await async_client.delete(
+        f"/experts/{expert.expert_id}",
+        headers=employee_auth_header(7411),
+    )
+    assert delete.status_code == 200
+
+    response = await async_client.put(
+        f"/partners/{partner.partner_id}",
+        headers=employee_auth_header(7411),
+        json={
+            "name": partner.name,
+            "phone": partner.phone,
+            "email": partner.email,
+            "role": "organization_manager",
+        },
+    )
+    assert response.status_code == 200
+    refreshed = await test_db_session.get(Partner, partner.partner_id)
+    assert refreshed is not None
+    role = refreshed.role.value if hasattr(refreshed.role, "value") else str(refreshed.role)
+    assert role == "organization_manager"

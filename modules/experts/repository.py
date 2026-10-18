@@ -5,11 +5,11 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import asc, desc, exists, func, nulls_last, or_, select
+from sqlalchemy import String, asc, cast, desc, exists, func, nulls_last, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.listing import apply_sort, ilike_pattern, normalize_sort_dir
-from modules.partners.models import Partner
+from modules.partners.models import Partner, PartnerRole
 from modules.experts.models import (
     Expert,
     ExpertAvailabilityModel,
@@ -60,6 +60,15 @@ class ExpertsRepository:
         "review_count": Expert.review_count,
     }
 
+    def _partner_role_expert_exists(self, *, require_active_partner: bool):
+        conditions = [
+            Partner.partner_id == Expert.partner_id,
+            cast(Partner.role, String) == PartnerRole.expert.value,
+        ]
+        if require_active_partner:
+            conditions.append(Partner.status == "active")
+        return exists(select(1).where(*conditions))
+
     def _apply_expert_list_filters(
         self,
         query,
@@ -67,7 +76,9 @@ class ExpertsRepository:
         expert_type: str | None,
         status: str | None,
         search: str | None = None,
+        require_active_partner: bool = False,
     ):
+        query = query.where(self._partner_role_expert_exists(require_active_partner=require_active_partner))
         if expert_type is not None:
             query = query.where(Expert.expert_type == expert_type)
         if status is not None:
@@ -112,9 +123,16 @@ class ExpertsRepository:
         expert_type: str | None,
         status: str | None,
         search: str | None = None,
+        require_active_partner: bool = False,
     ) -> int:
         query = select(func.count()).select_from(Expert)
-        query = self._apply_expert_list_filters(query, expert_type=expert_type, status=status, search=search)
+        query = self._apply_expert_list_filters(
+            query,
+            expert_type=expert_type,
+            status=status,
+            search=search,
+            require_active_partner=require_active_partner,
+        )
         result = await db.execute(query)
         return int(result.scalar_one())
 
@@ -129,10 +147,17 @@ class ExpertsRepository:
         search: str | None = None,
         sort_by: str | None = None,
         sort_dir: str | None = None,
+        require_active_partner: bool = False,
     ) -> list[Expert]:
         offset = (page - 1) * limit
         query = select(Expert)
-        query = self._apply_expert_list_filters(query, expert_type=expert_type, status=status, search=search)
+        query = self._apply_expert_list_filters(
+            query,
+            expert_type=expert_type,
+            status=status,
+            search=search,
+            require_active_partner=require_active_partner,
+        )
         sort_key = (sort_by or "").strip()
         if sort_key == "name":
             direction_fn = asc if normalize_sort_dir(sort_dir) == "asc" else desc
@@ -193,6 +218,10 @@ class ExpertsRepository:
         db.add(expert)
         await db.flush()
         return expert
+
+    async def delete(self, db: AsyncSession, expert: Expert) -> None:
+        await db.delete(expert)
+        await db.flush()
 
     async def list_tags(self, db: AsyncSession, expert_id: int) -> list[ExpertExpertiseTag]:
         result = await db.execute(
