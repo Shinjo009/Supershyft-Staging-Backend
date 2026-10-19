@@ -6,6 +6,7 @@ Auth depends on this module for read-only existence checks.
 from __future__ import annotations
 
 from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Index, Integer, JSON, String, func, text
+from sqlalchemy.orm import relationship
 
 from db.base import Base
 from db.column_types import (
@@ -98,3 +99,50 @@ class UserAddress(Base):
     is_default = Column(Boolean, nullable=False, default=False, server_default="false")
     created_at = Column(DateTime(timezone=True), nullable=False)
     updated_at = Column(DateTime(timezone=True), nullable=False)
+
+
+class FamilyOnboard(Base):
+    """B2C family onboard pay session (booker pays for one or more members)."""
+
+    __tablename__ = "family_onboards"
+    __table_args__ = (Index("ix_family_onboards_booker_user_id", "booker_user_id"),)
+
+    family_onboard_id = Column(String(36), primary_key=True)
+    booker_user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
+    status = Column(String(32), nullable=False, server_default=text("'pending_payment'"))
+    discount_code = Column(String(64), nullable=True)
+    razorpay_order_id = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+
+    members = relationship(
+        "FamilyOnboardMember",
+        back_populates="session",
+        lazy="raise",
+        cascade="all, delete-orphan",
+    )
+
+
+class FamilyOnboardMember(Base):
+    """Member row bound to a family onboard session."""
+
+    __tablename__ = "family_onboard_members"
+    __table_args__ = (
+        Index("ix_family_onboard_members_family_onboard_id", "family_onboard_id"),
+    )
+
+    family_onboard_member_id = Column(Integer, primary_key=True, autoincrement=True)
+    family_onboard_id = Column(
+        String(36),
+        ForeignKey("family_onboards.family_onboard_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
+    engagement_id = Column(Integer, ForeignKey("engagements.engagement_id"), nullable=False)
+    engagement_participant_id = Column(
+        Integer,
+        ForeignKey("engagement_participants.engagement_participant_id"),
+        nullable=False,
+    )
+
+    session = relationship("FamilyOnboard", back_populates="members")

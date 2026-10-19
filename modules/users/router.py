@@ -39,6 +39,9 @@ from modules.users.schemas import (
     EngagementOnboardConfirmPaymentRequest,
     EngagementOnboardVerifyPayRequest,
     EngagementUserOnboardRequest,
+    FamilyOnboardConfirmPaymentRequest,
+    FamilyOnboardStartRequest,
+    FamilyOnboardVerifyPayRequest,
     ImportMetsightsProfilesRequest,
     MetsightsSyncRecordsRequest,
     ParticipantJourneyCopyQuestionnairesRequest,
@@ -59,6 +62,66 @@ from modules.users.service import UsersService
 
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+@router.post("/public/family-onboard")
+@limiter.limit("3/minute")
+async def start_family_onboard(
+    payload: FamilyOnboardStartRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    users_service: UsersService = Depends(get_users_service),
+):
+    result = await users_service.start_family_onboard(
+        db,
+        payload=payload,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response(result.model_dump())
+
+
+@router.post("/public/family-onboard/verify-pay")
+@limiter.limit("5/minute")
+async def verify_family_onboard_pay(
+    payload: FamilyOnboardVerifyPayRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    users_service: UsersService = Depends(get_users_service),
+):
+    result = await users_service.verify_family_onboard_pay(
+        db,
+        payload=payload,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+        client_ip=get_client_ip(request),
+    )
+    await db.commit()
+    return success_response(result)
+
+
+@router.post("/public/family-onboard/confirm-payment")
+@limiter.limit("5/minute")
+async def confirm_family_onboard_payment(
+    payload: FamilyOnboardConfirmPaymentRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+    users_service: UsersService = Depends(get_users_service),
+):
+    result = await users_service.confirm_family_onboard_payment(
+        db,
+        payload=payload,
+        caller_user_id=current_user.user_id,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response(result)
 
 
 @router.post("/public/onboard")

@@ -7,6 +7,7 @@ Auth may only use it for existence checks.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional
+from uuid import uuid4
 
 if TYPE_CHECKING:
     from modules.employee.service import EmployeeContext
@@ -57,6 +58,12 @@ from modules.users.schemas import (
     EngagementOnboardConfirmPaymentRequest,
     EngagementOnboardVerifyPayRequest,
     EngagementUserOnboardRequest,
+    FamilyOnboardConfirmPaymentRequest,
+    FamilyOnboardMemberPayload,
+    FamilyOnboardMemberResponse,
+    FamilyOnboardStartRequest,
+    FamilyOnboardStartResponse,
+    FamilyOnboardVerifyPayRequest,
     UpcomingSlotResponse,
     PublicUserOnboardRequest,
     SubProfileCreate,
@@ -3239,6 +3246,402 @@ class UsersService:
 
         pay_result["engagement_id"] = engagement.engagement_id
         pay_result["engagement_code"] = engagement.engagement_code
+        return pay_result
+
+    async def _get_or_create_sub_profile_for_booker(
+        self,
+        db: AsyncSession,
+        *,
+        booker: User,
+        member: FamilyOnboardMemberPayload,
+    ) -> tuple[User, bool]:
+        if booker.parent_id is not None:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message="Booker must be a primary account",
+            )
+
+        first_name, last_name = self._split_csv_name(member.name)
+        phone = str(member.phone).strip()
+        existing = await self.resolve_user_by_phone(db, phone)
+        if existing is not None:
+            if int(existing.parent_id or 0) == int(booker.user_id):
+                patch = {
+                    key: value
+                    for key, value in {
+                        "first_name": first_name,
+                        "last_name": last_name,
+                        "age": member.age,
+                        "date_of_birth": member.dob,
+                        "gender": member.gender,
+                        "relationship": member.relation,
+                        "city": member.city,
+                    }.items()
+                    if value is not None
+                }
+                if patch:
+                    updated = await self._repository.patch_missing_fields(db, user=existing, data=patch)
+                    if updated is not None:
+                        existing = updated
+                if not existing.is_participant:
+                    existing.is_participant = True
+                    db.add(existing)
+                    await db.flush()
+                return existing, False
+
+            raise AppError(
+                status_code=409,
+                error_code="CONFLICT",
+                message="Phone already belongs to another user",
+            )
+
+        email_to_use = str(member.email) if member.email is not None else None
+        if email_to_use is None:
+            if not booker.email or "@" not in booker.email:
+                raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+            email_to_use = await self._allocate_plus_alias_email(db, booker.email)
+
+        created_user = await self._repository.create_sub_profile(
+            db,
+            booker,
+            {
+                "first_name": first_name,
+                "last_name": last_name,
+                "age": member.age,
+                "date_of_birth": member.dob,
+                "gender": member.gender,
+                "relationship": member.relation,
+                "city": member.city,
+                "phone": phone,
+                "email": email_to_use,
+            },
+        )
+        if created_user is None:
+            raise AppError(status_code=409, error_code="CONFLICT", message="Unable to create profile")
+        created_user.is_participant = True
+        db.add(created_user)
+        await db.flush()
+        return created_user, True
+
+    def _assert_family_onboard_session_active(
+        self,
+        session: Any,
+        *,
+        booker_user_id: int | None = None,
+    ) -> None:
+        if session is None:
+            raise AppError(status_code=404, error_code="NOT_FOUND", message="Family onboard session not found")
+        if (session.status or "").strip().lower() != "pending_payment":
+            raise AppError(status_code=422, error_code="INVALID_STATE", message="Session is not awaiting payment")
+        expires_at = session.expires_at
+        if expires_at is not None:
+            now = datetime.now(timezone.utc)
+            exp = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc)
+            if exp < now:
+                raise AppError(status_code=422, error_code="SESSION_EXPIRED", message="Family onboard session expired")
+        if booker_user_id is not None and int(session.booker_user_id) != int(booker_user_id):
+            raise AppError(status_code=403, error_code="FORBIDDEN", message="Not authorized for this session")
+
+    async def start_family_onboard(
+        self,
+        db: AsyncSession,
+        *,
+        payload: FamilyOnboardStartRequest,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> FamilyOnboardStartResponse:
+        from modules.engagements.service import _resolve_auto_booking
+        from modules.users.family_onboard_repository import FamilyOnboardRepository
+
+        if self._engagements_service is None or self._platform_settings_service is None:
+            raise RuntimeError("Engagements and platform settings services are required")
+
+        booker_first, booker_last = self._split_csv_name(payload.booker.name)
+        booker_email = str(payload.booker.email)
+        booker_phone = str(payload.booker.phone)
+
+        booker, _booker_created = await self._get_or_create_user_for_onboarding(
+            db,
+            phone=booker_phone,
+            email=booker_email,
+            patch_data={
+                "first_name": booker_first,
+                "last_name": booker_last,
+                "email": booker_email,
+                "is_participant": True,
+            },
+            create_data={
+                "first_name": booker_first,
+                "last_name": booker_last,
+                "phone": booker_phone,
+                "email": booker_email,
+                "referred_by": None,
+                "is_participant": True,
+                "status": "active",
+            },
+        )
+        if booker.parent_id is not None:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message="Booker must be a primary account",
+            )
+
+        member_results: list[FamilyOnboardMemberResponse] = []
+        session_member_rows: list[dict[str, int]] = []
+        family_onboard_id = str(uuid4())
+
+        for member in payload.members:
+            member_user, sub_created = await self._get_or_create_sub_profile_for_booker(
+                db, booker=booker, member=member,
+            )
+
+            engagement_type_code = (member.engagement_type or "bio_ai").strip()
+            await _require_active_engagement_type_code(db, engagement_type_code)
+            onboarding_defaults = await self._platform_settings_service.resolve_b2c_onboarding_defaults(
+                db, engagement_type_code
+            )
+            assessment_package_id = onboarding_defaults.assessment_package_id
+            diagnostic_package_id = (
+                member.diagnostic_package_id
+                if member.diagnostic_package_id is not None
+                else onboarding_defaults.diagnostic_package_id
+            )
+            await self._platform_settings_service.ensure_active_b2c_packages(
+                db, assessment_package_id, diagnostic_package_id
+            )
+
+            resolved_type_id, resolved_consultations = await _resolve_consultation_from_pkg(
+                db, diagnostic_package_id, engagement_type_code,
+            )
+
+            engagement = await self._engagements_service.create_b2c_engagement(
+                db,
+                user_first_name=member_user.first_name,
+                engagement_date=member.blood_collection_date or date.today(),
+                city=member.city or member_user.city,
+                assessment_package_id=assessment_package_id,
+                diagnostic_package_id=diagnostic_package_id,
+                engagement_type=resolved_type_id,
+                blood_collection_type=onboarding_defaults.blood_collection_type,
+                consultations=resolved_consultations,
+                address=member.address,
+                pincode=member.pincode,
+                state=member.state,
+                country=member.country,
+                create_profile_on_metsights=onboarding_defaults.create_profile_on_metsights,
+                enroll_for_fitprint_full=onboarding_defaults.enroll_for_fitprint_full,
+            )
+
+            want_auto_booking = bool((member.blood_collection_time_slot_id or "").strip())
+            engagement.auto_booking = _resolve_auto_booking(
+                auto_booking=want_auto_booking,
+                blood_collection_type=onboarding_defaults.blood_collection_type,
+            )
+            db.add(engagement)
+            await db.flush()
+
+            slot_start = (
+                self._parse_time_slot(member.blood_collection_time_slot)
+                if member.blood_collection_time_slot
+                else None
+            )
+            participant = await self._engagements_service.enroll_user_in_engagement(
+                db,
+                engagement=engagement,
+                user_id=int(member_user.user_id),
+                engagement_date=member.blood_collection_date,
+                slot_start_time=slot_start,
+                booked_by_user_id=int(booker.user_id),
+                paid=False,
+                booker_message=member.booker_message,
+                blood_collection_time_slot_id=member.blood_collection_time_slot_id,
+            )
+
+            member_results.append(
+                FamilyOnboardMemberResponse(
+                    user_id=int(member_user.user_id),
+                    engagement_id=int(engagement.engagement_id),
+                    engagement_code=str(engagement.engagement_code),
+                    engagement_participant_id=int(participant.engagement_participant_id),
+                    sub_profile_created=sub_created,
+                )
+            )
+            session_member_rows.append({
+                "user_id": int(member_user.user_id),
+                "engagement_id": int(engagement.engagement_id),
+                "engagement_participant_id": int(participant.engagement_participant_id),
+            })
+
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+        repo = FamilyOnboardRepository()
+        await repo.create_session(
+            db,
+            family_onboard_id=family_onboard_id,
+            booker_user_id=int(booker.user_id),
+            discount_code=payload.discount_code,
+            expires_at=expires_at,
+            members=session_member_rows,
+        )
+
+        from modules.auth.dependencies import get_auth_service
+
+        await release_request_transaction(db)
+        auth_service = get_auth_service()
+        otp_session_id, delivery = await auth_service.send_otp_for_user_id(
+            db,
+            user_id=int(booker.user_id),
+            ip_address=ip_address,
+            user_agent=user_agent,
+            endpoint=endpoint,
+        )
+        if delivery is not None:
+            await auth_service.deliver_otp_via_notifications(db, delivery=delivery)
+
+        if self._audit_service is not None:
+            await self._audit_service.log_event(
+                db,
+                action="FAMILY_ONBOARD_START",
+                endpoint=endpoint,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                user_id=booker.user_id,
+                session_id=None,
+            )
+
+        return FamilyOnboardStartResponse(
+            family_onboard_id=family_onboard_id,
+            booker_user_id=int(booker.user_id),
+            otp_session_id=int(otp_session_id),
+            payment_required=True,
+            members=member_results,
+        )
+
+    async def verify_family_onboard_pay(
+        self,
+        db: AsyncSession,
+        *,
+        payload: FamilyOnboardVerifyPayRequest,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+        client_ip: str | None = None,
+    ) -> dict[str, Any]:
+        from modules.auth.dependencies import get_auth_service
+        from modules.bookings import service as booking_service
+        from modules.users.family_onboard_repository import FamilyOnboardRepository
+
+        repo = FamilyOnboardRepository()
+        session = await repo.get_session_with_members(db, payload.family_onboard_id.strip())
+        self._assert_family_onboard_session_active(session)
+
+        auth_service = get_auth_service()
+        user_id, tokens = await auth_service.verify_otp(
+            db,
+            phone=payload.phone,
+            otp=payload.otp,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            endpoint=endpoint,
+        )
+        self._assert_family_onboard_session_active(session, booker_user_id=int(user_id))
+
+        discount_code = payload.discount_code or session.discount_code
+        pay_members = [
+            {"user_id": int(m.user_id), "engagement_id": int(m.engagement_id)}
+            for m in session.members
+        ]
+        pay_result = await booking_service.create_pay_order_for_family_onboard(
+            db,
+            members=pay_members,
+            payer_user_id=int(user_id),
+            discount_code=discount_code,
+            client_ip=client_ip,
+        )
+        session.razorpay_order_id = pay_result.get("razorpay_order_id")
+        if discount_code and not session.discount_code:
+            session.discount_code = discount_code.strip()
+        db.add(session)
+        await db.flush()
+
+        pay_result["family_onboard_id"] = session.family_onboard_id
+        pay_result["tokens"] = {
+            "access_token": tokens.access_token,
+            "refresh_token": tokens.refresh_token,
+        }
+        return pay_result
+
+    async def confirm_family_onboard_payment(
+        self,
+        db: AsyncSession,
+        *,
+        payload: FamilyOnboardConfirmPaymentRequest,
+        caller_user_id: int,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> dict[str, Any]:
+        from modules.bookings import service as booking_service
+        from modules.users.family_onboard_repository import FamilyOnboardRepository
+
+        if self._engagements_service is None:
+            raise RuntimeError("Engagements service is required")
+
+        repo = FamilyOnboardRepository()
+        session = await repo.get_session_with_members(db, payload.family_onboard_id.strip())
+        self._assert_family_onboard_session_active(session, booker_user_id=int(caller_user_id))
+
+        if session.razorpay_order_id and session.razorpay_order_id != payload.razorpay_order_id:
+            raise AppError(
+                status_code=400,
+                error_code="ORDER_MISMATCH",
+                message="Payment order does not match this family onboard session",
+            )
+
+        pay_result = await booking_service.verify_and_finalize_engagement_code_payment(
+            db,
+            razorpay_payment_id=payload.razorpay_payment_id,
+            razorpay_order_id=payload.razorpay_order_id,
+            razorpay_signature=payload.razorpay_signature,
+            caller_user_id=caller_user_id,
+            engagements_service=self._engagements_service,
+        )
+
+        for row in session.members:
+            engagement = await self._engagements_service.get_by_id(db, int(row.engagement_id))
+            if engagement is None:
+                continue
+            member_user = await self._repository.get_user_by_id(db, int(row.user_id))
+            if member_user is None:
+                continue
+            await self._engagements_service.ensure_assessment_instances_for_participant(
+                db,
+                engagement=engagement,
+                user_id=int(row.user_id),
+                ip_address=ip_address,
+                user_agent=user_agent,
+                endpoint=endpoint,
+            )
+            await self._run_post_enrollment_integrations(
+                db,
+                user=member_user,
+                engagement=engagement,
+                payload=None,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                endpoint=endpoint,
+                source="family-onboard",
+                blood_collection_cabin=None,
+            )
+
+        session.status = "paid"
+        db.add(session)
+        await db.flush()
+
+        pay_result["family_onboard_id"] = session.family_onboard_id
+        pay_result["booker_user_id"] = int(session.booker_user_id)
         return pay_result
 
     async def _run_post_enrollment_integrations(

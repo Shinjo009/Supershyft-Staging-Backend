@@ -492,6 +492,94 @@ class EngagementOnboardConfirmPaymentRequest(BaseModel):
     razorpay_signature: str = Field(min_length=1)
 
 
+class FamilyOnboardBookerPayload(BaseModel):
+    name: ShortSafeText
+    phone: PhoneStr
+    email: EmailStr
+
+
+class FamilyOnboardMemberPayload(BaseModel):
+    name: ShortSafeText
+    phone: PhoneStr
+    email: Optional[EmailStr] = None
+    relation: Literal["spouse", "child", "sibling", "parent", "grandparent", "other"]
+    age: int
+    gender: OptionalSafeDisplayName = None
+    dob: Optional[date] = None
+    engagement_type: SlugKey = "bio_ai"
+    diagnostic_package_id: PositiveIntId | None = None
+    blood_collection_date: Optional[date] = None
+    blood_collection_time_slot: OptionalShortSafeText = None
+    blood_collection_time_slot_id: str | None = Field(default=None, max_length=50)
+    address: OptionalAddressText = None
+    pincode: OptionalPinCode = None
+    city: OptionalCityStateCountry = None
+    state: OptionalCityStateCountry = None
+    country: OptionalCityStateCountry = None
+    booker_message: str | None = Field(default=None, max_length=1000)
+
+    @validator("age")
+    def age_must_be_valid(cls, v):
+        if v < 1 or v > 120:
+            raise ValueError("Age must be between 1 and 120")
+        return v
+
+    @model_validator(mode="after")
+    def require_blood_fields_unless_vifc(self):
+        if (self.engagement_type or "").strip().lower() == "vifc":
+            return self
+        if self.blood_collection_date is None:
+            raise ValueError("blood_collection_date is required")
+        slot = (self.blood_collection_time_slot or "").strip()
+        if not slot:
+            raise ValueError("blood_collection_time_slot is required")
+        self.blood_collection_time_slot = slot
+        return self
+
+
+class FamilyOnboardStartRequest(BaseModel):
+    booker: FamilyOnboardBookerPayload
+    members: list[FamilyOnboardMemberPayload] = Field(..., min_length=1, max_length=10)
+    discount_code: str | None = Field(default=None, max_length=64)
+
+    @model_validator(mode="after")
+    def unique_member_phones(self):
+        phones = [str(m.phone).strip() for m in self.members]
+        if len(phones) != len(set(phones)):
+            raise ValueError("Duplicate phone in members")
+        return self
+
+
+class FamilyOnboardMemberResponse(BaseModel):
+    user_id: int
+    engagement_id: int
+    engagement_code: str
+    engagement_participant_id: int
+    sub_profile_created: bool
+
+
+class FamilyOnboardStartResponse(BaseModel):
+    family_onboard_id: str
+    booker_user_id: int
+    otp_session_id: int
+    payment_required: bool = True
+    members: list[FamilyOnboardMemberResponse]
+
+
+class FamilyOnboardVerifyPayRequest(BaseModel):
+    family_onboard_id: str = Field(min_length=36, max_length=36)
+    phone: PhoneStr
+    otp: str = Field(min_length=4, max_length=10)
+    discount_code: str | None = None
+
+
+class FamilyOnboardConfirmPaymentRequest(BaseModel):
+    family_onboard_id: str = Field(min_length=36, max_length=36)
+    razorpay_payment_id: str = Field(min_length=1)
+    razorpay_order_id: str = Field(min_length=1)
+    razorpay_signature: str = Field(min_length=1)
+
+
 class VifcQuickStartRequest(BaseModel):
     """Public VIFC quick-start: onboard with engagement_type=vifc then start face scan.
 
