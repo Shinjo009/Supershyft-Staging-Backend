@@ -169,6 +169,21 @@ def _blood_collection_type_value(value: Any) -> str | None:
     return str(value)
 
 
+def _resolve_auto_booking(
+    *,
+    auto_booking: bool | None,
+    blood_collection_type: BloodCollectionType | str | None,
+) -> bool:
+    """Camp collection cannot use auto_booking (partner home-collection flow)."""
+    if bool(auto_booking) and _blood_collection_type_value(blood_collection_type) == BloodCollectionType.camp_collection.value:
+        raise AppError(
+            status_code=400,
+            error_code="INVALID_INPUT",
+            message="Auto booking is not available when blood collection mode is camp collection",
+        )
+    return bool(auto_booking)
+
+
 def _participant_move_mismatch_reasons(source: Engagement, target: Engagement) -> list[str]:
     mismatches: list[str] = []
     if bool(source.create_profile_on_metsights) != bool(target.create_profile_on_metsights):
@@ -773,7 +788,10 @@ class EngagementsService:
                 payload.load_prev_questionnaire_category_keys
             ),
             payment_type=payload.payment_type,
-            auto_booking=payload.auto_booking,
+            auto_booking=_resolve_auto_booking(
+                auto_booking=payload.auto_booking,
+                blood_collection_type=payload.blood_collection_type,
+            ),
         )
 
         engagement = await self._repository.create_engagement(db, engagement)
@@ -1516,7 +1534,10 @@ class EngagementsService:
             payload.load_prev_questionnaire_category_keys
         )
         engagement.payment_type = payload.payment_type
-        engagement.auto_booking = payload.auto_booking
+        engagement.auto_booking = _resolve_auto_booking(
+            auto_booking=payload.auto_booking,
+            blood_collection_type=payload.blood_collection_type,
+        )
 
         engagement = await self._repository.update_engagement(db, engagement)
 

@@ -332,6 +332,8 @@ class EngagementCreateRequest(BaseModel):
             diagnostic_package_id_male=self.diagnostic_package_id_male,
             diagnostic_package_id_female=self.diagnostic_package_id_female,
         )
+        if self.auto_booking and self.blood_collection_type == BloodCollectionType.camp_collection:
+            raise ValueError("Auto booking is not available when blood collection mode is camp collection")
         return self
 
 
@@ -383,6 +385,8 @@ class EngagementUpdateRequest(BaseModel):
             diagnostic_package_id_male=self.diagnostic_package_id_male,
             diagnostic_package_id_female=self.diagnostic_package_id_female,
         )
+        if self.auto_booking and self.blood_collection_type == BloodCollectionType.camp_collection:
+            raise ValueError("Auto booking is not available when blood collection mode is camp collection")
         return self
 
 
