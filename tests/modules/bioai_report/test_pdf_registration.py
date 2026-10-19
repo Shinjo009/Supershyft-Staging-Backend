@@ -525,3 +525,59 @@ async def test_regenerate_preserves_original_assessment_date(monkeypatch, test_d
     assert payload["patient"]["assessment_date"] == original_date
     assert payload["executive_summary"]["assessment_date"] == original_date
     assert payload["executive_summary"]["patient"]["assessment_date"] == original_date
+
+
+@pytest.mark.asyncio
+async def test_regenerate_engagement_date_source_uses_camp_collection_date(monkeypatch):
+    monkeypatch.setattr(
+        "modules.bioai_report.pdf_registration.settings.BIO_AI_REPORTS_BASE_URL",
+        "https://bio-ai-reports.supershyft.com",
+    )
+    assessment_id = 99007
+    original_date = "2025-12-04T09:40:23+05:30"
+    engagement_date = "2026-10-16T01:49:00+00:00"
+    captured: dict[str, object] = {}
+
+    class FakeClient:
+        async def regenerate_report(self, payload, *, slug):
+            captured["payload"] = payload
+            return {"slug": slug, "url": "https://bio-ai-reports.supershyft.com/r/camp-slug"}
+
+    async def fake_generate(*args, **kwargs):
+        return {
+            "patient": {"name": "Jane", "assessment_date": original_date},
+            "executive_summary": {"assessment_date": original_date},
+            "report_metadata": {"record_id": "R1"},
+        }
+
+    async def fake_engagement_date(db, *, user_id, engagement_id):
+        return engagement_date
+
+    async def fake_tracked(db, *, provider, api_url, engagement_id, user_id, request_payload, operation, reraise=True):
+        return await operation()
+
+    monkeypatch.setattr(
+        "modules.bioai_report.pdf_registration._generate_bioreport_payload",
+        fake_generate,
+    )
+    monkeypatch.setattr(
+        "modules.bioai_report.pdf_registration._lookup_engagement_date_fallback",
+        fake_engagement_date,
+    )
+    monkeypatch.setattr(
+        "modules.bioai_report.pdf_registration.tracked_integration_call",
+        fake_tracked,
+    )
+
+    await regenerate_permanent_bio_ai_report_url(
+        None,
+        assessment_instance_id=assessment_id,
+        report_url="https://bio-ai-reports.supershyft.com/r/camp-slug",
+        engagement_id=99007,
+        user_id=99007,
+        bio_ai_reports_client=FakeClient(),
+        assessment_date_source="engagement",
+    )
+    payload = captured["payload"]
+    assert payload["patient"]["assessment_date"] == engagement_date
+    assert payload["executive_summary"]["assessment_date"] == engagement_date

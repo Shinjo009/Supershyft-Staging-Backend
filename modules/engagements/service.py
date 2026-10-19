@@ -3039,6 +3039,54 @@ class EngagementsService:
         snapshot["cleared_rows"] = updated
         return snapshot
 
+    async def regenerate_participant_bio_ai_report_for_engagement(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        engagement_id: int,
+        user_id: int,
+    ) -> dict[str, Any]:
+        """Admin: refresh MetSights JSON and regenerate Bio AI PDF at the same slug."""
+        ensure_admin(employee)
+
+        ep = await self._repository.get_participant_for_user_engagement(
+            db, engagement_id=engagement_id, user_id=user_id
+        )
+        if ep is None:
+            raise AppError(
+                status_code=404,
+                error_code="PARTICIPANT_NOT_FOUND",
+                message="Participant is not enrolled in this engagement",
+            )
+        if self._metsights_service is None:
+            raise AppError(
+                status_code=503,
+                error_code="EXTERNAL_SERVICE_UNAVAILABLE",
+                message="Metsights integration is not configured",
+            )
+
+        from modules.engagements.regenerate_participant_bio_ai import (
+            regenerate_participant_bio_ai_report,
+        )
+
+        regen_result = await regenerate_participant_bio_ai_report(
+            db,
+            metsights_service=self._metsights_service,
+            engagement_id=engagement_id,
+            user_id=user_id,
+        )
+        await db.commit()
+
+        snapshot = await self.get_participant_clinical_snapshot_for_engagement(
+            db,
+            employee=employee,
+            engagement_id=engagement_id,
+            user_id=user_id,
+        )
+        snapshot["regenerate"] = regen_result
+        return snapshot
+
     async def participant_stats_for_engagement_id(
         self,
         db: AsyncSession,

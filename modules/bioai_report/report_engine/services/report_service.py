@@ -133,12 +133,10 @@ class BioReportService:
         assessment_instance_id: int,
         db: AsyncSession,
     ) -> BioReport:
-        """``assessment_instance_id`` → user → latest stored IHR ``reports`` → BioReport.
+        """``assessment_instance_id`` → that instance's stored IHR ``reports`` → BioReport.
 
-        The requested instance is looked up without completed/IHR filters and is
-        used to resolve ``user_id``. The Bio-AI body comes from the user's latest
-        completed Basic/Pro assessment that has ``individual_health_report.reports``.
-        Does not call MetSights.
+        Uses only ``individual_health_report.reports`` for the requested assessment
+        instance (never another camp's completed assessment). Does not call MetSights.
         """
         if assessment_instance_id is None:
             raise ValueError("assessment_instance_id is required")
@@ -162,57 +160,30 @@ class BioReportService:
             db,
             assessment_instance_id=instance_id,
         )
-        instance_status = str(getattr(instance, "status", "") or "").lower()
-        if (
-            instance_ihr is not None
-            and _has_stored_reports(instance_ihr)
-            and instance_status != "completed"
-        ):
-            ihr = instance_ihr
-            source_instance_id = instance_id
-            source_record_id = getattr(instance, "metsights_record_id", None)
-            logger.info(
-                "BioAI request: assessment_instance_id=%s user_id=%s "
-                "source=assessment_instance_ihr",
-                instance_id,
-                user_id,
-            )
-        else:
-            rows = await self._reports.list_completed_bioai_reports_for_user(
-                db,
-                user_id=user_id,
-            )
-            if not rows:
-                diagnostic = getattr(self._reports, "get_bioai_link_diagnostics_for_user", None)
-                if callable(diagnostic):
-                    assessment_ids, ihr_assessment_ids = await diagnostic(db, user_id=user_id)
-                    logger.info(
-                        "BioAI request: assessment_instance_id=%s user_id=%s "
-                        "qualifying_assessments=[] assessment_ids=%s ihr_assessment_ids=%s",
-                        instance_id,
-                        user_id,
-                        assessment_ids,
-                        ihr_assessment_ids,
-                    )
-                raise ValueError("IHR not available")
+        if not _has_stored_reports(instance_ihr):
+            diagnostic = getattr(self._reports, "get_bioai_link_diagnostics_for_user", None)
+            if callable(diagnostic):
+                assessment_ids, ihr_assessment_ids = await diagnostic(db, user_id=user_id)
+                logger.info(
+                    "BioAI request: assessment_instance_id=%s user_id=%s "
+                    "no IHR for instance assessment_ids=%s ihr_assessment_ids=%s",
+                    instance_id,
+                    user_id,
+                    assessment_ids,
+                    ihr_assessment_ids,
+                )
+            raise ValueError("IHR not available")
 
-            latest_instance, _package, ihr = _latest_completed_source(rows)
-            source_instance_id = int(latest_instance.assessment_instance_id)
-            source_record_id = getattr(latest_instance, "metsights_record_id", None)
-            qualifying_ids = [int(row[0].assessment_instance_id) for row in rows]
-            logger.info(
-                "BioAI request: assessment_instance_id=%s user_id=%s "
-                "qualifying_assessments=%s latest_assessment=%s",
-                instance_id,
-                user_id,
-                qualifying_ids,
-                source_instance_id,
-            )
-            if not _has_stored_reports(ihr):
-                raise ValueError("IHR not available")
+        ihr = instance_ihr
+        source_record_id = getattr(instance, "metsights_record_id", None)
+        logger.info(
+            "BioAI request: assessment_instance_id=%s user_id=%s source=assessment_instance_ihr",
+            instance_id,
+            user_id,
+        )
         assessment = _stored_reports_dict(
             getattr(ihr, "reports", None),
-            assessment_instance_id=source_instance_id,
+            assessment_instance_id=instance_id,
         )
         assessment = merge_patient_into_assessment(
             assessment,
@@ -223,7 +194,7 @@ class BioReportService:
             assessment = await self._patient_service.enrich_assessment_from_local_user(
                 assessment,
                 user_id=user_id,
-                assessment_instance_id=source_instance_id,
+                assessment_instance_id=instance_id,
                 db=db,
             )
             if db is not None:
@@ -239,7 +210,7 @@ class BioReportService:
             source_record_id
             or assessment.get("record_id")
             or assessment.get("id")
-            or source_instance_id
+            or instance_id
         )
         return await asyncio.to_thread(
             self.generate_from_assessment,

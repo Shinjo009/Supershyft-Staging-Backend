@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -447,6 +447,7 @@ async def regenerate_permanent_bio_ai_report_url(
     user_id: int | None = None,
     bio_report_service: BioReportService | None = None,
     bio_ai_reports_client: BioAiReportsClient | None = None,
+    assessment_date_source: Literal["original", "engagement"] = "original",
 ) -> str:
     """Regenerate BioReport JSON and overwrite the PDF at an existing permanent slug."""
     slug = extract_slug_from_report_url(report_url)
@@ -466,12 +467,14 @@ async def regenerate_permanent_bio_ai_report_url(
     instance_id = int(assessment_instance_id)
     existing_url = report_url.strip()
 
-    original_assessment_date = await lookup_original_bio_ai_assessment_date(
-        db,
-        assessment_instance_id=instance_id,
-        user_id=user_id,
-        engagement_id=engagement_id,
-    )
+    original_assessment_date: str | None = None
+    if assessment_date_source == "original":
+        original_assessment_date = await lookup_original_bio_ai_assessment_date(
+            db,
+            assessment_instance_id=instance_id,
+            user_id=user_id,
+            engagement_id=engagement_id,
+        )
 
     bioreport_payload: dict[str, Any] | None = None
 
@@ -501,8 +504,22 @@ async def regenerate_permanent_bio_ai_report_url(
             message="BioReport generation returned an invalid payload",
         )
 
-    if original_assessment_date:
-        apply_assessment_date_override(bioreport_payload, original_assessment_date)
+    date_override: str | None = None
+    if assessment_date_source == "engagement":
+        date_override = await _lookup_engagement_date_fallback(
+            db,
+            user_id=user_id,
+            engagement_id=engagement_id,
+        )
+        if not date_override:
+            date_override = await _lookup_completed_at_fallback(
+                db,
+                assessment_instance_id=instance_id,
+            )
+    elif original_assessment_date:
+        date_override = original_assessment_date
+    if date_override:
+        apply_assessment_date_override(bioreport_payload, date_override)
 
     registration_response = await tracked_integration_call(
         db,

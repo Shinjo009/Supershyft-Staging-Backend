@@ -51,6 +51,19 @@ def test_merge_report_flags_sets_booking_id_from_row():
     assert row["has_bio_ai_report"] is True
 
 
+def test_filtered_roster_row_gets_flags_via_merge():
+    """List participants with search uses attach_roster_progress( include_questionnaire_maps=False )."""
+    row = {"user_id": 6625, "first_name": "Suhas", "last_name": "Patil"}
+    flags = default_participant_report_flags()
+    flags["has_bio_ai_report"] = True
+    flags["has_bio_ai_values"] = True
+    flags["bio_ai_report_url"] = "https://bio-ai-reports.supershyft.com/r/example"
+    merge_report_flags_into_participant_row(row, flags)
+    assert row["has_bio_ai_report"] is True
+    assert row["has_bio_ai_values"] is True
+    assert "bio-ai-reports" in (row.get("bio_ai_report_url") or "")
+
+
 def test_fitprint_report_url_sets_fitprint_report_only():
     flags = default_participant_report_flags()
     _apply_ihr_row(

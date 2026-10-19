@@ -255,7 +255,7 @@ async def test_latest_completed_stored_reports_used_for_bioai_not_highest_id():
     report = await svc.generate_for_assessment_instance(assessment_instance_id=101, db=None)
     body = report.to_dict()
     obesity = next(section for section in body["disease_sections"] if section["disease_id"] == "obesity")
-    assert obesity["current_status"]["score"] == 70
+    assert obesity["current_status"]["score"] == 20
     assert set(body) >= {"patient", "executive_summary", "disease_sections", "report_metadata"}
 
 
@@ -284,7 +284,7 @@ async def test_active_instance_uses_own_stored_reports_when_present():
 
 
 @pytest.mark.asyncio
-async def test_requested_active_instance_without_ihr_uses_latest_qualifying():
+async def test_requested_instance_without_ihr_does_not_borrow_from_other_camp():
     requested = _instance(instance_id=99, record_id="", completed="2026-07-01")
     requested.status = "active"
     requested.completed_at = None
@@ -315,13 +315,8 @@ async def test_requested_active_instance_without_ihr_uses_latest_qualifying():
         assessments_repository=_FakeReportAssessments([requested, completed]),
         reports_repository=_FakeIHRRepo(rows),
     )
-    report = await svc.generate_for_assessment_instance(assessment_instance_id=99, db=None)
-    obesity = next(
-        section
-        for section in report.to_dict()["disease_sections"]
-        if section["disease_id"] == "obesity"
-    )
-    assert obesity["current_status"]["score"] == 63
+    with pytest.raises(ValueError, match="IHR not available"):
+        await svc.generate_for_assessment_instance(assessment_instance_id=99, db=None)
 
 
 @pytest.mark.asyncio

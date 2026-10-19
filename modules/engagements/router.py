@@ -849,6 +849,23 @@ async def get_engagement_participant_clinical_snapshot(
     return success_response(data)
 
 
+@router.post("/{engagement_id}/participants/{user_id}/regenerate-bioai-report")
+async def regenerate_engagement_participant_bio_ai_report(
+    engagement_id: int,
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    engagements_service: EngagementsService = Depends(get_engagements_service),
+):
+    data = await engagements_service.regenerate_participant_bio_ai_report_for_engagement(
+        db,
+        employee=employee,
+        engagement_id=engagement_id,
+        user_id=user_id,
+    )
+    return success_response(data)
+
+
 @router.patch("/{engagement_id}/participants/{user_id}/clinical-data")
 async def clear_engagement_participant_clinical_data(
     engagement_id: int,
@@ -1055,6 +1072,12 @@ async def get_engagement_participants_by_id(
         page=page,
         limit=limit,
         filters=filters,
+    )
+    participants, _, _ = await engagements_service.attach_roster_progress_to_participants(
+        db,
+        engagement_id=engagement_id,
+        participants=participants,
+        include_questionnaire_maps=False,
     )
 
     return success_response(
