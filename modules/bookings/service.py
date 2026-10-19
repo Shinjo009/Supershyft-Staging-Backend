@@ -34,7 +34,7 @@ from modules.engagements.diagnostic_package_resolution import (
     is_split_diagnostic_engagement,
     resolve_diagnostic_package_id,
 )
-from modules.engagements.enums import ConsultationMode
+from modules.engagements.enums import ConsultationMode, EngagementPaymentType
 from modules.engagements.models import BloodCollectionType, Engagement, EngagementKind, EngagementParticipant, EngagementType
 from modules.experts.consultation_bookings_repository import ConsultationBookingsRepository
 from modules.experts.consultations import normalize_hhmm
@@ -281,6 +281,8 @@ async def check_service_availability(
             blood_collection_type=BloodCollectionType.home_collection,
             create_profile_on_metsights=False,
             enroll_for_fitprint_full=False,
+            payment_type=EngagementPaymentType.paid_by_patient,
+            auto_booking=False,
         )
         db.add(engagement)
         await db.flush()
@@ -289,6 +291,7 @@ async def check_service_availability(
             engagement_id=engagement.engagement_id,
             user_id=user_id,
             booked_by_user_id=booked_by_user_id,
+            paid=False,
         )
         db.add(participant)
         await db.flush()
@@ -795,6 +798,206 @@ async def create_pay_order_for_draft_engagements(
     return out
 
 
+async def _validate_engagement_participant_for_code_pay(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    engagement_id: int,
+    payer_user_id: int,
+) -> tuple[Engagement, EngagementParticipant, DiagnosticPackage]:
+    from modules.engagements.participant_eligibility import engagement_payment_type_value
+    from modules.engagements.enums import EngagementPaymentType
+
+    engagement_result = await db.execute(
+        select(Engagement).where(Engagement.engagement_id == engagement_id)
+    )
+    engagement = engagement_result.scalar_one_or_none()
+    if engagement is None:
+        raise AppError(status_code=404, error_code="ENGAGEMENT_NOT_FOUND", message="Engagement not found")
+    if engagement_payment_type_value(engagement) != EngagementPaymentType.paid_by_patient.value:
+        raise AppError(
+            status_code=422,
+            error_code="INVALID_STATE",
+            message="Engagement does not require participant payment",
+        )
+
+    participant_result = await db.execute(
+        select(EngagementParticipant)
+        .where(EngagementParticipant.engagement_id == engagement_id)
+        .where(EngagementParticipant.user_id == user_id)
+        .order_by(EngagementParticipant.engagement_participant_id.desc())
+        .limit(1)
+    )
+    participant = participant_result.scalar_one_or_none()
+    if participant is None:
+        raise AppError(status_code=404, error_code="NOT_ENROLLED", message="User is not a participant")
+    if bool(participant.paid):
+        raise AppError(status_code=422, error_code="ALREADY_PAID", message="Participant has already paid")
+    if payer_user_id not in (participant.user_id, participant.booked_by_user_id):
+        raise AppError(status_code=403, error_code="FORBIDDEN", message="Not authorized to pay for this participant")
+
+    user_result = await db.execute(select(User).where(User.user_id == user_id))
+    user = user_result.scalar_one_or_none()
+    if user is None:
+        raise AppError(status_code=404, error_code="USER_NOT_FOUND", message="User not found")
+
+    package_id = resolve_diagnostic_package_id(engagement, user_gender=user.gender)
+    if package_id is None:
+        raise AppError(status_code=422, error_code="INVALID_STATE", message="No diagnostic package on engagement")
+    pkg = await _get_diagnostic_package(db, package_id)
+    if not (_is_healthians(pkg) or _is_orange_health(pkg)):
+        raise AppError(status_code=422, error_code="INVALID_PROVIDER", message="Not a supported diagnostic package")
+    if (pkg.status or "").strip().lower() != "active":
+        raise AppError(status_code=422, error_code="PACKAGE_INACTIVE", message="Diagnostic package is not active")
+
+    if bool(engagement.auto_booking):
+        coll = await get_current_row(db, participant)
+        sched = read_schedule_from_row(coll)
+        if not sched["blood_collection_time_slot_id"]:
+            raise AppError(status_code=422, error_code="SLOT_NOT_LOCKED", message="Blood collection slot is not locked")
+        if sched["engagement_date"] is None or sched["slot_start_time"] is None:
+            raise AppError(status_code=422, error_code="SLOT_NOT_LOCKED", message="Blood collection schedule is incomplete")
+
+    return engagement, participant, pkg
+
+
+async def create_pay_order_for_engagement_participant(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    engagement_id: int,
+    payer_user_id: int,
+    discount_code: str | None = None,
+    client_ip: str | None = None,
+) -> dict[str, Any]:
+    """Create Razorpay order for a paid_by_patient engagement participant (code onboard flow)."""
+    engagement, _participant, pkg = await _validate_engagement_participant_for_code_pay(
+        db,
+        user_id=user_id,
+        engagement_id=engagement_id,
+        payer_user_id=payer_user_id,
+    )
+    package_id = int(pkg.diagnostic_package_id)
+    metadata_by_user = {user_id: {"engagement_id": engagement_id}}
+    discount_context = {
+        "organization_id": engagement.organization_id,
+        "camp_no": str(engagement.camp_no) if engagement.camp_no is not None else None,
+        "engagement_id": engagement.engagement_id,
+        "city": getattr(engagement, "city", None),
+    }
+    payments_service = PaymentsService()
+    result = await payments_service.create_order(
+        db,
+        payer_user_id=payer_user_id,
+        items=[(user_id, "diagnostic_package", package_id)],
+        authenticated_user_id=payer_user_id,
+        booking_type=None,
+        metadata_by_user=metadata_by_user,
+        discount_code=discount_code.strip() if discount_code else None,
+        discount_context=discount_context,
+        client_ip=client_ip,
+    )
+    err = result.get("_error")
+    if err:
+        code, msg = err
+        raise AppError(status_code=code, error_code="PAYMENT_ERROR", message=msg)
+    return {
+        "razorpay_order_id": result["razorpay_order_id"],
+        "amount_paise": result["amount_paise"],
+        "amount_rupees": result["amount_rupees"],
+        "currency": result["currency"],
+        "key_id": result["key_id"],
+        "booking_ids": result["booking_ids"],
+        "booking_id": result["booking_id"],
+        "user_id": user_id,
+        "engagement_id": engagement_id,
+        "discount": result.get("discount"),
+    }
+
+
+async def verify_and_finalize_engagement_code_payment(
+    db: AsyncSession,
+    *,
+    razorpay_payment_id: str,
+    razorpay_order_id: str,
+    razorpay_signature: str,
+    caller_user_id: int,
+    engagements_service: EngagementsService | None = None,
+) -> dict[str, Any]:
+    """Verify Razorpay payment for code-onboard flow; mark paid and optionally auto-book."""
+    payments_service = PaymentsService()
+    verify_result = await payments_service.verify_payment(
+        db,
+        razorpay_payment_id=razorpay_payment_id,
+        razorpay_order_id=razorpay_order_id,
+        razorpay_signature=razorpay_signature,
+        authenticated_user_id=caller_user_id,
+        skip_fulfillment=True,
+    )
+    if verify_result.get("_signature_invalid"):
+        raise AppError(status_code=400, error_code="INVALID_SIGNATURE", message="Invalid payment signature")
+    err = verify_result.get("_error")
+    if err:
+        code, msg = err
+        raise AppError(status_code=code, error_code="PAYMENT_VERIFY_FAILED", message=msg)
+
+    bookings = verify_result.get("bookings") or []
+    if not bookings:
+        booking_ids = verify_result.get("booking_ids") or []
+        if booking_ids:
+            bookings_result = await db.execute(
+                select(Booking).where(Booking.booking_id.in_(booking_ids))
+            )
+            bookings = list(bookings_result.scalars().all())
+
+    members = _members_from_order_bookings(bookings)
+    for member in members:
+        participant_result = await db.execute(
+            select(EngagementParticipant)
+            .where(EngagementParticipant.engagement_id == member["engagement_id"])
+            .where(EngagementParticipant.user_id == member["user_id"])
+            .order_by(EngagementParticipant.engagement_participant_id.desc())
+            .limit(1)
+        )
+        participant = participant_result.scalar_one_or_none()
+        if participant is not None:
+            participant.paid = True
+            db.add(participant)
+    await db.flush()
+
+    member_results: list[dict[str, Any]] = []
+    for member in members:
+        engagement_result = await db.execute(
+            select(Engagement).where(Engagement.engagement_id == member["engagement_id"])
+        )
+        engagement = engagement_result.scalar_one_or_none()
+        if engagement is not None and bool(engagement.auto_booking):
+            booking_results = await create_healthians_booking_after_payment(
+                db,
+                members=[member],
+                caller_user_id=caller_user_id,
+                engagements_service=engagements_service,
+                allow_active_engagement_status=True,
+                preserve_engagement_status=True,
+            )
+            member_results.extend(booking_results)
+        else:
+            member_results.append({
+                "user_id": member["user_id"],
+                "engagement_id": member["engagement_id"],
+                "status": "success",
+                "message": "Payment recorded",
+            })
+
+    return {
+        "payment_verified": True,
+        "razorpay_order_id": razorpay_order_id,
+        "razorpay_payment_id": verify_result.get("payment_id") or razorpay_payment_id,
+        "booking_ids": verify_result.get("booking_ids") or [],
+        "members": member_results,
+    }
+
+
 def _members_from_order_bookings(bookings: list[Booking]) -> list[dict[str, Any]]:
     members: list[dict[str, Any]] = []
     for booking in bookings:
@@ -973,6 +1176,8 @@ async def create_healthians_booking_after_payment(
                 partner_notes="",
             )
             if oh_result.get("status") == "success":
+                participant.paid = True
+                db.add(participant)
                 base_type_id = await _resolve_engagement_type_id(db, engagement_type_code) if engagement_type_code else None
                 await _apply_complementary_consultation(db, engagement, pkg, base_type_id)
                 if not preserve_engagement_status:
@@ -1103,6 +1308,8 @@ async def create_healthians_booking_after_payment(
             continue
 
         booking_id = resp.get("booking_id", "")
+        participant.paid = True
+        db.add(participant)
         coll_row = await get_or_create_current(db, participant)
         coll_row.booking_id = str(booking_id)
         coll_row.barcode = str(booking_id)

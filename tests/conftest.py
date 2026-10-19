@@ -100,6 +100,7 @@ from modules.webhooks.router import router as webhooks_router
 from modules.server_health.router import router as server_health_router
 from modules.dashboard.router import router as dashboard_router
 from modules.diagnostics.router import router as diagnostics_router
+from modules.diagnostics.public_router import router as diagnostics_public_router
 from modules.support.router import router as support_router
 from modules.audit.router import router as audit_router
 from modules.geocoding.router import router as geocode_router
@@ -396,6 +397,7 @@ async def fastapi_app(
     app.include_router(server_health_router)
     app.include_router(dashboard_router)
     app.include_router(diagnostics_router)
+    app.include_router(diagnostics_public_router)
     app.include_router(support_router)
     app.include_router(audit_router)
     app.include_router(geocode_router)

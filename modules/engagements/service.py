@@ -49,6 +49,7 @@ from modules.engagements.camp_no import compute_camp_no
 from modules.engagements.consultation_booking_validation import (
     effective_consultation_mode,
 )
+from modules.engagements.enums import EngagementPaymentType
 from modules.engagements.models import BloodCollectionType, ConsultationMode, Engagement, EngagementParticipant, EngagementStatus, OnboardingAssistantAssignment
 from modules.partners.models import PartnerRole
 from modules.partners.role_utils import partner_role_value
@@ -326,6 +327,8 @@ def _participant_enrollment_to_dict(
         booking_id,
         blood_collection_time_slot_id,
         booked_by_user_id,
+        paid,
+        booker_message,
     ) = row
     flags = sync_flags or {
         "is_profile_created_on_metsights": bool((metsights_profile_id or "").strip()),
@@ -361,6 +364,8 @@ def _participant_enrollment_to_dict(
         "booking_id": booking_id,
         "blood_collection_time_slot_id": blood_collection_time_slot_id,
         "booked_by_user_id": booked_by_user_id,
+        "paid": bool(paid) if paid is not None else True,
+        "booker_message": booker_message,
     }
 
 
@@ -767,6 +772,8 @@ class EngagementsService:
             load_prev_questionnaire_category_keys=_normalize_load_prev_category_keys(
                 payload.load_prev_questionnaire_category_keys
             ),
+            payment_type=payload.payment_type,
+            auto_booking=payload.auto_booking,
         )
 
         engagement = await self._repository.create_engagement(db, engagement)
@@ -1508,6 +1515,8 @@ class EngagementsService:
         engagement.load_prev_questionnaire_category_keys = _normalize_load_prev_category_keys(
             payload.load_prev_questionnaire_category_keys
         )
+        engagement.payment_type = payload.payment_type
+        engagement.auto_booking = payload.auto_booking
 
         engagement = await self._repository.update_engagement(db, engagement)
 
@@ -1708,6 +1717,8 @@ class EngagementsService:
             create_profile_on_metsights=create_profile_on_metsights,
             enroll_for_fitprint_full=enroll_for_fitprint_full,
             load_prev_assessment_questionnaires=load_prev_assessment_questionnaires,
+            payment_type=EngagementPaymentType.paid_by_patient,
+            auto_booking=False,
         )
         engagement = await self._repository.create_engagement(db, engagement)
 
@@ -1909,6 +1920,9 @@ class EngagementsService:
         blood_collection_cabin: str | None = None,
         consultations: dict | None = None,
         booked_by_user_id: int | None = None,
+        paid: bool | None = None,
+        booker_message: str | None = None,
+        blood_collection_time_slot_id: str | None = None,
     ) -> EngagementParticipant:
         if (engagement.status or "").lower() not in ("scheduled", "running", "draft"):
             raise AppError(status_code=422, error_code="INVALID_STATE", message="Engagement is not accepting enrollments")
@@ -1934,7 +1948,10 @@ class EngagementsService:
                     message="User is already enrolled in another engagement for this camp",
                 )
 
+        from modules.engagements.participant_eligibility import default_paid_for_enrollment
+
         booked_by = booked_by_user_id if booked_by_user_id is not None else user_id
+        resolved_paid = paid if paid is not None else default_paid_for_enrollment(engagement)
         participant = EngagementParticipant(
             engagement_id=engagement.engagement_id,
             user_id=user_id,
@@ -1942,10 +1959,18 @@ class EngagementsService:
             participants_employee_id=participants_employee_id,
             participant_department=participant_department,
             participant_blood_group=participant_blood_group,
+            paid=resolved_paid,
+            booker_message=(booker_message or "").strip() or None,
         )
         created = await self._repository.create_participant(db, participant)
         cabin = (blood_collection_cabin or "").strip() or None
-        if engagement_date is not None or slot_start_time is not None or cabin is not None:
+        slot_id = (blood_collection_time_slot_id or "").strip() or None
+        if (
+            engagement_date is not None
+            or slot_start_time is not None
+            or cabin is not None
+            or slot_id is not None
+        ):
             from modules.engagements.blood_bookings_access import apply_schedule
 
             await apply_schedule(
@@ -1954,6 +1979,7 @@ class EngagementsService:
                 engagement_date=engagement_date,
                 slot_start_time=slot_start_time,
                 blood_collection_cabin=cabin,
+                blood_collection_time_slot_id=slot_id,
             )
         if consultations:
             await self._consultation_bookings.sync_from_want_map(db, created, consultations)
@@ -1990,6 +2016,16 @@ class EngagementsService:
         """
         if self._assessments_service is None:
             raise RuntimeError("Assessments service is required")
+
+        participant = await self.get_participant_for_user_engagement(
+            db,
+            user_id=user_id,
+            engagement_id=int(engagement.engagement_id),
+        )
+        if participant is not None:
+            from modules.engagements.participant_eligibility import ensure_participant_paid
+
+            ensure_participant_paid(participant)
 
         instances: list[Any] = []
         package_id = engagement.assessment_package_id

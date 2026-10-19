@@ -763,6 +763,8 @@ class EngagementsRepository:
                 curr_pbb.c.booking_id,
                 curr_pbb.c.collection_time_slot_id.label("blood_collection_time_slot_id"),
                 EngagementParticipant.booked_by_user_id,
+                EngagementParticipant.paid,
+                EngagementParticipant.booker_message,
                 func.row_number()
                 .over(
                     partition_by=EngagementParticipant.user_id,
@@ -840,6 +842,8 @@ class EngagementsRepository:
                 ranked_rows.c.booking_id,
                 ranked_rows.c.blood_collection_time_slot_id,
                 ranked_rows.c.booked_by_user_id,
+                ranked_rows.c.paid,
+                ranked_rows.c.booker_message,
             )
             .where(ranked_rows.c.rn == 1)
             .order_by(ranked_rows.c.engagement_participant_id.asc())
@@ -1325,6 +1329,8 @@ class EngagementsRepository:
                 ranked_rows.c.booking_id,
                 ranked_rows.c.blood_collection_time_slot_id,
                 ranked_rows.c.booked_by_user_id,
+                ranked_rows.c.paid,
+                ranked_rows.c.booker_message,
             )
             .where(ranked_rows.c.rn == 1)
             .order_by(ranked_rows.c.engagement_participant_id.asc())
@@ -1415,6 +1421,8 @@ class EngagementsRepository:
                 curr_pbb.c.booking_id,
                 curr_pbb.c.collection_time_slot_id.label("blood_collection_time_slot_id"),
                 EngagementParticipant.booked_by_user_id,
+                EngagementParticipant.paid,
+                EngagementParticipant.booker_message,
                 func.row_number()
                 .over(
                     partition_by=EngagementParticipant.user_id,
@@ -1460,6 +1468,8 @@ class EngagementsRepository:
                 ranked_rows.c.booking_id,
                 ranked_rows.c.blood_collection_time_slot_id,
                 ranked_rows.c.booked_by_user_id,
+                ranked_rows.c.paid,
+                ranked_rows.c.booker_message,
             )
             .where(ranked_rows.c.rn == 1)
             .order_by(ranked_rows.c.engagement_participant_id.asc())
@@ -1608,6 +1618,7 @@ class EngagementsRepository:
                 AutoNotificationEvent.id == EngagementNotification.notification_event_id,
             )
             .where(self._scheduled_or_running_engagement_status_filter())
+            .where(EngagementParticipant.paid.is_(True))
             .where(curr_pbb.c.collection_date == collection_date)
             .where(AutoNotificationEvent.event_code == "pretest_guidelines")
             .distinct()
@@ -1754,6 +1765,7 @@ class EngagementsRepository:
                 en_after.c.engagement_id == Engagement.engagement_id,
             )
             .where(self._scheduled_or_running_engagement_status_filter())
+            .where(EngagementParticipant.paid.is_(True))
             .where(curr_pbb.c.collection_date.in_(target_dates))
             .distinct()
             .order_by(
@@ -1807,6 +1819,7 @@ class EngagementsRepository:
               ON ihr.user_id = ep.user_id
              AND ihr.engagement_id = ep.engagement_id
             WHERE e.status IN (CAST(:status_scheduled AS smallint), CAST(:status_running AS smallint))
+              AND ep.paid IS TRUE
               AND ane.event_code = 'consultation_ready'
               AND et.code IN ('bio_ai_with_consultation', 'blood_test_with_consultation')
               AND EXISTS (
@@ -1894,6 +1907,7 @@ class EngagementsRepository:
             JOIN consultation_bookings cb ON cb.consultation_id = u.booking_id
             LEFT JOIN engagement_slot_info esi ON esi.slot_detail_id = e.slot_detail_id
             WHERE e.status IN (CAST(:status_scheduled AS smallint), CAST(:status_running AS smallint))
+              AND ep.paid IS TRUE
               AND ane.event_code = 'consultation_remainder'
               AND cb.consultation_date = :consultation_date
               AND cb.want IS TRUE

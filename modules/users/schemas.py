@@ -433,6 +433,8 @@ class EngagementUserOnboardRequest(BaseModel):
     want_doctor_and_nutritionist_consultation: Optional[bool] = None
     # New field: { expert_type: { want, date, cabin, slot, expert_id } }
     consultations: Optional[dict[str, Any]] = None
+    booker_message: str | None = Field(default=None, max_length=1000)
+    blood_collection_time_slot_id: str | None = Field(default=None, max_length=50)
 
     @model_validator(mode="after")
     def sanitize_consultations(self):
@@ -474,6 +476,20 @@ class UserOnboardResponse(BaseModel):
     assessment_instance_id: Optional[int] = None
     metsights_record_id: Optional[str] = None
     preview_available: bool = False
+    payment_required: bool = False
+    otp_session_id: Optional[int] = None
+
+
+class EngagementOnboardVerifyPayRequest(BaseModel):
+    phone: PhoneStr
+    otp: str = Field(min_length=4, max_length=10)
+    discount_code: str | None = None
+
+
+class EngagementOnboardConfirmPaymentRequest(BaseModel):
+    razorpay_payment_id: str = Field(min_length=1)
+    razorpay_order_id: str = Field(min_length=1)
+    razorpay_signature: str = Field(min_length=1)
 
 
 class VifcQuickStartRequest(BaseModel):

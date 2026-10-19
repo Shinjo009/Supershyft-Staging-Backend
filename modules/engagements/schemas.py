@@ -30,7 +30,7 @@ from modules.engagement_notifications.service_config import NotificationServiceC
 
 from modules.checklists.schemas import ChecklistReadiness
 from modules.engagements.models import BloodCollectionType, EngagementStatus
-from modules.engagements.enums import ConsultationMode
+from modules.engagements.enums import ConsultationMode, EngagementPaymentType
 
 _TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -320,6 +320,8 @@ class EngagementCreateRequest(BaseModel):
     load_prev_assessment_questionnaires: bool = False
     load_prev_questionnaire_category_keys: list[str] | None = None
     notifications: list[EngagementNotificationInput] | None = None
+    payment_type: EngagementPaymentType = EngagementPaymentType.paid_by_group
+    auto_booking: bool | None = False
 
     @model_validator(mode="after")
     def consultation_mode_required_when_consultations(self) -> EngagementCreateRequest:
@@ -369,6 +371,8 @@ class EngagementUpdateRequest(BaseModel):
     load_prev_assessment_questionnaires: bool = False
     load_prev_questionnaire_category_keys: list[str] | None = None
     notifications: list[EngagementNotificationInput] | None = None
+    payment_type: EngagementPaymentType = EngagementPaymentType.paid_by_group
+    auto_booking: bool | None = False
 
     @model_validator(mode="after")
     def consultation_mode_required_when_consultations(self) -> EngagementUpdateRequest:

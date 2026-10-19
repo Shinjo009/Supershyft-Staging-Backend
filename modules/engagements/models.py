@@ -40,6 +40,7 @@ from modules.engagements.enums import (
     ConsultationMode,
     EngagementFeedbackOverallRating,
     EngagementKind,
+    EngagementPaymentType,
     EngagementStatus,
 )
 
@@ -60,6 +61,13 @@ _engagement_kind = SAEnum(
 _engagement_feedback_overall_rating = SAEnum(
     EngagementFeedbackOverallRating,
     name="engagement_feedback_overall_rating",
+    values_callable=lambda obj: [e.value for e in obj],
+    validate_strings=True,
+    create_type=False,
+)
+_engagement_payment_type = SAEnum(
+    EngagementPaymentType,
+    name="engagement_payment_type",
     values_callable=lambda obj: [e.value for e in obj],
     validate_strings=True,
     create_type=False,
@@ -135,6 +143,13 @@ class Engagement(Base):
         SAEnum(ConsultationMode, name="consultation_mode_enum", values_callable=lambda obj: [e.value for e in obj], create_type=False),
         nullable=True,
     )
+    payment_type = Column(
+        _engagement_payment_type,
+        nullable=False,
+        default=EngagementPaymentType.paid_by_group,
+        server_default=EngagementPaymentType.paid_by_group.value,
+    )
+    auto_booking = Column(Boolean, nullable=True, default=False, server_default="false")
 
 
 class OnboardingAssistantAssignment(Base):
@@ -262,6 +277,8 @@ class EngagementParticipant(Base):
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
     healthians_zone_id = Column(String, nullable=True)
+    paid = Column(Boolean, nullable=False, default=True, server_default="true")
+    booker_message = Column(String(1000), nullable=True)
 
     @validates("user_id")
     def _default_booked_by_user_id(self, _key: str, user_id: int) -> int:

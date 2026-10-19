@@ -54,6 +54,8 @@ from modules.users.schemas import (
     BookingPaymentResponse,
     EmployeeCreateUserRequest,
     EmployeeUpdateUserRequest,
+    EngagementOnboardConfirmPaymentRequest,
+    EngagementOnboardVerifyPayRequest,
     EngagementUserOnboardRequest,
     UpcomingSlotResponse,
     PublicUserOnboardRequest,
@@ -2827,6 +2829,12 @@ class UsersService:
             engagement=engagement,
             participant_department=payload.participant_department,
         )
+        from modules.engagements.enums import EngagementPaymentType
+        from modules.engagements.participant_eligibility import engagement_payment_type_value
+
+        payment_type = engagement_payment_type_value(engagement)
+        requires_payment = payment_type == EngagementPaymentType.paid_by_patient.value
+
         time_slot = await self._engagements_service.enroll_user_in_engagement(
             db,
             engagement=engagement,
@@ -2837,8 +2845,45 @@ class UsersService:
             participant_department=validated_department,
             participant_blood_group=payload.participant_blood_group,
             blood_collection_cabin=blood_collection_cabin,
-            consultations=consultations
+            consultations=consultations,
+            paid=False if requires_payment else True,
+            booker_message=payload.booker_message,
+            blood_collection_time_slot_id=payload.blood_collection_time_slot_id,
         )
+
+        if requires_payment:
+            from modules.auth.dependencies import get_auth_service
+
+            auth_service = get_auth_service()
+            otp_session_id, delivery = await auth_service.send_otp_for_user_id(
+                db,
+                user_id=int(user.user_id),
+                ip_address=ip_address,
+                user_agent=user_agent,
+                endpoint=endpoint,
+            )
+            if delivery is not None:
+                await auth_service.deliver_otp_via_notifications(db, delivery=delivery)
+            if self._audit_service is not None:
+                await self._audit_service.log_event(
+                    db,
+                    action="USER_ENGAGEMENT_ONBOARD",
+                    endpoint=endpoint,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    user_id=user.user_id,
+                    session_id=None,
+                )
+            return UserOnboardResponse(
+                user_id=user.user_id,
+                created=created,
+                is_participant=True,
+                engagement_id=engagement.engagement_id,
+                engagement_code=engagement.engagement_code,
+                engagement_participant_id=time_slot.engagement_participant_id,
+                payment_required=True,
+                otp_session_id=otp_session_id,
+            )
 
         assessment_instance = None
         preview_available = False
@@ -3059,6 +3104,17 @@ class UsersService:
             cabin_key=blood_collection_cabin,
         )
 
+        if bool(engagement.auto_booking):
+            from modules.bookings import service as booking_service
+
+            await booking_service.create_healthians_booking_after_payment(
+                db,
+                members=[{"user_id": int(user.user_id), "engagement_id": int(engagement.engagement_id)}],
+                caller_user_id=int(user.user_id),
+                allow_active_engagement_status=True,
+                preserve_engagement_status=True,
+            )
+
         mid = (assessment_instance.metsights_record_id or "").strip() or None
         return UserOnboardResponse(
             user_id=user.user_id,
@@ -3071,6 +3127,208 @@ class UsersService:
             metsights_record_id=metsights_record_id or mid,
             preview_available=preview_available,
         )
+
+    async def verify_engagement_onboard_pay(
+        self,
+        db: AsyncSession,
+        *,
+        engagement_code: str,
+        payload: EngagementOnboardVerifyPayRequest,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+        client_ip: str | None = None,
+    ) -> dict[str, Any]:
+        from modules.auth.dependencies import get_auth_service
+        from modules.bookings import service as booking_service
+
+        if self._engagements_service is None:
+            raise RuntimeError("Engagements service is required")
+
+        code = (engagement_code or "").strip()
+        engagement = await self._engagements_service.get_by_code(db, code)
+        if engagement is None:
+            raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+
+        auth_service = get_auth_service()
+        user_id, tokens = await auth_service.verify_otp(
+            db,
+            phone=payload.phone,
+            otp=payload.otp,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            endpoint=endpoint,
+        )
+
+        participant = await self._engagements_service.get_participant_for_user_engagement(
+            db,
+            user_id=user_id,
+            engagement_id=int(engagement.engagement_id),
+        )
+        if participant is None:
+            raise AppError(status_code=404, error_code="NOT_ENROLLED", message="User is not enrolled in this engagement")
+
+        pay_result = await booking_service.create_pay_order_for_engagement_participant(
+            db,
+            user_id=user_id,
+            engagement_id=int(engagement.engagement_id),
+            payer_user_id=user_id,
+            discount_code=payload.discount_code,
+            client_ip=client_ip,
+        )
+        pay_result["tokens"] = {
+            "access_token": tokens.access_token,
+            "refresh_token": tokens.refresh_token,
+        }
+        return pay_result
+
+    async def confirm_engagement_onboard_payment(
+        self,
+        db: AsyncSession,
+        *,
+        engagement_code: str,
+        payload: EngagementOnboardConfirmPaymentRequest,
+        caller_user_id: int,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+        onboard_payload: EngagementUserOnboardRequest | None = None,
+    ) -> dict[str, Any]:
+        from modules.bookings import service as booking_service
+
+        if self._engagements_service is None:
+            raise RuntimeError("Engagements service is required")
+
+        code = (engagement_code or "").strip()
+        engagement = await self._engagements_service.get_by_code(db, code)
+        if engagement is None:
+            raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+
+        pay_result = await booking_service.verify_and_finalize_engagement_code_payment(
+            db,
+            razorpay_payment_id=payload.razorpay_payment_id,
+            razorpay_order_id=payload.razorpay_order_id,
+            razorpay_signature=payload.razorpay_signature,
+            caller_user_id=caller_user_id,
+            engagements_service=self._engagements_service,
+        )
+
+        user_id = caller_user_id
+        await self._engagements_service.ensure_assessment_instances_for_participant(
+            db,
+            engagement=engagement,
+            user_id=user_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            endpoint=endpoint,
+        )
+
+        user = await self._repository.get_user_by_id(db, user_id)
+        if user is not None:
+            await self._run_post_enrollment_integrations(
+                db,
+                user=user,
+                engagement=engagement,
+                payload=onboard_payload,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                endpoint=endpoint,
+                source=code,
+                blood_collection_cabin=None,
+            )
+
+        pay_result["engagement_id"] = engagement.engagement_id
+        pay_result["engagement_code"] = engagement.engagement_code
+        return pay_result
+
+    async def _run_post_enrollment_integrations(
+        self,
+        db: AsyncSession,
+        *,
+        user: Any,
+        engagement: Any,
+        payload: EngagementUserOnboardRequest | None,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+        source: str,
+        blood_collection_cabin: str | None,
+    ) -> None:
+        """Metsights, questionnaires, and OA notifications after payment or group onboard."""
+        if self._assessments_service is None:
+            return
+
+        assessment_instance = None
+        if engagement.assessment_package_id is not None:
+            assessment_instance = await self._assessments_service.ensure_instance_assigned(
+                db,
+                user_id=user.user_id,
+                engagement_id=engagement.engagement_id,
+                package_id=engagement.assessment_package_id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                endpoint=endpoint,
+            )
+
+        await release_request_transaction(db)
+        if self._metsights_service is not None:
+            sync_context = MetsightsSyncContext(
+                db=db,
+                engagement_id=int(engagement.engagement_id),
+                user_id=int(user.user_id),
+            )
+            try:
+                profile_id = await self._create_metsights_profile_for_engagement(
+                    db,
+                    user=user,
+                    engagement=engagement,
+                    sync_context=sync_context,
+                )
+                if profile_id and bool(engagement.enroll_for_fitprint_full):
+                    await release_request_transaction(db)
+                    fitprint_package = await self._assessments_service.get_package_by_assessment_type_code(
+                        db,
+                        assessment_type_code="7",
+                    )
+                    fitprint_sub = (
+                        (getattr(fitprint_package, "subscription_id", None) or "").strip()
+                        if fitprint_package is not None
+                        else ""
+                    )
+                    if fitprint_sub:
+                        fitprint_record_id = await self._metsights_service.create_record_for_profile(
+                            profile_id=profile_id,
+                            subscription_id=fitprint_sub,
+                            sync_context=sync_context,
+                        )
+                        if fitprint_package is not None:
+                            await self._assessments_service.ensure_instance_assigned(
+                                db,
+                                user_id=user.user_id,
+                                engagement_id=engagement.engagement_id,
+                                package_id=int(fitprint_package.package_id),
+                                ip_address=ip_address,
+                                user_agent=user_agent,
+                                endpoint=endpoint,
+                                metsights_record_id=fitprint_record_id,
+                            )
+            except Exception as exc:
+                logger.warning(
+                    "Post-payment Metsights sync failed for user_id=%s engagement_id=%s: %s",
+                    user.user_id,
+                    engagement.engagement_id,
+                    str(exc),
+                )
+
+        if payload is not None:
+            await self._notify_onboarding_assistants(
+                db,
+                engagement=engagement,
+                participant_user_id=int(user.user_id),
+                payload=payload,
+                source=source,
+                cabin_key=blood_collection_cabin,
+            )
 
     def _split_csv_name(self, raw_name: str) -> tuple[str | None, str | None]:
         cleaned = (raw_name or "").strip()

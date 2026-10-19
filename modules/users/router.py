@@ -36,6 +36,8 @@ from modules.users.schemas import (
     BookBioAiRequest,
     EmployeeCreateUserRequest,
     EmployeeUpdateUserRequest,
+    EngagementOnboardConfirmPaymentRequest,
+    EngagementOnboardVerifyPayRequest,
     EngagementUserOnboardRequest,
     ImportMetsightsProfilesRequest,
     MetsightsSyncRecordsRequest,
@@ -119,6 +121,51 @@ async def onboard_user_for_engagement(
     await db.commit()
 
     return success_response(result.model_dump())
+
+
+@router.post("/code/{engagement_code}/onboard/verify-pay")
+@limiter.limit("5/minute")
+async def verify_engagement_onboard_pay(
+    engagement_code: str,
+    payload: EngagementOnboardVerifyPayRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    users_service: UsersService = Depends(get_users_service),
+):
+    result = await users_service.verify_engagement_onboard_pay(
+        db,
+        engagement_code=engagement_code,
+        payload=payload,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+        client_ip=get_client_ip(request),
+    )
+    await db.commit()
+    return success_response(result)
+
+
+@router.post("/code/{engagement_code}/onboard/confirm-payment")
+@limiter.limit("5/minute")
+async def confirm_engagement_onboard_payment(
+    engagement_code: str,
+    payload: EngagementOnboardConfirmPaymentRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+    users_service: UsersService = Depends(get_users_service),
+):
+    result = await users_service.confirm_engagement_onboard_payment(
+        db,
+        engagement_code=engagement_code,
+        payload=payload,
+        caller_user_id=current_user.user_id,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response(result)
 
 
 @router.post("/code/{engagement_code}/onboard/me")

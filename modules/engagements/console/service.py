@@ -548,6 +548,9 @@ class ConsoleService:
                 error_code="PARTICIPANT_NOT_FOUND",
                 message="Participant is not enrolled in this engagement",
             )
+        from modules.engagements.participant_eligibility import ensure_participant_paid
+
+        ensure_participant_paid(participant)
 
         from modules.employee.access_control import org_manager_contact_id
 

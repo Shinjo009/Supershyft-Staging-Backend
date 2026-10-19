@@ -40,6 +40,13 @@ class EngagementStatus(str, enum.Enum):
     published = "published"  # legacy rows only
 
 
+class EngagementPaymentType(str, enum.Enum):
+    """PostgreSQL enum `engagement_payment_type`."""
+
+    paid_by_group = "paid_by_group"
+    paid_by_patient = "paid_by_patient"
+
+
 class EngagementFeedbackOverallRating(str, enum.Enum):
     """PostgreSQL enum `engagement_feedback_overall_rating`."""
 

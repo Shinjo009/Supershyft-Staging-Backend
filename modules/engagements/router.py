@@ -166,6 +166,13 @@ def _engagement_to_dict(
         "load_prev_questionnaire_category_keys": list(engagement.load_prev_questionnaire_category_keys or [])
         or None,
         "notifications": notifications or [],
+        "payment_type": (
+            engagement.payment_type.value
+            if getattr(engagement, "payment_type", None) is not None
+            and hasattr(engagement.payment_type, "value")
+            else (str(engagement.payment_type) if getattr(engagement, "payment_type", None) else "paid_by_group")
+        ),
+        "auto_booking": bool(engagement.auto_booking) if engagement.auto_booking is not None else False,
     }
     if readiness is not None:
         data["readiness"] = readiness.model_dump(mode="json")
@@ -803,6 +810,13 @@ async def get_engagement_participants_bootstrap(
             "consultations": engagement.consultations,
             "public_slot_detail": public_slot_detail,
             "blood_collection_type": engagement.blood_collection_type,
+            "payment_type": (
+                engagement.payment_type.value
+                if getattr(engagement, "payment_type", None) is not None
+                and hasattr(engagement.payment_type, "value")
+                else "paid_by_group"
+            ),
+            "auto_booking": bool(engagement.auto_booking) if engagement.auto_booking is not None else False,
             "participant_count": total,
         },
         "organization": organization,
