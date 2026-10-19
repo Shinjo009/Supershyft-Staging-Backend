@@ -476,46 +476,6 @@ class UserOnboardResponse(BaseModel):
     preview_available: bool = False
 
 
-class B2COnboardAndBookRequest(BaseModel):
-    """Onboard+book using an existing user profile (no PII in the request body)."""
-
-    user_id: PositiveIntId
-    consultations: Optional[dict[str, Any]] = None
-
-    @model_validator(mode="after")
-    def sanitize_consultations(self):
-        if self.consultations is not None:
-            validate_nested_strings(self.consultations)
-        return self
-
-
-class B2COnboardAndBookWithSlotRequest(B2COnboardAndBookRequest):
-    """Slot fields required for Healthians booking."""
-
-    blood_collection_date: date
-    blood_collection_time_slot: ShortSafeText
-    blood_collection_time_slot_id: str = Field(min_length=1, max_length=50)
-
-
-class B2CCodeOnboardAndBookRequest(B2COnboardAndBookWithSlotRequest):
-    """Onboard+book for an existing engagement — profile from user, slot from payload."""
-
-
-class B2CPublicOnboardAndBookRequest(B2COnboardAndBookWithSlotRequest):
-    """Public B2C onboard+book — creates engagement; profile from user, slot from payload."""
-
-
-class B2COnboardAndBookResponse(BaseModel):
-    user_id: int
-    created: bool
-    engagement_id: int
-    engagement_code: str
-    engagement_participant_id: Optional[int] = None
-    booking_id: str
-    status: str
-    assessment_instance_id: Optional[int] = None
-
-
 class VifcQuickStartRequest(BaseModel):
     """Public VIFC quick-start: onboard with engagement_type=vifc then start face scan.
 

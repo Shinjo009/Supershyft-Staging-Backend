@@ -16,11 +16,6 @@ from modules.bookings.schemas import (
     CheckServiceabilityRequest,
     LockSlotRequest,
     RescheduleBloodTestRequest,
-    CodeAvailableSlotsRequest,
-    CodeLockSlotRequest,
-    PublicAvailableSlotsRequest,
-    PublicCheckServiceabilityRequest,
-    PublicLockSlotRequest,
     VerifyAndBookRequest,
     ConsultationPayRequest,
 )
@@ -28,8 +23,6 @@ from modules.bookings import service as booking_service
 from modules.engagements.dependencies import get_engagements_repository, get_engagements_service
 from modules.engagements.repository import EngagementsRepository
 from modules.engagements.service import EngagementsService
-from modules.platform_settings.dependencies import get_platform_settings_service_readonly
-from modules.platform_settings.service import PlatformSettingsService
 
 
 router = APIRouter(prefix="/book", tags=["bookings"])
@@ -308,129 +301,3 @@ async def lock_slots(
     result = await booking_service.lock_slots(db, members=members)
     await db.commit()
     return success_response({"members": result})
-
-
-@router.post("/public/check-service-availability")
-@limiter.limit("5/minute")
-async def public_check_service_availability(
-    payload: PublicCheckServiceabilityRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    platform_settings_service: PlatformSettingsService = Depends(get_platform_settings_service_readonly),
-):
-    result = await booking_service.public_check_service_availability(
-        db,
-        address_line=payload.address_line,
-        landmark=payload.landmark,
-        city=payload.city,
-        pincode=payload.pincode,
-        platform_settings_service=platform_settings_service,
-    )
-    await db.commit()
-    return success_response(result)
-
-
-@router.post("/code/{engagement_code}/check-service-availability")
-@limiter.limit("5/minute")
-async def code_check_service_availability(
-    engagement_code: str,
-    payload: PublicCheckServiceabilityRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    result = await booking_service.code_check_service_availability(
-        db,
-        engagement_code=engagement_code,
-        address_line=payload.address_line,
-        landmark=payload.landmark,
-        city=payload.city,
-        pincode=payload.pincode,
-    )
-    await db.commit()
-    return success_response(result)
-
-
-@router.post("/public/available-slots")
-@limiter.limit("10/minute")
-async def public_get_available_slots(
-    payload: PublicAvailableSlotsRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    platform_settings_service: PlatformSettingsService = Depends(get_platform_settings_service_readonly),
-):
-    result = await booking_service.public_get_available_slots(
-        db,
-        address_line=payload.address_line,
-        city=payload.city,
-        pincode=payload.pincode,
-        blood_collection_date=payload.blood_collection_date,
-        platform_settings_service=platform_settings_service,
-    )
-    await db.commit()
-    return success_response(result)
-
-
-@router.post("/code/{engagement_code}/available-slots")
-@limiter.limit("10/minute")
-async def code_get_available_slots(
-    engagement_code: str,
-    payload: CodeAvailableSlotsRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    result = await booking_service.code_get_available_slots(
-        db,
-        engagement_code=engagement_code,
-        address_line=payload.address_line,
-        city=payload.city,
-        pincode=payload.pincode,
-        blood_collection_date=payload.blood_collection_date,
-    )
-    await db.commit()
-    return success_response(result)
-
-
-@router.post("/public/lock")
-@limiter.limit("5/minute")
-async def public_lock_slot(
-    payload: PublicLockSlotRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    platform_settings_service: PlatformSettingsService = Depends(get_platform_settings_service_readonly),
-):
-    result = await booking_service.public_lock_slot(
-        db,
-        city=payload.city,
-        pincode=payload.pincode,
-        user_id=payload.user_id,
-        blood_collection_date=payload.blood_collection_date,
-        blood_collection_time_slot_id=payload.blood_collection_time_slot_id,
-        blood_collection_time_slot=payload.blood_collection_time_slot,
-        platform_settings_service=platform_settings_service,
-    )
-    await db.commit()
-    return success_response(result)
-
-
-@router.post("/code/{engagement_code}/lock")
-@limiter.limit("5/minute")
-async def code_lock_slot(
-    engagement_code: str,
-    payload: CodeLockSlotRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    result = await booking_service.code_lock_slot(
-        db,
-        engagement_code=engagement_code,
-        address_line=payload.address_line,
-        landmark=payload.landmark,
-        city=payload.city,
-        pincode=payload.pincode,
-        user_id=payload.user_id,
-        blood_collection_date=payload.blood_collection_date,
-        blood_collection_time_slot_id=payload.blood_collection_time_slot_id,
-        blood_collection_time_slot=payload.blood_collection_time_slot,
-    )
-    await db.commit()
-    return success_response(result)

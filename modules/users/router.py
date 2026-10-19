@@ -33,8 +33,6 @@ from modules.export_logs.service import ExportLogsService
 from modules.metsights.dependencies import get_metsights_sync_service
 from modules.metsights.sync_service import MetsightsSyncService
 from modules.users.schemas import (
-    B2CCodeOnboardAndBookRequest,
-    B2CPublicOnboardAndBookRequest,
     BookBioAiRequest,
     EmployeeCreateUserRequest,
     EmployeeUpdateUserRequest,
@@ -81,30 +79,6 @@ async def public_onboard_user(
     return success_response(result.model_dump())
 
 
-@router.post("/public/onboard/book")
-@limiter.limit("3/minute")
-async def public_onboard_and_book_user(
-    payload: B2CPublicOnboardAndBookRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    users_service: UsersService = Depends(get_users_service),
-):
-    ip_address = get_client_ip(request)
-    user_agent = request.headers.get("User-Agent", "unknown")
-    endpoint = str(request.url.path)
-
-    result = await users_service.public_onboard_and_book_b2c(
-        db,
-        payload=payload,
-        ip_address=ip_address,
-        user_agent=user_agent,
-        endpoint=endpoint,
-    )
-    await db.commit()
-
-    return success_response(result.model_dump())
-
-
 @router.post("/public/vifc/quick-start")
 @limiter.limit("3/minute")
 async def public_vifc_quick_start(
@@ -141,32 +115,6 @@ async def onboard_user_for_engagement(
         ip_address=get_client_ip(request),
         user_agent=request.headers.get("User-Agent", "unknown"),
         endpoint=str(request.url.path),
-    )
-    await db.commit()
-
-    return success_response(result.model_dump())
-
-
-@router.post("/code/{engagement_code}/onboard/book")
-@limiter.limit("3/minute")
-async def onboard_and_book_user_for_engagement(
-    engagement_code: str,
-    payload: B2CCodeOnboardAndBookRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    users_service: UsersService = Depends(get_users_service),
-):
-    ip_address = get_client_ip(request)
-    user_agent = request.headers.get("User-Agent", "unknown")
-    endpoint = str(request.url.path)
-
-    result = await users_service.code_onboard_and_book_b2c(
-        db,
-        engagement_code=engagement_code,
-        payload=payload,
-        ip_address=ip_address,
-        user_agent=user_agent,
-        endpoint=endpoint,
     )
     await db.commit()
 
