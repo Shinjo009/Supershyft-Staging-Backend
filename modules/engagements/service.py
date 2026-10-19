@@ -71,9 +71,11 @@ from modules.engagements.slot_availability import (
     occupancy_map_from_rows,
     require_available_blood_collection_slot,
     require_available_consultation_slot,
+    section_is_enabled,
     slot_detail_is_configured,
     slot_unavailable,
 )
+from modules.engagements.slot_detail_dates import _blood_collection_section
 from modules.engagements.slot_info_repository import EngagementSlotInfoRepository
 from modules.experts.consultation_bookings_repository import ConsultationBookingsRepository
 from modules.experts.consultations import bookings_to_consultations_map, empty_consent, normalize_consultations_map, normalize_consent
@@ -1251,6 +1253,8 @@ class EngagementsService:
         slot_detail = await self.resolve_slot_detail(db, engagement)
         if not slot_detail_is_configured(slot_detail):
             return normalized_cabin
+        if not isinstance(slot_detail, dict) or _blood_collection_section(slot_detail) is None:
+            return normalized_cabin
 
         cabin = require_available_blood_collection_slot(
             slot_detail,
@@ -1307,6 +1311,8 @@ class EngagementsService:
         if isinstance(slot_detail, dict):
             section = slot_detail.get("consultation")
         if not isinstance(section, dict) or not section:
+            return normalized
+        if not section_is_enabled(section):
             return normalized
 
         shared_slot_detail_id = (

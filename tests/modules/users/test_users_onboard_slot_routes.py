@@ -460,3 +460,142 @@ async def test_onboard_accepts_slug_cabin_key_with_underscores(async_client, tes
         json=_onboard_payload(phone="9208000001", cabin="room_2"),
     )
     assert response.status_code == 200, response.text
+
+
+async def _create_engagement_with_custom_slot_detail(
+    async_client,
+    test_db_session,
+    *,
+    user_id: int,
+    employee_id: int,
+    organization_id: int,
+    code: str,
+    slot_detail: dict,
+    consultations: dict | None = None,
+):
+    if slot_detail.get("consultation"):
+        await test_db_session.execute(
+            text(
+                "INSERT INTO expert_types (type_key, type) VALUES ('doctor', 'Doctor') "
+                "ON CONFLICT (type_key) DO NOTHING"
+            )
+        )
+        await test_db_session.commit()
+    await _seed_employee(test_db_session, user_id=user_id, employee_id=employee_id)
+    await _seed_organization(test_db_session, organization_id=organization_id, name=f"Org {organization_id}")
+    await _seed_packages(test_db_session, package_id=organization_id)
+    type_id = await _engagement_type_id(test_db_session, "bio_ai")
+    payload = {
+        "engagement_name": f"Camp {code}",
+        "organization_id": organization_id,
+        "engagement_type": type_id,
+        "assessment_package_id": organization_id,
+        "diagnostic_package_id": organization_id,
+        "city": "BLR",
+        "slot_duration": 30,
+        "start_date": "2026-08-20",
+        "end_date": "2026-08-21",
+        "engagement_code": code,
+        "slot_detail": slot_detail,
+    }
+    if consultations is not None:
+        payload["consultations"] = consultations
+        payload["consultation_mode"] = "offline"
+    response = await async_client.post(
+        "/engagements",
+        headers=_auth_header(user_id),
+        json=payload,
+    )
+    assert response.status_code == 201, response.text
+    return response.json()["data"]["engagement_id"]
+
+
+@pytest.mark.asyncio
+async def test_onboard_consultation_only_slot_detail_skips_blood_cabin_validation(
+    async_client, test_db_session
+):
+    """Blood cabin grid is not checked when slot_detail has no enabled blood_collection section."""
+    await _create_engagement_with_custom_slot_detail(
+        async_client,
+        test_db_session,
+        user_id=7428,
+        employee_id=428,
+        organization_id=9209,
+        code="SLOTCONO",
+        slot_detail={"consultation": _consultation_cabin()},
+        consultations={"doctor": True},
+    )
+    payload = _consult_onboard_payload(phone="9209000001", slot="09:30", blood_slot="13:00")
+    payload.pop("blood_collection_cabin", None)
+    response = await async_client.post("/users/code/SLOTCONO/onboard", json=payload)
+    assert response.status_code == 200, response.text
+    pid = response.json()["data"]["engagement_participant_id"]
+    participant = (
+        await test_db_session.execute(
+            text(
+                "SELECT blood_collection_cabin, engagement_date, slot_start_time "
+                "FROM engagement_participants WHERE engagement_participant_id = :pid"
+            ),
+            {"pid": pid},
+        )
+    ).first()
+    assert participant.blood_collection_cabin is None
+    assert str(participant.engagement_date) == "2026-08-20"
+    assert str(participant.slot_start_time)[:5] == "13:00"
+    booking = (
+        await test_db_session.execute(
+            text(
+                "SELECT consultation_cabin, consultation_slot "
+                "FROM consultation_bookings WHERE engagement_participant_id = :pid"
+            ),
+            {"pid": pid},
+        )
+    ).first()
+    assert booking.consultation_cabin == "consultation_cabin_1"
+    assert booking.consultation_slot == "09:30"
+
+
+@pytest.mark.asyncio
+async def test_onboard_disabled_blood_section_skips_blood_cabin_validation(async_client, test_db_session):
+    await _create_engagement_with_custom_slot_detail(
+        async_client,
+        test_db_session,
+        user_id=7429,
+        employee_id=429,
+        organization_id=9210,
+        code="SLOTBLOF",
+        slot_detail={
+            "blood_collection": {
+                "is_enable": False,
+                "2026-08-20": [
+                    {
+                        "cabin_name": "Blood Test Cabin 1",
+                        "cabin_key": "blood_test_cabin_1",
+                        "start_time": "09:00",
+                        "end_time": "17:00",
+                        "slot_duration": 30,
+                        "capacity_per_slot": 6,
+                        "breaks": [],
+                        "is_active": True,
+                    }
+                ],
+            },
+            "consultation": _consultation_cabin(),
+        },
+        consultations={"doctor": True},
+    )
+    payload = _consult_onboard_payload(phone="9210000001", slot="09:00", blood_slot="13:00")
+    payload["blood_collection_cabin"] = "blood_test_cabin_1"
+    response = await async_client.post("/users/code/SLOTBLOF/onboard", json=payload)
+    assert response.status_code == 200, response.text
+    pid = response.json()["data"]["engagement_participant_id"]
+    participant = (
+        await test_db_session.execute(
+            text(
+                "SELECT blood_collection_cabin FROM engagement_participants "
+                "WHERE engagement_participant_id = :pid"
+            ),
+            {"pid": pid},
+        )
+    ).first()
+    assert participant.blood_collection_cabin is None
