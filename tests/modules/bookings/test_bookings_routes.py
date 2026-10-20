@@ -858,12 +858,17 @@ async def test_book_bio_ai_verifies_and_finalizes(async_client, test_db_session,
     signature = _razorpay_signature(order_id=razorpay_order_id, payment_id=payment_id)
 
     healthians_resp = {"status": True, "booking_id": "HI940020", "message": "Booking placed"}
+    freeze_resp = {"status": True, "resCode": "RES0001", "message": "ok", "data": {"slot_id": "slot-123"}}
 
     with patch(
         "modules.bookings.service.healthians_client.get_access_token",
         new_callable=AsyncMock,
         return_value="tok",
     ), patch(
+        "modules.bookings.service.healthians_client.freeze_slot_v1",
+        new_callable=AsyncMock,
+        return_value=freeze_resp,
+    ) as mock_freeze, patch(
         "modules.bookings.service.healthians_client.create_booking_v3",
         new_callable=AsyncMock,
         return_value=healthians_resp,
@@ -883,6 +888,7 @@ async def test_book_bio_ai_verifies_and_finalizes(async_client, test_db_session,
     assert data["payment_verified"] is True
     assert data["members"][0]["status"] == "success"
     assert data["members"][0]["booking_id"] == "HI940020"
+    mock_freeze.assert_awaited_once()
 
     eng_row = (
         await test_db_session.execute(
@@ -958,6 +964,10 @@ async def test_book_bio_ai_applies_defaults_assigns_assistants_and_notifies(
         "modules.bookings.service.healthians_client.get_access_token",
         new_callable=AsyncMock,
         return_value="tok",
+    ), patch(
+        "modules.bookings.service.healthians_client.freeze_slot_v1",
+        new_callable=AsyncMock,
+        return_value={"status": True, "resCode": "RES0001", "message": "ok", "data": {"slot_id": "slot-123"}},
     ), patch(
         "modules.bookings.service.healthians_client.create_booking_v3",
         new_callable=AsyncMock,
@@ -1061,6 +1071,10 @@ async def test_book_blood_test_sets_engagement_type_blood_test(async_client, tes
         new_callable=AsyncMock,
         return_value="tok",
     ), patch(
+        "modules.bookings.service.healthians_client.freeze_slot_v1",
+        new_callable=AsyncMock,
+        return_value={"status": True, "resCode": "RES0001", "message": "ok", "data": {"slot_id": "slot-123"}},
+    ), patch(
         "modules.bookings.service.healthians_client.create_booking_v3",
         new_callable=AsyncMock,
         return_value={"status": True, "booking_id": "HI940021", "message": "OK"},
@@ -1135,11 +1149,17 @@ async def test_book_bio_ai_idempotent_when_already_paid(async_client, test_db_se
     }
 
     healthians_mock = AsyncMock(return_value={"status": True, "booking_id": "HI940022", "message": "OK"})
+    freeze_mock = AsyncMock(
+        return_value={"status": True, "resCode": "RES0001", "message": "ok", "data": {"slot_id": "slot-123"}},
+    )
 
     with patch(
         "modules.bookings.service.healthians_client.get_access_token",
         new_callable=AsyncMock,
         return_value="tok",
+    ), patch(
+        "modules.bookings.service.healthians_client.freeze_slot_v1",
+        freeze_mock,
     ), patch(
         "modules.bookings.service.healthians_client.create_booking_v3",
         healthians_mock,
@@ -1151,6 +1171,7 @@ async def test_book_bio_ai_idempotent_when_already_paid(async_client, test_db_se
     assert second.status_code == 200
     assert second.json()["data"]["members"][0]["status"] == "success"
     assert healthians_mock.await_count == 1
+    assert freeze_mock.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -1200,6 +1221,10 @@ async def test_book_bio_ai_applies_complementary_consultation(
         "modules.bookings.service.healthians_client.get_access_token",
         new_callable=AsyncMock,
         return_value="tok",
+    ), patch(
+        "modules.bookings.service.healthians_client.freeze_slot_v1",
+        new_callable=AsyncMock,
+        return_value={"status": True, "resCode": "RES0001", "message": "ok", "data": {"slot_id": "slot-123"}},
     ), patch(
         "modules.bookings.service.healthians_client.create_booking_v3",
         new_callable=AsyncMock,
@@ -1275,6 +1300,10 @@ async def test_book_blood_test_applies_complementary_consultation(
         "modules.bookings.service.healthians_client.get_access_token",
         new_callable=AsyncMock,
         return_value="tok",
+    ), patch(
+        "modules.bookings.service.healthians_client.freeze_slot_v1",
+        new_callable=AsyncMock,
+        return_value={"status": True, "resCode": "RES0001", "message": "ok", "data": {"slot_id": "slot-123"}},
     ), patch(
         "modules.bookings.service.healthians_client.create_booking_v3",
         new_callable=AsyncMock,

@@ -3111,10 +3111,21 @@ class UsersService:
             cabin_key=blood_collection_cabin,
         )
 
-        if bool(engagement.auto_booking):
+        from modules.engagements.models import BloodCollectionType
+
+        blood_collection = engagement.blood_collection_type
+        is_home_collection = (
+            blood_collection == BloodCollectionType.home_collection
+            or str(blood_collection or "").strip().lower() == BloodCollectionType.home_collection.value
+        )
+        if (
+            payment_type == EngagementPaymentType.paid_by_group.value
+            and bool(engagement.auto_booking)
+            and is_home_collection
+        ):
             from modules.bookings import service as booking_service
 
-            await booking_service.create_healthians_booking_after_payment(
+            await booking_service.fulfill_auto_partner_booking_for_members(
                 db,
                 members=[{"user_id": int(user.user_id), "engagement_id": int(engagement.engagement_id)}],
                 caller_user_id=int(user.user_id),

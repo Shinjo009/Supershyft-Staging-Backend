@@ -1150,6 +1150,99 @@ def _booking_location_field(participant: EngagementParticipant, engagement: Enga
     return getattr(engagement, field, None)
 
 
+async def _freeze_healthians_slot_for_participant(
+    db: AsyncSession,
+    *,
+    engagement_id: int,
+    user_id: int,
+    slot_id: str,
+    vendor_billing_user_id: str,
+    access_token: str | None = None,
+) -> str:
+    """Freeze a Healthians slot before createBooking_v3 (console-aligned billing user)."""
+    slot_id = (slot_id or "").strip()
+    if not slot_id:
+        return access_token or await _get_healthians_token()
+
+    billing_id = (vendor_billing_user_id or "").strip() or str(user_id)
+    token = access_token or await _get_healthians_token()
+    api_url = f"{settings.HEALTHIANS_BASE_URL}/toast4health/freezeSlot_v1"
+    req_payload = {"slot_id": slot_id, "vendor_billing_user_id": billing_id}
+
+    await release_request_transaction(db)
+    try:
+        resp = await healthians_client.freeze_slot_v1(
+            token,
+            slot_id=slot_id,
+            vendor_billing_user_id=billing_id,
+        )
+    except Exception as exc:
+        logger.exception("Healthians freezeSlot_v1 failed for user %s", user_id)
+        await log_healthians_call(
+            db,
+            engagement_id=engagement_id,
+            user_id=user_id,
+            provider="healthians",
+            api_url=api_url,
+            request_payload=req_payload,
+            status="failed",
+            error_message=str(exc),
+        )
+        raise AppError(status_code=502, error_code="HEALTHIANS_LOCK_FAILED", message=str(exc)) from exc
+
+    await log_healthians_call(
+        db,
+        engagement_id=engagement_id,
+        user_id=user_id,
+        provider="healthians",
+        api_url=api_url,
+        request_payload=req_payload,
+        response_payload=resp,
+        status="success" if resp.get("status") and resp.get("resCode") == "RES0001" else "failed",
+    )
+
+    if not resp.get("status") or resp.get("resCode") != "RES0001":
+        raise AppError(
+            status_code=422,
+            error_code="SLOT_LOCK_FAILED",
+            message=resp.get("message", "Slot not available"),
+        )
+    return token
+
+
+async def fulfill_auto_partner_booking_for_members(
+    db: AsyncSession,
+    *,
+    members: list[dict[str, Any]],
+    caller_user_id: int,
+    engagements_service: EngagementsService | None = None,
+    allow_active_engagement_status: bool = False,
+    preserve_engagement_status: bool = False,
+) -> list[dict[str, Any]]:
+    """Create partner lab orders for members whose engagements have auto_booking enabled."""
+    auto_members: list[dict[str, Any]] = []
+    for member in members:
+        engagement_id = member.get("engagement_id")
+        if engagement_id is None:
+            continue
+        engagement_result = await db.execute(
+            select(Engagement).where(Engagement.engagement_id == int(engagement_id))
+        )
+        engagement = engagement_result.scalar_one_or_none()
+        if engagement is not None and bool(engagement.auto_booking):
+            auto_members.append(member)
+    if not auto_members:
+        return []
+    return await create_healthians_booking_after_payment(
+        db,
+        members=auto_members,
+        caller_user_id=caller_user_id,
+        engagements_service=engagements_service,
+        allow_active_engagement_status=allow_active_engagement_status,
+        preserve_engagement_status=preserve_engagement_status,
+    )
+
+
 async def create_healthians_booking_after_payment(
     db: AsyncSession,
     *,
@@ -1288,7 +1381,9 @@ async def create_healthians_booking_after_payment(
         sched = read_schedule_from_row(coll_row)
         slot_id = sched["blood_collection_time_slot_id"] or ""
         relation = (user.relationship or "self").strip() or "self"
-        vendor_billing_user_id = vendor_billing_user_id_override or str(participant.booked_by_user_id)
+        vendor_billing_user_id = vendor_billing_user_id_override or str(
+            participant.booked_by_user_id or user_id
+        )
 
         phone = to_healthians_mobile((user.phone or "").strip())
         if len(phone) != 10:
@@ -1331,6 +1426,24 @@ async def create_healthians_booking_after_payment(
             ),
             "is_ppmc_booking": 0,
         }
+
+        try:
+            access_token = await _freeze_healthians_slot_for_participant(
+                db,
+                engagement_id=engagement_id,
+                user_id=user_id,
+                slot_id=slot_id,
+                vendor_billing_user_id=vendor_billing_user_id,
+                access_token=access_token,
+            )
+        except AppError as exc:
+            results.append({
+                "user_id": user_id,
+                "engagement_id": engagement_id,
+                "status": "error",
+                "message": exc.message,
+            })
+            continue
 
         await release_request_transaction(db)
 

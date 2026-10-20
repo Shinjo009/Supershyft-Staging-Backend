@@ -20,20 +20,164 @@ from modules.bookings import orange_health_flow
 from modules.diagnostics.external_codes import healthians_package_deal_id
 from modules.diagnostics.healthians import client as healthians_client
 from modules.diagnostics.orange_health.booking_helpers import is_orange_health
+from modules.diagnostics.models import DiagnosticPackage
 from modules.geocoding.client import enrich_location_fields
 from modules.platform_settings.repository import PlatformSettingsRepository
 
 logger = logging.getLogger(__name__)
 
+_ALL_PUBLIC_PROVIDERS = ("healthians", "orange_health")
 
-def _normalize_provider(provider: str) -> str:
-    return (provider or "").strip().lower()
+
+def _normalize_provider(provider: str | None) -> str | None:
+    if provider is None:
+        return None
+    key = (provider or "").strip().lower()
+    return key or None
+
+
+def _provider_targets(provider: str | None) -> list[str]:
+    prov = _normalize_provider(provider)
+    if prov is not None:
+        if prov not in _ALL_PUBLIC_PROVIDERS:
+            raise AppError(status_code=422, error_code="INVALID_PROVIDER", message="Unsupported diagnostic provider")
+        return [prov]
+    return list(_ALL_PUBLIC_PROVIDERS)
+
+
+async def _resolve_coordinates(
+    db: AsyncSession,
+    *,
+    address_line: str,
+    landmark: str | None,
+    city: str,
+    pincode: str,
+    latitude: float | None,
+    longitude: float | None,
+) -> tuple[float, float]:
+    lat, lng = latitude, longitude
+    if lat is None or lng is None:
+        primary = await PlatformSettingsRepository().resolve_geocoding_provider(db)
+        location = await enrich_location_fields(
+            address=address_line,
+            landmark=landmark,
+            city=city,
+            pincode=pincode,
+            latitude=latitude,
+            longitude=longitude,
+            primary=primary,
+        )
+        lat = location.get("latitude")
+        lng = location.get("longitude")
+    if lat is None or lng is None:
+        raise AppError(status_code=422, error_code="INVALID_INPUT", message="Could not resolve location coordinates")
+    return float(lat), float(lng)
+
+
+def _package_mismatch_message(pkg: DiagnosticPackage, expected: str) -> str:
+    actual = (pkg.diagnostic_provider or "").strip().lower()
+    return f"Package is not a {expected} package (provider={actual})"
+
+
+async def _check_orange_health_serviceability(
+    db: AsyncSession,
+    *,
+    latitude: float,
+    longitude: float,
+    pkg: DiagnosticPackage | None,
+    single_provider: bool,
+) -> dict[str, Any]:
+    if pkg is not None and not is_orange_health(pkg):
+        message = _package_mismatch_message(pkg, "orange_health")
+        if single_provider:
+            raise AppError(status_code=422, error_code="INVALID_PROVIDER", message=message)
+        return {
+            "provider": "orange_health",
+            "serviceable": False,
+            "message": message,
+            "data": None,
+        }
+    try:
+        result = await orange_health_flow.check_serviceability_at_location(
+            db,
+            latitude=latitude,
+            longitude=longitude,
+            engagement_id=None,
+        )
+        return {
+            "provider": "orange_health",
+            "serviceable": result.get("status") == "success",
+            "message": result.get("message"),
+            "data": result,
+        }
+    except Exception as exc:
+        logger.exception("Public Orange Health serviceability failed")
+        return {
+            "provider": "orange_health",
+            "serviceable": False,
+            "message": str(exc),
+            "data": None,
+        }
+
+
+async def _check_healthians_serviceability(
+    db: AsyncSession,
+    *,
+    latitude: float,
+    longitude: float,
+    pincode: str,
+    pkg: DiagnosticPackage | None,
+    single_provider: bool,
+) -> dict[str, Any]:
+    if pkg is not None and not _is_healthians(pkg):
+        message = _package_mismatch_message(pkg, "healthians")
+        if single_provider:
+            raise AppError(status_code=422, error_code="INVALID_PROVIDER", message=message)
+        return {
+            "provider": "healthians",
+            "serviceable": False,
+            "message": message,
+            "zone_id": None,
+            "latitude": latitude,
+            "longitude": longitude,
+            "data": None,
+        }
+    access_token = await _get_healthians_token()
+    try:
+        resp = await healthians_client.check_serviceability_by_location_v2(
+            access_token,
+            lat=str(latitude),
+            long=str(longitude),
+            zipcode=pincode,
+        )
+    except Exception as exc:
+        logger.exception("Public Healthians serviceability failed")
+        return {
+            "provider": "healthians",
+            "serviceable": False,
+            "message": str(exc),
+            "zone_id": None,
+            "latitude": latitude,
+            "longitude": longitude,
+            "data": None,
+        }
+
+    zone_id = _healthians_zone_id(resp)
+    return {
+        "provider": "healthians",
+        "serviceable": bool(resp.get("status")),
+        "message": resp.get("message"),
+        "zone_id": str(zone_id) if zone_id else None,
+        "latitude": latitude,
+        "longitude": longitude,
+        "data": resp.get("data"),
+    }
 
 
 async def public_check_serviceability(
     db: AsyncSession,
     *,
-    provider: str,
+    provider: str | None,
     address_line: str,
     landmark: str | None,
     city: str,
@@ -42,81 +186,58 @@ async def public_check_serviceability(
     longitude: float | None,
     diagnostic_package_id: int | None,
 ) -> dict[str, Any]:
-    prov = _normalize_provider(provider)
-    if prov == "orange_health":
-        if latitude is None or longitude is None:
-            primary = await PlatformSettingsRepository().resolve_geocoding_provider(db)
-            location = await enrich_location_fields(
-                address=address_line,
-                landmark=landmark,
-                city=city,
-                pincode=pincode,
-                latitude=latitude,
-                longitude=longitude,
-                primary=primary,
-            )
-            latitude = location.get("latitude")
-            longitude = location.get("longitude")
-        if latitude is None or longitude is None:
-            raise AppError(status_code=422, error_code="INVALID_INPUT", message="Location coordinates are required")
-        result = await orange_health_flow.check_serviceability_at_location(
-            db,
-            latitude=float(latitude),
-            longitude=float(longitude),
-            engagement_id=None,
-        )
-        return {
-            "serviceable": result.get("status") == "success",
-            "message": result.get("message"),
-            "provider": prov,
-            "data": result,
-        }
+    targets = _provider_targets(provider)
+    single_provider = len(targets) == 1
 
-    if prov != "healthians":
-        raise AppError(status_code=422, error_code="INVALID_PROVIDER", message="Unsupported diagnostic provider")
-
+    pkg: DiagnosticPackage | None = None
     if diagnostic_package_id is not None:
         pkg = await _get_diagnostic_package(db, diagnostic_package_id)
-        if not _is_healthians(pkg):
-            raise AppError(status_code=422, error_code="INVALID_PROVIDER", message="Package is not a Healthians package")
 
-    primary = await PlatformSettingsRepository().resolve_geocoding_provider(db)
-    location = await enrich_location_fields(
-        address=address_line,
+    lat, lng = await _resolve_coordinates(
+        db,
+        address_line=address_line,
         landmark=landmark,
         city=city,
         pincode=pincode,
         latitude=latitude,
         longitude=longitude,
-        primary=primary,
     )
-    lat = location.get("latitude")
-    lng = location.get("longitude")
-    if lat is None or lng is None:
-        raise AppError(status_code=422, error_code="INVALID_INPUT", message="Could not resolve location coordinates")
 
-    access_token = await _get_healthians_token()
-    try:
-        resp = await healthians_client.check_serviceability_by_location_v2(
-            access_token,
-            latitude=str(lat),
-            longitude=str(lng),
-            zipcode=pincode,
+    providers_out: list[dict[str, Any]] = []
+    for prov in targets:
+        if prov == "orange_health":
+            providers_out.append(
+                await _check_orange_health_serviceability(
+                    db,
+                    latitude=lat,
+                    longitude=lng,
+                    pkg=pkg,
+                    single_provider=single_provider,
+                )
+            )
+        elif prov == "healthians":
+            providers_out.append(
+                await _check_healthians_serviceability(
+                    db,
+                    latitude=lat,
+                    longitude=lng,
+                    pincode=pincode,
+                    pkg=pkg,
+                    single_provider=single_provider,
+                )
+            )
+
+    return {"providers": providers_out}
+
+
+def _assert_package_matches_provider(pkg: DiagnosticPackage, provider: str) -> None:
+    actual = (pkg.diagnostic_provider or "").strip().lower()
+    if actual != provider:
+        raise AppError(
+            status_code=422,
+            error_code="PROVIDER_PACKAGE_MISMATCH",
+            message=f"diagnostic_package_id provider ({actual}) does not match request provider ({provider})",
         )
-    except Exception as exc:
-        logger.exception("Public Healthians serviceability failed")
-        raise AppError(status_code=502, error_code="HEALTHIANS_API_ERROR", message=str(exc)) from exc
-
-    zone_id = _healthians_zone_id(resp)
-    return {
-        "serviceable": bool(resp.get("status")),
-        "message": resp.get("message"),
-        "provider": prov,
-        "zone_id": str(zone_id) if zone_id else None,
-        "latitude": lat,
-        "longitude": lng,
-        "data": resp.get("data"),
-    }
 
 
 async def public_available_slots(
@@ -124,7 +245,7 @@ async def public_available_slots(
     *,
     provider: str,
     slot_date: date,
-    diagnostic_package_id: int,
+    diagnostic_package_id: int | None,
     zone_id: str | None,
     latitude: float | None,
     longitude: float | None,
@@ -132,11 +253,18 @@ async def public_available_slots(
     has_female_patient: bool,
 ) -> dict[str, Any]:
     prov = _normalize_provider(provider)
-    pkg = await _get_diagnostic_package(db, diagnostic_package_id)
+    if prov not in _ALL_PUBLIC_PROVIDERS:
+        raise AppError(status_code=422, error_code="INVALID_PROVIDER", message="Unsupported diagnostic provider")
 
-    if prov == "orange_health" or _is_orange_health(pkg):
-        if latitude is None or longitude is None:
-            raise AppError(status_code=422, error_code="INVALID_INPUT", message="latitude and longitude are required")
+    if latitude is None or longitude is None:
+        raise AppError(status_code=422, error_code="INVALID_INPUT", message="latitude and longitude are required")
+
+    pkg: DiagnosticPackage | None = None
+    if diagnostic_package_id is not None:
+        pkg = await _get_diagnostic_package(db, diagnostic_package_id)
+        _assert_package_matches_provider(pkg, prov)
+
+    if prov == "orange_health":
         slot_resp = await orange_health_flow.fetch_slots_for_location(
             db,
             blood_collection_date=slot_date,
@@ -152,17 +280,25 @@ async def public_available_slots(
             )
         return {"provider": prov, "slots": slot_resp.get("slots") or []}
 
-    if prov != "healthians" and not _is_healthians(pkg):
-        raise AppError(status_code=422, error_code="INVALID_PROVIDER", message="Unsupported diagnostic provider")
+    if diagnostic_package_id is None or pkg is None:
+        raise AppError(
+            status_code=422,
+            error_code="INVALID_INPUT",
+            message="diagnostic_package_id is required for healthians",
+        )
+
+    zone = (zone_id or "").strip()
+    if not zone:
+        raise AppError(status_code=422, error_code="INVALID_INPUT", message="zone_id is required for healthians")
 
     amount = float(pkg.original_price) if pkg.original_price else 0
     deal_id = healthians_package_deal_id(pkg.external_package_code)
     access_token = await _get_healthians_token()
     payload = {
         "slot_date": slot_date.isoformat(),
-        "zone_id": str(zone_id or ""),
-        "lat": str(latitude or ""),
-        "long": str(longitude or ""),
+        "zone_id": zone,
+        "lat": str(latitude),
+        "long": str(longitude),
         "zipcode": pincode or "",
         "get_ppmc_slots": 0,
         "has_female_patient": 1 if has_female_patient else 0,
@@ -185,56 +321,4 @@ async def public_available_slots(
     return {
         "provider": "healthians",
         "slots": [_slim_healthians_slot(slot) for slot in raw_slots if isinstance(slot, dict)],
-    }
-
-
-async def public_lock_slot(
-    db: AsyncSession,
-    *,
-    provider: str,
-    slot_id: str,
-    slot_date: date,
-    slot_time: str,
-    vendor_billing_user_id: str,
-    latitude: float | None,
-    longitude: float | None,
-    pincode: str | None,
-    zone_id: str | None,
-) -> dict[str, Any]:
-    prov = _normalize_provider(provider)
-    if prov in {"orange_health", "orange"}:
-        return {
-            "provider": prov,
-            "locked": False,
-            "message": "Slot locking is not required for this provider",
-            "slot_id": slot_id,
-        }
-
-    if prov != "healthians":
-        raise AppError(status_code=422, error_code="INVALID_PROVIDER", message="Unsupported diagnostic provider")
-
-    access_token = await _get_healthians_token()
-    billing_id = (vendor_billing_user_id or "public").strip() or "public"
-    try:
-        resp = await healthians_client.freeze_slot_v1(
-            access_token,
-            slot_id=slot_id,
-            vendor_billing_user_id=billing_id,
-        )
-    except Exception as exc:
-        logger.exception("Public Healthians lock slot failed")
-        raise AppError(status_code=502, error_code="HEALTHIANS_API_ERROR", message=str(exc)) from exc
-
-    if not resp.get("status"):
-        raise AppError(
-            status_code=422,
-            error_code="SLOT_LOCK_FAILED",
-            message=resp.get("message", "Failed to lock slot"),
-        )
-    return {
-        "provider": "healthians",
-        "locked": True,
-        "slot_id": slot_id,
-        "message": resp.get("message", "Slot locked"),
-        "data": resp.get("data"),
     }
