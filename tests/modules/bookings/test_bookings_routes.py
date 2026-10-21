@@ -169,6 +169,7 @@ async def _seed_draft_engagement(
     booked_by_user_id: int,
     address: str | None = "Flat 1, Block A, Near Park, Mumbai - 400001",
     locked: bool = False,
+    status: str = "draft",
 ) -> None:
     from modules.engagements.blood_booking_enums import BloodBookingRelation, BloodBookingStatus
     from modules.engagements.models import BloodCollectionType, Engagement, EngagementParticipant, ParticipantBloodBooking
@@ -188,7 +189,7 @@ async def _seed_draft_engagement(
             longitude=72.8777,
             healthians_zone_id="440",
             slot_duration=20,
-            status="draft",
+            status=status,
             blood_collection_type=BloodCollectionType.home_collection,
         )
     )
@@ -602,6 +603,172 @@ async def test_available_slots_returns_slim_slots(async_client, test_db_session)
             "stm_id": "45418464",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_available_slots_allows_scheduled_home_collection(async_client, test_db_session):
+    await _seed_healthians_diagnostic_package(test_db_session)
+    u = User(
+        user_id=930014,
+        age=30,
+        phone="9300140000",
+        status="active",
+        first_name="Reslot",
+        last_name="User",
+        gender="male",
+        city="Mumbai",
+        parent_id=None,
+    )
+    test_db_session.add(u)
+    await test_db_session.commit()
+    await _seed_draft_engagement(
+        test_db_session,
+        engagement_id=930114,
+        user_id=930014,
+        booked_by_user_id=930014,
+        locked=True,
+        status="scheduled",
+    )
+
+    healthians_slots = {
+        "status": True,
+        "data": [
+            {
+                "end_time": "11:30:00",
+                "slot_date": "2026-07-20",
+                "slot_time": "11:00:00",
+                "stm_id": "STM_RESCHED",
+            }
+        ],
+    }
+
+    with (
+        patch("modules.bookings.service.healthians_client.get_access_token", new_callable=AsyncMock, return_value="tok"),
+        patch(
+            "modules.bookings.service.healthians_client.get_slots_by_location",
+            new_callable=AsyncMock,
+            return_value=healthians_slots,
+        ),
+    ):
+        response = await async_client.post(
+            "/book/available-slots",
+            headers=_auth_header(930014),
+            json={
+                "members": [
+                    {
+                        "user_id": 930014,
+                        "engagement_id": 930114,
+                        "blood_collection_date": "2026-07-20",
+                    }
+                ]
+            },
+        )
+
+    assert response.status_code == 200
+    member = response.json()["data"]["members"][0]
+    assert member["status"] == "success"
+    assert member["slots"][0]["stm_id"] == "STM_RESCHED"
+
+
+@pytest.mark.asyncio
+async def test_available_slots_rejects_completed_engagement(async_client, test_db_session):
+    await _seed_healthians_diagnostic_package(test_db_session)
+    u = User(
+        user_id=930015,
+        age=30,
+        phone="9300150000",
+        status="active",
+        first_name="Done",
+        last_name="User",
+        gender="male",
+        city="Mumbai",
+        parent_id=None,
+    )
+    test_db_session.add(u)
+    await test_db_session.commit()
+    await _seed_draft_engagement(
+        test_db_session,
+        engagement_id=930115,
+        user_id=930015,
+        booked_by_user_id=930015,
+        status="completed",
+    )
+
+    response = await async_client.post(
+        "/book/available-slots",
+        headers=_auth_header(930015),
+        json={
+            "members": [
+                {
+                    "user_id": 930015,
+                    "engagement_id": 930115,
+                    "blood_collection_date": "2026-07-20",
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    member = response.json()["data"]["members"][0]
+    assert member["status"] == "error"
+    assert member["message"] == "Engagement is not in draft status"
+
+
+@pytest.mark.asyncio
+async def test_lock_allows_scheduled_home_collection(async_client, test_db_session):
+    await _seed_healthians_diagnostic_package(test_db_session)
+    u = User(
+        user_id=930016,
+        age=30,
+        phone="9300160000",
+        status="active",
+        first_name="Relock",
+        last_name="User",
+        gender="male",
+        city="Mumbai",
+        parent_id=None,
+    )
+    test_db_session.add(u)
+    await test_db_session.commit()
+    await _seed_draft_engagement(
+        test_db_session,
+        engagement_id=930116,
+        user_id=930016,
+        booked_by_user_id=930016,
+        locked=True,
+        status="scheduled",
+    )
+
+    freeze_resp = {"status": True, "resCode": "RES0001", "message": "Slot locked", "data": {"slot_id": "STM_NEW"}}
+
+    with (
+        patch("modules.bookings.service.healthians_client.get_access_token", new_callable=AsyncMock, return_value="tok"),
+        patch(
+            "modules.bookings.service.healthians_client.freeze_slot_v1",
+            new_callable=AsyncMock,
+            return_value=freeze_resp,
+        ),
+    ):
+        response = await async_client.post(
+            "/book/lock",
+            headers=_auth_header(930016),
+            json={
+                "members": [
+                    {
+                        "user_id": 930016,
+                        "engagement_id": 930116,
+                        "blood_collection_date": "2026-07-20",
+                        "blood_collection_time_slot_id": "STM_NEW",
+                        "blood_collection_time_slot": "11:00 AM",
+                    }
+                ]
+            },
+        )
+
+    assert response.status_code == 200
+    member = response.json()["data"]["members"][0]
+    assert member["status"] == "success"
+    assert member["slot_id"] == "STM_NEW"
 
 
 @pytest.mark.asyncio

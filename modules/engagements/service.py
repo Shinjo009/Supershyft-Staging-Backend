@@ -1681,6 +1681,11 @@ class EngagementsService:
         create_profile_on_metsights: bool = False,
         enroll_for_fitprint_full: bool = False,
         load_prev_assessment_questionnaires: bool = False,
+        load_prev_questionnaire_category_keys: list[str] | None = None,
+        slot_duration: int = 20,
+        consultation_mode: ConsultationMode | None = None,
+        payment_type: EngagementPaymentType | None = None,
+        auto_booking: bool = False,
     ) -> Engagement:
         """Create a B2C engagement and auto-assign default onboarding assistants from platform settings.
 
@@ -1732,16 +1737,28 @@ class EngagementsService:
             country=location.get("country"),
             latitude=location.get("latitude"),
             longitude=location.get("longitude"),
-            slot_duration=20,
+            slot_duration=slot_duration,
             start_date=engagement_date,
             end_date=engagement_date,
             status="running" if engagement_date <= date.today() else "scheduled",
-            consultation_mode=ConsultationMode.online if _consultations_enabled(consultations) else None,
+            consultation_mode=(
+                consultation_mode
+                if consultation_mode is not None
+                else (
+                    ConsultationMode.online if _consultations_enabled(consultations) else None
+                )
+            ),
             create_profile_on_metsights=create_profile_on_metsights,
             enroll_for_fitprint_full=enroll_for_fitprint_full,
             load_prev_assessment_questionnaires=load_prev_assessment_questionnaires,
-            payment_type=EngagementPaymentType.paid_by_patient,
-            auto_booking=False,
+            load_prev_questionnaire_category_keys=_normalize_load_prev_category_keys(
+                load_prev_questionnaire_category_keys
+            ),
+            payment_type=payment_type or EngagementPaymentType.paid_by_patient,
+            auto_booking=_resolve_auto_booking(
+                auto_booking=auto_booking,
+                blood_collection_type=blood_collection_type,
+            ),
         )
         engagement = await self._repository.create_engagement(db, engagement)
 

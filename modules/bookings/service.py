@@ -170,6 +170,39 @@ def _slim_healthians_slot(slot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_RESCHEDULE_SLOT_STATUSES = {"scheduled", "running"}
+
+
+def _slot_ops_blocked_reason(engagement: Engagement) -> str | None:
+    """Draft bookings can pick a first slot; booked home collections can pick a reschedule slot."""
+    status = (engagement.status or "").strip().lower()
+    if status == "draft":
+        return None
+    if status in _RESCHEDULE_SLOT_STATUSES:
+        bct = engagement.blood_collection_type
+        bct_val = (bct.value if hasattr(bct, "value") else str(bct or "")).strip().lower()
+        if bct_val == BloodCollectionType.home_collection.value:
+            return None
+        return "Slot selection after booking is only allowed for home collection"
+    return "Engagement is not in draft status"
+
+
+def _healthians_location_for_slots(
+    engagement: Engagement,
+    participant: EngagementParticipant,
+) -> dict[str, str]:
+    lat = participant.latitude if participant.latitude is not None else engagement.latitude
+    lng = participant.longitude if participant.longitude is not None else engagement.longitude
+    zipcode = (participant.pincode or "").strip() or (engagement.pincode or "") or ""
+    zone = (participant.healthians_zone_id or "").strip() or (engagement.healthians_zone_id or "") or ""
+    return {
+        "zone_id": str(zone),
+        "lat": str(lat or ""),
+        "long": str(lng or ""),
+        "zipcode": zipcode,
+    }
+
+
 _WITH_CONSULTATION_CODE = {
     "bio_ai": "bio_ai_with_consultation",
     "blood_test": "blood_test_with_consultation",
@@ -392,7 +425,7 @@ async def get_available_slots(
     *,
     members: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Fetch available slots for drafted engagements."""
+    """Fetch available slots for draft bookings and booked home-collection reschedules."""
     results: list[dict[str, Any]] = []
 
     for member in members:
@@ -408,17 +441,20 @@ async def get_available_slots(
             results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": "Engagement not found"})
             continue
 
-        if (engagement.status or "").lower() != "draft":
-            results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": "Engagement is not in draft status"})
+        blocked = _slot_ops_blocked_reason(engagement)
+        if blocked:
+            results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": blocked})
             continue
 
         participant_result = await db.execute(
             select(EngagementParticipant)
             .where(EngagementParticipant.engagement_id == engagement_id)
             .where(EngagementParticipant.user_id == user_id)
+            .order_by(EngagementParticipant.engagement_participant_id.desc())
             .limit(1)
         )
-        if participant_result.scalar_one_or_none() is None:
+        participant = participant_result.scalar_one_or_none()
+        if participant is None:
             results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": "User is not a participant"})
             continue
 
@@ -428,7 +464,8 @@ async def get_available_slots(
 
         pkg = await _get_diagnostic_package(db, engagement.diagnostic_package_id)
         if _is_orange_health(pkg):
-            if engagement.latitude is None or engagement.longitude is None:
+            loc = _healthians_location_for_slots(engagement, participant)
+            if not loc["lat"] or not loc["long"]:
                 results.append({
                     "user_id": user_id,
                     "engagement_id": engagement_id,
@@ -439,8 +476,8 @@ async def get_available_slots(
             slot_resp = await orange_health_flow.fetch_slots_for_location(
                 db,
                 blood_collection_date=blood_collection_date,
-                latitude=float(engagement.latitude),
-                longitude=float(engagement.longitude),
+                latitude=float(loc["lat"]),
+                longitude=float(loc["long"]),
                 engagement_id=engagement_id,
             )
             if slot_resp.get("status") != "success":
@@ -469,13 +506,14 @@ async def get_available_slots(
         amount = float(pkg.original_price) if pkg.original_price else 0
         deal_id = healthians_package_deal_id(pkg.external_package_code)
         access_token = await _get_healthians_token()
+        loc = _healthians_location_for_slots(engagement, participant)
 
         payload = {
             "slot_date": blood_collection_date.isoformat(),
-            "zone_id": str(engagement.healthians_zone_id or ""),
-            "lat": str(engagement.latitude or ""),
-            "long": str(engagement.longitude or ""),
-            "zipcode": engagement.pincode or "",
+            "zone_id": loc["zone_id"],
+            "lat": loc["lat"],
+            "long": loc["long"],
+            "zipcode": loc["zipcode"],
             "get_ppmc_slots": 0,
             "has_female_patient": has_female,
             "amount": amount,
@@ -539,7 +577,7 @@ async def lock_slots(
     *,
     members: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Freeze or confirm slots and update participant records."""
+    """Freeze or confirm slots for draft bookings and booked home-collection reschedules."""
     results: list[dict[str, Any]] = []
 
     for member in members:
@@ -557,8 +595,9 @@ async def lock_slots(
             results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": "Engagement not found"})
             continue
 
-        if (engagement.status or "").lower() != "draft":
-            results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": "Engagement is not in draft status"})
+        blocked = _slot_ops_blocked_reason(engagement)
+        if blocked:
+            results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": blocked})
             continue
 
         participant_result = await db.execute(

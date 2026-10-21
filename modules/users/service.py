@@ -32,6 +32,10 @@ from modules.metsights.sync_service import (
     _parse_iso_date,
     _resolve_active_diagnostic_package_id,
 )
+from modules.platform_settings.b2c_onboard_apply import (
+    b2c_engagement_create_kwargs_from_defaults,
+    resolve_b2c_diagnostic_package_id,
+)
 from modules.platform_settings.service import PlatformSettingsService
 from modules.users.models import User, UserAddress, UserPreference
 from modules.users.repository import UsersRepository
@@ -133,6 +137,40 @@ async def _require_active_engagement_type_code(db: AsyncSession, code: str):
             message=f"engagement_type must be an active engagement_types.code; got '{normalized}'",
         )
     return row
+
+
+async def _resolve_onboard_engagement_type_code(
+    platform_settings: PlatformSettingsService,
+    db: AsyncSession,
+    explicit: str | None,
+) -> str:
+    code = (explicit or "").strip()
+    if code:
+        return code
+    return await platform_settings.resolve_default_engagement_type_code(db)
+
+
+def _validate_onboard_blood_fields(
+    engagement_type_code: str,
+    *,
+    blood_collection_date: date | None,
+    blood_collection_time_slot: str | None,
+) -> None:
+    if engagement_type_code.strip().lower() == "vifc":
+        return
+    if blood_collection_date is None:
+        raise AppError(
+            status_code=422,
+            error_code="INVALID_INPUT",
+            message="blood_collection_date is required",
+        )
+    slot = (blood_collection_time_slot or "").strip()
+    if not slot:
+        raise AppError(
+            status_code=422,
+            error_code="INVALID_INPUT",
+            message="blood_collection_time_slot is required",
+        )
 
 
 _WITH_CONSULTATION_CODE_MAP = {
@@ -2484,17 +2522,26 @@ class UsersService:
         if self._platform_settings_service is None:
             raise RuntimeError("Platform settings service is required")
 
-        engagement_type_code = payload.engagement_type.strip()
+        engagement_type_code = await _resolve_onboard_engagement_type_code(
+            self._platform_settings_service,
+            db,
+            payload.engagement_type,
+        )
         await _require_active_engagement_type_code(db, engagement_type_code)
+        _validate_onboard_blood_fields(
+            engagement_type_code,
+            blood_collection_date=payload.blood_collection_date,
+            blood_collection_time_slot=payload.blood_collection_time_slot,
+        )
 
         onboarding_defaults = await self._platform_settings_service.resolve_b2c_onboarding_defaults(
             db, engagement_type_code
         )
         assessment_package_id = onboarding_defaults.assessment_package_id
-        diagnostic_package_id = (
-            payload.diagnostic_package_id
-            if payload.diagnostic_package_id is not None
-            else onboarding_defaults.diagnostic_package_id
+        diagnostic_package_id = resolve_b2c_diagnostic_package_id(
+            onboarding_defaults,
+            override_id=payload.diagnostic_package_id,
+            gender=user.gender or payload.gender,
         )
         await self._platform_settings_service.ensure_active_b2c_packages(
             db, assessment_package_id, diagnostic_package_id
@@ -2539,6 +2586,9 @@ class UsersService:
             longitude=getattr(payload, "longitude", None),
             create_profile_on_metsights=onboarding_defaults.create_profile_on_metsights,
             enroll_for_fitprint_full=onboarding_defaults.enroll_for_fitprint_full,
+            **b2c_engagement_create_kwargs_from_defaults(
+                onboarding_defaults, resolved_consultations
+            ),
         )
 
         consultations = _validate_requested_consultations(
@@ -3673,16 +3723,25 @@ class UsersService:
                 db, booker=booker, member=member,
             )
 
-            engagement_type_code = (member.engagement_type or "bio_ai").strip()
+            engagement_type_code = await _resolve_onboard_engagement_type_code(
+                self._platform_settings_service,
+                db,
+                member.engagement_type,
+            )
             await _require_active_engagement_type_code(db, engagement_type_code)
+            _validate_onboard_blood_fields(
+                engagement_type_code,
+                blood_collection_date=member.blood_collection_date,
+                blood_collection_time_slot=member.blood_collection_time_slot,
+            )
             onboarding_defaults = await self._platform_settings_service.resolve_b2c_onboarding_defaults(
                 db, engagement_type_code
             )
             assessment_package_id = onboarding_defaults.assessment_package_id
-            diagnostic_package_id = (
-                member.diagnostic_package_id
-                if member.diagnostic_package_id is not None
-                else onboarding_defaults.diagnostic_package_id
+            diagnostic_package_id = resolve_b2c_diagnostic_package_id(
+                onboarding_defaults,
+                override_id=member.diagnostic_package_id,
+                gender=member_user.gender or member.gender,
             )
             await self._platform_settings_service.ensure_active_b2c_packages(
                 db, assessment_package_id, diagnostic_package_id
@@ -3708,15 +3767,19 @@ class UsersService:
                 country=member.country,
                 create_profile_on_metsights=onboarding_defaults.create_profile_on_metsights,
                 enroll_for_fitprint_full=onboarding_defaults.enroll_for_fitprint_full,
+                **b2c_engagement_create_kwargs_from_defaults(
+                    onboarding_defaults, resolved_consultations
+                ),
             )
             engagement.status = "draft"
             db.add(engagement)
 
             want_auto_booking = bool((member.blood_collection_time_slot_id or "").strip())
-            engagement.auto_booking = _resolve_auto_booking(
-                auto_booking=want_auto_booking,
-                blood_collection_type=onboarding_defaults.blood_collection_type,
-            )
+            if want_auto_booking:
+                engagement.auto_booking = _resolve_auto_booking(
+                    auto_booking=True,
+                    blood_collection_type=onboarding_defaults.blood_collection_type,
+                )
             db.add(engagement)
             await db.flush()
 

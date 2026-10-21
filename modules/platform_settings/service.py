@@ -17,6 +17,7 @@ from modules.partners.repository import PartnersRepository
 from modules.employee.models import EmployeeRole
 from modules.employee.repository import EmployeeRepository
 from modules.employee.service import EmployeeContext
+from modules.engagements.enums import ConsultationMode, EngagementPaymentType
 from modules.engagements.models import BloodCollectionType, EngagementKind
 from modules.engagements.service import DEFAULT_B2C_DIAGNOSTIC_PACKAGE_ID
 from modules.audit.service import AuditService
@@ -46,6 +47,8 @@ _FALLBACK_B2C_ASSESSMENT_PACKAGE_ID = 1
 _FALLBACK_B2C_BLOOD_COLLECTION_TYPE: BloodCollectionType | None = None
 _FALLBACK_B2C_CREATE_PROFILE_ON_METSIGHTS = True
 _FALLBACK_B2C_ENROLL_FOR_FITPRINT_FULL = False
+_FALLBACK_B2C_SLOT_DURATION = 20
+_FALLBACK_B2C_PAYMENT_TYPE = EngagementPaymentType.paid_by_patient
 
 
 def _fallback_type_defaults() -> B2cOnboardingTypeDefaults:
@@ -55,6 +58,12 @@ def _fallback_type_defaults() -> B2cOnboardingTypeDefaults:
         blood_collection_type=_FALLBACK_B2C_BLOOD_COLLECTION_TYPE,
         create_profile_on_metsights=_FALLBACK_B2C_CREATE_PROFILE_ON_METSIGHTS,
         enroll_for_fitprint_full=_FALLBACK_B2C_ENROLL_FOR_FITPRINT_FULL,
+        load_prev_assessment_questionnaires=False,
+        load_prev_questionnaire_category_keys=None,
+        slot_duration=_FALLBACK_B2C_SLOT_DURATION,
+        consultation_mode=None,
+        auto_booking=False,
+        payment_type=_FALLBACK_B2C_PAYMENT_TYPE,
     )
 
 
@@ -67,12 +76,36 @@ def _parse_type_defaults(raw: Any) -> B2cOnboardingTypeDefaults | None:
             blood = BloodCollectionType(blood)
         raw_diag = raw.get("diagnostic_package_id")
         diagnostic_package_id = None if raw_diag is None else int(raw_diag)
+        raw_male = raw.get("diagnostic_package_id_male")
+        raw_female = raw.get("diagnostic_package_id_female")
+        consultation = raw.get("consultation_mode")
+        if consultation is not None and not isinstance(consultation, ConsultationMode):
+            consultation = ConsultationMode(consultation)
+        payment = raw.get("payment_type")
+        if payment is not None and not isinstance(payment, EngagementPaymentType):
+            payment = EngagementPaymentType(payment)
+        keys_raw = raw.get("load_prev_questionnaire_category_keys")
+        category_keys = None
+        if isinstance(keys_raw, list):
+            cleaned = [str(k).strip() for k in keys_raw if str(k).strip()]
+            category_keys = cleaned or None
+        slot_duration = int(raw.get("slot_duration", _FALLBACK_B2C_SLOT_DURATION))
         return B2cOnboardingTypeDefaults(
             assessment_package_id=int(raw["assessment_package_id"]),
             diagnostic_package_id=diagnostic_package_id,
+            diagnostic_package_id_male=None if raw_male is None else int(raw_male),
+            diagnostic_package_id_female=None if raw_female is None else int(raw_female),
             blood_collection_type=blood,
             create_profile_on_metsights=bool(raw.get("create_profile_on_metsights", True)),
             enroll_for_fitprint_full=bool(raw.get("enroll_for_fitprint_full", False)),
+            load_prev_assessment_questionnaires=bool(
+                raw.get("load_prev_assessment_questionnaires", False)
+            ),
+            load_prev_questionnaire_category_keys=category_keys,
+            slot_duration=max(1, min(480, slot_duration)),
+            consultation_mode=consultation,
+            auto_booking=bool(raw.get("auto_booking", False)),
+            payment_type=payment or _FALLBACK_B2C_PAYMENT_TYPE,
         )
     except (KeyError, TypeError, ValueError):
         return None
@@ -80,12 +113,22 @@ def _parse_type_defaults(raw: Any) -> B2cOnboardingTypeDefaults | None:
 
 def _type_defaults_to_dict(defaults: B2cOnboardingTypeDefaults) -> dict[str, Any]:
     blood = defaults.blood_collection_type
+    mode = defaults.consultation_mode
+    payment = defaults.payment_type
     return {
         "assessment_package_id": defaults.assessment_package_id,
         "diagnostic_package_id": defaults.diagnostic_package_id,
+        "diagnostic_package_id_male": defaults.diagnostic_package_id_male,
+        "diagnostic_package_id_female": defaults.diagnostic_package_id_female,
         "blood_collection_type": blood.value if isinstance(blood, BloodCollectionType) else blood,
         "create_profile_on_metsights": defaults.create_profile_on_metsights,
         "enroll_for_fitprint_full": defaults.enroll_for_fitprint_full,
+        "load_prev_assessment_questionnaires": defaults.load_prev_assessment_questionnaires,
+        "load_prev_questionnaire_category_keys": defaults.load_prev_questionnaire_category_keys,
+        "slot_duration": defaults.slot_duration,
+        "consultation_mode": mode.value if isinstance(mode, ConsultationMode) else mode,
+        "auto_booking": defaults.auto_booking,
+        "payment_type": payment.value if isinstance(payment, EngagementPaymentType) else payment,
     }
 
 
@@ -229,9 +272,31 @@ class PlatformSettingsService:
                 message="Diagnostic package is missing or not active",
             )
 
+    def _default_engagement_type_code_from_row(self, row) -> str:
+        if row is None:
+            return EngagementKind.bio_ai.value
+        kind = row.b2c_default_engagement_type
+        if isinstance(kind, EngagementKind):
+            return kind.value
+        return str(kind or EngagementKind.bio_ai.value)
+
+    async def resolve_default_engagement_type_code(self, db: AsyncSession) -> str:
+        row = await self._repository.get_by_id(db)
+        code = self._default_engagement_type_code_from_row(row)
+        active = set(await self._list_active_engagement_type_codes(db))
+        if code in active:
+            return code
+        if EngagementKind.bio_ai.value in active:
+            return EngagementKind.bio_ai.value
+        codes = await self._list_active_engagement_type_codes(db)
+        return codes[0] if codes else EngagementKind.bio_ai.value
+
     async def get_b2c_onboarding_defaults(self, db: AsyncSession) -> B2cOnboardingDefaultsRead:
         row = await self._repository.get_by_id(db)
-        return B2cOnboardingDefaultsRead(defaults_by_engagement_type=await self._build_defaults_map(db, row))
+        return B2cOnboardingDefaultsRead(
+            defaults_by_engagement_type=await self._build_defaults_map(db, row),
+            default_engagement_type_code=self._default_engagement_type_code_from_row(row),
+        )
 
     async def update_b2c_onboarding_defaults(
         self,
@@ -294,11 +359,39 @@ class PlatformSettingsService:
         bio_ai = complete.get("bio_ai") or next(iter(complete.values()))
         # Legacy flat column is NOT NULL; keep a concrete fallback when bio_ai has no diagnostic.
         mirrored_diagnostic_id = bio_ai.diagnostic_package_id or DEFAULT_B2C_DIAGNOSTIC_PACKAGE_ID
+        default_type_code = (
+            (payload.default_engagement_type_code or "").strip()
+            if payload.default_engagement_type_code is not None
+            else None
+        )
+        if default_type_code is None:
+            default_type_code = self._default_engagement_type_code_from_row(existing_row)
+        elif default_type_code not in active_set:
+            raise AppError(
+                status_code=422,
+                error_code="INVALID_ENGAGEMENT_TYPE",
+                message=(
+                    "default_engagement_type_code must be an active engagement_types.code; "
+                    f"unknown or inactive: {default_type_code}"
+                ),
+            )
+        try:
+            default_engagement_kind = EngagementKind(default_type_code)
+        except ValueError:
+            raise AppError(
+                status_code=422,
+                error_code="INVALID_ENGAGEMENT_TYPE",
+                message=(
+                    "default_engagement_type_code must be a supported engagement kind "
+                    f"(got '{default_type_code}')"
+                ),
+            )
         await self._repository.upsert_b2c_onboarding_by_engagement_type(
             db,
             defaults_by_engagement_type=serialized,
             assessment_package_id=bio_ai.assessment_package_id,
             diagnostic_package_id=mirrored_diagnostic_id,
+            engagement_type=default_engagement_kind,
             blood_collection_type=bio_ai.blood_collection_type,
             create_profile_on_metsights=bio_ai.create_profile_on_metsights,
             enroll_for_fitprint_full=bio_ai.enroll_for_fitprint_full,

@@ -97,6 +97,9 @@ async def test_get_b2c_defaults_fallback_when_no_row(async_client, test_db_sessi
     assert bio["blood_collection_type"] is None
     assert bio["create_profile_on_metsights"] is True
     assert bio["enroll_for_fitprint_full"] is False
+    assert data.get("default_engagement_type_code") == "bio_ai"
+    assert bio.get("slot_duration") == 20
+    assert bio.get("payment_type") == "paid_by_patient"
 
 
 @pytest.mark.asyncio

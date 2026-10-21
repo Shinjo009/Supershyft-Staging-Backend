@@ -326,7 +326,8 @@ class PublicUserOnboardRequest(BaseModel):
     country: OptionalCityStateCountry = None
 
     # Must match an active row in engagement_types.code (validated in service).
-    engagement_type: SlugKey = "bio_ai"
+    # When omitted, platform_settings.b2c_default_engagement_type is used.
+    engagement_type: SlugKey | None = None
 
     # Optional override of platform B2C onboarding defaults for this engagement type.
     diagnostic_package_id: PositiveIntId | None = None
@@ -362,7 +363,10 @@ class PublicUserOnboardRequest(BaseModel):
 
     @model_validator(mode="after")
     def require_blood_fields_unless_vifc(self):
-        if (self.engagement_type or "").strip().lower() == "vifc":
+        code = (self.engagement_type or "").strip().lower()
+        if not code:
+            return self
+        if code == "vifc":
             return self
         if self.blood_collection_date is None:
             raise ValueError("blood_collection_date is required")
@@ -506,7 +510,7 @@ class FamilyOnboardMemberPayload(BaseModel):
     age: int
     gender: OptionalSafeDisplayName = None
     dob: Optional[date] = None
-    engagement_type: SlugKey = "bio_ai"
+    engagement_type: SlugKey | None = None
     diagnostic_package_id: PositiveIntId | None = None
     blood_collection_date: Optional[date] = None
     blood_collection_time_slot: OptionalShortSafeText = None
@@ -526,7 +530,10 @@ class FamilyOnboardMemberPayload(BaseModel):
 
     @model_validator(mode="after")
     def require_blood_fields_unless_vifc(self):
-        if (self.engagement_type or "").strip().lower() == "vifc":
+        code = (self.engagement_type or "").strip().lower()
+        if not code:
+            return self
+        if code == "vifc":
             return self
         if self.blood_collection_date is None:
             raise ValueError("blood_collection_date is required")
