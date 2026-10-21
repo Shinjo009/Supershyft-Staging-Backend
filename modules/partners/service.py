@@ -13,6 +13,7 @@ from modules.employee.service import EmployeeContext
 from modules.experts.models import Expert
 from modules.experts.repository import ExpertsRepository
 from modules.experts.service import ExpertTypesService
+from modules.blog.author_link import ensure_author_profile
 from modules.partners.models import Partner, PartnerRole
 from modules.partners.repository import PartnersRepository
 from modules.partners.role_utils import partner_role_value
@@ -26,6 +27,7 @@ _ALLOWED_ROLES = frozenset(
         PartnerRole.phlebo.value,
         PartnerRole.expert.value,
         PartnerRole.organization_manager.value,
+        PartnerRole.author.value,
     }
 )
 
@@ -180,6 +182,8 @@ class PartnersService:
                 message="Partner already exists",
             ) from exc
 
+        await ensure_author_profile(db, row)
+
         await self._require_audit().log_event(
             db,
             action="PARTNER_CREATE",
@@ -326,6 +330,8 @@ class PartnersService:
                 error_code="PARTNER_ALREADY_EXISTS",
                 message="Partner already exists",
             ) from exc
+
+        await ensure_author_profile(db, row)
 
         await self._require_audit().log_event(
             db,

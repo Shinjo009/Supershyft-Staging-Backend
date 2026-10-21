@@ -52,6 +52,7 @@ from modules.users import models as _users_models  # noqa: F401
 from modules.employee import models as _employee_models  # noqa: F401
 from modules.export_logs import models as _export_logs_models  # noqa: F401
 from modules.partners import models as _partners_models  # noqa: F401
+from modules.blog import models as _blog_models  # noqa: F401
 from modules.engagements import models as _engagements_models  # noqa: F401
 from modules.organizations import models as _organizations_models  # noqa: F401
 from modules.assessments import models as _assessments_models  # noqa: F401
@@ -115,6 +116,7 @@ from modules.export_logs.router import router as export_logs_router
 from modules.discounts.router import router as discounts_router
 from modules.db_health.router import router as db_health_router
 from modules.uploads.user_pdf_router import router as user_pdf_upload_router
+from modules.blog.router import router as blog_router
 
 
 def _project_root() -> Path:
@@ -407,6 +409,7 @@ async def fastapi_app(
     app.include_router(expert_types_router)
     app.include_router(healthians_router)
     app.include_router(orange_health_router)
+    app.include_router(blog_router)
 
     async def _get_test_db():
         yield test_db_session
@@ -505,6 +508,10 @@ async def _cleanup_auth_test_rows(test_db_session: AsyncSession):
     await test_db_session.execute(text("DELETE FROM expert_reviews"))
     await test_db_session.execute(text("DELETE FROM expert_expertise_tags"))
     await test_db_session.execute(text("DELETE FROM experts"))
+    await test_db_session.execute(text("DELETE FROM keywords"))
+    await test_db_session.execute(text("DELETE FROM posts"))
+    await test_db_session.execute(text("DELETE FROM authors"))
+    await test_db_session.execute(text("DELETE FROM categories"))
     await test_db_session.execute(text("DELETE FROM partners"))
     await test_db_session.execute(
         text(
