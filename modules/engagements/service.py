@@ -3722,6 +3722,14 @@ class EngagementsService:
             deleted_category_progress += purge["deleted_category_progress_rows"]
             deleted_instances += purge["deleted_assessment_instances"]
 
+        from modules.users.family_onboard_repository import FamilyOnboardRepository
+
+        await FamilyOnboardRepository().delete_members_for_user_engagement(
+            db,
+            user_id=user_id,
+            engagement_id=engagement_id,
+        )
+
         deleted_participants = await self._repository.delete_participants_for_user_engagement(
             db,
             user_id=user_id,
@@ -3803,6 +3811,10 @@ class EngagementsService:
             totals["deleted_questionnaire_responses"] += purge["deleted_questionnaire_responses"]
             totals["deleted_reports"] += purge["deleted_reports"]
             totals["deleted_category_progress_rows"] += purge["deleted_category_progress_rows"]
+
+        from modules.users.family_onboard_repository import FamilyOnboardRepository
+
+        await FamilyOnboardRepository().delete_members_for_engagement(db, engagement_id=engagement_id)
 
         totals["deleted_engagement_participants"] = await self._repository.delete_all_participants_for_engagement(
             db,

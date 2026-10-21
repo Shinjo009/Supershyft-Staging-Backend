@@ -778,6 +778,10 @@ class UsersRepository:
         await db.execute(delete(DataAuditLog).where(DataAuditLog.user_id.in_(user_ids)))
         await db.execute(delete(UserAddress).where(UserAddress.user_id.in_(user_ids)))
         await db.execute(delete(UserPreference).where(UserPreference.user_id.in_(user_ids)))
+        from modules.users.family_onboard_repository import FamilyOnboardRepository
+
+        family_onboard_repo = FamilyOnboardRepository()
+        await family_onboard_repo.delete_for_users(db, user_ids=user_ids)
         await db.execute(delete(EngagementParticipant).where(EngagementParticipant.user_id.in_(user_ids)))
 
         if delete_orphan_engagements and engagement_ids:
@@ -856,6 +860,10 @@ class UsersRepository:
                     delete(OnboardingAssistantAssignment).where(
                         OnboardingAssistantAssignment.engagement_id.in_(orphan_engagement_ids)
                     )
+                )
+                await family_onboard_repo.delete_members_for_engagements(
+                    db,
+                    engagement_ids=[int(eid) for eid in orphan_engagement_ids],
                 )
                 await db.execute(delete(Engagement).where(Engagement.engagement_id.in_(orphan_engagement_ids)))
 

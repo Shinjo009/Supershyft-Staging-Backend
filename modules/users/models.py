@@ -108,7 +108,7 @@ class FamilyOnboard(Base):
     __table_args__ = (Index("ix_family_onboards_booker_user_id", "booker_user_id"),)
 
     family_onboard_id = Column(String(36), primary_key=True)
-    booker_user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
+    booker_user_id = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
     status = Column(String(32), nullable=False, server_default=text("'pending_payment'"))
     discount_code = Column(String(64), nullable=True)
     razorpay_order_id = Column(String(64), nullable=True)
@@ -137,11 +137,11 @@ class FamilyOnboardMember(Base):
         ForeignKey("family_onboards.family_onboard_id", ondelete="CASCADE"),
         nullable=False,
     )
-    user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
-    engagement_id = Column(Integer, ForeignKey("engagements.engagement_id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
+    engagement_id = Column(Integer, ForeignKey("engagements.engagement_id", ondelete="CASCADE"), nullable=False)
     engagement_participant_id = Column(
         Integer,
-        ForeignKey("engagement_participants.engagement_participant_id"),
+        ForeignKey("engagement_participants.engagement_participant_id", ondelete="CASCADE"),
         nullable=False,
     )
 
