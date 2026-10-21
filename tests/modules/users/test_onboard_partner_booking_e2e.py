@@ -169,6 +169,7 @@ async def test_family_onboard_confirm_payment_freezes_when_auto_booking(
             json={
                 "phone": booker_phone,
                 "otp": "654321",
+                "engagement_ids": [engagement_id],
             },
         )
     finally:

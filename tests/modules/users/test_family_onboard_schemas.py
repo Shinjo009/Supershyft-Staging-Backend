@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from modules.users.schemas import FamilyOnboardStartRequest
+from modules.users.schemas import FamilyOnboardStartRequest, FamilyOnboardVerifyPayRequest
 
 
 def test_family_onboard_requires_unique_member_phones():
@@ -64,3 +64,33 @@ def test_family_onboard_accepts_valid_payload():
     }
     model = FamilyOnboardStartRequest.model_validate(payload)
     assert model.members[0].engagement_type == "bio_ai"
+
+
+def test_family_onboard_verify_pay_requires_engagement_ids():
+    with pytest.raises(ValidationError):
+        FamilyOnboardVerifyPayRequest.model_validate(
+            {"phone": "9000000001", "otp": "1234", "engagement_ids": []}
+        )
+
+
+def test_family_onboard_verify_pay_rejects_duplicate_engagement_ids():
+    with pytest.raises(ValidationError):
+        FamilyOnboardVerifyPayRequest.model_validate(
+            {
+                "phone": "9000000001",
+                "otp": "1234",
+                "engagement_ids": [1, 1],
+            }
+        )
+
+
+def test_family_onboard_verify_pay_accepts_valid_payload():
+    model = FamilyOnboardVerifyPayRequest.model_validate(
+        {
+            "phone": "9000000001",
+            "otp": "1234",
+            "engagement_ids": [10, 20],
+            "discount_code": "SAVE10",
+        }
+    )
+    assert model.engagement_ids == [10, 20]

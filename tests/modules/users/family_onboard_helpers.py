@@ -97,6 +97,11 @@ async def seed_subprofile_user(
     await test_db_session.commit()
 
 
+def engagement_ids_from_start(start_data: dict) -> list[int]:
+    """Collect engagement_id values from a family-onboard start response data object."""
+    return [int(m["engagement_id"]) for m in start_data["members"]]
+
+
 def family_onboard_start_payload(
     *,
     booker_phone: str = "9000100001",

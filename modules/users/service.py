@@ -3357,6 +3357,106 @@ class UsersService:
             for p in participants
         ]
 
+    async def _family_pay_members_for_booker_engagements(
+        self,
+        db: AsyncSession,
+        *,
+        booker_user_id: int,
+        engagement_ids: list[int],
+    ) -> list[dict[str, int]]:
+        from modules.engagements.enums import EngagementPaymentType
+        from modules.engagements.models import Engagement
+        from modules.engagements.participant_eligibility import engagement_payment_type_value
+
+        if self._engagements_service is None:
+            raise RuntimeError("Engagements service is required")
+
+        seen: set[int] = set()
+        ordered_ids: list[int] = []
+        for raw in engagement_ids:
+            eid = int(raw)
+            if eid in seen:
+                continue
+            seen.add(eid)
+            ordered_ids.append(eid)
+
+        if not ordered_ids:
+            raise AppError(
+                status_code=422,
+                error_code="INVALID_INPUT",
+                message="engagement_ids must not be empty",
+            )
+
+        members: list[dict[str, int]] = []
+        for engagement_id in ordered_ids:
+            engagement = await self._engagements_service.get_by_id(db, engagement_id)
+            if engagement is None:
+                raise AppError(
+                    status_code=404,
+                    error_code="ENGAGEMENT_NOT_FOUND",
+                    message="Engagement not found",
+                )
+            if engagement_payment_type_value(engagement) != EngagementPaymentType.paid_by_patient.value:
+                raise AppError(
+                    status_code=422,
+                    error_code="INVALID_STATE",
+                    message="Engagement does not require participant payment",
+                )
+            if (engagement.status or "").strip().lower() != "draft":
+                raise AppError(
+                    status_code=422,
+                    error_code="INVALID_STATE",
+                    message="Engagement is not in draft status",
+                )
+
+            participant_result = await db.execute(
+                select(EngagementParticipant)
+                .where(EngagementParticipant.engagement_id == engagement_id)
+                .order_by(EngagementParticipant.engagement_participant_id.desc())
+            )
+            participants = list(participant_result.scalars().all())
+            if not participants:
+                raise AppError(
+                    status_code=404,
+                    error_code="NOT_ENROLLED",
+                    message="User is not a participant",
+                )
+
+            booker_participants = [
+                p
+                for p in participants
+                if int(p.booked_by_user_id or 0) == int(booker_user_id)
+            ]
+            if not booker_participants:
+                raise AppError(
+                    status_code=403,
+                    error_code="FORBIDDEN",
+                    message="Not authorized to pay for this participant",
+                )
+            participant = booker_participants[0]
+            if bool(participant.paid):
+                raise AppError(
+                    status_code=422,
+                    error_code="ALREADY_PAID",
+                    message="Participant has already paid",
+                )
+            if int(booker_user_id) not in (
+                int(participant.user_id),
+                int(participant.booked_by_user_id),
+            ):
+                raise AppError(
+                    status_code=403,
+                    error_code="FORBIDDEN",
+                    message="Not authorized to pay for this participant",
+                )
+
+            members.append({
+                "user_id": int(participant.user_id),
+                "engagement_id": int(engagement_id),
+            })
+
+        return members
+
     async def _promote_family_engagements_to_scheduled(
         self,
         db: AsyncSession,
@@ -3562,7 +3662,11 @@ class UsersService:
             endpoint=endpoint,
         )
 
-        pay_members = await self._unpaid_family_pay_members_for_booker(db, booker_user_id=int(user_id))
+        pay_members = await self._family_pay_members_for_booker_engagements(
+            db,
+            booker_user_id=int(user_id),
+            engagement_ids=[int(eid) for eid in payload.engagement_ids],
+        )
         pay_result = await booking_service.create_pay_order_for_family_onboard(
             db,
             members=pay_members,
@@ -3572,6 +3676,7 @@ class UsersService:
         )
 
         pay_result["booker_user_id"] = int(user_id)
+        pay_result["engagement_ids"] = [int(m["engagement_id"]) for m in pay_members]
         pay_result["tokens"] = {
             "access_token": tokens.access_token,
             "refresh_token": tokens.refresh_token,

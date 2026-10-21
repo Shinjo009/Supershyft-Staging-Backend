@@ -568,7 +568,15 @@ class FamilyOnboardStartResponse(BaseModel):
 class FamilyOnboardVerifyPayRequest(BaseModel):
     phone: PhoneStr
     otp: str = Field(min_length=4, max_length=10)
+    engagement_ids: list[PositiveIntId] = Field(..., min_length=1, max_length=10)
     discount_code: str | None = None
+
+    @model_validator(mode="after")
+    def unique_engagement_ids(self):
+        ids = [int(eid) for eid in self.engagement_ids]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Duplicate engagement_id in engagement_ids")
+        return self
 
 
 class FamilyOnboardConfirmPaymentRequest(BaseModel):
