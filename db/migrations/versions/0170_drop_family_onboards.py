@@ -1,7 +1,7 @@
 """Drop family onboard cart tables.
 
 Revision ID: 0170_drop_family_onboards
-Revises: 0168_family_onboards
+Revises: 0169_family_onboard_cascades
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from alembic import op
 from sqlalchemy import inspect
 
 revision = "0170_drop_family_onboards"
-down_revision = "0168_family_onboards"
+down_revision = "0169_family_onboard_cascades"
 branch_labels = None
 depends_on = None
 
