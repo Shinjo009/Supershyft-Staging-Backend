@@ -11,7 +11,10 @@ from sqlalchemy import text
 
 from core.config import settings
 from tests.helpers.auth import user_auth_header
-from tests.modules.users.family_onboard_helpers import seed_family_onboard_platform_defaults
+from tests.modules.users.family_onboard_helpers import (
+    engagement_status_is,
+    seed_family_onboard_platform_defaults,
+)
 
 
 def _razorpay_signature(*, order_id: str, payment_id: str) -> str:
@@ -146,7 +149,6 @@ async def test_family_onboard_confirm_payment_freezes_when_auto_booking(
     )
     assert start_resp.status_code == 200
     start_data = start_resp.json()["data"]
-    family_onboard_id = start_data["family_onboard_id"]
     booker_user_id = start_data["booker_user_id"]
     engagement_id = start_data["members"][0]["engagement_id"]
 
@@ -165,7 +167,6 @@ async def test_family_onboard_confirm_payment_freezes_when_auto_booking(
         verify_resp = await async_client.post(
             "/users/public/family-onboard/verify-pay",
             json={
-                "family_onboard_id": family_onboard_id,
                 "phone": booker_phone,
                 "otp": "654321",
             },
@@ -204,7 +205,6 @@ async def test_family_onboard_confirm_payment_freezes_when_auto_booking(
             "/users/public/family-onboard/confirm-payment",
             headers=user_auth_header(booker_user_id),
             json={
-                "family_onboard_id": family_onboard_id,
                 "razorpay_order_id": order_id,
                 "razorpay_payment_id": payment_id,
                 "razorpay_signature": signature,
@@ -214,3 +214,11 @@ async def test_family_onboard_confirm_payment_freezes_when_auto_booking(
     assert confirm_resp.status_code == 200
     freeze_mock.assert_awaited()
     create_mock.assert_awaited()
+
+    status_row = (
+        await test_db_session.execute(
+            text("SELECT status FROM engagements WHERE engagement_id = :eid"),
+            {"eid": engagement_id},
+        )
+    ).first()
+    assert engagement_status_is(status_row.status, "scheduled")

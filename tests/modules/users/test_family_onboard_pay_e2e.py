@@ -11,6 +11,7 @@ from sqlalchemy import text
 from core.config import settings
 from tests.helpers.auth import user_auth_header
 from tests.modules.users.family_onboard_helpers import (
+    engagement_status_is,
     family_onboard_start_payload,
     seed_family_onboard_platform_defaults,
 )
@@ -50,7 +51,6 @@ async def test_family_onboard_pay_funnel(async_client, test_db_session, monkeypa
     )
     assert start_resp.status_code == 200
     start_data = start_resp.json()["data"]
-    family_onboard_id = start_data["family_onboard_id"]
     booker_user_id = start_data["booker_user_id"]
 
     previous_bypass = settings.ALLOW_BYPASS_OTP
@@ -59,7 +59,6 @@ async def test_family_onboard_pay_funnel(async_client, test_db_session, monkeypa
         verify_resp = await async_client.post(
             "/users/public/family-onboard/verify-pay",
             json={
-                "family_onboard_id": family_onboard_id,
                 "phone": booker_phone,
                 "otp": "654321",
             },
@@ -76,11 +75,17 @@ async def test_family_onboard_pay_funnel(async_client, test_db_session, monkeypa
     for member in start_data["members"]:
         row = (
             await test_db_session.execute(
-                text("SELECT paid FROM engagement_participants WHERE engagement_participant_id = :pid"),
+                text(
+                    "SELECT ep.paid, e.status AS engagement_status "
+                    "FROM engagement_participants ep "
+                    "JOIN engagements e ON e.engagement_id = ep.engagement_id "
+                    "WHERE ep.engagement_participant_id = :pid"
+                ),
                 {"pid": member["engagement_participant_id"]},
             )
         ).first()
         assert row.paid is False
+        assert engagement_status_is(row.engagement_status, "draft")
 
     payment_id = "pay_family_test_1"
     signature = _razorpay_signature(order_id=order_id, payment_id=payment_id)
@@ -88,7 +93,6 @@ async def test_family_onboard_pay_funnel(async_client, test_db_session, monkeypa
         "/users/public/family-onboard/confirm-payment",
         headers=user_auth_header(booker_user_id),
         json={
-            "family_onboard_id": family_onboard_id,
             "razorpay_order_id": order_id,
             "razorpay_payment_id": payment_id,
             "razorpay_signature": signature,
@@ -99,16 +103,14 @@ async def test_family_onboard_pay_funnel(async_client, test_db_session, monkeypa
     for member in start_data["members"]:
         row = (
             await test_db_session.execute(
-                text("SELECT paid FROM engagement_participants WHERE engagement_participant_id = :pid"),
+                text(
+                    "SELECT ep.paid, e.status AS engagement_status "
+                    "FROM engagement_participants ep "
+                    "JOIN engagements e ON e.engagement_id = ep.engagement_id "
+                    "WHERE ep.engagement_participant_id = :pid"
+                ),
                 {"pid": member["engagement_participant_id"]},
             )
         ).first()
         assert row.paid is True
-
-    session_row = (
-        await test_db_session.execute(
-            text("SELECT status FROM family_onboards WHERE family_onboard_id = :sid"),
-            {"sid": family_onboard_id},
-        )
-    ).first()
-    assert session_row.status == "paid"
+        assert engagement_status_is(row.engagement_status, "scheduled")

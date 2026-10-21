@@ -5,6 +5,21 @@ from __future__ import annotations
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from db.column_types import STATUS_ENGAGEMENT
+
+
+def engagement_status_is(raw_status: object, label: str) -> bool:
+    """Match engagement status from raw SQL row or ORM (int code or string label)."""
+    expected = STATUS_ENGAGEMENT[label]
+    if raw_status is None:
+        return False
+    if isinstance(raw_status, int):
+        return raw_status == expected
+    s = str(raw_status).strip().lower()
+    if s.isdigit():
+        return int(s) == expected
+    return s == label
+
 
 async def seed_family_onboard_platform_defaults(test_db_session: AsyncSession) -> None:
     """Seed packages aligned with platform_settings B2C default diagnostic_package_id=6."""

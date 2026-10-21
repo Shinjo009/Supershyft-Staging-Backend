@@ -20,7 +20,7 @@ from modules.questionnaire.models import QuestionnaireCategory, QuestionnaireDef
 from modules.reports.models import IndividualHealthReport, ReportsUserSyncState
 from modules.support.models import SupportTicket
 from modules.users import service as users_service_module
-from modules.users.models import FamilyOnboard, FamilyOnboardMember, User, UserPreference
+from modules.users.models import User, UserPreference
 from tests.helpers.auth import user_auth_header
 
 
@@ -770,86 +770,6 @@ async def test_employee_delete_user_deletes_orphan_engagement_when_requested(asy
     assert response.status_code == 200
     assert await test_db_session.get(User, target_user_id) is None
     assert await test_db_session.get(Engagement, 9803) is None
-
-
-@pytest.mark.asyncio
-async def test_employee_delete_user_clears_family_onboard_rows(async_client, test_db_session):
-    actor_user_id = 99014
-    booker_user_id = 99055
-    target_user_id = 99056
-
-    test_db_session.add(User(age=30, user_id=actor_user_id, phone="9901400000", status="active"))
-    await test_db_session.flush()
-    test_db_session.add(
-        Employee(
-            employee_id=19014,
-            name="Employee 19014",
-            phone="0000019014",
-            email="employee19014@test.example",
-            role="admin",
-            status="active",
-        )
-    )
-    test_db_session.add(User(age=40, user_id=booker_user_id, phone="9905500000", status="active"))
-    test_db_session.add(
-        User(age=12, user_id=target_user_id, phone="9905600000", status="active", parent_id=booker_user_id)
-    )
-    test_db_session.add(
-        Engagement(
-            engagement_id=9810,
-            engagement_code="ENG9810",
-            assessment_package_id=1,
-            diagnostic_package_id=1,
-            status="running",
-        )
-    )
-    await test_db_session.commit()
-    test_db_session.add(
-        EngagementParticipant(
-            engagement_participant_id=9910,
-            engagement_id=9810,
-            user_id=target_user_id,
-            booked_by_user_id=booker_user_id,
-        )
-    )
-    test_db_session.add(
-        FamilyOnboard(
-            family_onboard_id="00000000-0000-0000-0000-000000009810",
-            booker_user_id=booker_user_id,
-            status="pending_payment",
-            expires_at=datetime(2099, 1, 1, tzinfo=timezone.utc),
-        )
-    )
-    await test_db_session.flush()
-    test_db_session.add(
-        FamilyOnboardMember(
-            family_onboard_id="00000000-0000-0000-0000-000000009810",
-            user_id=target_user_id,
-            engagement_id=9810,
-            engagement_participant_id=9910,
-        )
-    )
-    await test_db_session.commit()
-
-    response = await async_client.delete(
-        f"/users/{target_user_id}?delete_orphan_engagements=true",
-        headers=_auth_header(19014),
-    )
-    assert response.status_code == 200, response.text
-    assert await test_db_session.get(User, target_user_id) is None
-    assert await test_db_session.get(EngagementParticipant, 9910) is None
-    leftover_members = (
-        await test_db_session.execute(
-            text(
-                "SELECT COUNT(*) FROM family_onboard_members "
-                "WHERE engagement_participant_id = 9910 OR user_id = :uid"
-            ),
-            {"uid": target_user_id},
-        )
-    ).scalar_one()
-    assert leftover_members == 0
-    assert await test_db_session.get(FamilyOnboard, "00000000-0000-0000-0000-000000009810") is None
-    assert await test_db_session.get(User, booker_user_id) is not None
 
 
 @pytest.mark.asyncio

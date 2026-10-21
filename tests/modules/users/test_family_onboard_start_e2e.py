@@ -6,13 +6,14 @@ import pytest
 from sqlalchemy import text
 
 from tests.modules.users.family_onboard_helpers import (
+    engagement_status_is,
     family_onboard_start_payload,
     seed_family_onboard_platform_defaults,
 )
 
 
 @pytest.mark.asyncio
-async def test_family_onboard_start_creates_session_and_unpaid_enrollments(
+async def test_family_onboard_start_creates_unpaid_enrollments(
     async_client,
     test_db_session,
 ):
@@ -25,7 +26,6 @@ async def test_family_onboard_start_creates_session_and_unpaid_enrollments(
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["payment_required"] is True
-    assert data["family_onboard_id"]
     assert data["booker_user_id"]
     assert data["otp_session_id"]
     assert len(data["members"]) == 1
@@ -64,22 +64,16 @@ async def test_family_onboard_start_creates_session_and_unpaid_enrollments(
 
     engagement = (
         await test_db_session.execute(
-            text("SELECT payment_type, organization_id FROM engagements WHERE engagement_id = :eid"),
+            text(
+                "SELECT payment_type, organization_id, status FROM engagements "
+                "WHERE engagement_id = :eid"
+            ),
             {"eid": member["engagement_id"]},
         )
     ).first()
     assert engagement.organization_id is None
     assert str(engagement.payment_type) in {"paid_by_patient", "EngagementPaymentType.paid_by_patient"}
-
-    session_row = (
-        await test_db_session.execute(
-            text("SELECT status, booker_user_id FROM family_onboards WHERE family_onboard_id = :sid"),
-            {"sid": data["family_onboard_id"]},
-        )
-    ).first()
-    assert session_row is not None
-    assert session_row.booker_user_id == booker_id
-    assert session_row.status == "pending_payment"
+    assert engagement_status_is(engagement.status, "draft")
 
     instance_count = (
         await test_db_session.execute(

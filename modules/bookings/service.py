@@ -884,6 +884,12 @@ async def create_pay_order_for_family_onboard(
             engagement_id=engagement_id,
             payer_user_id=payer_user_id,
         )
+        if (engagement.status or "").strip().lower() != "draft":
+            raise AppError(
+                status_code=422,
+                error_code="INVALID_STATE",
+                message="Engagement is not in draft status",
+            )
         package_id = int(pkg.diagnostic_package_id)
         validated_items.append((user_id, "diagnostic_package", package_id))
         metadata_by_user[user_id] = {"engagement_id": engagement_id}

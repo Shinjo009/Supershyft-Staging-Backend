@@ -3335,24 +3335,51 @@ class UsersService:
         await db.flush()
         return created_user, True
 
-    def _assert_family_onboard_session_active(
+    async def _unpaid_family_pay_members_for_booker(
         self,
-        session: Any,
+        db: AsyncSession,
         *,
-        booker_user_id: int | None = None,
+        booker_user_id: int,
+    ) -> list[dict[str, int]]:
+        if self._engagements_service is None:
+            raise RuntimeError("Engagements service is required")
+        participants = await self._engagements_service._repository.list_unpaid_participants_booked_by(
+            db,
+            booker_user_id=booker_user_id,
+        )
+        if not participants:
+            raise AppError(
+                status_code=422,
+                error_code="NO_UNPAID_ENROLLMENTS",
+                message="No unpaid family enrollments found for this booker",
+            )
+        return [
+            {"user_id": int(p.user_id), "engagement_id": int(p.engagement_id)}
+            for p in participants
+        ]
+
+    async def _promote_family_engagements_to_scheduled(
+        self,
+        db: AsyncSession,
+        *,
+        engagement_ids: list[int],
     ) -> None:
-        if session is None:
-            raise AppError(status_code=404, error_code="NOT_FOUND", message="Family onboard session not found")
-        if (session.status or "").strip().lower() != "pending_payment":
-            raise AppError(status_code=422, error_code="INVALID_STATE", message="Session is not awaiting payment")
-        expires_at = session.expires_at
-        if expires_at is not None:
-            now = datetime.now(timezone.utc)
-            exp = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc)
-            if exp < now:
-                raise AppError(status_code=422, error_code="SESSION_EXPIRED", message="Family onboard session expired")
-        if booker_user_id is not None and int(session.booker_user_id) != int(booker_user_id):
-            raise AppError(status_code=403, error_code="FORBIDDEN", message="Not authorized for this session")
+        if self._engagements_service is None:
+            raise RuntimeError("Engagements service is required")
+        seen: set[int] = set()
+        for engagement_id in engagement_ids:
+            eid = int(engagement_id)
+            if eid in seen:
+                continue
+            seen.add(eid)
+            engagement = await self._engagements_service.get_by_id(db, eid)
+            if engagement is None:
+                continue
+            status = (engagement.status or "").strip().lower()
+            if status == "draft":
+                engagement.status = "scheduled"
+                db.add(engagement)
+        await db.flush()
 
     async def start_family_onboard(
         self,
@@ -3364,7 +3391,6 @@ class UsersService:
         endpoint: str,
     ) -> FamilyOnboardStartResponse:
         from modules.engagements.service import _resolve_auto_booking
-        from modules.users.family_onboard_repository import FamilyOnboardRepository
 
         if self._engagements_service is None or self._platform_settings_service is None:
             raise RuntimeError("Engagements and platform settings services are required")
@@ -3401,8 +3427,6 @@ class UsersService:
             )
 
         member_results: list[FamilyOnboardMemberResponse] = []
-        session_member_rows: list[dict[str, int]] = []
-        family_onboard_id = str(uuid4())
 
         for member in payload.members:
             member_user, sub_created = await self._get_or_create_sub_profile_for_booker(
@@ -3445,6 +3469,8 @@ class UsersService:
                 create_profile_on_metsights=onboarding_defaults.create_profile_on_metsights,
                 enroll_for_fitprint_full=onboarding_defaults.enroll_for_fitprint_full,
             )
+            engagement.status = "draft"
+            db.add(engagement)
 
             want_auto_booking = bool((member.blood_collection_time_slot_id or "").strip())
             engagement.auto_booking = _resolve_auto_booking(
@@ -3480,22 +3506,6 @@ class UsersService:
                     sub_profile_created=sub_created,
                 )
             )
-            session_member_rows.append({
-                "user_id": int(member_user.user_id),
-                "engagement_id": int(engagement.engagement_id),
-                "engagement_participant_id": int(participant.engagement_participant_id),
-            })
-
-        expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
-        repo = FamilyOnboardRepository()
-        await repo.create_session(
-            db,
-            family_onboard_id=family_onboard_id,
-            booker_user_id=int(booker.user_id),
-            discount_code=payload.discount_code,
-            expires_at=expires_at,
-            members=session_member_rows,
-        )
 
         from modules.auth.dependencies import get_auth_service
 
@@ -3523,7 +3533,6 @@ class UsersService:
             )
 
         return FamilyOnboardStartResponse(
-            family_onboard_id=family_onboard_id,
             booker_user_id=int(booker.user_id),
             otp_session_id=int(otp_session_id),
             payment_required=True,
@@ -3542,11 +3551,6 @@ class UsersService:
     ) -> dict[str, Any]:
         from modules.auth.dependencies import get_auth_service
         from modules.bookings import service as booking_service
-        from modules.users.family_onboard_repository import FamilyOnboardRepository
-
-        repo = FamilyOnboardRepository()
-        session = await repo.get_session_with_members(db, payload.family_onboard_id.strip())
-        self._assert_family_onboard_session_active(session)
 
         auth_service = get_auth_service()
         user_id, tokens = await auth_service.verify_otp(
@@ -3557,27 +3561,17 @@ class UsersService:
             user_agent=user_agent,
             endpoint=endpoint,
         )
-        self._assert_family_onboard_session_active(session, booker_user_id=int(user_id))
 
-        discount_code = payload.discount_code or session.discount_code
-        pay_members = [
-            {"user_id": int(m.user_id), "engagement_id": int(m.engagement_id)}
-            for m in session.members
-        ]
+        pay_members = await self._unpaid_family_pay_members_for_booker(db, booker_user_id=int(user_id))
         pay_result = await booking_service.create_pay_order_for_family_onboard(
             db,
             members=pay_members,
             payer_user_id=int(user_id),
-            discount_code=discount_code,
+            discount_code=payload.discount_code,
             client_ip=client_ip,
         )
-        session.razorpay_order_id = pay_result.get("razorpay_order_id")
-        if discount_code and not session.discount_code:
-            session.discount_code = discount_code.strip()
-        db.add(session)
-        await db.flush()
 
-        pay_result["family_onboard_id"] = session.family_onboard_id
+        pay_result["booker_user_id"] = int(user_id)
         pay_result["tokens"] = {
             "access_token": tokens.access_token,
             "refresh_token": tokens.refresh_token,
@@ -3594,22 +3588,22 @@ class UsersService:
         user_agent: str,
         endpoint: str,
     ) -> dict[str, Any]:
+        from sqlalchemy import select
+
         from modules.bookings import service as booking_service
-        from modules.users.family_onboard_repository import FamilyOnboardRepository
+        from modules.payments.models import Booking, Order, OrderBooking
 
         if self._engagements_service is None:
             raise RuntimeError("Engagements service is required")
 
-        repo = FamilyOnboardRepository()
-        session = await repo.get_session_with_members(db, payload.family_onboard_id.strip())
-        self._assert_family_onboard_session_active(session, booker_user_id=int(caller_user_id))
-
-        if session.razorpay_order_id and session.razorpay_order_id != payload.razorpay_order_id:
-            raise AppError(
-                status_code=400,
-                error_code="ORDER_MISMATCH",
-                message="Payment order does not match this family onboard session",
-            )
+        order_result = await db.execute(
+            select(Order).where(Order.razorpay_order_id == payload.razorpay_order_id.strip())
+        )
+        order = order_result.scalar_one_or_none()
+        if order is None:
+            raise AppError(status_code=404, error_code="ORDER_NOT_FOUND", message="Payment order not found")
+        if int(order.user_id) != int(caller_user_id):
+            raise AppError(status_code=403, error_code="FORBIDDEN", message="Not authorized for this payment order")
 
         pay_result = await booking_service.verify_and_finalize_engagement_code_payment(
             db,
@@ -3620,39 +3614,52 @@ class UsersService:
             engagements_service=self._engagements_service,
         )
 
-        for row in session.members:
-            engagement = await self._engagements_service.get_by_id(db, int(row.engagement_id))
-            if engagement is None:
-                continue
-            member_user = await self._repository.get_user_by_id(db, int(row.user_id))
-            if member_user is None:
-                continue
-            await self._engagements_service.ensure_assessment_instances_for_participant(
-                db,
-                engagement=engagement,
-                user_id=int(row.user_id),
-                ip_address=ip_address,
-                user_agent=user_agent,
-                endpoint=endpoint,
+        booking_ids = list(
+            (
+                await db.execute(
+                    select(OrderBooking.booking_id).where(OrderBooking.order_id == order.order_id)
+                )
             )
-            await self._run_post_enrollment_integrations(
+            .scalars()
+            .all()
+        )
+        order_members: list[dict[str, int]] = []
+        if booking_ids:
+            bookings_result = await db.execute(select(Booking).where(Booking.booking_id.in_(booking_ids)))
+            bookings = list(bookings_result.scalars().all())
+            order_members = booking_service._members_from_order_bookings(bookings)
+            await self._promote_family_engagements_to_scheduled(
                 db,
-                user=member_user,
-                engagement=engagement,
-                payload=None,
-                ip_address=ip_address,
-                user_agent=user_agent,
-                endpoint=endpoint,
-                source="family-onboard",
-                blood_collection_cabin=None,
+                engagement_ids=[int(m["engagement_id"]) for m in order_members],
             )
+            for member in order_members:
+                engagement = await self._engagements_service.get_by_id(db, int(member["engagement_id"]))
+                if engagement is None:
+                    continue
+                member_user = await self._repository.get_user_by_id(db, int(member["user_id"]))
+                if member_user is None:
+                    continue
+                await self._engagements_service.ensure_assessment_instances_for_participant(
+                    db,
+                    engagement=engagement,
+                    user_id=int(member["user_id"]),
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    endpoint=endpoint,
+                )
+                await self._run_post_enrollment_integrations(
+                    db,
+                    user=member_user,
+                    engagement=engagement,
+                    payload=None,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    endpoint=endpoint,
+                    source="family-onboard",
+                    blood_collection_cabin=None,
+                )
 
-        session.status = "paid"
-        db.add(session)
-        await db.flush()
-
-        pay_result["family_onboard_id"] = session.family_onboard_id
-        pay_result["booker_user_id"] = int(session.booker_user_id)
+        pay_result["booker_user_id"] = int(caller_user_id)
         return pay_result
 
     async def _run_post_enrollment_integrations(

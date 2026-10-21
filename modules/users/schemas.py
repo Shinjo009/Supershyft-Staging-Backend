@@ -559,7 +559,6 @@ class FamilyOnboardMemberResponse(BaseModel):
 
 
 class FamilyOnboardStartResponse(BaseModel):
-    family_onboard_id: str
     booker_user_id: int
     otp_session_id: int
     payment_required: bool = True
@@ -567,14 +566,12 @@ class FamilyOnboardStartResponse(BaseModel):
 
 
 class FamilyOnboardVerifyPayRequest(BaseModel):
-    family_onboard_id: str = Field(min_length=36, max_length=36)
     phone: PhoneStr
     otp: str = Field(min_length=4, max_length=10)
     discount_code: str | None = None
 
 
 class FamilyOnboardConfirmPaymentRequest(BaseModel):
-    family_onboard_id: str = Field(min_length=36, max_length=36)
     razorpay_payment_id: str = Field(min_length=1)
     razorpay_order_id: str = Field(min_length=1)
     razorpay_signature: str = Field(min_length=1)

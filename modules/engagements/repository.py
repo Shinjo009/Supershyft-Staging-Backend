@@ -580,6 +580,20 @@ class EngagementsRepository:
                 out[uid] = row
         return out
 
+    async def list_unpaid_participants_booked_by(
+        self,
+        db: AsyncSession,
+        *,
+        booker_user_id: int,
+    ) -> list[EngagementParticipant]:
+        result = await db.execute(
+            select(EngagementParticipant)
+            .where(EngagementParticipant.booked_by_user_id == booker_user_id)
+            .where(EngagementParticipant.paid.is_(False))
+            .order_by(EngagementParticipant.engagement_participant_id.asc())
+        )
+        return list(result.scalars().all())
+
     async def delete_participants_for_user_engagement(
         self,
         db: AsyncSession,
