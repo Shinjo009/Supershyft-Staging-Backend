@@ -331,6 +331,147 @@ class UsersService:
             )
         return data, total
 
+    async def list_my_appointments(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        status: str | None,
+        page: int,
+        limit: int,
+    ) -> tuple[list[dict], int]:
+        from modules.engagements.consultation_booking_validation import effective_consultation_mode
+        from modules.users.appointments import (
+            derive_user_blood_appointment_status,
+            derive_user_consultation_appointment_status,
+        )
+
+        consult_rows = await self._repository.list_user_consultations_for_appointments(
+            db, user_id=user_id, status=status
+        )
+        blood_rows = await self._repository.list_user_blood_bookings_for_appointments(
+            db, user_id=user_id, status=status
+        )
+
+        merged: list[dict] = []
+
+        for booking, engagement, engagement_type_row in consult_rows:
+            eng_status = engagement.status
+            if hasattr(eng_status, "value"):
+                eng_status_str = eng_status.value
+            else:
+                eng_status_str = str(eng_status) if eng_status is not None else None
+
+            want_val = booking.want
+            list_status = derive_user_consultation_appointment_status(
+                done=bool(booking.done),
+                want=want_val if want_val is None else bool(want_val),
+                engagement_status=engagement.status,
+            )
+            if want_val is None:
+                want_out = None
+            else:
+                want_out = bool(want_val)
+
+            date_val = (
+                booking.consultation_date.isoformat() if booking.consultation_date else None
+            )
+            merged.append(
+                {
+                    "appointment_type": "consultation",
+                    "consultation_id": booking.consultation_id,
+                    "status": list_status,
+                    "engagement_id": engagement.engagement_id,
+                    "engagement_type": (
+                        engagement_type_row.code if engagement_type_row is not None else None
+                    ),
+                    "consultation_mode": effective_consultation_mode(engagement).value,
+                    "expert_type": booking.expert_type,
+                    "expert_id": booking.expert_id,
+                    "date": date_val,
+                    "slot": booking.consultation_slot,
+                    "want": want_out,
+                    "done": bool(booking.done),
+                    "engagement_status": eng_status_str,
+                    "_sort_date": booking.consultation_date,
+                    "_sort_slot": booking.consultation_slot or "",
+                    "_sort_id": booking.consultation_id,
+                }
+            )
+
+        for blood_row, engagement, engagement_type_row in blood_rows:
+            eng_status = engagement.status
+            if hasattr(eng_status, "value"):
+                eng_status_str = eng_status.value
+            else:
+                eng_status_str = str(eng_status) if eng_status is not None else None
+
+            st = blood_row.status
+            st_str = st.value if hasattr(st, "value") else str(st)
+            rel = blood_row.relation
+            rel_str = rel.value if hasattr(rel, "value") else str(rel)
+
+            list_status = derive_user_blood_appointment_status(
+                blood_row_status=st_str,
+                engagement_status=engagement.status,
+                collected_at=blood_row.collected_at,
+            )
+
+            slot = blood_row.collection_time
+            bct = engagement.blood_collection_type
+            if bct is not None and hasattr(bct, "value"):
+                bct_str = bct.value
+            else:
+                bct_str = str(bct) if bct is not None else None
+
+            merged.append(
+                {
+                    "appointment_type": "blood_test",
+                    "blood_booking_id": blood_row.id,
+                    "status": list_status,
+                    "engagement_id": engagement.engagement_id,
+                    "engagement_type": (
+                        engagement_type_row.code if engagement_type_row is not None else None
+                    ),
+                    "date": (
+                        blood_row.collection_date.isoformat()
+                        if blood_row.collection_date
+                        else None
+                    ),
+                    "slot": slot.isoformat() if slot is not None else None,
+                    "cabin": blood_row.collection_cabin,
+                    "blood_collection_type": bct_str,
+                    "booking_id": blood_row.booking_id,
+                    "relation": rel_str,
+                    "engagement_status": eng_status_str,
+                    "_sort_date": blood_row.collection_date,
+                    "_sort_slot": slot.isoformat() if slot is not None else "",
+                    "_sort_id": blood_row.id,
+                }
+            )
+
+        def _sort_key(item: dict) -> tuple:
+            d = item.get("_sort_date")
+            return (
+                d is None,
+                d or date.min,
+                item.get("_sort_slot") or "",
+                item.get("appointment_type") or "",
+                item.get("_sort_id") or 0,
+            )
+
+        merged.sort(key=_sort_key, reverse=True)
+
+        total = len(merged)
+        offset = (page - 1) * limit
+        page_items = merged[offset : offset + limit]
+        for item in page_items:
+            item.pop("_sort_date", None)
+            item.pop("_sort_slot", None)
+            item.pop("_sort_id", None)
+
+        return page_items, total
+
     async def get_upcoming_slots(self, db: AsyncSession, *, user_id: int) -> UpcomingSlotResponse:
         rows = await self._repository.get_upcoming_slots(db, user_id)
         if not rows:

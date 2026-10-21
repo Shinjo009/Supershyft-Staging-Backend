@@ -9,14 +9,21 @@ from typing import Optional
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Integer, asc, cast, delete, desc, extract, func, or_, select, update
+from sqlalchemy import Integer, and_, asc, cast, delete, desc, extract, func, or_, select, update
 
 from common.listing import apply_sort, ilike_pattern, normalize_sort_dir
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.users.models import User, UserAddress, UserPreference
-from modules.engagements.models import Engagement, EngagementParticipant, EngagementSlotInfo, EngagementType
+from modules.engagements.blood_booking_enums import BloodBookingStatus
+from modules.engagements.models import (
+    Engagement,
+    EngagementParticipant,
+    EngagementSlotInfo,
+    EngagementType,
+    ParticipantBloodBooking,
+)
 from modules.experts.models import ConsultationBooking
 from modules.organizations.models import Organization
 from modules.assessments.models import AssessmentCategoryProgress, AssessmentInstance
@@ -494,6 +501,104 @@ class UsersRepository:
             .offset(offset)
             .limit(limit)
         )
+        result = await db.execute(query)
+        return list(result.all())
+
+    def _user_consultations_for_appointments_query(
+        self, user_id: int, *, status: str | None = None
+    ):
+        """Consultation rows for /users/me/appointments (want=NULL treated as scheduled)."""
+        query = (
+            select(ConsultationBooking, Engagement, EngagementType)
+            .join(
+                EngagementParticipant,
+                EngagementParticipant.engagement_participant_id
+                == ConsultationBooking.engagement_participant_id,
+            )
+            .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
+            .outerjoin(EngagementType, EngagementType.id == Engagement.engagement_type)
+            .where(EngagementParticipant.user_id == user_id)
+            .where(Engagement.status != "draft")
+        )
+        cancelled_cond = or_(
+            Engagement.status == "cancelled",
+            ConsultationBooking.want.is_(False),
+        )
+        want_wanted = or_(
+            ConsultationBooking.want.is_(True),
+            ConsultationBooking.want.is_(None),
+        )
+        if status == "completed":
+            query = query.where(
+                ConsultationBooking.done.is_(True),
+                want_wanted,
+                Engagement.status != "cancelled",
+            )
+        elif status == "cancelled":
+            query = query.where(cancelled_cond)
+        elif status == "scheduled":
+            query = query.where(
+                ConsultationBooking.done.is_(False),
+                want_wanted,
+                Engagement.status != "cancelled",
+            )
+        return query
+
+    async def list_user_consultations_for_appointments(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        status: str | None = None,
+    ) -> list[tuple[ConsultationBooking, Engagement, EngagementType | None]]:
+        query = self._user_consultations_for_appointments_query(user_id, status=status)
+        result = await db.execute(query)
+        return list(result.all())
+
+    def _user_blood_bookings_query(self, user_id: int, *, status: str | None = None):
+        query = (
+            select(ParticipantBloodBooking, Engagement, EngagementType)
+            .join(
+                EngagementParticipant,
+                EngagementParticipant.engagement_participant_id
+                == ParticipantBloodBooking.engagement_participant_id,
+            )
+            .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
+            .outerjoin(EngagementType, EngagementType.id == Engagement.engagement_type)
+            .where(EngagementParticipant.user_id == user_id)
+            .where(Engagement.status != "draft")
+            .where(ParticipantBloodBooking.status != BloodBookingStatus.superseded.value)
+        )
+        cancelled_cond = or_(
+            Engagement.status == "cancelled",
+            ParticipantBloodBooking.status == BloodBookingStatus.cancelled.value,
+        )
+        completed_cond = and_(
+            ParticipantBloodBooking.collected_at.isnot(None),
+            ParticipantBloodBooking.status != BloodBookingStatus.cancelled.value,
+            Engagement.status != "cancelled",
+        )
+        scheduled_cond = and_(
+            ParticipantBloodBooking.collected_at.is_(None),
+            ParticipantBloodBooking.status == BloodBookingStatus.active.value,
+            Engagement.status != "cancelled",
+        )
+        if status == "completed":
+            query = query.where(completed_cond)
+        elif status == "cancelled":
+            query = query.where(cancelled_cond)
+        elif status == "scheduled":
+            query = query.where(scheduled_cond)
+        return query
+
+    async def list_user_blood_bookings_for_appointments(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        status: str | None = None,
+    ) -> list[tuple[ParticipantBloodBooking, Engagement, EngagementType | None]]:
+        query = self._user_blood_bookings_query(user_id, status=status)
         result = await db.execute(query)
         return list(result.all())
 
