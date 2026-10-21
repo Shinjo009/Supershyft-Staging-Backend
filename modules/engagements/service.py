@@ -344,6 +344,7 @@ def _participant_enrollment_to_dict(
         booked_by_user_id,
         paid,
         booker_message,
+        booker_relation,
     ) = row
     flags = sync_flags or {
         "is_profile_created_on_metsights": bool((metsights_profile_id or "").strip()),
@@ -381,6 +382,7 @@ def _participant_enrollment_to_dict(
         "booked_by_user_id": booked_by_user_id,
         "paid": bool(paid) if paid is not None else True,
         "booker_message": booker_message,
+        "booker_relation": booker_relation,
     }
 
 
@@ -1943,6 +1945,7 @@ class EngagementsService:
         booked_by_user_id: int | None = None,
         paid: bool | None = None,
         booker_message: str | None = None,
+        booker_relation: str | None = None,
         blood_collection_time_slot_id: str | None = None,
     ) -> EngagementParticipant:
         if (engagement.status or "").lower() not in ("scheduled", "running", "draft"):
@@ -1982,6 +1985,7 @@ class EngagementsService:
             participant_blood_group=participant_blood_group,
             paid=resolved_paid,
             booker_message=(booker_message or "").strip() or None,
+            booker_relation=(booker_relation or "").strip() or None,
         )
         created = await self._repository.create_participant(db, participant)
         cabin = (blood_collection_cabin or "").strip() or None

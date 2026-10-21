@@ -779,6 +779,7 @@ class EngagementsRepository:
                 EngagementParticipant.booked_by_user_id,
                 EngagementParticipant.paid,
                 EngagementParticipant.booker_message,
+                EngagementParticipant.booker_relation,
                 func.row_number()
                 .over(
                     partition_by=EngagementParticipant.user_id,
@@ -858,6 +859,7 @@ class EngagementsRepository:
                 ranked_rows.c.booked_by_user_id,
                 ranked_rows.c.paid,
                 ranked_rows.c.booker_message,
+                ranked_rows.c.booker_relation,
             )
             .where(ranked_rows.c.rn == 1)
             .order_by(ranked_rows.c.engagement_participant_id.asc())
@@ -1345,6 +1347,7 @@ class EngagementsRepository:
                 ranked_rows.c.booked_by_user_id,
                 ranked_rows.c.paid,
                 ranked_rows.c.booker_message,
+                ranked_rows.c.booker_relation,
             )
             .where(ranked_rows.c.rn == 1)
             .order_by(ranked_rows.c.engagement_participant_id.asc())
@@ -1437,6 +1440,7 @@ class EngagementsRepository:
                 EngagementParticipant.booked_by_user_id,
                 EngagementParticipant.paid,
                 EngagementParticipant.booker_message,
+                EngagementParticipant.booker_relation,
                 func.row_number()
                 .over(
                     partition_by=EngagementParticipant.user_id,
@@ -1484,6 +1488,7 @@ class EngagementsRepository:
                 ranked_rows.c.booked_by_user_id,
                 ranked_rows.c.paid,
                 ranked_rows.c.booker_message,
+                ranked_rows.c.booker_relation,
             )
             .where(ranked_rows.c.rn == 1)
             .order_by(ranked_rows.c.engagement_participant_id.asc())

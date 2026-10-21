@@ -279,6 +279,7 @@ class EngagementParticipant(Base):
     healthians_zone_id = Column(String, nullable=True)
     paid = Column(Boolean, nullable=False, default=True, server_default="true")
     booker_message = Column(String(1000), nullable=True)
+    booker_relation = Column(String(32), nullable=True)
 
     @validates("user_id")
     def _default_booked_by_user_id(self, _key: str, user_id: int) -> int:

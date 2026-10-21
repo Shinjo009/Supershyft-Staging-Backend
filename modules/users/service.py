@@ -3286,7 +3286,6 @@ class UsersService:
                         "age": member.age,
                         "date_of_birth": member.dob,
                         "gender": member.gender,
-                        "relationship": member.relation,
                         "city": member.city,
                     }.items()
                     if value is not None
@@ -3301,11 +3300,11 @@ class UsersService:
                     await db.flush()
                 return existing, False
 
-            raise AppError(
-                status_code=409,
-                error_code="CONFLICT",
-                message="Phone already belongs to another user",
-            )
+            if not existing.is_participant:
+                existing.is_participant = True
+                db.add(existing)
+                await db.flush()
+            return existing, False
 
         email_to_use = str(member.email) if member.email is not None else None
         if email_to_use is None:
@@ -3494,6 +3493,7 @@ class UsersService:
                 booked_by_user_id=int(booker.user_id),
                 paid=False,
                 booker_message=member.booker_message,
+                booker_relation=member.relation,
                 blood_collection_time_slot_id=member.blood_collection_time_slot_id,
             )
 

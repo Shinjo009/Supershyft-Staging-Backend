@@ -42,17 +42,74 @@ async def seed_family_onboard_platform_defaults(test_db_session: AsyncSession) -
     await test_db_session.commit()
 
 
+async def seed_primary_user(
+    test_db_session: AsyncSession,
+    *,
+    user_id: int,
+    phone: str,
+    email: str,
+    relationship: str = "self",
+    first_name: str = "Primary",
+) -> None:
+    await test_db_session.execute(
+        text(
+            "INSERT INTO users (user_id, first_name, age, phone, email, status, parent_id, relationship) "
+            "VALUES (:uid, :first_name, 35, :phone, :email, 1, NULL, CAST(:relationship AS user_relationship_enum)) "
+            "ON CONFLICT (user_id) DO NOTHING"
+        ),
+        {
+            "uid": user_id,
+            "first_name": first_name,
+            "phone": phone,
+            "email": email,
+            "relationship": relationship,
+        },
+    )
+    await test_db_session.commit()
+
+
+async def seed_subprofile_user(
+    test_db_session: AsyncSession,
+    *,
+    user_id: int,
+    parent_id: int,
+    phone: str,
+    email: str,
+    relationship: str = "child",
+    first_name: str = "Sub",
+) -> None:
+    await test_db_session.execute(
+        text(
+            "INSERT INTO users (user_id, first_name, age, phone, email, status, parent_id, relationship) "
+            "VALUES (:uid, :first_name, 12, :phone, :email, 1, :parent_id, "
+            "CAST(:relationship AS user_relationship_enum)) "
+            "ON CONFLICT (user_id) DO NOTHING"
+        ),
+        {
+            "uid": user_id,
+            "parent_id": parent_id,
+            "first_name": first_name,
+            "phone": phone,
+            "email": email,
+            "relationship": relationship,
+        },
+    )
+    await test_db_session.commit()
+
+
 def family_onboard_start_payload(
     *,
     booker_phone: str = "9000100001",
     member_phone: str = "9000100002",
     second_member_phone: str | None = None,
+    member_relation: str = "child",
+    booker_email: str = "adi.family@example.com",
 ) -> dict:
     members = [
         {
             "name": "Akash Kumar",
             "phone": member_phone,
-            "relation": "child",
+            "relation": member_relation,
             "age": 28,
             "gender": "Male",
             "blood_collection_date": "2026-03-15",
@@ -75,7 +132,7 @@ def family_onboard_start_payload(
         "booker": {
             "name": "Adi Kumar",
             "phone": booker_phone,
-            "email": "adi.family@example.com",
+            "email": booker_email,
         },
         "members": members,
     }
