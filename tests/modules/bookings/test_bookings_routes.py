@@ -170,6 +170,7 @@ async def _seed_draft_engagement(
     address: str | None = "Flat 1, Block A, Near Park, Mumbai - 400001",
     locked: bool = False,
     status: str = "draft",
+    healthians_zone_id: str | None = "440",
 ) -> None:
     from modules.engagements.blood_booking_enums import BloodBookingRelation, BloodBookingStatus
     from modules.engagements.models import BloodCollectionType, Engagement, EngagementParticipant, ParticipantBloodBooking
@@ -187,7 +188,7 @@ async def _seed_draft_engagement(
             pincode="400001",
             latitude=19.0760,
             longitude=72.8777,
-            healthians_zone_id="440",
+            healthians_zone_id=healthians_zone_id,
             slot_duration=20,
             status=status,
             blood_collection_type=BloodCollectionType.home_collection,
@@ -668,6 +669,80 @@ async def test_available_slots_allows_scheduled_home_collection(async_client, te
     member = response.json()["data"]["members"][0]
     assert member["status"] == "success"
     assert member["slots"][0]["stm_id"] == "STM_RESCHED"
+
+
+@pytest.mark.asyncio
+async def test_available_slots_resolves_missing_zone_id(async_client, test_db_session):
+    await _seed_healthians_diagnostic_package(test_db_session)
+    u = User(
+        user_id=930017,
+        age=30,
+        phone="9300170000",
+        status="active",
+        first_name="Nozone",
+        last_name="User",
+        gender="male",
+        city="Mumbai",
+        parent_id=None,
+    )
+    test_db_session.add(u)
+    await test_db_session.commit()
+    await _seed_draft_engagement(
+        test_db_session,
+        engagement_id=930117,
+        user_id=930017,
+        booked_by_user_id=930017,
+        locked=True,
+        status="scheduled",
+        healthians_zone_id=None,
+    )
+
+    healthians_slots = {
+        "status": True,
+        "data": [
+            {
+                "end_time": "11:30:00",
+                "slot_date": "2026-07-20",
+                "slot_time": "11:00:00",
+                "stm_id": "STM_ZONE",
+            }
+        ],
+    }
+    mock_slots = AsyncMock(return_value=healthians_slots)
+
+    with (
+        patch("modules.bookings.service.healthians_client.get_access_token", new_callable=AsyncMock, return_value="tok"),
+        patch(
+            "modules.bookings.service.healthians_client.check_serviceability_by_location_v2",
+            new_callable=AsyncMock,
+            return_value={"status": True, "message": "Serviceable", "data": {"zone_id": 999}},
+        ) as mock_zone,
+        patch(
+            "modules.bookings.service.healthians_client.get_slots_by_location",
+            mock_slots,
+        ),
+    ):
+        response = await async_client.post(
+            "/book/available-slots",
+            headers=_auth_header(930017),
+            json={
+                "members": [
+                    {
+                        "user_id": 930017,
+                        "engagement_id": 930117,
+                        "blood_collection_date": "2026-07-20",
+                    }
+                ]
+            },
+        )
+
+    assert response.status_code == 200
+    member = response.json()["data"]["members"][0]
+    assert member["status"] == "success"
+    assert member["slots"][0]["stm_id"] == "STM_ZONE"
+    mock_zone.assert_awaited_once()
+    sent = mock_slots.await_args.args[1]
+    assert sent["zone_id"] == "999"
 
 
 @pytest.mark.asyncio

@@ -420,6 +420,106 @@ async def check_service_availability(
     return results
 
 
+async def _ensure_healthians_zone_for_slots(
+    db: AsyncSession,
+    *,
+    engagement: Engagement,
+    participant: EngagementParticipant,
+    loc: dict[str, str],
+    user_id: int,
+) -> tuple[dict[str, str], str | None]:
+    """Fill lat/long/zone for Healthians slot fetch. B2C onboard never stores zone_id."""
+    if loc["zone_id"] and loc["lat"] and loc["long"] and loc["zipcode"]:
+        return loc, None
+
+    if not loc["lat"] or not loc["long"]:
+        address = (participant.address or "").strip() or (engagement.address or "").strip() or None
+        city = (participant.city or "").strip() or (engagement.city or "").strip() or None
+        pincode = loc["zipcode"] or None
+        if address or city or pincode:
+            geocoded = await _geocode_for_booking(
+                db,
+                address_line=address,
+                city=city,
+                pincode=pincode,
+                engagement_id=engagement.engagement_id,
+                user_id=user_id,
+            )
+            if geocoded.get("latitude") is not None and geocoded.get("longitude") is not None:
+                loc["lat"] = str(geocoded["latitude"])
+                loc["long"] = str(geocoded["longitude"])
+                if not loc["zipcode"] and geocoded.get("pincode"):
+                    loc["zipcode"] = str(geocoded["pincode"])
+                engagement.latitude = float(loc["lat"])
+                engagement.longitude = float(loc["long"])
+                await db.flush()
+
+    missing = [key for key in ("lat", "long", "zipcode") if not loc[key]]
+    if missing:
+        return loc, (
+            "Missing Healthians location fields: "
+            + ", ".join(missing)
+            + ". Re-check service availability at this address."
+        )
+
+    if loc["zone_id"]:
+        return loc, None
+
+    access_token = await _get_healthians_token()
+    svc_payload = {
+        "lat": loc["lat"],
+        "long": loc["long"],
+        "zipcode": loc["zipcode"],
+        "is_ppmc_booking": 0,
+    }
+    await release_request_transaction(db)
+    try:
+        resp = await healthians_client.check_serviceability_by_location_v2(
+            access_token,
+            lat=loc["lat"],
+            long=loc["long"],
+            zipcode=loc["zipcode"],
+            is_ppmc_booking=0,
+        )
+    except Exception as exc:
+        logger.exception("Healthians serviceability for slots failed for user %s", user_id)
+        await _safe_log_healthians_call(
+            db,
+            engagement_id=engagement.engagement_id,
+            user_id=user_id,
+            provider="healthians",
+            api_url=f"{settings.HEALTHIANS_BASE_URL}/toast4health/checkServiceabilityByLocation_v2",
+            request_payload=svc_payload,
+            status="failed",
+            error_message=str(exc),
+        )
+        return loc, str(exc)
+
+    await _safe_log_healthians_call(
+        db,
+        engagement_id=engagement.engagement_id,
+        user_id=user_id,
+        provider="healthians",
+        api_url=f"{settings.HEALTHIANS_BASE_URL}/toast4health/checkServiceabilityByLocation_v2",
+        request_payload=svc_payload,
+        response_payload=resp,
+        status="success" if resp.get("status") else "failed",
+    )
+
+    zone_id = _healthians_zone_id(resp)
+    if not resp.get("status") or not zone_id:
+        return loc, resp.get("message") or "Healthians zone could not be resolved for this address"
+
+    loc["zone_id"] = str(zone_id)
+    engagement_row = (
+        await db.execute(select(Engagement).where(Engagement.engagement_id == engagement.engagement_id))
+    ).scalar_one_or_none()
+    if engagement_row is not None:
+        engagement_row.healthians_zone_id = loc["zone_id"]
+        await db.flush()
+    return loc, None
+
+
 async def get_available_slots(
     db: AsyncSession,
     *,
@@ -503,10 +603,33 @@ async def get_available_slots(
         user = user_result.scalar_one_or_none()
         has_female = 1 if user and (user.gender or "").strip().lower().startswith("f") else 0
 
-        amount = float(pkg.original_price) if pkg.original_price else 0
+        amount = float(pkg.original_price or pkg.price or 0)
+        if not (pkg.external_package_code or "").strip():
+            results.append({
+                "user_id": user_id,
+                "engagement_id": engagement_id,
+                "status": "error",
+                "message": "Diagnostic package is missing Healthians deal id",
+            })
+            continue
         deal_id = healthians_package_deal_id(pkg.external_package_code)
-        access_token = await _get_healthians_token()
         loc = _healthians_location_for_slots(engagement, participant)
+        loc, loc_error = await _ensure_healthians_zone_for_slots(
+            db,
+            engagement=engagement,
+            participant=participant,
+            loc=loc,
+            user_id=user_id,
+        )
+        if loc_error:
+            results.append({
+                "user_id": user_id,
+                "engagement_id": engagement_id,
+                "status": "error",
+                "message": loc_error,
+            })
+            continue
+        access_token = await _get_healthians_token()
 
         payload = {
             "slot_date": blood_collection_date.isoformat(),
