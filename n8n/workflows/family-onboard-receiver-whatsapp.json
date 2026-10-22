@@ -1,0 +1,440 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Family Onboard Gift \u2014 Receiver WhatsApp\nReplace REPLACE_RECEIVER_TEMPLATE with your approved WhatAPI template id.\nReplace REPLACE_WHATAPI_TOKEN in Send WhatsApp node.\nSlots: {{1}} recipient, {{2}} booker, {{3}} gift URL.",
+        "height": 420,
+        "width": 2200
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        4400,
+        4800
+      ],
+      "typeVersion": 1,
+      "id": "24d73497-5cec-445c-9de6-bbdc8c231295",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "family-onboard-receiver-whatsapp-v1",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        4600,
+        5000
+      ],
+      "id": "8a9c88aa-5913-4718-9156-6d72111c5480",
+      "name": "Family Onboard Receiver WhatsApp",
+      "webhookId": "2148a262-6e03-423c-b98d-0db63a2500dc"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.body.notification_id }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "exists",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "2",
+              "leftValue": "={{ $json.body.members }}",
+              "rightValue": "",
+              "operator": {
+                "type": "array",
+                "operation": "exists",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "3",
+              "leftValue": "={{ $json.body.participant_details }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        4800,
+        5000
+      ],
+      "id": "e78733fc-ae19-4d74-a281-2221a4ad0f61",
+      "name": "Validate Payload"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nconst notificationId = body.notification_id;\nconst pd = body.participant_details || {};\nreturn body.members.map(member => ({\n  json: {\n    notification_id: notificationId,\n    first_name: member.first_name || '',\n    last_name: member.last_name || '',\n    email: member.email || '',\n    phone: member.phone || '',\n    participant_details: pd\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5020,
+        4880
+      ],
+      "id": "90fe1d0d-5523-42cc-8e91-9623270d0463",
+      "name": "Split Members"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $input.item.json;\nconst pd = item.participant_details || {};\nconst recipientName = (pd.recipient_name || item.first_name || 'there').trim();\nconst bookerName = (pd.booker_name || '-').trim();\nconst giftUrl = (pd.gift_url || 'https://app.supershyft.com').trim();\nlet phone = String(item.phone || '').replace(/\\D/g, '');\nif (phone.length === 10) phone = '91' + phone;\nconst message = `REPLACE_RECEIVER_TEMPLATE,${recipientName},${bookerName},${giftUrl}`;\nreturn { json: { notification_id: item.notification_id, phone, message } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5240,
+        4880
+      ],
+      "id": "43fc36cd-3e0d-4bb3-acf4-a64d5f18e2c9",
+      "name": "Prepare WhatsApp"
+    },
+    {
+      "parameters": {
+        "url": "https://webhook.whatapi.in/webhook/REPLACE_WHATAPI_TOKEN",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "number",
+              "value": "={{ $json.phone }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ $json.message }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        5460,
+        4880
+      ],
+      "id": "4983c27c-503c-4c0b-8395-98154b9a3f65",
+      "name": "Send WhatsApp",
+      "retryOnFail": true,
+      "waitBetweenTries": 3000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a",
+              "leftValue": "={{ $json.accepted }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        5680,
+        4760
+      ],
+      "id": "8d18f96f-283e-40ac-9046-1f5388de5528",
+      "name": "WhatAPI Accepted?"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1",
+              "name": "notification_id",
+              "value": "={{ $('Prepare WhatsApp').item.json.notification_id }}",
+              "type": "number"
+            },
+            {
+              "id": "2",
+              "name": "status",
+              "value": "sent",
+              "type": "string"
+            },
+            {
+              "id": "3",
+              "name": "message",
+              "value": "Message sent successfully",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        5900,
+        4680
+      ],
+      "id": "8b067a15-d5e1-46f0-bfde-ae07aa6eba35",
+      "name": "WhatsApp Sent"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1",
+              "name": "notification_id",
+              "value": "={ $('Family Onboard Receiver WhatsApp').item.json.body.notification_id }",
+              "type": "number"
+            },
+            {
+              "id": "2",
+              "name": "status",
+              "value": "failed",
+              "type": "string"
+            },
+            {
+              "id": "3",
+              "name": "message",
+              "value": "WhatsApp sending failed",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        5900,
+        4920
+      ],
+      "id": "e734bddd-4ad1-44fe-847a-799f450843ea",
+      "name": "WhatsApp Failed"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1",
+              "name": "notification_id",
+              "value": "={ $('Family Onboard Receiver WhatsApp').item.json.body.notification_id }",
+              "type": "number"
+            },
+            {
+              "id": "2",
+              "name": "status",
+              "value": "failed",
+              "type": "string"
+            },
+            {
+              "id": "3",
+              "name": "message",
+              "value": "Payload validation failed",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        5020,
+        5120
+      ],
+      "id": "c36cbf4c-6847-449d-9f2b-045d9b54ce12",
+      "name": "Validation Failed"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.supershyft.com/notifications/callback",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"notification_id\": {{ $json.notification_id }},\n  \"status\": \"{{ $json.status }}\",\n  \"message\": \"{{ $json.message }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        6120,
+        5000
+      ],
+      "id": "391b2cb3-9a19-4bec-bd1f-a27945a12eb5",
+      "name": "Callback",
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "djiMPtATquR2OnRc",
+          "name": "Notification Header Auth | api.supershyft"
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Family Onboard Receiver WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Validate Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Payload": {
+      "main": [
+        [
+          {
+            "node": "Split Members",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Validation Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Members": {
+      "main": [
+        [
+          {
+            "node": "Prepare WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "WhatAPI Accepted?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WhatsApp Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatAPI Accepted?": {
+      "main": [
+        [
+          {
+            "node": "WhatsApp Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WhatsApp Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Sent": {
+      "main": [
+        [
+          {
+            "node": "Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Failed": {
+      "main": [
+        [
+          {
+            "node": "Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validation Failed": {
+      "main": [
+        [
+          {
+            "node": "Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "19fabb80-ad72-400e-89ce-1d890ac16184"
+  }
+}

@@ -21,6 +21,36 @@ def engagement_status_is(raw_status: object, label: str) -> bool:
     return s == label
 
 
+async def seed_family_onboard_gift_notification_services(test_db_session: AsyncSession) -> None:
+    """Seed hardcoded family-onboard Diwali gift notification services."""
+    from modules.notifications.family_onboard_gift_notify import (
+        RECEIVER_EMAIL_KEY,
+        RECEIVER_WHATSAPP_KEY,
+        SENDER_EMAIL_KEY,
+        SENDER_WHATSAPP_KEY,
+    )
+
+    for key, channel, path in (
+        (SENDER_WHATSAPP_KEY, "whatsapp", "/family-onboard-sender-whatsapp-v1"),
+        (SENDER_EMAIL_KEY, "email", "/family-onboard-sender-email-v1"),
+        (RECEIVER_WHATSAPP_KEY, "whatsapp", "/family-onboard-receiver-whatsapp-v1"),
+        (RECEIVER_EMAIL_KEY, "email", "/family-onboard-receiver-email-v1"),
+    ):
+        await test_db_session.execute(
+            text(
+                "INSERT INTO notification_services "
+                "(service_key, display_name, channel, webhook_path, is_active, "
+                "require_blood_report_url, require_bio_ai_report_url, require_participant_detail, "
+                "require_otp, require_session_details, require_external_link) "
+                "VALUES (:sk, :sk, :ch, :path, true, false, false, true, false, false, false) "
+                "ON CONFLICT (service_key) DO UPDATE SET "
+                "require_participant_detail = true, is_active = true"
+            ),
+            {"sk": key, "ch": channel, "path": path},
+        )
+    await test_db_session.commit()
+
+
 async def seed_family_onboard_platform_defaults(test_db_session: AsyncSession) -> None:
     """Seed packages aligned with platform_settings B2C default diagnostic_package_id=6."""
     await test_db_session.execute(

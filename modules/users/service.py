@@ -3932,6 +3932,8 @@ class UsersService:
             .scalars()
             .all()
         )
+        booker_user = await self._repository.get_user_by_id(db, int(caller_user_id))
+
         order_members: list[dict[str, int]] = []
         if booking_ids:
             bookings_result = await db.execute(select(Booking).where(Booking.booking_id.in_(booking_ids)))
@@ -3967,6 +3969,26 @@ class UsersService:
                     source="family-onboard",
                     blood_collection_cabin=None,
                 )
+                if booker_user is not None and self._notifications_service is not None:
+                    from modules.notifications.family_onboard_gift_notify import (
+                        notify_family_onboard_gift,
+                    )
+
+                    participant = await self._engagements_service.get_participant_for_user_engagement(
+                        db,
+                        user_id=int(member["user_id"]),
+                        engagement_id=int(member["engagement_id"]),
+                    )
+                    await notify_family_onboard_gift(
+                        db,
+                        notifications_service=self._notifications_service,
+                        booker=booker_user,
+                        recipient=member_user,
+                        engagement_id=int(member["engagement_id"]),
+                        relationship=(
+                            participant.booker_relation if participant is not None else None
+                        ),
+                    )
 
         pay_result["booker_user_id"] = int(caller_user_id)
         return pay_result
