@@ -59,7 +59,7 @@ def upgrade() -> None:
             INSERT INTO authors (partner_id)
             SELECT p.partner_id
             FROM partners p
-            WHERE p.role = 'author'
+            WHERE p.role::text = 'author'
               AND NOT EXISTS (
                   SELECT 1 FROM authors a WHERE a.partner_id = p.partner_id
               )

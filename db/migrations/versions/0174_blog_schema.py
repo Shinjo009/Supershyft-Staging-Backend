@@ -40,7 +40,12 @@ _AUTHOR_ROLES = (
 
 
 def upgrade() -> None:
-    op.execute(sa.text("ALTER TYPE partner_role_enum ADD VALUE IF NOT EXISTS 'author'"))
+    connection = op.get_bind()
+    # Postgres cannot use a newly added enum label until the ADD VALUE commits.
+    # Alembic runs upgrade head in one transaction (env.py); COMMIT here so
+    # 0175 can match partners.role = author. Same pattern as 0090 / 0130.
+    connection.execute(sa.text("ALTER TYPE partner_role_enum ADD VALUE IF NOT EXISTS 'author'"))
+    connection.execute(sa.text("COMMIT"))
 
     author_role = postgresql.ENUM(*_AUTHOR_ROLES, name="author_role")
     author_role.create(op.get_bind(), checkfirst=True)
