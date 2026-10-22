@@ -1,7 +1,10 @@
 """authors.partner_id stores employee_id or partner_id; drop name/role/employee_id.
 
-Revision ID: 0166_authors_partner_only
-Revises: 0165_engagement_feedbacks, 0161_blog_schema
+Renumbered from 0166_authors_partner_only after merging staging/main.
+Chained linearly after 0174_blog_schema instead of merging 0165 + 0161.
+
+Revision ID: 0175_authors_partner_only
+Revises: 0174_blog_schema
 """
 
 from __future__ import annotations
@@ -11,8 +14,8 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 
-revision = "0166_authors_partner_only"
-down_revision = ("0165_engagement_feedbacks", "0161_blog_schema")
+revision = "0175_authors_partner_only"
+down_revision = "0174_blog_schema"
 branch_labels = None
 depends_on = None
 

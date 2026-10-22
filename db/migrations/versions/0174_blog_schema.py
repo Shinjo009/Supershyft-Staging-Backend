@@ -4,8 +4,11 @@ Net schema formerly split across 0161–0167: partner role author, admin
 employee authors, post background color/image, focus_keyword as Text.
 blog_templates is omitted (create+drop cancelled out).
 
-Revision ID: 0161_blog_schema
-Revises: 0160_booking_expert_consultation
+Renumbered from 0161_blog_schema after merging staging/main onto local
+0173_family_onboard_gift_notif so Alembic stays a single linear head.
+
+Revision ID: 0174_blog_schema
+Revises: 0173_family_onboard_gift_notif
 """
 
 from __future__ import annotations
@@ -15,8 +18,8 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 
-revision = "0161_blog_schema"
-down_revision = "0160_booking_expert_consultation"
+revision = "0174_blog_schema"
+down_revision = "0173_family_onboard_gift_notif"
 branch_labels = None
 depends_on = None
 

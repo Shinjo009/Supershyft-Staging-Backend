@@ -300,7 +300,7 @@ class OnboardingAssistantsService:
                 )
             result_status = "assigned"
         else:
-            partner = await partners_service.create_partner(
+            partner, _expert_id = await partners_service.create_partner(
                 db,
                 employee=employee,
                 payload=PartnerCreateRequest(
