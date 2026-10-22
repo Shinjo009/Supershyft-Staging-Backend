@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.exceptions import AppError
+from modules.bioai_report.client import BioAiReportsClient, extract_gift_card_url
 from modules.notifications.dedup import should_skip_notification
 from modules.notifications.onboarding_notify import detail_or_hyphen
 from modules.notifications.repository import NotificationsRepository
@@ -20,6 +22,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 GIFT_URL = "https://app.supershyft.com"
+DEFAULT_GIFT_CARD_MESSAGE = "Wishing you joy and light."
+GIFT_CARD_OCCASION = "diwali"
 
 SENDER_WHATSAPP_KEY = "family-onboard-sender-whatsapp"
 SENDER_EMAIL_KEY = "family-onboard-sender-email"
@@ -64,13 +68,56 @@ def _participant_details(
     booker: User,
     recipient: User,
     relationship: str | None,
+    gift_url: str = GIFT_URL,
 ) -> dict[str, str]:
     return {
         "booker_name": detail_or_hyphen(_display_name(booker)),
         "recipient_name": detail_or_hyphen(_display_name(recipient)),
         "relationship": detail_or_hyphen(_format_relationship(relationship)),
-        "gift_url": GIFT_URL,
+        "gift_url": gift_url,
     }
+
+
+def _gift_card_message(booker_message: str | None) -> str:
+    text = (booker_message or "").strip()
+    return text if text else DEFAULT_GIFT_CARD_MESSAGE
+
+
+async def _resolve_receiver_gift_card_url(
+    *,
+    booker: User,
+    recipient: User,
+    relationship: str | None,
+    booker_message: str | None,
+    bio_ai_reports_client: BioAiReportsClient | None = None,
+) -> str:
+    client = bio_ai_reports_client or BioAiReportsClient()
+    payload = {
+        "sender_name": _display_name(booker),
+        "receiver_name": _display_name(recipient),
+        "relation": _format_relationship(relationship),
+        "message": _gift_card_message(booker_message),
+        "occasion": GIFT_CARD_OCCASION,
+    }
+    try:
+        response = await client.create_gift_card(payload)
+        return extract_gift_card_url(response)
+    except AppError as exc:
+        logger.warning(
+            "Family onboard gift card URL fallback: booker=%s recipient=%s: %s",
+            getattr(booker, "user_id", None),
+            getattr(recipient, "user_id", None),
+            exc,
+        )
+        return GIFT_URL
+    except Exception as exc:
+        logger.warning(
+            "Family onboard gift card URL fallback: booker=%s recipient=%s: %s",
+            getattr(booker, "user_id", None),
+            getattr(recipient, "user_id", None),
+            exc,
+        )
+        return GIFT_URL
 
 
 def _should_skip_receiver_email(recipient: User, booker: User) -> bool:
@@ -152,13 +199,23 @@ async def notify_family_onboard_gift(
     recipient: User,
     engagement_id: int,
     relationship: str | None,
+    booker_message: str | None = None,
+    bio_ai_reports_client: BioAiReportsClient | None = None,
 ) -> None:
     """Best-effort gift notifications after family-onboard payment confirm."""
     if notifications_service is None:
         return
 
     repo = notifications_service._repo
-    details = _participant_details(booker=booker, recipient=recipient, relationship=relationship)
+    base_details = _participant_details(booker=booker, recipient=recipient, relationship=relationship)
+    receiver_gift_url = await _resolve_receiver_gift_card_url(
+        booker=booker,
+        recipient=recipient,
+        relationship=relationship,
+        booker_message=booker_message,
+        bio_ai_reports_client=bio_ai_reports_client,
+    )
+    receiver_wa_details = {**base_details, "gift_url": receiver_gift_url}
     booker_id = int(booker.user_id)
     recipient_id = int(recipient.user_id)
     eid = int(engagement_id)
@@ -170,7 +227,7 @@ async def notify_family_onboard_gift(
         service_key=SENDER_WHATSAPP_KEY,
         user_id=booker_id,
         engagement_id=eid,
-        participant_details=details,
+        participant_details=base_details,
     )
     await _dispatch_one(
         db,
@@ -179,7 +236,7 @@ async def notify_family_onboard_gift(
         service_key=SENDER_EMAIL_KEY,
         user_id=booker_id,
         engagement_id=eid,
-        participant_details=details,
+        participant_details=base_details,
     )
     await _dispatch_one(
         db,
@@ -188,7 +245,7 @@ async def notify_family_onboard_gift(
         service_key=RECEIVER_WHATSAPP_KEY,
         user_id=recipient_id,
         engagement_id=eid,
-        participant_details=details,
+        participant_details=receiver_wa_details,
     )
     if not _should_skip_receiver_email(recipient, booker):
         await _dispatch_one(
@@ -198,11 +255,13 @@ async def notify_family_onboard_gift(
             service_key=RECEIVER_EMAIL_KEY,
             user_id=recipient_id,
             engagement_id=eid,
-            participant_details=details,
+            participant_details=base_details,
         )
 
 
 __all__ = [
+    "DEFAULT_GIFT_CARD_MESSAGE",
+    "GIFT_CARD_OCCASION",
     "GIFT_URL",
     "SENDER_WHATSAPP_KEY",
     "SENDER_EMAIL_KEY",
@@ -211,5 +270,6 @@ __all__ = [
     "_ALL_KEYS",
     "_is_booker_plus_alias_email",
     "_should_skip_receiver_email",
+    "_resolve_receiver_gift_card_url",
     "notify_family_onboard_gift",
 ]

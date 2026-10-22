@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import text
 
 from core.config import settings
+from modules.bioai_report.client import BioAiReportsClient
 from tests.helpers.auth import user_auth_header
 from modules.notifications.family_onboard_gift_notify import (
     RECEIVER_EMAIL_KEY,
@@ -161,6 +162,11 @@ async def test_family_onboard_confirm_dispatches_gift_notifications(
     await seed_family_onboard_platform_defaults(test_db_session)
     await seed_family_onboard_gift_notification_services(test_db_session)
     webhook_calls: list[dict] = []
+
+    async def _stub_gift_card(self, payload):
+        return {"url": "https://bio-ai-reports.supershyft.com/r/e2e-family-gift"}
+
+    monkeypatch.setattr(BioAiReportsClient, "create_gift_card", _stub_gift_card)
     monkeypatch.setattr(
         "modules.notifications.service.httpx.AsyncClient",
         _fake_n8n_httpx_client(webhook_calls),

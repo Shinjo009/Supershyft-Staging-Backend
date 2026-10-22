@@ -185,18 +185,20 @@ def family_onboard_start_payload(
     second_member_phone: str | None = None,
     member_relation: str = "child",
     booker_email: str = "adi.family@example.com",
+    member_email: str | None = None,
 ) -> dict:
-    members = [
-        {
-            "name": "Akash Kumar",
-            "phone": member_phone,
-            "relation": member_relation,
-            "age": 28,
-            "gender": "Male",
-            "blood_collection_date": "2026-03-15",
-            "blood_collection_time_slot": "10:00",
-        }
-    ]
+    member_entry: dict = {
+        "name": "Akash Kumar",
+        "phone": member_phone,
+        "relation": member_relation,
+        "age": 28,
+        "gender": "Male",
+        "blood_collection_date": "2026-03-15",
+        "blood_collection_time_slot": "10:00",
+    }
+    if member_email is not None:
+        member_entry["email"] = member_email
+    members = [member_entry]
     if second_member_phone:
         members.append(
             {

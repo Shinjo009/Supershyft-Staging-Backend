@@ -2294,6 +2294,55 @@ class UsersService:
 
         raise AppError(status_code=409, error_code="CONFLICT", message="Unable to create profile")
 
+    async def _apply_email_if_different(
+        self,
+        db: AsyncSession,
+        user: User,
+        email: str | None,
+    ) -> User:
+        """Set *user*'s email when *email* differs (case-insensitive). Family-onboard only."""
+
+        candidate = (email or "").strip()
+        if not candidate or "@" not in candidate:
+            return user
+
+        existing = (user.email or "").strip()
+        if existing.lower() == candidate.lower():
+            return user
+
+        owner = await self._repository.get_user_by_email(db, candidate)
+        if owner is not None and int(owner.user_id) != int(user.user_id):
+            if owner.parent_id is not None and int(owner.parent_id) == int(user.user_id):
+                try:
+                    alias = await self._allocate_plus_alias_email(db, candidate)
+                    await self._repository.update_user_partial(
+                        db, int(owner.user_id), {"email": alias}
+                    )
+                except IntegrityError as exc:
+                    raise AppError(
+                        status_code=409,
+                        error_code="CONFLICT",
+                        message=_integrity_error_reason(exc),
+                    ) from exc
+            else:
+                raise AppError(
+                    status_code=409,
+                    error_code="CONFLICT",
+                    message="Email already belongs to another user",
+                )
+
+        try:
+            updated = await self._repository.update_user_partial(
+                db, int(user.user_id), {"email": candidate}
+            )
+        except IntegrityError as exc:
+            raise AppError(
+                status_code=409,
+                error_code="CONFLICT",
+                message=_integrity_error_reason(exc),
+            ) from exc
+        return updated if updated is not None else user
+
     async def _get_or_create_user_for_onboarding(
         self,
         db: AsyncSession,
@@ -3485,12 +3534,20 @@ class UsersService:
                     updated = await self._repository.patch_missing_fields(db, user=existing, data=patch)
                     if updated is not None:
                         existing = updated
+                if member.email is not None:
+                    existing = await self._apply_email_if_different(
+                        db, existing, str(member.email)
+                    )
                 if not existing.is_participant:
                     existing.is_participant = True
                     db.add(existing)
                     await db.flush()
                 return existing, False
 
+            if member.email is not None:
+                existing = await self._apply_email_if_different(
+                    db, existing, str(member.email)
+                )
             if not existing.is_participant:
                 existing.is_participant = True
                 db.add(existing)
@@ -3713,6 +3770,8 @@ class UsersService:
                 error_code="INVALID_INPUT",
                 message="Booker must be a primary account",
             )
+
+        booker = await self._apply_email_if_different(db, booker, booker_email)
 
         member_results: list[FamilyOnboardMemberResponse] = []
 
@@ -3977,6 +4036,9 @@ class UsersService:
                         engagement_id=int(member["engagement_id"]),
                         relationship=(
                             participant.booker_relation if participant is not None else None
+                        ),
+                        booker_message=(
+                            participant.booker_message if participant is not None else None
                         ),
                     )
 

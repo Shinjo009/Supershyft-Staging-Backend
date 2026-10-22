@@ -52,6 +52,9 @@ class BioAiReportsClient:
     async def register_report(self, payload: dict[str, Any]) -> dict[str, Any]:
         return await self._post_json("/api/reports", payload)
 
+    async def create_gift_card(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self._post_json("/api/cards", payload)
+
     async def regenerate_report(self, payload: dict[str, Any], *, slug: str) -> dict[str, Any]:
         public_slug = (slug or "").strip()
         if not public_slug:
@@ -63,3 +66,15 @@ class BioAiReportsClient:
         body = dict(payload)
         body["slug"] = public_slug
         return await self._post_json("/api/reports/regenerate", body)
+
+
+def extract_gift_card_url(response: dict[str, Any]) -> str:
+    """Return the public gift-card URL from a ``POST /api/cards`` response body."""
+    url = response.get("url")
+    if not isinstance(url, str) or not url.strip():
+        raise AppError(
+            status_code=502,
+            error_code="BIO_AI_REPORTS_ERROR",
+            message="bio-ai-reports did not return a gift card url",
+        )
+    return url.strip()

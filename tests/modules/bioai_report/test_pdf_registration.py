@@ -128,6 +128,22 @@ def test_bioreport_pdf_sync_request_payload_includes_health_trends():
     assert log["health_trends_attached"] is True
 
 
+def test_extract_gift_card_url_success():
+    from modules.bioai_report.client import extract_gift_card_url
+
+    assert extract_gift_card_url(
+        {"url": "https://bio-ai-reports.supershyft.com/r/gift-slug"}
+    ) == "https://bio-ai-reports.supershyft.com/r/gift-slug"
+
+
+def test_extract_gift_card_url_missing():
+    from modules.bioai_report.client import extract_gift_card_url
+
+    with pytest.raises(Exception) as exc:
+        extract_gift_card_url({"slug": "abc"})
+    assert exc.value.error_code == "BIO_AI_REPORTS_ERROR"
+
+
 def test_extract_registered_report_url_success():
     assert extract_registered_report_url({"url": "https://bio-ai-reports.supershyft.com/r/abc"}) == (
         "https://bio-ai-reports.supershyft.com/r/abc"

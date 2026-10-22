@@ -6,8 +6,11 @@ from datetime import date
 import pytest
 from sqlalchemy import select, text
 
+from core.exceptions import AppError
+from modules.bioai_report.client import BioAiReportsClient
 from modules.engagements.models import Engagement
 from modules.notifications.family_onboard_gift_notify import (
+    GIFT_URL,
     RECEIVER_EMAIL_KEY,
     RECEIVER_WHATSAPP_KEY,
     SENDER_EMAIL_KEY,
@@ -25,6 +28,16 @@ _KEYS = (
     RECEIVER_WHATSAPP_KEY,
     RECEIVER_EMAIL_KEY,
 )
+
+_TEST_CARD_URL = "https://bio-ai-reports.supershyft.com/r/test-family-gift-card"
+
+
+@pytest.fixture(autouse=True)
+def _stub_gift_cards_api(monkeypatch):
+    async def _create_gift_card(self, payload):
+        return {"url": _TEST_CARD_URL, "payload_echo": payload}
+
+    monkeypatch.setattr(BioAiReportsClient, "create_gift_card", _create_gift_card)
 
 
 async def _seed_diagnostic_package(test_db_session) -> None:
@@ -174,6 +187,98 @@ async def test_notify_family_onboard_gift_dispatches_four_services(test_db_sessi
         )
     ).scalars().all()
     assert set(rows) == set(_KEYS)
+
+    receiver_calls = [
+        c for c in webhook_calls if "family-onboard-receiver-whatsapp" in c["url"]
+    ]
+    sender_calls = [
+        c for c in webhook_calls if "family-onboard-sender-whatsapp" in c["url"]
+    ]
+    assert len(receiver_calls) == 1
+    assert len(sender_calls) == 1
+    assert receiver_calls[0]["json"]["participant_details"]["gift_url"] == _TEST_CARD_URL
+    assert sender_calls[0]["json"]["participant_details"]["gift_url"] == GIFT_URL
+
+
+@pytest.mark.asyncio
+async def test_receiver_gift_card_api_failure_falls_back_to_app_url(test_db_session, monkeypatch):
+    await _seed_gift_services(test_db_session)
+    await _seed_engagement(test_db_session, engagement_id=88089)
+    webhook_calls: list[dict] = []
+
+    async def _fail_create(self, payload):
+        raise AppError(
+            status_code=502,
+            error_code="BIO_AI_REPORTS_ERROR",
+            message="bio-ai-reports request failed",
+        )
+
+    monkeypatch.setattr(BioAiReportsClient, "create_gift_card", _fail_create)
+
+    class _FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"accepted": True}
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, json=None):
+            webhook_calls.append({"url": url, "json": json})
+            return _FakeResponse()
+
+    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+
+    booker = User(
+        user_id=88081,
+        first_name="Aanya",
+        last_name="K",
+        phone="9000880081",
+        email="aanya@example.com",
+        is_participant=True,
+        status="active",
+    )
+    recipient = User(
+        user_id=88082,
+        first_name="Rohan",
+        last_name="K",
+        phone="9000880082",
+        email="rohan@example.com",
+        is_participant=True,
+        status="active",
+    )
+    test_db_session.add_all([booker, recipient])
+    await test_db_session.commit()
+    booker = await _reload_user(test_db_session, 88081)
+    recipient = await _reload_user(test_db_session, 88082)
+
+    svc = NotificationsService(NotificationsRepository())
+    await notify_family_onboard_gift(
+        test_db_session,
+        notifications_service=svc,
+        booker=booker,
+        recipient=recipient,
+        engagement_id=88089,
+        relationship="sister",
+        booker_message="Wishing you joy and light.",
+    )
+
+    receiver_calls = [
+        c for c in webhook_calls if "family-onboard-receiver-whatsapp" in c["url"]
+    ]
+    assert len(receiver_calls) == 1
+    assert receiver_calls[0]["json"]["participant_details"]["gift_url"] == GIFT_URL
 
 
 @pytest.mark.asyncio
