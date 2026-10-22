@@ -2,7 +2,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Family Onboard Gift Receiver WhatsApp (camp17)\n\nRequired payload:\n{\n  notification_id: number,\n  members: [{ first_name, last_name, email, phone }],\n  participant_details: { booker_name, recipient_name, gift_url },\n  engagement_id?: number\n}\n\ncamp17 CSV variables: recipientName, bookerName, giftUrl (Diwali body text is in the Meta template).",
+        "content": "## Family Onboard Gift Receiver WhatsApp (camp17)\n\nRequired payload:\n{\n  notification_id: number,\n  members: [{ first_name, last_name, email, phone }],\n  participant_details: { booker_name, recipient_name, gift_url },\n  engagement_id?: number\n}\n\ncamp17 multi-segment CSV: recipientName, Hello recipientName, \u2026, bookerName, giftUrl, Diwali closing.",
         "height": 640,
         "width": 2336
       },
@@ -140,7 +140,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const member = $input.item.json;\nconst pd = member.participant_details || {};\nconst recipientName = (pd.recipient_name || member.first_name || 'there').trim();\nconst bookerName = (pd.booker_name || '-').trim();\nconst giftUrl = (pd.gift_url || 'https://app.supershyft.com').trim();\n\nlet phone = String(member.phone || '').replace(/\\D/g, '');\nif (phone.length === 10) phone = '91' + phone;\n\nconst message = `camp17,${recipientName},${bookerName},${giftUrl}`;\n\nreturn {\n  json: {\n    notification_id: member.notification_id,\n    phone,\n    message\n  }\n};"
+        "jsCode": "const member = $input.item.json;\nconst pd = member.participant_details || {};\nconst recipientName = (pd.recipient_name || member.first_name || 'there').trim();\nconst bookerName = (pd.booker_name || '-').trim();\nconst giftUrl = (pd.gift_url || 'https://app.supershyft.com').trim();\n\nlet phone = String(member.phone || '').replace(/\\D/g, '');\nif (phone.length === 10) phone = '91' + phone;\n\nconst message = `camp17,${recipientName},Hello ${recipientName},Guess what. Someone who loves you has a special surprise for you this Diwali.,${bookerName} has gifted you a personalised BIO AI Wellness Assessment because your health and happiness mean so much to them.,It is their little way of saying that your health matters to me and I want you around for many many more celebrations.,Your gift will help you understand your health better through personalised BIO AI insights and recommendations to support your well being and healthy lifestyle.,You can explore your special gift here.,${giftUrl},May this Diwali bring you good health peaceful moments endless laughter and countless beautiful memories with the people who love you.,Happy Diwali and lots of love to you`;\n\nreturn {\n  json: {\n    notification_id: member.notification_id,\n    phone,\n    message\n  }\n};"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,

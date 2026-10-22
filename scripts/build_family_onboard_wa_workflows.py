@@ -39,7 +39,7 @@ const giftUrl = (pd.gift_url || 'https://app.supershyft.com').trim();
 let phone = String(member.phone || '').replace(/\\D/g, '');
 if (phone.length === 10) phone = '91' + phone;
 
-const message = `camp17,${bookerName},${recipientName},${relationship},${giftUrl}`;
+const message = `camp17,${bookerName},Hello ${bookerName},This Diwali you are giving someone you love something truly special through the gift of health and well being.,Your personalised BIO AI Wellness Assessment for ${recipientName} is being created with love.,Recipient Name: ${recipientName},Relationship: ${relationship},Because the people we love deserve a healthier and happier life with many more beautiful moments together.,You can check the details below for your convenience.,${giftUrl},Thank you for choosing to make someone's well being a little more special this Diwali`;
 
 return {
   json: {
@@ -58,7 +58,7 @@ const giftUrl = (pd.gift_url || 'https://app.supershyft.com').trim();
 let phone = String(member.phone || '').replace(/\\D/g, '');
 if (phone.length === 10) phone = '91' + phone;
 
-const message = `camp17,${recipientName},${bookerName},${giftUrl}`;
+const message = `camp17,${recipientName},Hello ${recipientName},Guess what. Someone who loves you has a special surprise for you this Diwali.,${bookerName} has gifted you a personalised BIO AI Wellness Assessment because your health and happiness mean so much to them.,It is their little way of saying that your health matters to me and I want you around for many many more celebrations.,Your gift will help you understand your health better through personalised BIO AI insights and recommendations to support your well being and healthy lifestyle.,You can explore your special gift here.,${giftUrl},May this Diwali bring you good health peaceful moments endless laughter and countless beautiful memories with the people who love you.,Happy Diwali and lots of love to you`;
 
 return {
   json: {
@@ -129,8 +129,8 @@ CONFIGS = [
             "  participant_details: { booker_name, recipient_name, relationship, gift_url },\n"
             "  engagement_id?: number\n"
             "}\n\n"
-            "camp17 CSV variables: bookerName, recipientName, relationship, giftUrl "
-            "(Diwali body text is in the Meta template)."
+            "camp17 multi-segment CSV (same shape as thank-you-feedback / booking-confirmation): "
+            "bookerName, Hello bookerName, …, recipientName, relationship, giftUrl, closing line."
         ),
         "validate_msg": (
             "Payload validation failed: notification_id, members, and participant_details "
@@ -154,8 +154,7 @@ CONFIGS = [
             "  participant_details: { booker_name, recipient_name, gift_url },\n"
             "  engagement_id?: number\n"
             "}\n\n"
-            "camp17 CSV variables: recipientName, bookerName, giftUrl "
-            "(Diwali body text is in the Meta template)."
+            "camp17 multi-segment CSV: recipientName, Hello recipientName, …, bookerName, giftUrl, Diwali closing."
         ),
         "validate_msg": (
             "Payload validation failed: notification_id, members, and participant_details "
