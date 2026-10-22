@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-from urllib.parse import urlparse
-
 import httpx
 
 from core.config import settings
@@ -14,13 +12,9 @@ from modules.audit.cron_sync_logging import (
     persist_integration_sync_log_isolated,
 )
 from modules.notifications.whatapi_client import normalize_whatsapp_phone
+from modules.notifications.whatapi_sync_utils import redact_whatapi_webhook_url
 
 logger = logging.getLogger(__name__)
-
-
-def _redact_webhook_url(url: str) -> str:
-    parsed = urlparse(url)
-    return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
 
 
 async def send_whatsapp_fallback_get(
@@ -44,7 +38,7 @@ async def send_whatsapp_fallback_get(
 
     sync_log_id = await persist_integration_sync_log_isolated(
         provider="whatapi",
-        api_url=_redact_webhook_url(base_url),
+        api_url=redact_whatapi_webhook_url(base_url),
         engagement_id=engagement_id,
         user_id=user_id,
         request_payload={"params": {**params, "message": message[:200]}},

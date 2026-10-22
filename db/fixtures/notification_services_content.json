@@ -1,0 +1,909 @@
+[
+  {
+    "service_key": "assessment-reminder-whatsapp-metsights-v2",
+    "display_name": "Questionnaire Remainder",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "assessment_reminder_whatsapp_metsights",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "b2b-booking-alert-whatsapp-v1",
+    "display_name": "B2B Booking Alert (Participant Only Msg)",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "b2b_booking_alert_whatsapp",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "book-doctor-consultation-email",
+    "display_name": "Book Doctor Consultation",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Book Doctor Consultation",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "book-doctor-consultation-whatsapp",
+    "display_name": "Book COnsultation Whatsapp",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "book_doctor_consultation",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "book-nutrition-consultation-email-1plus1-v1",
+    "display_name": "Book Nutrition Consultation 1Plus1",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Book Nutrition Consultation 1Plus1",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "book-nutrition-consultation-whatsapp-1plus1-v1",
+    "display_name": "Book Nutrition Consultation 1Plus1",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "book_nutrition_consultation_whatsapp",
+    "template_variables": null,
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "book-nvidia-consultation-email-v1",
+    "display_name": "Book Consultation NVIDIA",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Book Consultation NVIDIA",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "book-nvidia-consultation-whatsapp-v1",
+    "display_name": "Book NVIDIA Consultation Whatsapp",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "book_nvidia_consultation_whatsapp",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "booking-alert-email+whatsapp+participant-welcome-metsights",
+    "display_name": "Booking Alert + User Welcome to ME",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "booking_alert_email+whatsapp+participant_welcome_metsights",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "booking-alert-email-whatsapp-welcome-booking-1plus1-v1",
+    "display_name": "Booking Alert 1Plus 1",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "booking_alert_email_whatsapp_welcome_booking",
+    "template_variables": null,
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "booking-alert-whatsapp",
+    "display_name": "Booking Alert + Welcome User to SU",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "booking_alert",
+    "template_variables": null,
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "booking-confirmation-email",
+    "display_name": "Booking Confirmation Email",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Booking Confirmation Email",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "booking-confirmation-whatsapp",
+    "display_name": "Booking Confirmation WhatsApp",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "booking_confirmation",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "consultation-booking-alert-whatsapp",
+    "display_name": "Consultation Booking Alert",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "consultation_booking_alert",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "consultation-confirmed-email",
+    "display_name": "Consultation Confirmed",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Consultation Confirmed",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "consultation-confirmed-whatsapp",
+    "display_name": "Consultation Confirmed Whatsapp",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "consultation_confirmed",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "consultation-remainder-email",
+    "display_name": "Consultation Remainder",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Consultation Remainder",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "consultation-remainder-whatsapp",
+    "display_name": "Consultation Remainder Whatsapp",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "consultation_remainder",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "cpu_above_threshold",
+    "display_name": "CPU overload",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "CPU overload",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "doctor-consultation-booking-notice-email-v1",
+    "display_name": "Doc Consultation Notice",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Doc Consultation Notice",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "email-otp",
+    "display_name": "OTP via Email",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "OTP via Email",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "face-scan-report",
+    "display_name": "Face Scan Report",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "face_scan_report",
+    "template_variables": null,
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "family-onboard-receiver-email",
+    "display_name": "Family Onboard Gift Receiver Email",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Family Onboard Gift Receiver Email",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "family-onboard-receiver-whatsapp",
+    "display_name": "Family Onboard Gift Receiver WhatsApp",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "family_onboard_receiver",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "family-onboard-sender-email",
+    "display_name": "Family Onboard Gift Sender Email",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Family Onboard Gift Sender Email",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "family-onboard-sender-whatsapp",
+    "display_name": "Family Onboard Gift Sender WhatsApp",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "family_onboard_sender",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "notify-admin-contact-query",
+    "display_name": "Support Query",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Support Query",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "nutrition-consultation-confirmed-email-1plus1-v1",
+    "display_name": "Nutrition Consultation Confirmed 1Plus1",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Nutrition Consultation Confirmed 1Plus1",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "nutrition-consultation-confirmed-whatsapp-1plus1-v1",
+    "display_name": "Nutrition Consultation Confirmed 1Plus1",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "nutrition_consultation_confirmed_whatsapp",
+    "template_variables": null,
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "nutrition-consultation-reminder-email-1plus1-v1",
+    "display_name": "Nutrition Consultation Remainder 1Plus1",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Nutrition Consultation Remainder 1Plus1",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "nutrition-consultation-reminder-whatsapp-1plus1-v1",
+    "display_name": "Nutrition Consultation Remainder 1Plus1",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "nutrition_consultation_reminder_whatsapp",
+    "template_variables": null,
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "nutrition-consultation-thank-you-email",
+    "display_name": "Consultation Thankyou",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Consultation Thankyou",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "nutrition-consultation-thank-you-whatsapp",
+    "display_name": "Consultation Thankyou Whatsapp",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "nutrition_consultation_thank_you",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "nvidia-collection-booking-alert-whatsapp-v1",
+    "display_name": "Nvidia Booking alert",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "nvidia_collection_booking_alert_whatsapp",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "nvidia-collection-confirmed-email-v1",
+    "display_name": "Nvidia Collection Confirmed",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Nvidia Collection Confirmed",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "nvidia-collection-confirmed-whatsapp-v1",
+    "display_name": "Nvidia Collection Confirmed",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "nvidia_collection_confirmed_whatsapp",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "nvidia-consultation-booking-alert-whatsapp-v1",
+    "display_name": "Nvidia Consultation Booking Alert",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "nvidia_consultation_booking_alert_whatsapp",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "nvidia-consultation-confirmed-email-v1",
+    "display_name": "Nvidia COnsultation Confirm",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Nvidia COnsultation Confirm",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "nvidia-consultation-confirmed-whatsapp-v1",
+    "display_name": "Consultation Nvidia Confirm",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "nvidia_consultation_confirmed_whatsapp",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "nvidia-consultation-remainder-email-v1",
+    "display_name": "NVidia Consultation Remainder",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "NVidia Consultation Remainder",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "nvidia-consultation-remainder-whatsapp-v1",
+    "display_name": "Nvidia Consultation Remainder",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "consultation_remainder",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "nvidia-consultation-thank-you-email-v1",
+    "display_name": "Nvidia Consultation Thank you",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Nvidia Consultation Thank you",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "nvidia-consultation-thank-you-whatsapp-v1",
+    "display_name": "Nvidia Consultation Thank you Whatsapp",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "nvidia_consultation_thank_you_whatsapp",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "onboard-face-scan-alert",
+    "display_name": "Onboard Face Scan Alert",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "onboard_face_scan_alert",
+    "template_variables": null,
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "phlebo-assigned-email",
+    "display_name": "Phlebo Assigned Email",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Phlebo Assigned Email",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "phlebo-assigned-whatsapp",
+    "display_name": "Phlebo Assigned WhatsApp",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "phlebo_assigned",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "phlebo-delay-email",
+    "display_name": "Phlebo Delay Email",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Phlebo Delay Email",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "phlebo-delay-whatsapp",
+    "display_name": "Phlebo Delay WhatsApp",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "phlebo_delay",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "phlebo-enroute-email",
+    "display_name": "Phlebo Enroute Email",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Phlebo Enroute Email",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "phlebo-enroute-whatsapp",
+    "display_name": "Phlebo Enroute WhatsApp",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "phlebo_enroute",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "phlebo-reassigned-email",
+    "display_name": "Phlebo Reassigned Email",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Phlebo Reassigned Email",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "phlebo-reassigned-whatsapp",
+    "display_name": "Phlebo Reassigned WhatsApp",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "phlebo_reassigned",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "pretest-email",
+    "display_name": "Pre-Test Guidlines",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Pre-Test Guidlines",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "pretest-email-1plus1-v1",
+    "display_name": "Pretest Email 1Plus1",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Pretest Email 1Plus1",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "pretest-whatsapp",
+    "display_name": "Pre-Test Guidlines",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "pretest_new",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "pretest-whatsapp-1plus1-v1",
+    "display_name": "Pretest Whatsapp 1Plus1",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "pretest_new",
+    "template_variables": null,
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "pretest-whatsapp-session-v1",
+    "display_name": "Pretest Whatsapp with PDF",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "pretest_new",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "questionnaire-reminder-supershyft",
+    "display_name": "Questionnaire Remainder Supershyft",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "questionnaire_reminder_supershyft",
+    "template_variables": null,
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "send-bioai-report-email-v2",
+    "display_name": "Only BioAi",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Only BioAi",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "send-bioai-whatsapp",
+    "display_name": "BioAI Report",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "send_bioai",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "send-blood-report-email-1plus1-v1",
+    "display_name": "Send Blood Report 1Plus1",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Send Blood Report 1Plus1",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "send-blood-report-email-v2",
+    "display_name": "Blood Report | No Questionnaire",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Blood Report | No Questionnaire",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "send-blood-report-whatsapp",
+    "display_name": "Blood Report",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "send_blood_report",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "send-blood-report-whatsapp-1plus1-v1",
+    "display_name": "Send Blood Report 1Plus1",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "send_blood_report_whatsapp",
+    "template_variables": null,
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "send-expert-consultation-guide-whatsapp-v1",
+    "display_name": "Expert Consultation Guide",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "send_expert_consultation_guide_whatsapp",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "send-phlebo-booking-guide-whatsapp-v1",
+    "display_name": "Booking Guide",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "send_phlebo_booking_guide_whatsapp",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "send-reports-email",
+    "display_name": "BioAI & Blood Report",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "BioAI & Blood Report",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "tech-hr-discount",
+    "display_name": "TechHR Discount",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "tech_hr_discount",
+    "template_variables": null,
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "thank-you-feedback-email-1plus1-v1",
+    "display_name": "Thankyou 1Plus1",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Thankyou 1Plus1",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "thank-you-feedback-whatsapp-1plus1-v1",
+    "display_name": "Thankyou 1Plus1",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "thank_you_feedback_whatsapp",
+    "template_variables": null,
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "welcome-booking-email-1plus1-v1",
+    "display_name": "Welcom Booking Email 1plus1",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Welcom Booking Email 1plus1",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "welcome-booking-whatsapp-1plus1-v1",
+    "display_name": "Welcome Booking 1Plus1",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "welcome_new",
+    "template_variables": null,
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "welcome-email",
+    "display_name": "Welcome to Supershyft",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Welcome to Supershyft",
+    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
+    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+  },
+  {
+    "service_key": "welcome-for-face-scan-techhr",
+    "display_name": "Face Scan TechHr - Welcome",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "welcome_new",
+    "template_variables": null,
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "welcome-whatsapp",
+    "display_name": "Welcome to Supershyft",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "welcome_new",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "welcome-whatsapp-metsights",
+    "display_name": "Welcome to Metsights",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "welcome_new",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  },
+  {
+    "service_key": "whatapi-otp",
+    "display_name": "OTP via WhatsApp",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "otp_new",
+    "template_variables": ["{{otp}}"],
+    "email_subject": null,
+    "email_body": null,
+    "email_html": null
+  }
+]

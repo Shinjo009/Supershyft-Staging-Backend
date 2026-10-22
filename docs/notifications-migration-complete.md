@@ -15,7 +15,7 @@
 
 1. Restore `dev-api/n8n/workflows/` from git history.
 2. Set `NOTIFICATION_USE_DIRECT_SEND=false` and re-add n8n base URL env vars if a temporary n8n path is reintroduced.
-3. Re-run `scripts/backfill_notification_services_from_n8n.py` from git history if service content must be rebuilt from workflows.
+3. Re-run `scripts/backfill_notification_services_from_n8n.py` to regenerate `db/fixtures/*.json`, then `alembic upgrade head` (revision `0182_notif_content_backfill`).
 
 ## Legacy callback
 

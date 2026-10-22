@@ -58,7 +58,11 @@ async def execute_direct_dispatch(
                     )
                 try:
                     api_name, language_code, components = await build_whatsapp_components(
-                        svc, context, client=client
+                        svc,
+                        context,
+                        client=client,
+                        engagement_id=engagement_id,
+                        user_id=sync_log_user_id,
                     )
                     result = await client.send_template_message(
                         to=phone,

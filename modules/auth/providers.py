@@ -13,6 +13,11 @@ from typing import Any
 import httpx
 
 from core.exceptions import AppError
+from modules.audit.cron_sync_logging import (
+    finalize_integration_sync_log_isolated,
+    persist_integration_sync_log_isolated,
+)
+from modules.notifications.whatapi_sync_utils import redact_whatapi_webhook_url
 
 
 logger = logging.getLogger(__name__)
@@ -100,10 +105,21 @@ class WhatApiOtpSender(OtpSender):
         number = self._normalize_number(phone)
         params = {"number": number, "message": f"otp,{otp}"}
 
+        sync_log_id = await persist_integration_sync_log_isolated(
+            provider="whatapi",
+            api_url=redact_whatapi_webhook_url(self.webhook_url),
+            request_payload={"params": {"number": number, "message": "otp,***"}},
+        )
+
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.get(self.webhook_url, params=params)
         except httpx.HTTPError as exc:
+            await finalize_integration_sync_log_isolated(
+                sync_log_id=sync_log_id,
+                status="failed",
+                error_message=str(exc),
+            )
             logger.exception("WhatApi OTP webhook request failed")
             raise AppError(
                 status_code=503,
@@ -112,6 +128,12 @@ class WhatApiOtpSender(OtpSender):
             ) from exc
 
         if response.status_code >= 400:
+            await finalize_integration_sync_log_isolated(
+                sync_log_id=sync_log_id,
+                status="failed",
+                response_payload={"status_code": response.status_code, "body": response.text[:500]},
+                error_message=response.text[:500],
+            )
             logger.error(
                 "WhatApi OTP webhook rejected request",
                 extra={"status_code": response.status_code, "body": response.text[:500]},
@@ -126,6 +148,11 @@ class WhatApiOtpSender(OtpSender):
         try:
             payload = response.json()
         except ValueError as exc:
+            await finalize_integration_sync_log_isolated(
+                sync_log_id=sync_log_id,
+                status="failed",
+                error_message="non-JSON response",
+            )
             logger.error("WhatApi OTP webhook returned non-JSON response", extra={"body": response.text[:500]})
             raise AppError(
                 status_code=503,
@@ -134,9 +161,21 @@ class WhatApiOtpSender(OtpSender):
             ) from exc
 
         if not isinstance(payload, dict) or payload.get("accepted") is not True:
+            await finalize_integration_sync_log_isolated(
+                sync_log_id=sync_log_id,
+                status="failed",
+                response_payload=payload if isinstance(payload, dict) else {"payload": payload},
+                error_message="not accepted",
+            )
             logger.error("WhatApi OTP webhook response not accepted", extra={"payload": payload})
             raise AppError(
                 status_code=503,
                 error_code="EXTERNAL_SERVICE_UNAVAILABLE",
                 message="Unable to send OTP at the moment",
             )
+
+        await finalize_integration_sync_log_isolated(
+            sync_log_id=sync_log_id,
+            status="success",
+            response_payload=payload if isinstance(payload, dict) else {"payload": payload},
+        )

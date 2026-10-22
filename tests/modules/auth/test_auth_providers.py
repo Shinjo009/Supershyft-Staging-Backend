@@ -2,10 +2,24 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from core.exceptions import AppError
 from modules.auth.providers import WhatApiOtpSender
+
+
+@pytest.fixture(autouse=True)
+def _mock_whatapi_sync_logs(monkeypatch):
+    monkeypatch.setattr(
+        "modules.auth.providers.persist_integration_sync_log_isolated",
+        AsyncMock(return_value=1),
+    )
+    monkeypatch.setattr(
+        "modules.auth.providers.finalize_integration_sync_log_isolated",
+        AsyncMock(),
+    )
 
 
 class _FakeResponse:

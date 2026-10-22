@@ -1,0 +1,180 @@
+[
+  {
+    "event_code": "bioai_report_ready",
+    "event_name": "BioAI Report Notification",
+    "recipient_type": "participant",
+    "notification_services": [
+      {
+        "service_key": "send-bioai-whatsapp"
+      }
+    ]
+  },
+  {
+    "event_code": "blood_report_ready",
+    "event_name": "Blood Report Notification",
+    "recipient_type": "participant",
+    "notification_services": [
+      {
+        "service_key": "send-blood-report-whatsapp"
+      }
+    ]
+  },
+  {
+    "event_code": "booking_guide",
+    "event_name": "Booking Guide",
+    "recipient_type": "partner_role",
+    "notification_services": [
+      {
+        "service_key": "send-phlebo-booking-guide-whatsapp"
+      },
+      {
+        "service_key": "send-expert-consultation-guide-whatsapp"
+      }
+    ]
+  },
+  {
+    "event_code": "consultation_booking_alert",
+    "event_name": "Consultation Booking Alert",
+    "recipient_type": "onboarding_assistant",
+    "notification_services": [
+      {
+        "service_key": "consultation-booking-alert-whatsapp"
+      }
+    ]
+  },
+  {
+    "event_code": "consultation_ready",
+    "event_name": "Consultation Ready",
+    "recipient_type": "participant",
+    "notification_services": [
+      {
+        "service_key": "book-doctor-consultation-whatsapp"
+      },
+      {
+        "service_key": "book-doctor-consultation-email"
+      }
+    ]
+  },
+  {
+    "event_code": "consultation_remainder",
+    "event_name": "Consultation Remainder",
+    "recipient_type": "participant",
+    "notification_services": [
+      {
+        "service_key": "consultation-remainder-whatsapp"
+      },
+      {
+        "service_key": "consultation-remainder-email"
+      }
+    ]
+  },
+  {
+    "event_code": "cpu_above_threshold",
+    "event_name": "CPU Above Threshold",
+    "recipient_type": "admin",
+    "notification_services": [
+      {
+        "service_key": "cpu_above_threshold"
+      }
+    ]
+  },
+  {
+    "event_code": "healthians_booking_confirmed",
+    "event_name": "Healthians Booking Confirmed",
+    "recipient_type": "participant",
+    "notification_services": [
+      {
+        "service_key": "booking-confirmation-whatsapp"
+      },
+      {
+        "service_key": "booking-confirmation-email"
+      }
+    ]
+  },
+  {
+    "event_code": "onboarding",
+    "event_name": "Onboarding Notification",
+    "recipient_type": "onboarding_assistant",
+    "notification_services": [
+      {
+        "service_key": "booking-alert-whatsapp"
+      }
+    ]
+  },
+  {
+    "event_code": "otp_email",
+    "event_name": "OTP Email",
+    "recipient_type": "participant",
+    "notification_services": [
+      {
+        "service_key": "email-otp"
+      }
+    ]
+  },
+  {
+    "event_code": "otp_whatsapp",
+    "event_name": "OTP WhatsApp",
+    "recipient_type": "participant",
+    "notification_services": [
+      {
+        "service_key": "whatapi-otp"
+      }
+    ]
+  },
+  {
+    "event_code": "pretest_guidelines",
+    "event_name": "Pretest Guidelines",
+    "recipient_type": "participant",
+    "notification_services": [
+      {
+        "service_key": "pretest-email"
+      },
+      {
+        "service_key": "pretest-whatsapp"
+      }
+    ]
+  },
+  {
+    "event_code": "questionnaire_reminder_after",
+    "event_name": "Questionnaire Reminder (After)",
+    "recipient_type": "participant",
+    "notification_services": [
+      {
+        "service_key": "questionnaire-reminder-supershyft"
+      }
+    ]
+  },
+  {
+    "event_code": "questionnaire_reminder_before",
+    "event_name": "Questionnaire Reminder (Day Before)",
+    "recipient_type": "participant",
+    "notification_services": [
+      {
+        "service_key": "assessment-reminder-whatsapp-metsights-v2"
+      }
+    ]
+  },
+  {
+    "event_code": "report_ready",
+    "event_name": "Report Ready",
+    "recipient_type": "participant",
+    "notification_services": [
+      {
+        "service_key": "face-scan-report"
+      },
+      {
+        "service_key": "tech-hr-discount"
+      }
+    ]
+  },
+  {
+    "event_code": "support_query_raised",
+    "event_name": "Support Query Raised",
+    "recipient_type": "onboarding_assistant",
+    "notification_services": [
+      {
+        "service_key": "support-query-whatsapp"
+      }
+    ]
+  }
+]

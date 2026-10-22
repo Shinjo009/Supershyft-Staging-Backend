@@ -31,3 +31,9 @@ def test_required_prompt1_codes_exist():
 
 def test_get_catalog_event_unknown():
     assert get_catalog_event("not_a_real_event") is None
+
+
+def test_onboarding_has_engagement_type_labels():
+    onboarding = next(e for e in get_events_catalog() if e["event_code"] == "onboarding")
+    assert "BioAI" in onboarding.get("engagement_type_labels", [])
+    assert "bio_ai" in onboarding.get("engagement_type_codes", [])

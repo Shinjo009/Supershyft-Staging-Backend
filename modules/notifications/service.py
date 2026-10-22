@@ -14,10 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import settings
 from core.exceptions import AppError
-from modules.audit.cron_sync_logging import (
-    finalize_integration_sync_log_isolated,
-    persist_integration_sync_log_isolated,
-)
 from modules.metsights.client import MetsightsClient
 from modules.metsights.service import MetsightsService
 from modules.engagement_notifications.service_config import (

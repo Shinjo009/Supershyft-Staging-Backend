@@ -21,16 +21,30 @@ def clear_template_cache() -> None:
     _template_cache.clear()
 
 
-async def _fetch_template_metadata(client: WhatApiClient, template_name: str) -> dict[str, Any]:
+async def _fetch_template_metadata(
+    client: WhatApiClient,
+    template_name: str,
+    *,
+    engagement_id: int | None = None,
+    user_id: int | None = None,
+) -> dict[str, Any]:
     if template_name in _template_cache:
         return _template_cache[template_name]
 
     try:
-        meta = await client.get_message_template(template_name)
+        meta = await client.get_message_template(
+            template_name,
+            engagement_id=engagement_id,
+            user_id=user_id,
+        )
     except AppError:
         alias = _TEMPLATE_ALIASES.get(template_name)
         if alias and alias != template_name:
-            meta = await client.get_message_template(alias)
+            meta = await client.get_message_template(
+                alias,
+                engagement_id=engagement_id,
+                user_id=user_id,
+            )
         else:
             raise
     _template_cache[template_name] = meta
@@ -53,6 +67,8 @@ async def build_whatsapp_components(
     context: dict[str, Any],
     *,
     client: WhatApiClient | None = None,
+    engagement_id: int | None = None,
+    user_id: int | None = None,
 ) -> tuple[str, str, list[dict[str, Any]]]:
     """Return (api_template_name, language_code, components)."""
     template_name = (service.template_name or "").strip()
@@ -65,7 +81,12 @@ async def build_whatsapp_components(
 
     bindings = service.template_variables or []
     api_client = client or WhatApiClient()
-    meta = await _fetch_template_metadata(api_client, template_name)
+    meta = await _fetch_template_metadata(
+        api_client,
+        template_name,
+        engagement_id=engagement_id,
+        user_id=user_id,
+    )
     status = str(meta.get("status") or "APPROVED").upper()
     if status != "APPROVED":
         raise AppError(

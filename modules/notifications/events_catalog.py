@@ -311,6 +311,67 @@ _CATALOG: tuple[CatalogEvent, ...] = (
 
 _CATALOG_BY_CODE: dict[str, CatalogEvent] = {e.event_code: e for e in _CATALOG}
 
+# Mirror engagement_notifications.repository._EVENT_CODES_BY_ENGAGEMENT_TYPE (inverted for catalog UI).
+_EVENT_CODES_BY_ENGAGEMENT_TYPE: dict[str, tuple[str, ...]] = {
+    "bio_ai": (
+        "onboarding",
+        "pretest_guidelines",
+        "questionnaire_reminder_before",
+        "questionnaire_reminder_after",
+        "bioai_report_ready",
+    ),
+    "blood_test": (
+        "onboarding",
+        "pretest_guidelines",
+        "questionnaire_reminder_before",
+        "questionnaire_reminder_after",
+        "blood_report_ready",
+    ),
+    "consultation": (
+        "onboarding",
+        "pretest_guidelines",
+        "consultation_ready",
+        "consultation_remainder",
+        "consultation_booking_alert",
+    ),
+    "blood_test_with_consultation": (
+        "onboarding",
+        "pretest_guidelines",
+        "questionnaire_reminder_before",
+        "questionnaire_reminder_after",
+        "blood_report_ready",
+        "consultation_ready",
+        "consultation_remainder",
+        "consultation_booking_alert",
+    ),
+    "bio_ai_with_consultation": (
+        "onboarding",
+        "pretest_guidelines",
+        "questionnaire_reminder_before",
+        "questionnaire_reminder_after",
+        "bioai_report_ready",
+        "consultation_ready",
+        "consultation_remainder",
+        "consultation_booking_alert",
+    ),
+}
+
+_ENGAGEMENT_TYPE_DISPLAY: dict[str, str] = {
+    "bio_ai": "BioAI",
+    "blood_test": "Blood Test",
+    "consultation": "Consultation",
+    "blood_test_with_consultation": "Blood Test with Consultation",
+    "bio_ai_with_consultation": "BioAI with Consultation",
+}
+
+
+def engagement_type_codes_for_event(event_code: str) -> list[str]:
+    return sorted(
+        type_code
+        for type_code, codes in _EVENT_CODES_BY_ENGAGEMENT_TYPE.items()
+        if event_code in codes
+    )
+
 
 def get_events_catalog() -> list[dict]:
     """Serialize full catalog for API responses."""
@@ -318,11 +379,14 @@ def get_events_catalog() -> list[dict]:
 
 
 def catalog_event_to_dict(event: CatalogEvent) -> dict:
+    type_codes = engagement_type_codes_for_event(event.event_code)
     return {
         "event_code": event.event_code,
         "event_name": event.event_name,
         "event_type": event.event_type,
         "allowed_recipient_types": list(event.allowed_recipient_types),
+        "engagement_type_codes": type_codes,
+        "engagement_type_labels": [_ENGAGEMENT_TYPE_DISPLAY.get(c, c) for c in type_codes],
         "variables": [
             {"key": v.key, "label": v.label, "description": v.description}
             for v in event.variables

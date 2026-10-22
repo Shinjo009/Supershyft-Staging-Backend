@@ -67,7 +67,13 @@ class WhatApiClient:
             headers["API-KEY"] = settings.WHATAPI_API_KEY.strip()
         return headers
 
-    async def get_message_template(self, name: str) -> dict[str, Any]:
+    async def get_message_template(
+        self,
+        name: str,
+        *,
+        engagement_id: int | None = None,
+        user_id: int | None = None,
+    ) -> dict[str, Any]:
         if not self._api_base or not settings.WHATAPI_WABA_ID:
             raise AppError(
                 status_code=503,
@@ -78,30 +84,74 @@ class WhatApiClient:
             f"{self._api_base}{settings.WHATAPI_WABA_ID}/message_templates"
             f"?{urlencode({'name': name})}"
         )
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.get(
-                url,
-                headers=self._auth_headers(include_api_key=True),
-            )
-        if resp.status_code >= 400:
-            logger.error("WhatAPI template GET failed: %s %s", resp.status_code, resp.text[:500])
-            raise AppError(
-                status_code=502,
-                error_code="EXTERNAL_SERVICE_ERROR",
-                message=f"Failed to fetch template '{name}'",
-            )
-        data = resp.json()
-        if isinstance(data, dict) and "data" in data and isinstance(data["data"], list):
-            items = data["data"]
-            if items:
-                return items[0]
-        if isinstance(data, dict) and data.get("name"):
-            return data
-        raise AppError(
-            status_code=404,
-            error_code="NOT_FOUND",
-            message=f"Template '{name}' not found",
+        sync_log_id = await persist_integration_sync_log_isolated(
+            provider="whatapi",
+            api_url=url.split("?")[0],
+            engagement_id=engagement_id,
+            user_id=user_id,
+            request_payload={"name": name},
         )
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.get(
+                    url,
+                    headers=self._auth_headers(include_api_key=True),
+                )
+            try:
+                data = resp.json()
+            except Exception:
+                data = {"status_code": resp.status_code, "body": resp.text}
+            if resp.status_code >= 400:
+                await finalize_integration_sync_log_isolated(
+                    sync_log_id=sync_log_id,
+                    status="failed",
+                    response_payload=data if isinstance(data, dict) else {"body": data},
+                    error_message=resp.text[:500],
+                )
+                logger.error("WhatAPI template GET failed: %s %s", resp.status_code, resp.text[:500])
+                raise AppError(
+                    status_code=502,
+                    error_code="EXTERNAL_SERVICE_ERROR",
+                    message=f"Failed to fetch template '{name}'",
+                )
+            template: dict[str, Any] | None = None
+            if isinstance(data, dict) and "data" in data and isinstance(data["data"], list):
+                items = data["data"]
+                if items:
+                    template = items[0]
+            elif isinstance(data, dict) and data.get("name"):
+                template = data
+            if template is None:
+                await finalize_integration_sync_log_isolated(
+                    sync_log_id=sync_log_id,
+                    status="failed",
+                    response_payload=data if isinstance(data, dict) else {"body": data},
+                    error_message=f"Template '{name}' not found",
+                )
+                raise AppError(
+                    status_code=404,
+                    error_code="NOT_FOUND",
+                    message=f"Template '{name}' not found",
+                )
+            await finalize_integration_sync_log_isolated(
+                sync_log_id=sync_log_id,
+                status="success",
+                response_payload=template,
+            )
+            return template
+        except AppError:
+            raise
+        except Exception as exc:
+            await finalize_integration_sync_log_isolated(
+                sync_log_id=sync_log_id,
+                status="failed",
+                error_message=str(exc),
+            )
+            raise AppError(
+                status_code=503,
+                error_code="EXTERNAL_SERVICE_UNAVAILABLE",
+                message="WhatAPI request failed",
+            ) from exc
 
     async def send_template_message(
         self,
