@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -68,6 +70,50 @@ async def seed_family_onboard_platform_defaults(test_db_session: AsyncSession) -
             "diagnostic_provider = EXCLUDED.diagnostic_provider, "
             "external_package_code = EXCLUDED.external_package_code, status = EXCLUDED.status"
         )
+    )
+    await test_db_session.commit()
+
+
+def _family_onboard_type_defaults_entry(*, auto_booking: bool) -> dict:
+    return {
+        "assessment_package_id": 1,
+        "diagnostic_package_id": 6,
+        "blood_collection_type": "home_collection",
+        "create_profile_on_metsights": True,
+        "enroll_for_fitprint_full": False,
+        "auto_booking": auto_booking,
+        "slot_duration": 20,
+        "payment_type": "paid_by_patient",
+    }
+
+
+async def seed_family_onboard_b2c_onboarding_settings(
+    test_db_session: AsyncSession,
+    *,
+    auto_booking: bool = False,
+    engagement_type_code: str = "bio_ai",
+) -> None:
+    """Seed packages and per-type B2C onboarding defaults (including auto_booking)."""
+    await seed_family_onboard_platform_defaults(test_db_session)
+    by_type = {engagement_type_code: _family_onboard_type_defaults_entry(auto_booking=auto_booking)}
+    await test_db_session.execute(
+        text(
+            "INSERT INTO platform_settings "
+            "(settings_id, b2c_default_assessment_package_id, b2c_default_diagnostic_package_id, "
+            "b2c_default_engagement_type, b2c_default_blood_collection_type, "
+            "b2c_default_create_profile_on_metsights, b2c_default_enroll_for_fitprint_full, "
+            "b2c_onboarding_by_engagement_type) "
+            "VALUES (1, 1, 6, 'bio_ai', 'home_collection', true, false, CAST(:by_type AS jsonb)) "
+            "ON CONFLICT (settings_id) DO UPDATE SET "
+            "b2c_default_assessment_package_id = EXCLUDED.b2c_default_assessment_package_id, "
+            "b2c_default_diagnostic_package_id = EXCLUDED.b2c_default_diagnostic_package_id, "
+            "b2c_default_engagement_type = EXCLUDED.b2c_default_engagement_type, "
+            "b2c_default_blood_collection_type = EXCLUDED.b2c_default_blood_collection_type, "
+            "b2c_default_create_profile_on_metsights = EXCLUDED.b2c_default_create_profile_on_metsights, "
+            "b2c_default_enroll_for_fitprint_full = EXCLUDED.b2c_default_enroll_for_fitprint_full, "
+            "b2c_onboarding_by_engagement_type = EXCLUDED.b2c_onboarding_by_engagement_type"
+        ),
+        {"by_type": json.dumps(by_type)},
     )
     await test_db_session.commit()
 

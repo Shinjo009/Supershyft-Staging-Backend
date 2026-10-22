@@ -3680,8 +3680,6 @@ class UsersService:
         user_agent: str,
         endpoint: str,
     ) -> FamilyOnboardStartResponse:
-        from modules.engagements.service import _resolve_auto_booking
-
         if self._engagements_service is None or self._platform_settings_service is None:
             raise RuntimeError("Engagements and platform settings services are required")
 
@@ -3772,14 +3770,6 @@ class UsersService:
                 ),
             )
             engagement.status = "draft"
-            db.add(engagement)
-
-            want_auto_booking = bool((member.blood_collection_time_slot_id or "").strip())
-            if want_auto_booking:
-                engagement.auto_booking = _resolve_auto_booking(
-                    auto_booking=True,
-                    blood_collection_type=onboarding_defaults.blood_collection_type,
-                )
             db.add(engagement)
             await db.flush()
 

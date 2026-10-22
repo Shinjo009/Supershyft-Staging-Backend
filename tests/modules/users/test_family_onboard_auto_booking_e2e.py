@@ -1,37 +1,36 @@
-"""Auto-booking behavior for family onboard (camp vs home collection)."""
+"""Auto-booking behavior for family onboard respects platform settings."""
 
 from __future__ import annotations
 
 import pytest
 from sqlalchemy import text
 
-from tests.modules.users.family_onboard_helpers import seed_family_onboard_platform_defaults
+from tests.modules.users.family_onboard_helpers import (
+    seed_family_onboard_b2c_onboarding_settings,
+    seed_family_onboard_platform_defaults,
+)
 
-
-@pytest.mark.asyncio
-async def test_family_onboard_auto_booking_set_when_slot_id_provided(async_client, test_db_session):
-    await seed_family_onboard_platform_defaults(test_db_session)
-    payload = {
-        "booker": {
-            "name": "Adi Kumar",
-            "phone": "9000100301",
-            "email": "adi.auto@example.com",
+_FAMILY_ONBOARD_WITH_SLOT = {
+    "booker": {
+        "name": "Adi Kumar",
+        "phone": "9000100301",
+        "email": "adi.auto@example.com",
+    },
+    "members": [
+        {
+            "name": "Member One",
+            "phone": "9000100302",
+            "relation": "child",
+            "age": 20,
+            "blood_collection_date": "2026-04-01",
+            "blood_collection_time_slot": "09:30",
+            "blood_collection_time_slot_id": "slot-test-123",
         },
-        "members": [
-            {
-                "name": "Member One",
-                "phone": "9000100302",
-                "relation": "child",
-                "age": 20,
-                "blood_collection_date": "2026-04-01",
-                "blood_collection_time_slot": "09:30",
-                "blood_collection_time_slot_id": "slot-test-123",
-            },
-        ],
-    }
-    response = await async_client.post("/users/public/family-onboard", json=payload)
-    assert response.status_code == 200
-    engagement_id = response.json()["data"]["members"][0]["engagement_id"]
+    ],
+}
+
+
+async def _engagement_auto_booking(test_db_session, engagement_id: int) -> bool | None:
     row = (
         await test_db_session.execute(
             text("SELECT auto_booking FROM engagements WHERE engagement_id = :eid"),
@@ -39,5 +38,28 @@ async def test_family_onboard_auto_booking_set_when_slot_id_provided(async_clien
         )
     ).first()
     assert row is not None
-    # Platform default is typically home_collection; slot id enables auto_booking.
-    assert row.auto_booking is True
+    return row.auto_booking
+
+
+@pytest.mark.asyncio
+async def test_family_onboard_auto_booking_false_when_settings_no_despite_slot_id(
+    async_client,
+    test_db_session,
+):
+    await seed_family_onboard_platform_defaults(test_db_session)
+    response = await async_client.post("/users/public/family-onboard", json=_FAMILY_ONBOARD_WITH_SLOT)
+    assert response.status_code == 200
+    engagement_id = response.json()["data"]["members"][0]["engagement_id"]
+    assert await _engagement_auto_booking(test_db_session, engagement_id) is False
+
+
+@pytest.mark.asyncio
+async def test_family_onboard_auto_booking_true_when_settings_yes_and_slot_id(
+    async_client,
+    test_db_session,
+):
+    await seed_family_onboard_b2c_onboarding_settings(test_db_session, auto_booking=True)
+    response = await async_client.post("/users/public/family-onboard", json=_FAMILY_ONBOARD_WITH_SLOT)
+    assert response.status_code == 200
+    engagement_id = response.json()["data"]["members"][0]["engagement_id"]
+    assert await _engagement_auto_booking(test_db_session, engagement_id) is True
