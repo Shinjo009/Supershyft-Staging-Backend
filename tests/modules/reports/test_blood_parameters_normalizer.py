@@ -25,6 +25,8 @@ class _TestRow:
 class _GroupRow:
     group_name: str
     tests: list[_TestRow]
+    has_allergy_screening: bool = False
+    has_cancer_screening: bool = False
 
 
 def test_build_grouped_from_healthians_matches_package_structure():
@@ -78,6 +80,32 @@ def test_build_grouped_from_healthians_matches_package_structure():
     assert test["provider_test_name"] == "Hemoglobin Hb"
     assert "external_parameter_code" not in test
     assert "healthians_parameter_id" not in test
+    assert grouped[0]["has_allergy_screening"] is False
+    assert grouped[0]["has_cancer_screening"] is False
+
+
+def test_build_grouped_from_healthians_copies_screening_flags():
+    raw = {"digital_data": []}
+    package_groups = [
+        _GroupRow(
+            group_name="Allergy Profile",
+            tests=[
+                _TestRow(
+                    test_id=1,
+                    parameter_type="test",
+                    test_name="IgE",
+                    parameter_key="ige",
+                    unit=None,
+                    healthians_parameter_key=None,
+                )
+            ],
+            has_allergy_screening=True,
+            has_cancer_screening=False,
+        )
+    ]
+    grouped, _ = build_grouped_from_healthians(raw, package_groups=package_groups)
+    assert grouped[0]["has_allergy_screening"] is True
+    assert grouped[0]["has_cancer_screening"] is False
 
 
 def test_build_grouped_includes_unmatched_tests_with_null_values():

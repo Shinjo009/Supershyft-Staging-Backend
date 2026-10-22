@@ -33,6 +33,17 @@ def _parameter_type_value(parameter_type: Any) -> str:
 _METSIGHTS_FLAT_METADATA_KEYS = frozenset({"id", "is_complete", "created_at", "updated_at"})
 
 
+def _stored_group_screening_flags(group: dict[str, Any]) -> tuple[bool, bool]:
+    return bool(group.get("has_allergy_screening")), bool(group.get("has_cancer_screening"))
+
+
+def _package_group_screening_flags(group: Any) -> tuple[bool, bool]:
+    return (
+        bool(getattr(group, "has_allergy_screening", False)),
+        bool(getattr(group, "has_cancer_screening", False)),
+    )
+
+
 def _store_parameter_value(
     result: dict[str, tuple[float, str | None]],
     *,
@@ -142,11 +153,14 @@ class BloodParametersReadService:
                         provider_test_name=test.get("provider_test_name"),
                     )
                 )
+            allergy, cancer = _stored_group_screening_flags(group)
             groups.append(
                 BloodParameterGroupInReportResponse(
                     group_name=str(group.get("group_name") or ""),
                     test_count=len(tests),
                     tests=tests,
+                    has_allergy_screening=allergy,
+                    has_cancer_screening=cancer,
                 )
             )
         return groups
@@ -253,11 +267,14 @@ class BloodParametersReadService:
                     )
                 )
 
+            allergy, cancer = _package_group_screening_flags(group)
             groups.append(
                 BloodParameterGroupInReportResponse(
                     group_name=group.group_name,
                     test_count=len(tests),
                     tests=tests,
+                    has_allergy_screening=allergy,
+                    has_cancer_screening=cancer,
                 )
             )
         return groups
@@ -456,11 +473,14 @@ class BloodParametersReadService:
                     )
                 )
 
+            allergy, cancer = _package_group_screening_flags(group)
             groups.append(
                 BloodParameterGroupInReportResponse(
                     group_name=group.group_name,
                     test_count=len(tests),
                     tests=tests,
+                    has_allergy_screening=allergy,
+                    has_cancer_screening=cancer,
                 )
             )
         return groups
@@ -522,11 +542,14 @@ class BloodParametersReadService:
                     )
                 )
 
+            allergy, cancer = _package_group_screening_flags(group)
             groups.append(
                 BloodParameterGroupInReportResponse(
                     group_name=group.group_name,
                     test_count=len(tests),
                     tests=tests,
+                    has_allergy_screening=allergy,
+                    has_cancer_screening=cancer,
                 )
             )
         return groups

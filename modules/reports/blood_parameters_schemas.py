@@ -24,6 +24,8 @@ class GroupedBloodParameterGroup(BaseModel):
     group_name: str
     test_count: int
     tests: list[GroupedBloodParameterTest] = Field(default_factory=list)
+    has_allergy_screening: bool = False
+    has_cancer_screening: bool = False
 
 
 # Legacy canonical format (pre-grouped storage) — kept for migration/read fallbacks.

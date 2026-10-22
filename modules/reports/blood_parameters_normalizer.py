@@ -58,6 +58,13 @@ def _parameter_type_value(parameter_type: Any) -> str:
     return str(parameter_type)
 
 
+def _screening_flags_from_group(group: PackageGroupRow) -> tuple[bool, bool]:
+    return (
+        bool(getattr(group, "has_allergy_screening", False)),
+        bool(getattr(group, "has_cancer_screening", False)),
+    )
+
+
 def _build_digital_data_lookup(raw_customer: dict[str, Any]) -> dict[str, dict[str, Any]]:
     lookup: dict[str, dict[str, Any]] = {}
     digital_data = raw_customer.get("digital_data")
@@ -124,11 +131,14 @@ def build_grouped_from_healthians(
                 )
             )
 
+        allergy, cancer = _screening_flags_from_group(group)
         groups.append(
             GroupedBloodParameterGroup(
                 group_name=group.group_name,
                 test_count=len(tests),
                 tests=tests,
+                has_allergy_screening=allergy,
+                has_cancer_screening=cancer,
             )
         )
 
@@ -184,11 +194,14 @@ def build_grouped_from_canonical(
                 )
             )
 
+        allergy, cancer = _screening_flags_from_group(group)
         groups.append(
             GroupedBloodParameterGroup(
                 group_name=group.group_name,
                 test_count=len(tests),
                 tests=tests,
+                has_allergy_screening=allergy,
+                has_cancer_screening=cancer,
             )
         )
 
@@ -232,11 +245,14 @@ def build_grouped_from_metsights_flat(
                 )
             )
 
+        allergy, cancer = _screening_flags_from_group(group)
         groups.append(
             GroupedBloodParameterGroup(
                 group_name=group.group_name,
                 test_count=len(tests),
                 tests=tests,
+                has_allergy_screening=allergy,
+                has_cancer_screening=cancer,
             )
         )
     return [g.model_dump() for g in groups]

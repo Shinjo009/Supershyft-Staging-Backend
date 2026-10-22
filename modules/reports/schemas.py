@@ -34,6 +34,8 @@ class BloodParameterGroupInReportResponse(BaseModel):
     group_name: str
     test_count: int
     tests: list[BloodParameterTestInReportResponse]
+    has_allergy_screening: bool = False
+    has_cancer_screening: bool = False
 
 
 class BloodParameterTrendPoint(BaseModel):
