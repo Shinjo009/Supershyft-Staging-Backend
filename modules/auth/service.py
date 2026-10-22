@@ -437,14 +437,16 @@ class AuthService:
         *,
         delivery: OtpDelivery,
     ) -> None:
-        """Send OTP via notification dispatch."""
-        await self._notifications_service.dispatch(
+        """Send OTP via notification event engine."""
+        from modules.notifications.engine import emit_notification_event
+
+        channel = _otp_channel_for_service_key(delivery.service_key)
+        event_code = "otp_whatsapp" if channel == "phone" else "otp_email"
+        await emit_notification_event(
             db,
-            payload=DispatchRequest(
-                service_key=delivery.service_key,
-                user_ids=[delivery.user_id],
-                otp=delivery.otp,
-            ),
+            event_code,
+            {"user_id": delivery.user_id, "otp": delivery.otp},
+            notifications_service=self._notifications_service,
         )
 
     async def issue_tokens_for_user(

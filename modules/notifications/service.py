@@ -9,6 +9,7 @@ import logging
 from datetime import datetime, timezone
 
 import httpx
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import settings
@@ -19,11 +20,28 @@ from modules.audit.cron_sync_logging import (
 )
 from modules.metsights.client import MetsightsClient
 from modules.metsights.service import MetsightsService
-from modules.notifications.models import Notification, NotificationService
+from modules.engagement_notifications.service_config import (
+    serialize_for_db,
+    validate_notification_service_configs,
+)
+from modules.notifications.context_builder import (
+    service_needs_bio_ai_report_url,
+    service_needs_blood_report_url,
+    service_needs_external_link,
+    service_needs_otp,
+    service_needs_participant_detail,
+    service_needs_session_details,
+)
+from modules.notifications.direct_dispatch import execute_direct_dispatch
+from modules.notifications.events_catalog import validate_event_binding
+from modules.notifications.whatapi_client import WhatApiClient
+from modules.notifications.models import Notification, NotificationEvent, NotificationService
 from modules.notifications.repository import NotificationsRepository
 from modules.notifications.schemas import (
     CallbackRequest,
     DispatchRequest,
+    EventBindingCreateRequest,
+    EventBindingUpdateRequest,
     NotificationServiceCreate,
     NotificationServiceUpdate,
     SessionDetails,
@@ -40,7 +58,15 @@ from modules.reports.blood_report_resolver import resolve_blood_report_url
 
 logger = logging.getLogger(__name__)
 
-_VALID_NOTIFICATION_STATUSES = frozenset({"pending", "sent", "failed"})
+_VALID_NOTIFICATION_STATUSES = frozenset({
+    "pending",
+    "sent",
+    "failed",
+    "queued",
+    "delivered",
+    "read",
+    "deleted",
+})
 _VALID_NOTIFICATION_CHANNELS = frozenset({"email", "whatsapp"})
 
 
@@ -158,6 +184,8 @@ class NotificationsService:
         *,
         payload: DispatchRequest,
         triggered_by_user_id: int | None = None,
+        event_code: str | None = None,
+        recipient_type: str | None = None,
     ) -> dict:
         svc = await self._repo.get_service_by_key(db, service_key=payload.service_key)
         if svc is None or not svc.is_active:
@@ -177,7 +205,7 @@ class NotificationsService:
                 message=f"Users not found: {missing_ids}",
             )
 
-        if svc.require_participant_detail and not payload.participant_details:
+        if service_needs_participant_detail(svc) and not payload.participant_details:
             raise AppError(
                 status_code=400,
                 error_code="INVALID_INPUT",
@@ -185,14 +213,14 @@ class NotificationsService:
             )
 
         otp_value = (payload.otp or "").strip()
-        if svc.require_otp and not otp_value:
+        if service_needs_otp(svc) and not otp_value:
             raise AppError(
                 status_code=400,
                 error_code="INVALID_INPUT",
                 message="This service requires otp but none was provided",
             )
 
-        if svc.require_session_details:
+        if service_needs_session_details(svc):
             missing_session_details = [
                 uid
                 for uid in payload.user_ids
@@ -209,14 +237,14 @@ class NotificationsService:
                 )
 
         external_link_value = (payload.external_link or "").strip()
-        if svc.require_external_link and not external_link_value:
+        if service_needs_external_link(svc) and not external_link_value:
             raise AppError(
                 status_code=400,
                 error_code="INVALID_INPUT",
                 message="This service requires external_link but none was provided",
             )
 
-        needs_report = svc.require_blood_report_url or svc.require_bio_ai_report_url
+        needs_report = service_needs_blood_report_url(svc) or service_needs_bio_ai_report_url(svc)
 
         if payload.assessment_instance_id is not None and len(payload.user_ids) > 1:
             raise AppError(
@@ -282,7 +310,7 @@ class NotificationsService:
                 ihr = await self._repo.get_health_report_for_instance(
                     db, assessment_instance_id=instance.assessment_instance_id
                 )
-                if svc.require_blood_report_url:
+                if service_needs_blood_report_url(svc):
                     blood_root = await get_current_report_root(
                         db,
                         user_id=user.user_id,
@@ -328,8 +356,8 @@ class NotificationsService:
                         )
                         if archived_urls:
                             member["blood_report_urls"] = archived_urls
-                if svc.require_bio_ai_report_url:
-                    if svc.require_blood_report_url:
+                if service_needs_bio_ai_report_url(svc):
+                    if service_needs_blood_report_url(svc):
                         ihr = await self._repo.get_health_report_for_instance(
                             db, assessment_instance_id=instance.assessment_instance_id
                         )
@@ -378,7 +406,7 @@ class NotificationsService:
             if session_details is not None:
                 member["session_details"] = session_details.model_dump(mode="json", exclude_none=True)
 
-            if svc.require_external_link:
+            if service_needs_external_link(svc):
                 member["external_link"] = external_link_value
 
             members.append(member)
@@ -392,10 +420,11 @@ class NotificationsService:
             assessment_instance_id=resolved_assessment_instance_id,
             message="Notification dispatch initiated",
             triggered_by_user_id=triggered_by_user_id,
+            event_code=event_code,
+            recipient_type=recipient_type,
         )
         notification = await self._repo.create_notification(db, notification)
 
-        webhook_url = settings.NOTIFICATION_SERVICE_BASE_URL.rstrip("/") + "/" + svc.webhook_path.lstrip("/")
         webhook_payload: dict = {
             "notification_id": notification.notification_id,
             "members": members,
@@ -406,59 +435,27 @@ class NotificationsService:
             webhook_payload["participant_details"] = payload.participant_details
 
         sync_log_user_id = payload.user_ids[0] if len(payload.user_ids) == 1 else None
-        sync_log_id = await persist_integration_sync_log_isolated(
-            provider="n8n",
-            api_url=webhook_url,
-            engagement_id=resolved_engagement_id,
-            user_id=sync_log_user_id,
-            request_payload=webhook_payload,
-        )
 
-        webhook_failed = False
-        try:
-            async with httpx.AsyncClient(timeout=settings.NOTIFICATION_SERVICE_TIMEOUT_SECONDS) as client:
-                resp = await client.post(webhook_url, json=webhook_payload)
-                resp.raise_for_status()
-                try:
-                    resp_data = resp.json()
-                except Exception:
-                    resp_data = {"status_code": resp.status_code, "body": resp.text}
-                webhook_message = (
-                    resp_data.get("message", "Webhook called successfully")
-                    if isinstance(resp_data, dict)
-                    else "Webhook called successfully"
-                )
-                await finalize_integration_sync_log_isolated(
-                    sync_log_id=sync_log_id,
-                    status="success",
-                    response_payload=resp_data if isinstance(resp_data, dict) else {"body": resp_data},
-                )
-        except Exception as exc:
-            logger.error("Notification webhook call failed: %s", exc)
-            webhook_message = f"Webhook call failed: {exc}"
-            webhook_failed = True
-            await finalize_integration_sync_log_isolated(
-                sync_log_id=sync_log_id,
-                status="failed",
-                error_message=str(exc),
-            )
-
-        notification_status = "failed" if webhook_failed else notification.status
-        await self._repo.update_notification(
+        queue_id: str | None = None
+        notification_status, webhook_message, queue_id = await execute_direct_dispatch(
             db,
-            notification_id=notification.notification_id,
-            values={
-                "status": notification_status,
-                "message": webhook_message,
-                "dispatched_at": datetime.now(timezone.utc),
-            },
+            repo=self._repo,
+            notification=notification,
+            svc=svc,
+            members=members,
+            participant_details=payload.participant_details,
+            engagement_id=resolved_engagement_id,
+            sync_log_user_id=sync_log_user_id,
         )
 
-        return {
+        response: dict = {
             "notification_id": notification.notification_id,
             "status": notification_status,
             "message": webhook_message,
         }
+        if queue_id is not None:
+            response["queue_id"] = queue_id
+        return response
 
     async def dispatch_to_contacts(
         self,
@@ -470,6 +467,8 @@ class NotificationsService:
         engagement_id: int | None = None,
         participant_details: dict | None = None,
         session_details: SessionDetails | None = None,
+        event_code: str | None = None,
+        recipient_type: str | None = None,
     ) -> dict:
         """Dispatch a notification to raw contacts (no users table lookup).
 
@@ -492,19 +491,19 @@ class NotificationsService:
             )
 
         otp_value = (otp or "").strip()
-        if svc.require_otp and not otp_value:
+        if service_needs_otp(svc) and not otp_value:
             raise AppError(
                 status_code=400,
                 error_code="INVALID_INPUT",
                 message="This service requires otp but none was provided",
             )
-        if svc.require_participant_detail and not participant_details:
+        if service_needs_participant_detail(svc) and not participant_details:
             raise AppError(
                 status_code=400,
                 error_code="INVALID_INPUT",
                 message="This service requires participant_details but none were provided",
             )
-        if svc.require_session_details and session_details is None:
+        if service_needs_session_details(svc) and session_details is None:
             raise AppError(
                 status_code=400,
                 error_code="INVALID_INPUT",
@@ -552,10 +551,11 @@ class NotificationsService:
             assessment_instance_id=None,
             message="Notification dispatch initiated",
             triggered_by_user_id=None,
+            event_code=event_code,
+            recipient_type=recipient_type,
         )
         notification = await self._repo.create_notification(db, notification)
 
-        webhook_url = settings.NOTIFICATION_SERVICE_BASE_URL.rstrip("/") + "/" + svc.webhook_path.lstrip("/")
         webhook_payload: dict = {
             "notification_id": notification.notification_id,
             "members": members,
@@ -565,52 +565,15 @@ class NotificationsService:
         if participant_details:
             webhook_payload["participant_details"] = participant_details
 
-        sync_log_id = await persist_integration_sync_log_isolated(
-            provider="n8n",
-            api_url=webhook_url,
-            engagement_id=engagement_id,
-            user_id=None,
-            request_payload=webhook_payload,
-        )
-
-        webhook_failed = False
-        try:
-            async with httpx.AsyncClient(timeout=settings.NOTIFICATION_SERVICE_TIMEOUT_SECONDS) as client:
-                resp = await client.post(webhook_url, json=webhook_payload)
-                resp.raise_for_status()
-                try:
-                    resp_data = resp.json()
-                except Exception:
-                    resp_data = {"status_code": resp.status_code, "body": resp.text}
-                webhook_message = (
-                    resp_data.get("message", "Webhook called successfully")
-                    if isinstance(resp_data, dict)
-                    else "Webhook called successfully"
-                )
-                await finalize_integration_sync_log_isolated(
-                    sync_log_id=sync_log_id,
-                    status="success",
-                    response_payload=resp_data if isinstance(resp_data, dict) else {"body": resp_data},
-                )
-        except Exception as exc:
-            logger.error("Notification webhook call failed: %s", exc)
-            webhook_message = f"Webhook call failed: {exc}"
-            webhook_failed = True
-            await finalize_integration_sync_log_isolated(
-                sync_log_id=sync_log_id,
-                status="failed",
-                error_message=str(exc),
-            )
-
-        notification_status = "failed" if webhook_failed else notification.status
-        await self._repo.update_notification(
+        notification_status, webhook_message, _queue_id = await execute_direct_dispatch(
             db,
-            notification_id=notification.notification_id,
-            values={
-                "status": notification_status,
-                "message": webhook_message,
-                "dispatched_at": datetime.now(timezone.utc),
-            },
+            repo=self._repo,
+            notification=notification,
+            svc=svc,
+            members=members,
+            participant_details=participant_details,
+            engagement_id=engagement_id,
+            sync_log_user_id=None,
         )
         return {
             "notification_id": notification.notification_id,
@@ -629,7 +592,7 @@ class NotificationsService:
                 status_code=404, error_code="NOT_FOUND", message="Notification not found"
             )
 
-        if notification.status not in ("pending", "failed"):
+        if notification.status not in ("pending", "queued", "failed"):
             raise AppError(
                 status_code=400,
                 error_code="INVALID_STATE",
@@ -662,6 +625,9 @@ class NotificationsService:
             "engagement_id": n.engagement_id,
             "assessment_instance_id": n.assessment_instance_id,
             "message": n.message,
+            "queue_id": n.queue_id,
+            "event_code": n.event_code,
+            "recipient_type": n.recipient_type,
             "triggered_by_user_id": n.triggered_by_user_id,
             "dispatched_at": n.dispatched_at.isoformat() if n.dispatched_at else None,
             "completed_at": n.completed_at.isoformat() if n.completed_at else None,
@@ -774,6 +740,7 @@ class NotificationsService:
         engagement_id: int | None = None,
         dispatched_from: datetime | None = None,
         dispatched_to: datetime | None = None,
+        queue_id: str | None = None,
     ) -> tuple[list[dict], int]:
         statuses = _parse_status_filter(status)
         if channel is not None and channel.strip():
@@ -795,10 +762,15 @@ class NotificationsService:
             "engagement_id": engagement_id,
             "dispatched_from": dispatched_from,
             "dispatched_to": dispatched_to,
+            "queue_id": queue_id,
         }
         items = await self._repo.list_notifications(db, page=page, limit=limit, **filter_kwargs)
         total = await self._repo.count_notifications(db, **filter_kwargs)
         return await self._enrich_notification_list_items(db, items), total
+
+    async def get_whatsapp_template(self, *, name: str) -> dict:
+        client = WhatApiClient()
+        return await client.get_message_template(name)
 
     # ── Service CRUD ────────────────────────────────────────────────────
 
@@ -819,14 +791,12 @@ class NotificationsService:
             service_key=payload.service_key,
             display_name=payload.display_name,
             channel=payload.channel,
-            webhook_path=payload.webhook_path,
             is_active=payload.is_active,
-            require_blood_report_url=payload.require_blood_report_url,
-            require_bio_ai_report_url=payload.require_bio_ai_report_url,
-            require_participant_detail=payload.require_participant_detail,
-            require_otp=payload.require_otp,
-            require_session_details=payload.require_session_details,
-            require_external_link=payload.require_external_link,
+            template_name=payload.template_name,
+            template_variables=payload.template_variables,
+            email_subject=payload.email_subject,
+            email_body=payload.email_body,
+            email_html=payload.email_html,
         )
         return await self._repo.create_service(db, svc)
 
@@ -848,22 +818,18 @@ class NotificationsService:
             svc.display_name = payload.display_name
         if payload.channel is not None:
             svc.channel = payload.channel
-        if payload.webhook_path is not None:
-            svc.webhook_path = payload.webhook_path
         if payload.is_active is not None:
             svc.is_active = payload.is_active
-        if payload.require_blood_report_url is not None:
-            svc.require_blood_report_url = payload.require_blood_report_url
-        if payload.require_bio_ai_report_url is not None:
-            svc.require_bio_ai_report_url = payload.require_bio_ai_report_url
-        if payload.require_participant_detail is not None:
-            svc.require_participant_detail = payload.require_participant_detail
-        if payload.require_otp is not None:
-            svc.require_otp = payload.require_otp
-        if payload.require_session_details is not None:
-            svc.require_session_details = payload.require_session_details
-        if payload.require_external_link is not None:
-            svc.require_external_link = payload.require_external_link
+        if payload.template_name is not None:
+            svc.template_name = payload.template_name
+        if payload.template_variables is not None:
+            svc.template_variables = payload.template_variables
+        if payload.email_subject is not None:
+            svc.email_subject = payload.email_subject
+        if payload.email_body is not None:
+            svc.email_body = payload.email_body
+        if payload.email_html is not None:
+            svc.email_html = payload.email_html
         return await self._repo.update_service(db, svc)
 
     async def delete_notification(
@@ -925,3 +891,99 @@ class NotificationsService:
                 status_code=404, error_code="NOT_FOUND", message="Service not found"
             )
         return {"notification_service_id": notification_service_id, "deleted": True}
+
+    # ── Event bindings (notification_events table) ───────────────────────
+
+    @staticmethod
+    def _event_binding_dict(row: NotificationEvent) -> dict:
+        return {
+            "id": row.id,
+            "event_code": row.event_code,
+            "event_name": row.event_name,
+            "recipient_type": row.recipient_type,
+            "notification_services": row.notification_services or [],
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+
+    async def list_event_bindings(self, db: AsyncSession) -> list[dict]:
+        rows = await self._repo.list_event_bindings(db)
+        return [self._event_binding_dict(r) for r in rows]
+
+    async def create_event_binding(
+        self, db: AsyncSession, *, payload: EventBindingCreateRequest
+    ) -> dict:
+        try:
+            catalog = validate_event_binding(payload.event_code, payload.recipient_type)
+        except ValueError as exc:
+            raise AppError(
+                status_code=400, error_code="INVALID_INPUT", message=str(exc)
+            ) from exc
+
+        raw_services = [item.model_dump(mode="json") for item in payload.notification_services]
+        configs = await validate_notification_service_configs(
+            db, notification_services=raw_services
+        )
+        row = NotificationEvent(
+            event_code=payload.event_code,
+            event_name=payload.event_name or catalog.event_name,
+            recipient_type=payload.recipient_type,
+            notification_services=serialize_for_db(configs),
+        )
+        try:
+            created = await self._repo.create_event_binding(db, row)
+        except IntegrityError as exc:
+            raise AppError(
+                status_code=409,
+                error_code="CONFLICT",
+                message="Binding already exists for this event_code and recipient_type",
+            ) from exc
+        return self._event_binding_dict(created)
+
+    async def update_event_binding(
+        self,
+        db: AsyncSession,
+        *,
+        binding_id: int,
+        payload: EventBindingUpdateRequest,
+    ) -> dict:
+        row = await self._repo.get_event_binding_by_id(db, binding_id=binding_id)
+        if row is None:
+            raise AppError(
+                status_code=404, error_code="NOT_FOUND", message="Event binding not found"
+            )
+
+        new_code = row.event_code
+        new_recipient = payload.recipient_type or row.recipient_type
+        try:
+            validate_event_binding(new_code, new_recipient)
+        except ValueError as exc:
+            raise AppError(
+                status_code=400, error_code="INVALID_INPUT", message=str(exc)
+            ) from exc
+
+        if payload.event_name is not None:
+            row.event_name = payload.event_name
+        if payload.recipient_type is not None:
+            row.recipient_type = payload.recipient_type
+        if payload.notification_services is not None:
+            raw = [item.model_dump(mode="json") for item in payload.notification_services]
+            configs = await validate_notification_service_configs(db, notification_services=raw)
+            row.notification_services = serialize_for_db(configs)
+
+        try:
+            updated = await self._repo.update_event_binding(db, row)
+        except IntegrityError as exc:
+            raise AppError(
+                status_code=409,
+                error_code="CONFLICT",
+                message="Binding already exists for this event_code and recipient_type",
+            ) from exc
+        return self._event_binding_dict(updated)
+
+    async def delete_event_binding(self, db: AsyncSession, *, binding_id: int) -> dict:
+        deleted = await self._repo.delete_event_binding(db, binding_id=binding_id)
+        if deleted < 1:
+            raise AppError(
+                status_code=404, error_code="NOT_FOUND", message="Event binding not found"
+            )
+        return {"id": binding_id, "deleted": True}

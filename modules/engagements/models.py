@@ -299,29 +299,23 @@ class EngagementType(Base):
     is_active = Column(Boolean, nullable=False, default=True, server_default="true")
 
 
-class AutoNotificationEvent(Base):
-    """SQLAlchemy model for `auto_notification_events` table."""
-
-    __tablename__ = "auto_notification_events"
-
-    id = Column(Integer, primary_key=True)
-    engagement_type_ids = Column(ARRAY(Integer), nullable=False)
-    event_code = Column(String, unique=True, nullable=False)
-    display_name = Column(String, nullable=False)
-    description = Column(Text, nullable=True)
-
-
 class EngagementNotification(Base):
     """SQLAlchemy model for `engagement_notifications` table."""
 
     __tablename__ = "engagement_notifications"
     __table_args__ = (
-        UniqueConstraint("engagement_id", "notification_event_id", name="uq_engagement_notification_event"),
+        UniqueConstraint(
+            "engagement_id",
+            "event_code",
+            "recipient_type",
+            name="uq_engagement_notification_event_recipient",
+        ),
     )
 
     id = Column(Integer, primary_key=True)
     engagement_id = Column(Integer, ForeignKey("engagements.engagement_id"), nullable=False)
-    notification_event_id = Column(Integer, ForeignKey("auto_notification_events.id"), nullable=False)
+    event_code = Column(String, nullable=False)
+    recipient_type = Column(String, nullable=False)
     notification_services = Column(JSON, nullable=False)
 
 
@@ -349,15 +343,3 @@ class EngagementFeedback(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
-class EngagementNotificationDefault(Base):
-    """SQLAlchemy model for `engagement_notification_defaults` table."""
-
-    __tablename__ = "engagement_notification_defaults"
-    __table_args__ = (
-        UniqueConstraint("engagement_type_id", "notification_event_id", name="uq_notification_default_type_event"),
-    )
-
-    id = Column(Integer, primary_key=True)
-    engagement_type_id = Column(Integer, ForeignKey("engagement_types.id"), nullable=False)
-    notification_event_id = Column(Integer, ForeignKey("auto_notification_events.id"), nullable=False)
-    notification_services = Column(JSON, nullable=False)

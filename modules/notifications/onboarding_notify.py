@@ -1,4 +1,4 @@
-"""Dispatch onboarding notifications to assigned partners when a user enrolls."""
+"""Dispatch onboarding notifications via the event engine."""
 
 from __future__ import annotations
 
@@ -6,19 +6,15 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.engagement_notifications.repository import EngagementNotificationsRepository
-from modules.engagements.repository import EngagementsRepository
-from modules.notifications.repository import NotificationsRepository
+from modules.notifications.engine import emit_notification_event
 from modules.notifications.service import NotificationsService
 
 logger = logging.getLogger(__name__)
 
-# DispatchRequest.validate_nested_strings rejects empty strings; use a hyphen placeholder.
 _MISSING_DETAIL = "-"
 
 
 def detail_or_hyphen(value: object | None) -> str:
-    """Return a non-empty string for notification participant_details fields."""
     if value is None:
         return _MISSING_DETAIL
     text = str(value).strip()
@@ -69,67 +65,28 @@ async def notify_onboarding_assistants_on_enrollment(
     db: AsyncSession,
     *,
     notifications_service: NotificationsService,
-    notifications_repository: NotificationsRepository,
-    engagements_repository: EngagementsRepository,
+    notifications_repository=None,
+    engagements_repository=None,
     engagement,
     participant_user_id: int,
     participant_details: dict[str, str] | None,
 ) -> None:
-    """Dispatch each configured onboarding notification service to assigned partners."""
-    en_repo = EngagementNotificationsRepository()
-    service_keys = await en_repo.get_services_for_engagement_event(
-        db, engagement_id=int(engagement.engagement_id), event_code="onboarding"
-    )
-    if not service_keys:
-        return
-
-    contacts = await engagements_repository.list_onboarding_assistant_notify_contacts(
-        db, engagement_id=int(engagement.engagement_id), include_employees=True
-    )
-    if not contacts:
-        return
-
+    """Emit onboarding event for assigned onboarding assistants."""
     details = _with_participant_user_id(participant_details, participant_user_id)
-    engagement_id = int(engagement.engagement_id)
-
-    for service_key in service_keys:
-        try:
-            svc = await notifications_repository.get_service_by_key(db, service_key=service_key)
-            if svc is None:
-                logger.warning(
-                    "Onboarding notification skipped: service_key=%s not found (engagement_id=%s)",
-                    service_key,
-                    engagement_id,
-                )
-                continue
-            if not svc.is_active:
-                logger.warning(
-                    "Onboarding notification skipped: service_key=%s inactive (engagement_id=%s)",
-                    service_key,
-                    engagement_id,
-                )
-                continue
-
-            if svc.require_participant_detail and not participant_details:
-                logger.warning(
-                    "Onboarding notification skipped: service_key=%s requires participant_details "
-                    "(engagement_id=%s)",
-                    service_key,
-                    engagement_id,
-                )
-                continue
-
-            await notifications_service.dispatch_to_contacts(
-                db,
-                service_key=service_key,
-                contacts=contacts,
-                engagement_id=engagement_id,
-                participant_details=details,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Onboarding assistant notification failed for engagement_id=%s service_key=%s: %s",
-                engagement_id,
-                service_key,
-                str(exc),
-            )
+    try:
+        await emit_notification_event(
+            db,
+            "onboarding",
+            {
+                "user_id": participant_user_id,
+                "participant_details": details,
+            },
+            engagement_id=int(engagement.engagement_id),
+            notifications_service=notifications_service,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Onboarding notification failed for engagement_id=%s: %s",
+            engagement.engagement_id,
+            exc,
+        )

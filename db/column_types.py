@@ -39,6 +39,10 @@ STATUS_NOTIFICATION: dict[str, int] = {
     "pending": 1,
     "sent": 2,
     "failed": 3,
+    "queued": 4,
+    "delivered": 5,
+    "read": 6,
+    "deleted": 7,
 }
 
 STATUS_CHECKLIST_TASK: dict[str, int] = {
@@ -256,6 +260,7 @@ class IntegrationProvider(str, enum.Enum):
     google_maps = "google_maps"
     nominatim = "nominatim"
     orange_health = "orange_health"
+    whatapi = "whatapi"
 
 
 class UserGender(str, enum.Enum):

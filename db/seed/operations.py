@@ -413,10 +413,28 @@ async def reset_sequences(session: AsyncSession) -> None:
     )
 
 
+def _template_variables_for_seed(seed: SeedNotificationService) -> list[str] | None:
+    placeholders: list[str] = []
+    if seed.require_otp:
+        placeholders.append("{{otp}}")
+    if seed.require_blood_report_url:
+        placeholders.append("{{blood_report_url}}")
+    if seed.require_bio_ai_report_url:
+        placeholders.append("{{bio_ai_report_url}}")
+    if seed.require_participant_detail:
+        placeholders.extend(["{{first_name}}", "{{participant_details}}"])
+    if seed.require_session_details:
+        placeholders.append("{{session_details}}")
+    if seed.require_external_link:
+        placeholders.append("{{external_link}}")
+    return placeholders or None
+
+
 async def upsert_notification_services(
     session: AsyncSession, services: Iterable[SeedNotificationService]
 ) -> None:
     for seed in services:
+        template_variables = _template_variables_for_seed(seed)
         result = await session.execute(
             select(NotificationService).where(NotificationService.service_key == seed.service_key)
         )
@@ -427,27 +445,16 @@ async def upsert_notification_services(
                     service_key=seed.service_key,
                     display_name=seed.display_name,
                     channel=seed.channel,
-                    webhook_path=seed.webhook_path,
                     is_active=seed.is_active,
-                    require_blood_report_url=seed.require_blood_report_url,
-                    require_bio_ai_report_url=seed.require_bio_ai_report_url,
-                    require_participant_detail=seed.require_participant_detail,
-                    require_otp=seed.require_otp,
-                    require_session_details=seed.require_session_details,
-                    require_external_link=seed.require_external_link,
+                    template_variables=template_variables,
                 )
             )
         else:
             existing.display_name = seed.display_name
             existing.channel = seed.channel
-            existing.webhook_path = seed.webhook_path
             existing.is_active = seed.is_active
-            existing.require_blood_report_url = seed.require_blood_report_url
-            existing.require_bio_ai_report_url = seed.require_bio_ai_report_url
-            existing.require_participant_detail = seed.require_participant_detail
-            existing.require_otp = seed.require_otp
-            existing.require_session_details = seed.require_session_details
-            existing.require_external_link = seed.require_external_link
+            if template_variables is not None:
+                existing.template_variables = template_variables
 
 
 async def upsert_default_platform_settings(session: AsyncSession) -> None:

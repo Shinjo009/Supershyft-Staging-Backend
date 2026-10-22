@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.engagements.repository import EngagementsRepository
 from modules.notifications.pretest_reminders import tomorrow_in_ist
+from modules.notifications.engine import emit_notification_event
 from modules.notifications.service import NotificationsService
 from modules.partners.models import PartnerRole
 
@@ -95,30 +96,32 @@ async def dispatch_booking_guide_reminders(
             matched += 1
             partner_id = contact.get("partner_id")
             try:
-                dispatched_any = False
-                skipped_all = True
-                for cfg in service_configs:
-                    sk = cfg.service_key
-                    skipped_all = False
-                    await notifications_service.dispatch_to_contacts(
-                        db,
-                        service_key=sk,
-                        contacts=[contact],
-                        engagement_id=engagement_id,
-                    )
-                    dispatched_any = True
+                ids = await emit_notification_event(
+                    db,
+                    "booking_guide",
+                    {
+                        "contacts": [contact],
+                        "partner_role": PartnerRole.phlebo.value,
+                    },
+                    engagement_id=engagement_id,
+                    notifications_service=notifications_service,
+                )
+                if ids:
+                    sent += 1
                     details.append({
                         "partner_id": partner_id,
                         "engagement_id": engagement_id,
-                        "service_key": sk,
                         "action": "sent",
-                        "reason": f"dispatched '{sk}'",
+                        "reason": "dispatched booking_guide",
                     })
-
-                if dispatched_any:
-                    sent += 1
-                elif skipped_all:
+                else:
                     skipped += 1
+                    details.append({
+                        "partner_id": partner_id,
+                        "engagement_id": engagement_id,
+                        "action": "skipped",
+                        "reason": "no bindings or deduped",
+                    })
             except Exception as exc:
                 failed += 1
                 details.append({

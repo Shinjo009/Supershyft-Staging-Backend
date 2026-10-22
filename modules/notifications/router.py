@@ -20,10 +20,13 @@ from modules.notifications.dependencies import (
     get_notifications_service,
 )
 from modules.notifications.questionnaire_reminders import dispatch_questionnaire_reminders
+from modules.notifications.events_catalog import get_events_catalog
 from modules.notifications.schemas import (
     BulkDeleteNotificationsRequest,
     CallbackRequest,
     DispatchRequest,
+    EventBindingCreateRequest,
+    EventBindingUpdateRequest,
     NotificationServiceCreate,
     NotificationServiceUpdate,
     PrepareReportsRequest,
@@ -43,14 +46,12 @@ def _service_dict(s) -> dict:
         "service_key": s.service_key,
         "display_name": s.display_name,
         "channel": s.channel,
-        "webhook_path": s.webhook_path,
         "is_active": s.is_active,
-        "require_blood_report_url": s.require_blood_report_url,
-        "require_bio_ai_report_url": s.require_bio_ai_report_url,
-        "require_participant_detail": s.require_participant_detail,
-        "require_otp": s.require_otp,
-        "require_session_details": s.require_session_details,
-        "require_external_link": s.require_external_link,
+        "template_name": s.template_name,
+        "template_variables": s.template_variables,
+        "email_subject": s.email_subject,
+        "email_body": s.email_body,
+        "email_html": s.email_html,
         "created_at": s.created_at.isoformat() if s.created_at else None,
     }
 
@@ -154,6 +155,7 @@ async def list_notifications(
     engagement_id: int | None = None,
     dispatched_from: datetime | None = None,
     dispatched_to: datetime | None = None,
+    queue_id: str | None = None,
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
     svc: NotificationsService = Depends(get_notifications_service),
@@ -171,6 +173,7 @@ async def list_notifications(
         engagement_id=engagement_id,
         dispatched_from=dispatched_from,
         dispatched_to=dispatched_to,
+        queue_id=queue_id,
     )
     return success_response(
         items,
@@ -227,6 +230,76 @@ async def delete_service(
     result = await svc.delete_service(
         db, notification_service_id=notification_service_id
     )
+    await db.commit()
+    return success_response(result)
+
+
+@router.get("/events/catalog")
+async def get_notification_events_catalog(
+    employee: EmployeeContext = Depends(get_current_employee),
+):
+    _ = employee
+    return success_response(get_events_catalog())
+
+
+@router.get("/whatsapp-templates")
+async def get_whatsapp_template_proxy(
+    name: str,
+    employee: EmployeeContext = Depends(get_current_employee),
+    svc: NotificationsService = Depends(get_notifications_service),
+):
+    _ = employee
+    data = await svc.get_whatsapp_template(name=name)
+    return success_response(data)
+
+
+@router.get("/event-bindings")
+async def list_event_bindings(
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    svc: NotificationsService = Depends(get_notifications_service),
+):
+    _ = employee
+    items = await svc.list_event_bindings(db)
+    return success_response(items)
+
+
+@router.post("/event-bindings", status_code=201)
+async def create_event_binding(
+    payload: EventBindingCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    svc: NotificationsService = Depends(get_notifications_service),
+):
+    _ = employee
+    result = await svc.create_event_binding(db, payload=payload)
+    await db.commit()
+    return success_response(result)
+
+
+@router.put("/event-bindings/{binding_id}")
+async def update_event_binding(
+    binding_id: int,
+    payload: EventBindingUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    svc: NotificationsService = Depends(get_notifications_service),
+):
+    _ = employee
+    result = await svc.update_event_binding(db, binding_id=binding_id, payload=payload)
+    await db.commit()
+    return success_response(result)
+
+
+@router.delete("/event-bindings/{binding_id}")
+async def delete_event_binding(
+    binding_id: int,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    svc: NotificationsService = Depends(get_notifications_service),
+):
+    _ = employee
+    result = await svc.delete_event_binding(db, binding_id=binding_id)
     await db.commit()
     return success_response(result)
 

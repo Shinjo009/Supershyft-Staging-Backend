@@ -35,20 +35,24 @@ async def _seed_dependencies(test_db_session) -> None:
             "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
-    for service_key, channel, webhook_path in (
-        (PRETEST_WHATSAPP_KEY, "whatsapp", "pretest-whatsapp-1+1-v1"),
-        (PRETEST_EMAIL_KEY, "email", "pretest-email-1+1-v1"),
-        ("custom-pretest-only", "email", "custom-pretest-only"),
+    for service_key, channel in (
+        (PRETEST_WHATSAPP_KEY, "whatsapp"),
+        (PRETEST_EMAIL_KEY, "email"),
+        ("custom-pretest-only", "email"),
     ):
         await test_db_session.execute(
             text(
                 "INSERT INTO notification_services "
-                "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, "
-                "require_bio_ai_report_url, require_participant_detail, require_session_details) "
-                "VALUES (:sk, :dn, :ch, :wp, true, false, false, false, true) "
-                "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_session_details = true"
+                "(service_key, display_name, channel, is_active, template_variables) "
+                "VALUES (:sk, :dn, :ch, true, CAST(:vars AS jsonb)) "
+                "ON CONFLICT (service_key) DO UPDATE SET is_active = true, template_variables = EXCLUDED.template_variables"
             ),
-            {"sk": service_key, "dn": service_key, "ch": channel, "wp": webhook_path},
+            {
+                "sk": service_key,
+                "dn": service_key,
+                "ch": channel,
+                "vars": '["{{session_details}}"]',
+            },
         )
     await test_db_session.execute(
         text(
@@ -63,24 +67,7 @@ async def _seed_dependencies(test_db_session) -> None:
         )
     ).one()
     type_id = int(type_row[0])
-    await test_db_session.execute(
-        text(
-            "INSERT INTO auto_notification_events (event_code, display_name, engagement_type_ids, description) "
-            "VALUES ('pretest_guidelines', 'Pretest Guidelines', :type_ids, 'Test pretest event') "
-            "ON CONFLICT (event_code) DO UPDATE SET display_name = EXCLUDED.display_name"
-        ),
-        {"type_ids": [type_id]},
-    )
     await test_db_session.commit()
-
-
-async def _pretest_event_id(test_db_session) -> int:
-    row = (
-        await test_db_session.execute(
-            text("SELECT id FROM auto_notification_events WHERE event_code = 'pretest_guidelines'")
-        )
-    ).one()
-    return int(row[0])
 
 
 async def _bind_pretest_services(
@@ -89,7 +76,6 @@ async def _bind_pretest_services(
     engagement_id: int,
     service_keys: str = DEFAULT_PRETEST_KEYS,
 ) -> None:
-    evt_id = await _pretest_event_id(test_db_session)
     services_json = json.dumps(
         [
             {"service_key": key.strip(), "external_link": None}
@@ -99,12 +85,12 @@ async def _bind_pretest_services(
     )
     await test_db_session.execute(
         text(
-            "INSERT INTO engagement_notifications (engagement_id, notification_event_id, notification_services) "
-            "VALUES (:eid, :evt, CAST(:services AS jsonb)) "
-            "ON CONFLICT (engagement_id, notification_event_id) DO UPDATE "
+            "INSERT INTO engagement_notifications (engagement_id, event_code, notification_services) "
+            "VALUES (:eid, 'pretest_guidelines', CAST(:services AS jsonb)) "
+            "ON CONFLICT (engagement_id, event_code) DO UPDATE "
             "SET notification_services = EXCLUDED.notification_services"
         ),
-        {"eid": engagement_id, "evt": evt_id, "services": services_json},
+        {"eid": engagement_id, "services": services_json},
     )
 
 

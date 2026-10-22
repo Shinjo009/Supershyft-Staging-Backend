@@ -327,15 +327,14 @@ async def _get_eligible_participants(
 
     FitPrint (type 7) fitness reports are loaded separately — they are not BioAI reports.
     """
-    from modules.engagements.models import AutoNotificationEvent, EngagementNotification
+    from modules.engagements.models import EngagementNotification
 
     en_sub = (
         select(
             EngagementNotification.engagement_id,
             EngagementNotification.notification_services,
         )
-        .join(AutoNotificationEvent, AutoNotificationEvent.id == EngagementNotification.notification_event_id)
-        .where(AutoNotificationEvent.event_code == "bioai_report_ready")
+        .where(EngagementNotification.event_code == "bioai_report_ready")
         .subquery("en_bioai")
     )
 
@@ -983,6 +982,7 @@ async def load_bioai_reports(
                         engagement_id=engagement_id,
                         assessment_instance_id=instance_id,
                         details=details,
+                        event_code="bioai_report_ready",
                     )
                     await db.commit()
 

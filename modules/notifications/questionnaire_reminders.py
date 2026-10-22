@@ -13,8 +13,7 @@ from modules.assessments.models import AssessmentInstance, AssessmentPackage
 from modules.assessments.package_questions_service import AssessmentPackageCategoriesService
 from modules.engagements.repository import EngagementsRepository
 from modules.metsights.service import MetsightsService
-from modules.notifications.dedup import should_skip_notification_on_date
-from modules.notifications.schemas import DispatchRequest
+from modules.notifications.engine import emit_notification_event
 from modules.notifications.service import NotificationsService
 
 logger = logging.getLogger(__name__)
@@ -261,54 +260,53 @@ async def dispatch_questionnaire_reminders(
                 })
                 continue
 
-            dispatched_any = False
-            skipped_all = True
-            for cfg in service_configs:
-                sk = cfg.service_key
-                skip_reason = await should_skip_notification_on_date(
+            event_code = (
+                "questionnaire_reminder_before"
+                if reminder_type == "reminder_before"
+                else "questionnaire_reminder_after"
+            )
+            try:
+                ids = await emit_notification_event(
                     db,
-                    service_key=sk,
-                    user_id=user_id,
+                    event_code,
+                    {"user_id": user_id},
                     engagement_id=engagement_id,
-                    reference_date=today,
+                    notifications_service=notifications_service,
+                    dedup_reference_date=today,
                 )
-                if skip_reason:
+                dispatched_any = bool(ids)
+                if dispatched_any:
                     details.append({
                         "user_id": user_id,
                         "engagement_id": engagement_id,
                         "engagement_date": engagement_date.isoformat(),
                         "reminder_type": reminder_type,
-                        "service_key": sk,
-                        "action": "skipped",
-                        "reason": f"notification '{sk}' {skip_reason}",
+                        "action": "sent",
+                        "reason": f"dispatched '{event_code}'",
                     })
-                    continue
-
-                skipped_all = False
-                await notifications_service.dispatch(
-                    db,
-                    payload=DispatchRequest(
-                        service_key=sk,
-                        user_ids=[user_id],
-                        engagement_id=engagement_id,
-                        external_link=cfg.external_link,
-                    ),
-                    triggered_by_user_id=None,
-                )
-                dispatched_any = True
+                else:
+                    details.append({
+                        "user_id": user_id,
+                        "engagement_id": engagement_id,
+                        "engagement_date": engagement_date.isoformat(),
+                        "reminder_type": reminder_type,
+                        "action": "skipped",
+                        "reason": "no bindings or deduped",
+                    })
+            except Exception as exc:
+                dispatched_any = False
                 details.append({
                     "user_id": user_id,
                     "engagement_id": engagement_id,
                     "engagement_date": engagement_date.isoformat(),
                     "reminder_type": reminder_type,
-                    "service_key": sk,
-                    "action": "sent",
-                    "reason": f"dispatched '{sk}'",
+                    "action": "failed",
+                    "reason": str(exc)[:200],
                 })
 
             if dispatched_any:
                 sent += 1
-            elif skipped_all:
+            else:
                 skipped += 1
 
         except Exception as exc:

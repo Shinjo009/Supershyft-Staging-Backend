@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import date
 
+from typing import Any
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from common.validation import (
@@ -83,14 +85,12 @@ class NotificationServiceCreate(BaseModel):
     service_key: ServiceKey
     display_name: SafeDisplayName
     channel: str = Field(..., pattern=r"^(email|whatsapp)$")
-    webhook_path: SafeText
     is_active: bool = True
-    require_blood_report_url: bool = False
-    require_bio_ai_report_url: bool = False
-    require_participant_detail: bool = False
-    require_otp: bool = False
-    require_session_details: bool = False
-    require_external_link: bool = False
+    template_name: str | None = None
+    template_variables: list[Any] | None = None
+    email_subject: str | None = None
+    email_body: str | None = None
+    email_html: str | None = None
 
 
 class BulkDeleteNotificationsRequest(BaseModel):
@@ -100,11 +100,51 @@ class BulkDeleteNotificationsRequest(BaseModel):
 class NotificationServiceUpdate(BaseModel):
     display_name: OptionalSafeDisplayName = None
     channel: str | None = Field(None, pattern=r"^(email|whatsapp)$")
-    webhook_path: OptionalSafeText = None
     is_active: bool | None = None
-    require_blood_report_url: bool | None = None
-    require_bio_ai_report_url: bool | None = None
-    require_participant_detail: bool | None = None
-    require_otp: bool | None = None
-    require_session_details: bool | None = None
-    require_external_link: bool | None = None
+    template_name: str | None = None
+    template_variables: list[Any] | None = None
+    email_subject: str | None = None
+    email_body: str | None = None
+    email_html: str | None = None
+
+
+class EventBindingServiceItem(BaseModel):
+    service_key: str = Field(min_length=1)
+    external_link: str | None = None
+
+    @field_validator("external_link")
+    @classmethod
+    def validate_external_link(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            return None
+        from urllib.parse import urlparse
+
+        parsed = urlparse(stripped)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("external_link must be a valid http(s) URL")
+        return stripped
+
+
+class EventBindingCreateRequest(BaseModel):
+    event_code: SlugKey
+    event_name: SafeDisplayName
+    recipient_type: SafeText
+    notification_services: list[EventBindingServiceItem] = Field(..., min_length=1)
+
+
+class EventBindingUpdateRequest(BaseModel):
+    event_name: OptionalSafeDisplayName = None
+    recipient_type: OptionalSafeText = None
+    notification_services: list[EventBindingServiceItem] | None = None
+
+
+class EventBindingResponse(BaseModel):
+    id: int
+    event_code: str
+    event_name: str
+    recipient_type: str
+    notification_services: list[dict]
+    created_at: str | None = None

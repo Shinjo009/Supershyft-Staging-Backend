@@ -106,7 +106,9 @@ async def validate_notification_service_configs(
                 error_code="INVALID_INPUT",
                 message=f"{prefix}Unknown notification service '{cfg.service_key}'",
             )
-        if svc.require_external_link and not cfg.external_link:
+        from modules.notifications.context_builder import service_needs_external_link
+
+        if service_needs_external_link(svc) and not cfg.external_link:
             raise AppError(
                 status_code=400,
                 error_code="INVALID_INPUT",
@@ -123,8 +125,14 @@ async def prepare_notification_items_for_storage(
 ) -> list[dict]:
     prepared: list[dict] = []
     for item in notifications:
-        event_id = item["notification_event_id"]
-        event_label = f"Event {event_id}"
+        event_code = str(item.get("event_code") or "").strip()
+        if not event_code:
+            legacy_id = item.get("notification_event_id")
+            event_label = f"Event {legacy_id}" if legacy_id else "Event"
+        else:
+            event_label = event_code
+        if not event_code:
+            continue
         configs = await validate_notification_service_configs(
             db,
             notification_services=item.get("notification_services"),
@@ -132,8 +140,26 @@ async def prepare_notification_items_for_storage(
         )
         if not configs:
             continue
+        recipient_type = str(item.get("recipient_type") or "").strip()
+        if not recipient_type:
+            from modules.notifications.event_recipient_defaults import (
+                default_recipient_type_for_event,
+            )
+
+            recipient_type = default_recipient_type_for_event(event_code)
+        from modules.notifications.events_catalog import validate_event_binding
+
+        try:
+            validate_event_binding(event_code, recipient_type)
+        except ValueError as exc:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message=f"{event_label}: {exc}",
+            ) from exc
         prepared.append({
-            "notification_event_id": event_id,
+            "event_code": event_code,
+            "recipient_type": recipient_type,
             "notification_services": serialize_for_db(configs),
         })
     return prepared

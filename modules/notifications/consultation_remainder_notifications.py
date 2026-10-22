@@ -11,8 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.engagements.repository import ConsultationRemainderParticipant, EngagementsRepository
 from modules.engagements.slot_availability import resolve_consultation_cabin_display_name
-from modules.notifications.dedup import should_skip_notification_on_date
-from modules.notifications.schemas import DispatchRequest, SessionDetails
+from modules.notifications.engine import emit_notification_event, SessionDetails
 from modules.notifications.service import NotificationsService
 
 logger = logging.getLogger(__name__)
@@ -100,54 +99,39 @@ async def dispatch_consultation_remainder_notifications(
             continue
 
         try:
-            dispatched_any = False
-            skipped_all = True
             session_details = _session_details_from_participant(participant)
-            for cfg in participant.service_configs:
-                sk = cfg.service_key
-                skip_reason = await should_skip_notification_on_date(
-                    db,
-                    service_key=sk,
-                    user_id=participant.user_id,
-                    engagement_id=participant.engagement_id,
-                    reference_date=consultation_date,
-                )
-                if skip_reason:
-                    details.append({
-                        "user_id": participant.user_id,
-                        "engagement_id": participant.engagement_id,
-                        "expert_type": participant.expert_type,
-                        "service_key": sk,
-                        "action": "skipped",
-                        "reason": f"notification '{sk}' {skip_reason}",
-                    })
-                    continue
-
-                skipped_all = False
-                await notifications_service.dispatch(
-                    db,
-                    payload=DispatchRequest(
-                        service_key=sk,
-                        user_ids=[participant.user_id],
-                        engagement_id=participant.engagement_id,
-                        session_details=session_details,
-                        external_link=cfg.external_link,
-                    ),
-                    triggered_by_user_id=None,
-                )
-                dispatched_any = True
+            ids = await emit_notification_event(
+                db,
+                "consultation_remainder",
+                {
+                    "user_id": participant.user_id,
+                    "session_details": session_details.model_dump(mode="json"),
+                },
+                engagement_id=participant.engagement_id,
+                notifications_service=notifications_service,
+                dedup_reference_date=consultation_date,
+            )
+            dispatched_any = bool(ids)
+            if dispatched_any:
                 details.append({
                     "user_id": participant.user_id,
                     "engagement_id": participant.engagement_id,
                     "expert_type": participant.expert_type,
-                    "service_key": sk,
                     "action": "sent",
-                    "reason": f"dispatched '{sk}'",
+                    "reason": "dispatched consultation_remainder",
+                })
+            else:
+                details.append({
+                    "user_id": participant.user_id,
+                    "engagement_id": participant.engagement_id,
+                    "expert_type": participant.expert_type,
+                    "action": "skipped",
+                    "reason": "no bindings or deduped",
                 })
 
             if dispatched_any:
                 sent += 1
-            elif skipped_all:
+            else:
                 skipped += 1
         except Exception as exc:
             failed += 1

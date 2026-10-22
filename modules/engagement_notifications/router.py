@@ -6,10 +6,14 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.responses import success_response
+from core.exceptions import AppError
 from db.session import get_db
 from modules.employee.dependencies import get_current_employee
 from modules.employee.service import EmployeeContext
-from modules.engagement_notifications.repository import EngagementNotificationsRepository
+from modules.engagement_notifications.repository import (
+    EngagementNotificationsRepository,
+    list_default_bindings_for_engagement_type,
+)
 from modules.engagement_notifications.schemas import (
     EngagementNotificationResponse,
     EngagementNotificationsUpsertRequest,
@@ -17,8 +21,7 @@ from modules.engagement_notifications.schemas import (
     NotificationDefaultsUpsertRequest,
     configs_to_api,
 )
-from modules.engagements.models import AutoNotificationEvent
-from modules.notification_events.repository import NotificationEventsRepository
+from modules.notifications.events_catalog import get_catalog_event
 
 router = APIRouter(tags=["engagement-notifications"])
 
@@ -27,8 +30,9 @@ def _get_repository() -> EngagementNotificationsRepository:
     return EngagementNotificationsRepository()
 
 
-def _get_events_repository() -> NotificationEventsRepository:
-    return NotificationEventsRepository()
+def _display_name_for_event_code(event_code: str) -> str | None:
+    catalog = get_catalog_event(event_code)
+    return catalog.event_name if catalog else None
 
 
 @router.get("/engagements/{engagement_id}/notifications")
@@ -37,28 +41,20 @@ async def get_engagement_notifications(
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
     repo: EngagementNotificationsRepository = Depends(_get_repository),
-    events_repo: NotificationEventsRepository = Depends(_get_events_repository),
 ):
     _ = employee
     rows = await repo.list_for_engagement(db, engagement_id)
-    events_by_id: dict[int, AutoNotificationEvent] = {}
-    for row in rows:
-        if row.notification_event_id not in events_by_id:
-            event = await events_repo.get_by_id(db, row.notification_event_id)
-            if event:
-                events_by_id[row.notification_event_id] = event
-
-    data = []
-    for row in rows:
-        event = events_by_id.get(row.notification_event_id)
-        data.append(EngagementNotificationResponse(
+    data = [
+        EngagementNotificationResponse(
             id=row.id,
             engagement_id=row.engagement_id,
-            notification_event_id=row.notification_event_id,
+            event_code=row.event_code,
+            recipient_type=row.recipient_type,
             notification_services=configs_to_api(row.notification_services),
-            event_code=event.event_code if event else None,
-            event_display_name=event.display_name if event else None,
-        ).model_dump())
+            event_display_name=_display_name_for_event_code(row.event_code),
+        ).model_dump()
+        for row in rows
+    ]
     return success_response(data)
 
 
@@ -79,8 +75,10 @@ async def upsert_engagement_notifications(
         EngagementNotificationResponse(
             id=row.id,
             engagement_id=row.engagement_id,
-            notification_event_id=row.notification_event_id,
+            event_code=row.event_code,
+            recipient_type=row.recipient_type,
             notification_services=configs_to_api(row.notification_services),
+            event_display_name=_display_name_for_event_code(row.event_code),
         ).model_dump()
         for row in rows
     ]
@@ -92,51 +90,35 @@ async def get_notification_defaults(
     engagement_type_id: int = Query(...),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
-    repo: EngagementNotificationsRepository = Depends(_get_repository),
-    events_repo: NotificationEventsRepository = Depends(_get_events_repository),
 ):
     _ = employee
-    rows = await repo.list_defaults_for_type(db, engagement_type_id)
-    events_by_id: dict[int, AutoNotificationEvent] = {}
-    for row in rows:
-        if row.notification_event_id not in events_by_id:
-            event = await events_repo.get_by_id(db, row.notification_event_id)
-            if event:
-                events_by_id[row.notification_event_id] = event
-
-    data = []
-    for row in rows:
-        event = events_by_id.get(row.notification_event_id)
-        data.append(NotificationDefaultResponse(
-            id=row.id,
-            engagement_type_id=row.engagement_type_id,
-            notification_event_id=row.notification_event_id,
-            notification_services=configs_to_api(row.notification_services),
-            event_code=event.event_code if event else None,
-            event_display_name=event.display_name if event else None,
-        ).model_dump())
+    rows = await list_default_bindings_for_engagement_type(db, engagement_type_id)
+    data = [
+        NotificationDefaultResponse(
+            id=0,
+            engagement_type_id=engagement_type_id,
+            event_code=row["event_code"],
+            recipient_type=row["recipient_type"],
+            notification_services=configs_to_api(row["notification_services"]),
+            event_display_name=_display_name_for_event_code(row["event_code"]),
+        ).model_dump()
+        for row in rows
+    ]
     return success_response(data)
 
 
 @router.put("/platform-settings/engagement-notification-defaults")
 async def upsert_notification_defaults(
     payload: NotificationDefaultsUpsertRequest,
-    db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
-    repo: EngagementNotificationsRepository = Depends(_get_repository),
 ):
     _ = employee
-    items = [item.model_dump() for item in payload.defaults]
-    await repo.upsert_defaults(db, payload.engagement_type_id, items)
-    await db.commit()
-    rows = await repo.list_defaults_for_type(db, payload.engagement_type_id)
-    data = [
-        NotificationDefaultResponse(
-            id=row.id,
-            engagement_type_id=row.engagement_type_id,
-            notification_event_id=row.notification_event_id,
-            notification_services=configs_to_api(row.notification_services),
-        ).model_dump()
-        for row in rows
-    ]
-    return success_response(data)
+    _ = payload
+    raise AppError(
+        status_code=410,
+        error_code="GONE",
+        message=(
+            "Engagement notification defaults are managed via "
+            "GET/PUT /notifications/event-bindings (platform-wide per event_code)."
+        ),
+    )

@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.assessments.models import AssessmentInstance, AssessmentPackage
 from modules.employee.models import Employee
 from modules.engagements.models import Engagement
-from modules.notifications.models import Notification, NotificationService
+from modules.notifications.models import Notification, NotificationEvent, NotificationService
 from modules.partners.models import Partner
 from modules.reports.models import IndividualHealthReport
 from modules.users.models import User
@@ -99,6 +99,14 @@ class NotificationsRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_notification_by_queue_id(
+        self, db: AsyncSession, *, queue_id: str
+    ) -> Notification | None:
+        result = await db.execute(
+            select(Notification).where(Notification.queue_id == queue_id)
+        )
+        return result.scalar_one_or_none()
+
     async def update_notification(
         self,
         db: AsyncSession,
@@ -158,7 +166,7 @@ class NotificationsRepository:
             select(Notification.notification_id)
             .where(Notification.service_key == service_key)
             .where(Notification.engagement_id == engagement_id)
-            .where(Notification.status == "pending")
+            .where(Notification.status.in_(("pending", "queued")))
             .where(Notification.dispatched_at.isnot(None))
             .where(Notification.dispatched_at >= dispatched_after)
             .where(
@@ -201,7 +209,10 @@ class NotificationsRepository:
         engagement_id: int | None = None,
         dispatched_from: datetime | None = None,
         dispatched_to: datetime | None = None,
+        queue_id: str | None = None,
     ):
+        if queue_id:
+            query = query.where(Notification.queue_id == queue_id)
         if statuses:
             query = query.where(Notification.status.in_(statuses))
         if service_key:
@@ -233,6 +244,7 @@ class NotificationsRepository:
         engagement_id: int | None = None,
         dispatched_from: datetime | None = None,
         dispatched_to: datetime | None = None,
+        queue_id: str | None = None,
     ) -> list[Notification]:
         offset = (page - 1) * limit
         query = (
@@ -250,6 +262,7 @@ class NotificationsRepository:
             engagement_id=engagement_id,
             dispatched_from=dispatched_from,
             dispatched_to=dispatched_to,
+            queue_id=queue_id,
         )
         result = await db.execute(query)
         return list(result.scalars().all())
@@ -265,6 +278,7 @@ class NotificationsRepository:
         engagement_id: int | None = None,
         dispatched_from: datetime | None = None,
         dispatched_to: datetime | None = None,
+        queue_id: str | None = None,
     ) -> int:
         query = select(func.count()).select_from(Notification)
         query = self._apply_notification_list_filters(
@@ -276,6 +290,7 @@ class NotificationsRepository:
             engagement_id=engagement_id,
             dispatched_from=dispatched_from,
             dispatched_to=dispatched_to,
+            queue_id=queue_id,
         )
         result = await db.execute(query)
         return int(result.scalar_one())
@@ -445,3 +460,40 @@ class NotificationsRepository:
             .limit(1)
         )
         return result.scalar_one_or_none()
+
+    # ── NotificationEvent (platform bindings) ───────────────────────────
+
+    async def list_event_bindings(self, db: AsyncSession) -> list[NotificationEvent]:
+        result = await db.execute(
+            select(NotificationEvent).order_by(NotificationEvent.id.asc())
+        )
+        return list(result.scalars().all())
+
+    async def get_event_binding_by_id(
+        self, db: AsyncSession, *, binding_id: int
+    ) -> NotificationEvent | None:
+        result = await db.execute(
+            select(NotificationEvent).where(NotificationEvent.id == binding_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def create_event_binding(
+        self, db: AsyncSession, binding: NotificationEvent
+    ) -> NotificationEvent:
+        db.add(binding)
+        await db.flush()
+        return binding
+
+    async def update_event_binding(
+        self, db: AsyncSession, binding: NotificationEvent
+    ) -> NotificationEvent:
+        db.add(binding)
+        await db.flush()
+        return binding
+
+    async def delete_event_binding(self, db: AsyncSession, *, binding_id: int) -> int:
+        result = await db.execute(
+            delete(NotificationEvent).where(NotificationEvent.id == binding_id)
+        )
+        await db.flush()
+        return int(result.rowcount or 0)

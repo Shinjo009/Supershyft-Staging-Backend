@@ -129,7 +129,7 @@ TASK_CATALOG: Mapping[str, tuple[tuple[str, str, str], ...]] = MappingProxyType(
             ("messages", "Messages", "Send and manage notifications"),
             ("dispatch", "Dispatch", "Dispatch notifications and reminders"),
             ("services", "Services", "Manage notification service integrations"),
-            ("events", "Events", "Manage notification event definitions"),
+            ("bindings", "Platform bindings", "Manage platform notification bindings"),
             ("defaults", "Engagement defaults", "Manage engagement notification defaults"),
             ("engagement_configuration", "Engagement configuration", "Configure notifications for an engagement"),
         ),
@@ -475,8 +475,10 @@ def _task_for_operation(category: str, path: str, method: str) -> str:
             return "dispatch"
         if "services" in path:
             return "services"
+        if "event-bindings" in path or "events/catalog" in path:
+            return "bindings"
         if "event" in path:
-            return "events"
+            return "bindings"
         if path.startswith("/engagements"):
             return "engagement_configuration"
         if "default" in path:

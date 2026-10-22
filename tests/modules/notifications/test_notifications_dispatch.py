@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import text
 
 from core.config import settings
+from db.column_types import STATUS_INTEGRATION_SYNC
 from core.security import create_jwt_token
 from modules.employee.models import Employee
 from modules.reports.models import IndividualHealthReport
@@ -48,7 +49,7 @@ async def _seed_diagnostic_package(test_db_session, *, diagnostic_package_id: in
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, bookings_count) "
-            "VALUES (:did, :ref, :pname, 'test_provider', 1, 0) ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (:did, :ref, :pname, 'healthians', 1, 0) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         ),
         {"did": diagnostic_package_id, "ref": f"REF{diagnostic_package_id}", "pname": "Diag"},
     )
@@ -56,24 +57,13 @@ async def _seed_diagnostic_package(test_db_session, *, diagnostic_package_id: in
 
 
 async def _seed_engagement(test_db_session, *, engagement_id: int, engagement_code: str):
-    from modules.engagements.models import Engagement
+    from tests.modules.notifications.notification_test_helpers import seed_notification_test_engagement
 
-    test_db_session.add(
-        Engagement(
-            engagement_id=engagement_id,
-            engagement_name="Camp",
-            engagement_code=engagement_code,
-            engagement_type="bio_ai",
-            assessment_package_id=1,
-            diagnostic_package_id=1,
-            city="BLR",
-            slot_duration=20,
-            start_date=date(2026, 5, 1),
-            end_date=date(2026, 5, 1),
-            status="active",
-        )
+    await seed_notification_test_engagement(
+        test_db_session,
+        engagement_id=engagement_id,
+        engagement_code=engagement_code,
     )
-    await test_db_session.commit()
 
 
 @pytest.mark.asyncio
@@ -847,11 +837,11 @@ async def test_dispatch_creates_n8n_sync_log_on_success(async_client, test_db_se
     row = result.mappings().one()
     assert row["provider"] == "n8n"
     assert row["engagement_id"] is None
-    assert row["user_id"] is None
+    assert row["user_id"] == 9601
     assert row["api_endpoint_url"].endswith("/welcome-whatsapp")
     assert row["request_payload"]["notification_id"] == notification_id
     assert row["request_payload"]["members"]
-    assert row["status"] == "success"
+    assert row["status"] == STATUS_INTEGRATION_SYNC["success"]
     assert row["response_payload"] == {"message": "ok"}
     assert row["error_message"] is None
 
@@ -879,11 +869,11 @@ async def test_dispatch_creates_n8n_sync_log_on_failure(async_client, test_db_se
     assert "Webhook call failed" in response.json()["data"]["message"]
 
     notification_id = response.json()["data"]["notification_id"]
-    notif_row = await test_db_session.execute(
-        text("SELECT status FROM notifications WHERE notification_id = :nid"),
-        {"nid": notification_id},
-    )
-    assert notif_row.scalar_one() == "failed"
+    from modules.notifications.models import Notification
+
+    notif = await test_db_session.get(Notification, notification_id)
+    assert notif is not None
+    assert notif.status == "failed"
 
     result = await test_db_session.execute(
         text(
@@ -893,7 +883,7 @@ async def test_dispatch_creates_n8n_sync_log_on_failure(async_client, test_db_se
         )
     )
     row = result.mappings().one()
-    assert row["status"] == "failed"
+    assert row["status"] == STATUS_INTEGRATION_SYNC["failed"]
     assert "webhook failed" in row["error_message"]
     assert row["response_payload"] is None
 
@@ -1773,11 +1763,16 @@ async def test_callback_rejects_update_when_already_sent(async_client, test_db_s
             "ON CONFLICT (service_key) DO NOTHING"
         )
     )
-    await test_db_session.execute(
-        text(
-            "INSERT INTO notifications "
-            "(notification_id, service_key, status, channel, \"user\", message) "
-            "VALUES (9799, 'callback_test', 'sent', 'email', '{\"user_ids\": [1]}', 'done')"
+    from modules.notifications.models import Notification
+
+    test_db_session.add(
+        Notification(
+            notification_id=9799,
+            service_key="callback_test",
+            status="sent",
+            channel="email",
+            user={"user_ids": [1]},
+            message="done",
         )
     )
     await test_db_session.commit()

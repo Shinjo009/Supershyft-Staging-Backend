@@ -7,7 +7,6 @@ from datetime import date, datetime, time, timedelta, timezone
 import pytest
 from sqlalchemy import text
 
-from modules.engagements.models import Engagement
 from modules.notifications.dedup import (
     has_notification_been_sent,
     should_skip_notification,
@@ -15,6 +14,7 @@ from modules.notifications.dedup import (
 )
 from modules.notifications.models import Notification
 from modules.users.models import User
+from tests.modules.notifications.notification_test_helpers import seed_notification_test_engagement
 
 
 async def _seed_service(test_db_session, *, service_key: str) -> None:
@@ -31,22 +31,11 @@ async def _seed_service(test_db_session, *, service_key: str) -> None:
 
 
 async def _seed_engagement(test_db_session, *, engagement_id: int) -> None:
-    test_db_session.add(
-        Engagement(
-            engagement_id=engagement_id,
-            engagement_name="Camp",
-            engagement_code=f"ENG-DEDUP-{engagement_id}",
-            engagement_type="bio_ai",
-            assessment_package_id=1,
-            diagnostic_package_id=1,
-            city="BLR",
-            slot_duration=20,
-            start_date=date(2026, 5, 1),
-            end_date=date(2026, 5, 1),
-            status="active",
-        )
+    await seed_notification_test_engagement(
+        test_db_session,
+        engagement_id=engagement_id,
+        engagement_code=f"ENG-DEDUP-{engagement_id}",
     )
-    await test_db_session.commit()
 
 
 async def _seed_notification(

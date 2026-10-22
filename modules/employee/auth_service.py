@@ -204,18 +204,26 @@ class EmployeeAuthService:
         return created.session_id, delivery
 
     async def deliver_otp(self, db: AsyncSession, *, delivery: EmployeeOtpDelivery) -> None:
-        await self._notifications_service.dispatch_to_contacts(
+        from modules.auth.service import _otp_channel_for_service_key
+        from modules.notifications.engine import emit_notification_event
+
+        channel = _otp_channel_for_service_key(delivery.service_key)
+        event_code = "otp_whatsapp" if channel == "phone" else "otp_email"
+        await emit_notification_event(
             db,
-            service_key=delivery.service_key,
-            contacts=[
-                {
-                    "first_name": delivery.name,
-                    "last_name": "",
-                    "phone": delivery.phone or "",
-                    "email": delivery.email or "",
-                }
-            ],
-            otp=delivery.otp,
+            event_code,
+            {
+                "otp": delivery.otp,
+                "members": [
+                    {
+                        "first_name": delivery.name,
+                        "last_name": "",
+                        "phone": delivery.phone or "",
+                        "email": delivery.email or "",
+                    }
+                ],
+            },
+            notifications_service=self._notifications_service,
         )
 
     async def verify_otp(

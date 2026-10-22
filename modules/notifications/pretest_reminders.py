@@ -10,8 +10,8 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.engagements.repository import EngagementsRepository, PretestReminderParticipant
-from modules.notifications.dedup import should_skip_notification
-from modules.notifications.schemas import DispatchRequest, SessionDetails
+from modules.notifications.engine import emit_notification_event
+from modules.notifications.schemas import SessionDetails
 from modules.notifications.service import NotificationsService
 
 logger = logging.getLogger(__name__)
@@ -129,64 +129,50 @@ async def dispatch_pretest_reminders(
             continue
 
         dispatched_any = False
-        skipped_all = True
+        skipped_all = False
         failed_any = False
-        for cfg in participant.service_configs:
-            sk = cfg.service_key
-            try:
-                skip_reason = await should_skip_notification(
-                    db,
-                    service_key=sk,
-                    user_id=participant.user_id,
-                    engagement_id=participant.engagement_id,
-                )
-                if skip_reason:
-                    details.append({
-                        "user_id": participant.user_id,
-                        "engagement_id": participant.engagement_id,
-                        "service_key": sk,
-                        "action": "skipped",
-                        "reason": f"notification '{sk}' {skip_reason}",
-                    })
-                    continue
-
-                skipped_all = False
-                await notifications_service.dispatch(
-                    db,
-                    payload=DispatchRequest(
-                        service_key=sk,
-                        user_ids=[participant.user_id],
-                        engagement_id=participant.engagement_id,
-                        session_details=session_details,
-                        external_link=cfg.external_link,
-                    ),
-                    triggered_by_user_id=None,
-                )
+        try:
+            ids = await emit_notification_event(
+                db,
+                "pretest_guidelines",
+                {
+                    "user_id": participant.user_id,
+                    "session_details": session_details.model_dump(mode="json"),
+                },
+                engagement_id=participant.engagement_id,
+                notifications_service=notifications_service,
+            )
+            if ids:
                 dispatched_any = True
                 details.append({
                     "user_id": participant.user_id,
                     "engagement_id": participant.engagement_id,
-                    "service_key": sk,
                     "action": "sent",
-                    "reason": f"dispatched '{sk}'",
+                    "reason": "dispatched pretest_guidelines",
                 })
-            except Exception as exc:
-                failed_any = True
-                reason = _exc_message(exc)
+            else:
+                skipped_all = True
                 details.append({
                     "user_id": participant.user_id,
                     "engagement_id": participant.engagement_id,
-                    "service_key": sk,
-                    "action": "failed",
-                    "reason": reason,
+                    "action": "skipped",
+                    "reason": "no bindings or recipients",
                 })
-                logger.warning(
-                    "Pretest reminder dispatch failed: service_key=%s user_id=%s engagement_id=%s: %s",
-                    sk,
-                    participant.user_id,
-                    participant.engagement_id,
-                    reason,
-                )
+        except Exception as exc:
+            failed_any = True
+            reason = _exc_message(exc)
+            details.append({
+                "user_id": participant.user_id,
+                "engagement_id": participant.engagement_id,
+                "action": "failed",
+                "reason": reason,
+            })
+            logger.warning(
+                "Pretest reminder dispatch failed: user_id=%s engagement_id=%s: %s",
+                participant.user_id,
+                participant.engagement_id,
+                reason,
+            )
 
         if dispatched_any:
             sent += 1

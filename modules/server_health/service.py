@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import settings
 from modules.employee.access_control import ensure_admin
 from modules.employee.service import EmployeeContext
-from modules.notifications.schemas import DispatchRequest
+from modules.notifications.engine import emit_notification_event
+from modules.notifications.recipient_resolver import _users_as_participant_contacts
 from modules.notifications.service import NotificationsService
 from modules.server_health.models import ServerHealthHostState
 from modules.server_health.repository import ServerHealthRepository
@@ -219,13 +220,17 @@ class ServerHealthService:
             )
             return "skipped_no_recipients"
 
+        contacts = await _users_as_participant_contacts(db, user_ids)
+        if not contacts:
+            return "skipped_no_recipients"
+
         try:
-            result = await notifications_service.dispatch(
+            ids = await emit_notification_event(
                 db,
-                payload=DispatchRequest(
-                    service_key=settings.CPU_ALERT_SERVICE_KEY,
-                    user_ids=user_ids,
-                    participant_details={
+                "cpu_above_threshold",
+                {
+                    "contacts": contacts,
+                    "participant_details": {
                         "hostname": payload.hostname,
                         "cpu_usage": f"{payload.cpu_usage:.0f}",
                         "memory_usage": f"{payload.memory_usage:.0f}",
@@ -233,8 +238,10 @@ class ServerHealthService:
                         "load_1m": f"{payload.load_1m}",
                         "cores": str(payload.cores),
                     },
-                ),
+                },
+                notifications_service=notifications_service,
             )
+            result = {"status": "sent" if ids else "skipped", "notification_id": ids[0] if ids else None}
         except Exception as exc:
             logger.warning(
                 "CPU alert dispatch failed (hostname=%s cpu=%.1f): %s",

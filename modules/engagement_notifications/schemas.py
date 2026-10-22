@@ -15,7 +15,8 @@ from modules.engagement_notifications.service_config import (
 
 
 class EngagementNotificationItem(BaseModel):
-    notification_event_id: PositiveIntId
+    event_code: str = Field(min_length=1)
+    recipient_type: str = Field(min_length=1)
     notification_services: list[NotificationServiceConfigItem] = Field(default_factory=list)
 
     @field_validator("notification_services", mode="before")
@@ -27,9 +28,9 @@ class EngagementNotificationItem(BaseModel):
 class EngagementNotificationResponse(BaseModel):
     id: int
     engagement_id: int
-    notification_event_id: int
+    event_code: str
+    recipient_type: str
     notification_services: list[NotificationServiceConfigItem]
-    event_code: str | None = None
     event_display_name: str | None = None
 
     @field_validator("notification_services", mode="before")
@@ -43,7 +44,7 @@ class EngagementNotificationsUpsertRequest(BaseModel):
 
 
 class NotificationDefaultItem(BaseModel):
-    notification_event_id: PositiveIntId
+    event_code: str = Field(min_length=1)
     notification_services: list[NotificationServiceConfigItem] = Field(default_factory=list)
 
     @field_validator("notification_services", mode="before")
@@ -55,9 +56,9 @@ class NotificationDefaultItem(BaseModel):
 class NotificationDefaultResponse(BaseModel):
     id: int
     engagement_type_id: int
-    notification_event_id: int
+    event_code: str
+    recipient_type: str
     notification_services: list[NotificationServiceConfigItem]
-    event_code: str | None = None
     event_display_name: str | None = None
 
     @field_validator("notification_services", mode="before")

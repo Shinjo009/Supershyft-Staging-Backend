@@ -28,6 +28,9 @@ from dotenv import load_dotenv
 # Load .env before reading TEST_DATABASE_URL (same as core.config).
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
+# Keep legacy n8n dispatch tests stable (direct send is opt-in per test module).
+os.environ["NOTIFICATION_USE_DIRECT_SEND"] = "true"
+
 # Must run before any import that reads DATABASE_URL (core.config, db.session).
 _use_isolated_test_db = bool(os.getenv("TEST_DATABASE_URL"))
 if _use_isolated_test_db:

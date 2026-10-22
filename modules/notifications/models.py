@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, JSON, String, Text, func, text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, func, text
+from sqlalchemy.dialects.postgresql import JSONB
 
 from db.base import Base
 from db.column_types import NotificationStatusColumn, notification_channel_enum
@@ -17,14 +18,14 @@ class NotificationService(Base):
     service_key = Column(String, nullable=False, unique=True)
     display_name = Column(String, nullable=False)
     channel = Column(notification_channel_enum, nullable=False)
-    webhook_path = Column(String, nullable=False)
     is_active = Column(Boolean, nullable=False, server_default="true")
-    require_blood_report_url = Column(Boolean, nullable=False, server_default="false")
-    require_bio_ai_report_url = Column(Boolean, nullable=False, server_default="false")
-    require_participant_detail = Column(Boolean, nullable=False, server_default="false")
-    require_otp = Column(Boolean, nullable=False, server_default="false")
-    require_session_details = Column(Boolean, nullable=False, server_default="false")
-    require_external_link = Column(Boolean, nullable=False, server_default="false")
+    # WhatsApp template / email content (backfilled from n8n; used by direct send in prompt 2+)
+    template_name = Column(String, nullable=True)
+    # Ordered bindings: literal strings, "{{path}}" placeholders, or header_document objects.
+    template_variables = Column(JSONB, nullable=True)
+    email_subject = Column(String, nullable=True)
+    email_body = Column(Text, nullable=True)
+    email_html = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
@@ -53,6 +54,28 @@ class Notification(Base):
         Integer, ForeignKey("assessment_instances.assessment_instance_id"), nullable=True
     )
     message = Column(Text, nullable=True)
+    queue_id = Column(String, nullable=True)
+    event_code = Column(String, nullable=True)
+    recipient_type = Column(String, nullable=True)
     triggered_by_user_id = Column(Integer, ForeignKey("users.user_id"), nullable=True)
     dispatched_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class NotificationEvent(Base):
+    """Platform event binding: event_code × recipient_type → notification services.
+
+    Event codes are defined in events_catalog; bindings are managed via the event-bindings API.
+    """
+
+    __tablename__ = "notification_events"
+    __table_args__ = (
+        UniqueConstraint("event_code", "recipient_type", name="uq_notification_events_code_recipient"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    event_code = Column(String, nullable=False)
+    event_name = Column(String, nullable=False)
+    recipient_type = Column(String, nullable=False)
+    notification_services = Column(JSONB, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

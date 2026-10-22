@@ -21,7 +21,6 @@ from modules.assessments.models import (
 from modules.engagement_notifications.service_config import extract_service_keys
 from modules.engagements.blood_bookings_repository import current_blood_booking_subquery
 from modules.engagements.models import (
-    AutoNotificationEvent,
     Engagement,
     EngagementNotification,
     EngagementParticipant,
@@ -2638,16 +2637,12 @@ class CampReportsRepository:
             event_result = await db.execute(
                 select(
                     EngagementNotification.engagement_id,
-                    AutoNotificationEvent.event_code,
+                    EngagementNotification.event_code,
                     EngagementNotification.notification_services,
-                )
-                .join(
-                    AutoNotificationEvent,
-                    AutoNotificationEvent.id == EngagementNotification.notification_event_id,
                 )
                 .where(
                     EngagementNotification.engagement_id.in_(engagement_ids),
-                    AutoNotificationEvent.event_code.in_(("blood_report_ready", "bioai_report_ready")),
+                    EngagementNotification.event_code.in_(("blood_report_ready", "bioai_report_ready")),
                 )
             )
             all_service_keys: set[str] = set()

@@ -8,8 +8,8 @@ import pytest
 from sqlalchemy import text
 
 from core.config import settings
-from modules.engagements.models import Engagement
 from modules.notifications.models import Notification
+from tests.modules.notifications.notification_test_helpers import seed_notification_test_engagement
 
 TEST_NOTIFICATION_API_KEY = "test-notif-callback-key"
 
@@ -19,22 +19,11 @@ def _api_key_header() -> dict[str, str]:
 
 
 async def _seed_engagement(test_db_session, *, engagement_id: int) -> None:
-    test_db_session.add(
-        Engagement(
-            engagement_id=engagement_id,
-            engagement_name="Camp",
-            engagement_code=f"ENG-CB-{engagement_id}",
-            engagement_type="bio_ai",
-            assessment_package_id=1,
-            diagnostic_package_id=1,
-            city="BLR",
-            slot_duration=20,
-            start_date=date(2026, 5, 1),
-            end_date=date(2026, 5, 1),
-            status="active",
-        )
+    await seed_notification_test_engagement(
+        test_db_session,
+        engagement_id=engagement_id,
+        engagement_code=f"ENG-CB-{engagement_id}",
     )
-    await test_db_session.commit()
 
 
 async def _seed_service(test_db_session, *, service_key: str) -> None:
@@ -122,6 +111,33 @@ async def test_callback_sets_failed_without_completed_at(async_client, test_db_s
     assert notification.status == "failed"
     assert notification.message == "Report fetch failed"
     assert notification.completed_at is None
+
+
+@pytest.mark.asyncio
+async def test_callback_updates_queued_notification(async_client, test_db_session, monkeypatch):
+    monkeypatch.setattr(settings, "NOTIFICATION_API_KEY", TEST_NOTIFICATION_API_KEY)
+    await _seed_engagement(test_db_session, engagement_id=9901)
+    await _seed_service(test_db_session, service_key="callback-queued-svc")
+    notification = await _create_notification(
+        test_db_session,
+        service_key="callback-queued-svc",
+        status="queued",
+    )
+
+    response = await async_client.post(
+        "/notifications/callback",
+        headers=_api_key_header(),
+        json={
+            "notification_id": notification.notification_id,
+            "status": "sent",
+            "message": "Delivered via legacy callback",
+        },
+    )
+    assert response.status_code == 200
+
+    await test_db_session.refresh(notification)
+    assert notification.status == "sent"
+    assert notification.completed_at is not None
 
 
 @pytest.mark.asyncio

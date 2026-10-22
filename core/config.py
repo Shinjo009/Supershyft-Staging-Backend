@@ -169,10 +169,32 @@ class Settings:
     # Inbound webhook auth (x-api-key). Falls back to AURAE_API_KEY when unset.
     AURAE_WEBHOOK_API_KEY: str = os.getenv("AURAE_WEBHOOK_API_KEY", "")
 
-    # Notification service (n8n webhooks)
-    NOTIFICATION_SERVICE_BASE_URL: str = os.getenv("NOTIFICATION_SERVICE_BASE_URL", "https://n8n.supershyft.com")
-    NOTIFICATION_SERVICE_TIMEOUT_SECONDS: int = int(os.getenv("NOTIFICATION_SERVICE_TIMEOUT_SECONDS", "15"))
     NOTIFICATION_API_KEY: str = os.getenv("NOTIFICATION_API_KEY", "")
+    NOTIFICATION_USE_DIRECT_SEND: bool = os.getenv("NOTIFICATION_USE_DIRECT_SEND", "true").lower() == "true"
+
+    # WhatAPI (Cloud API + legacy GET fallback — used from prompt 2 onward)
+    WHATAPI_DOMAIN: str = os.getenv("WHATAPI_DOMAIN", "")
+    WHATAPI_VERSION: str = os.getenv("WHATAPI_VERSION", "v21.0")
+    WHATAPI_PHONE_NUMBER_ID: str = os.getenv("WHATAPI_PHONE_NUMBER_ID", "")
+    WHATAPI_WABA_ID: str = os.getenv("WHATAPI_WABA_ID", "")
+    WHATAPI_ACCESS_TOKEN: str = os.getenv("WHATAPI_ACCESS_TOKEN", "")
+    WHATAPI_API_KEY: str = os.getenv("WHATAPI_API_KEY", "")
+    WHATAPI_TIMEOUT_SECONDS: int = int(os.getenv("WHATAPI_TIMEOUT_SECONDS", "15"))
+    WHATAPI_FALLBACK_WEBHOOK_URL: str = os.getenv("WHATAPI_FALLBACK_WEBHOOK_URL", "")
+    WHATAPI_FALLBACK_TIMEOUT_SECONDS: int = int(
+        os.getenv("WHATAPI_FALLBACK_TIMEOUT_SECONDS", "10")
+    )
+    WHATAPI_WEBHOOK_VERIFY_TOKEN: str = os.getenv("WHATAPI_WEBHOOK_VERIFY_TOKEN", "")
+
+    # SMTP (direct email send — used from prompt 2 onward)
+    SMTP_HOST: str = os.getenv("SMTP_HOST", "")
+    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USERNAME: str = os.getenv("SMTP_USERNAME", "")
+    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+    SMTP_FROM_EMAIL: str = os.getenv("SMTP_FROM_EMAIL", "support@supershyft.com")
+    SMTP_FROM_NAME: str = os.getenv("SMTP_FROM_NAME", "SuperShyft")
+    SMTP_USE_TLS: bool = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
+    SMTP_TIMEOUT_SECONDS: int = int(os.getenv("SMTP_TIMEOUT_SECONDS", "15"))
 
     # Razorpay (server-side secret; never expose RAZORPAY_KEY_SECRET to clients)
     RAZORPAY_KEY_ID: str = os.getenv("RAZORPAY_KEY_ID", "")
