@@ -10,7 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.assessments.models import AssessmentInstance, AssessmentPackage
 from modules.engagements.blood_bookings_repository import current_blood_booking_subquery
 from modules.engagements.models import EngagementParticipant
-from modules.reports.blood_parameters_schemas import has_usable_provider_blood_parameters
+from modules.reports.blood_parameters_schemas import (
+    has_usable_provider_blood_parameters,
+    is_empty_blood_parameters,
+)
 from modules.reports.blood_report_archival import is_archived_blood_report_url
 from modules.reports.camp_reports_repository import _coerce_reports_dict
 from modules.reports.models import IndividualHealthReport
@@ -22,6 +25,7 @@ _METSIGHTS_PRO_BASIC_TYPE_CODES = ("1", "2")
 def default_participant_report_flags() -> dict[str, Any]:
     return {
         "has_blood_report": False,
+        "has_blood_report_raw": False,
         "has_blood_values": False,
         "has_bio_ai_report": False,
         "has_bio_ai_values": False,
@@ -106,6 +110,7 @@ async def engagement_report_flags_by_user(
             EngagementParticipant.user_id,
             curr_pbb.c.diagnostic_report_url,
             curr_pbb.c.blood_parameters,
+            curr_pbb.c.blood_report_raw,
         )
         .select_from(EngagementParticipant)
         .join(
@@ -125,6 +130,8 @@ async def engagement_report_flags_by_user(
                 flags["has_blood_report"] = True
         if has_usable_provider_blood_parameters(row.blood_parameters):
             flags["has_blood_values"] = True
+        if not is_empty_blood_parameters(row.blood_report_raw):
+            flags["has_blood_report_raw"] = True
 
     return by_user
 
@@ -137,6 +144,7 @@ def merge_report_flags_into_participant_row(
     row.update(
         {
             "has_blood_report": flags["has_blood_report"],
+            "has_blood_report_raw": flags["has_blood_report_raw"],
             "has_blood_values": flags["has_blood_values"],
             "has_bio_ai_report": flags["has_bio_ai_report"],
             "has_bio_ai_values": flags["has_bio_ai_values"],

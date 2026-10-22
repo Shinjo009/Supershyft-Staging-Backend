@@ -3044,13 +3044,35 @@ class EngagementsService:
             user_id=user_id,
         )
 
+        from modules.reports.blood_parameters_schemas import (
+            has_usable_provider_blood_parameters,
+            is_empty_blood_parameters,
+        )
+
+        blood_report_raw: dict | list | None = None
+        for bb_row in blood_rows:
+            raw = bb_row.blood_report_raw
+            if not is_empty_blood_parameters(raw):
+                blood_report_raw = raw if isinstance(raw, (dict, list)) else None
+                break
+
+        blood_parameters_payload: dict | list | None = None
+        for bb_row in blood_rows:
+            params = bb_row.blood_parameters
+            if has_usable_provider_blood_parameters(params):
+                blood_parameters_payload = params if isinstance(params, (dict, list)) else None
+                break
+
         return {
             "engagement_id": engagement_id,
             "user_id": user_id,
             "blood": {
                 "has_blood_report": bool(blood_flags.get("has_blood_report")),
+                "has_blood_report_raw": bool(blood_flags.get("has_blood_report_raw")),
                 "has_blood_values": bool(blood_flags.get("has_blood_values")),
                 "blood_report_url": blood_report_url,
+                "blood_report_raw": blood_report_raw,
+                "blood_parameters": blood_parameters_payload,
                 "blood_bookings": blood_bookings,
             },
             "bio_ai": {
@@ -4774,6 +4796,7 @@ class EngagementsService:
                         "email": mask_email(row.email),
                         "has_booking_id": has_booking_id,
                         "has_blood_report": flags["has_blood_report"],
+                        "has_blood_report_raw": flags["has_blood_report_raw"],
                         "has_blood_values": flags["has_blood_values"],
                         "has_bio_ai_report": flags["has_bio_ai_report"],
                         "has_bio_ai_values": flags["has_bio_ai_values"],
