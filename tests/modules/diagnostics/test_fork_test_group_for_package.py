@@ -78,6 +78,28 @@ async def test_fork_creates_copy_and_swaps_assignment(async_client, test_db_sess
 
 
 @pytest.mark.asyncio
+async def test_fork_copies_screening_flags(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=1104, role="admin")
+    pkg, group = await _package_with_group(test_db_session, group_key="fork_test_screening")
+    group.has_allergy_screening = True
+    group.has_cancer_screening = True
+    test_db_session.add(group)
+    await test_db_session.commit()
+
+    response = await async_client.post(
+        f"/diagnostic-packages/{pkg.diagnostic_package_id}/test-groups/{group.group_id}/fork-for-package",
+        headers=employee_auth_header(1104),
+    )
+    assert response.status_code == 200
+    new_group_id = response.json()["data"]["group_id"]
+
+    forked = await test_db_session.get(DiagnosticTestGroup, new_group_id)
+    assert forked is not None
+    assert forked.has_allergy_screening is True
+    assert forked.has_cancer_screening is True
+
+
+@pytest.mark.asyncio
 async def test_fork_is_idempotent(async_client, test_db_session):
     await seed_employee(test_db_session, employee_id=1102, role="admin")
     pkg, group = await _package_with_group(test_db_session, group_key="fork_test_liver_b")

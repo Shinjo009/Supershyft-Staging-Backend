@@ -386,6 +386,14 @@ async def upsert_diagnostic_groups_from_csv(session: AsyncSession, csv_path: Pat
             row.is_most_popular = (
                 _bool_cell(imp_g) if imp_g is not None and str(imp_g).strip() != "" else False
             )
+            allergy = raw.get("has_allergy_screening")
+            row.has_allergy_screening = (
+                _bool_cell(allergy) if allergy is not None and str(allergy).strip() != "" else False
+            )
+            cancer = raw.get("has_cancer_screening")
+            row.has_cancer_screening = (
+                _bool_cell(cancer) if cancer is not None and str(cancer).strip() != "" else False
+            )
             row.gender_suitability = _str_or_none(raw.get("gender_suitability"))
 
 

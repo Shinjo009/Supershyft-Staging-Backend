@@ -124,6 +124,8 @@ class DiagnosticPackageResponse(BaseModel):
     original_price: Optional[float] = None
     min_price: Optional[float] = None
     is_most_popular: Optional[bool] = None
+    has_allergy_screening: Optional[bool] = None
+    has_cancer_screening: Optional[bool] = None
     complementary_consultation: Optional[dict[str, bool]] = None
     gender_suitability: Optional[str] = None
     package_for: Optional[str] = None
@@ -311,6 +313,8 @@ class TestGroupCreate(BaseModel):
     price: Optional[float] = None
     original_price: Optional[float] = None
     is_most_popular: Optional[bool] = None
+    has_allergy_screening: Optional[bool] = None
+    has_cancer_screening: Optional[bool] = None
     gender_suitability: Optional[str] = None
     package_for: Optional[PackageForType] = None
 
@@ -322,6 +326,8 @@ class TestGroupUpdate(BaseModel):
     price: Optional[float] = None
     original_price: Optional[float] = None
     is_most_popular: Optional[bool] = None
+    has_allergy_screening: Optional[bool] = None
+    has_cancer_screening: Optional[bool] = None
     gender_suitability: Optional[str] = None
     package_for: Optional[PackageForType] = None
 
@@ -336,6 +342,8 @@ class TestGroupResponse(BaseModel):
     discount: Optional[str] = None
     original_price: Optional[float] = None
     is_most_popular: Optional[bool] = None
+    has_allergy_screening: Optional[bool] = None
+    has_cancer_screening: Optional[bool] = None
     gender_suitability: Optional[str] = None
     package_for: Optional[str] = None
     tests: list[HealthParameterResponse] = Field(default_factory=list)
@@ -503,6 +511,8 @@ class DiagnosticPackageListItem(BaseModel):
     min_price: Optional[float] = None
     discount_percent: Optional[int] = None
     is_most_popular: Optional[bool] = None
+    has_allergy_screening: Optional[bool] = None
+    has_cancer_screening: Optional[bool] = None
     complementary_consultation: Optional[dict[str, bool]] = None
     gender_suitability: Optional[str] = None
     package_for: Optional[str] = None

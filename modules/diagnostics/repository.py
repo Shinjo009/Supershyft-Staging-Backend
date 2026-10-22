@@ -164,6 +164,39 @@ class DiagnosticsRepository:
             out[int(row.diagnostic_package_id)] = int(row.cnt or 0)
         return out
 
+    async def screening_flags_for_packages(
+        self,
+        db: AsyncSession,
+        *,
+        package_ids: list[int],
+    ) -> dict[int, tuple[bool, bool]]:
+        """OR-aggregate has_allergy_screening / has_cancer_screening across assigned test groups."""
+        if not package_ids:
+            return {}
+        pkg_col = DiagnosticPackageTestGroup.diagnostic_package_id
+        query = (
+            select(
+                pkg_col.label("diagnostic_package_id"),
+                func.bool_or(DiagnosticTestGroup.has_allergy_screening).label("has_allergy"),
+                func.bool_or(DiagnosticTestGroup.has_cancer_screening).label("has_cancer"),
+            )
+            .select_from(DiagnosticPackageTestGroup)
+            .join(
+                DiagnosticTestGroup,
+                DiagnosticTestGroup.group_id == DiagnosticPackageTestGroup.group_id,
+            )
+            .where(pkg_col.in_(package_ids))
+            .group_by(pkg_col)
+        )
+        result = await db.execute(query)
+        out = {int(pid): (False, False) for pid in package_ids}
+        for row in result.all():
+            out[int(row.diagnostic_package_id)] = (
+                bool(row.has_allergy),
+                bool(row.has_cancer),
+            )
+        return out
+
     async def count_unmapped_tests_for_packages(
         self,
         db: AsyncSession,
@@ -882,6 +915,8 @@ class DiagnosticsRepository:
             price=source.price,
             original_price=source.original_price,
             is_most_popular=source.is_most_popular,
+            has_allergy_screening=source.has_allergy_screening,
+            has_cancer_screening=source.has_cancer_screening,
             gender_suitability=source.gender_suitability,
             package_for=source.package_for,
             forked_from_group_id=forked_from_group_id,

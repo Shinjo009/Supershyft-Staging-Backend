@@ -422,6 +422,8 @@ class DiagnosticsService:
             discount=_discount_percent_label(price, original_price),
             original_price=original_price,
             is_most_popular=bool(row.is_most_popular),
+            has_allergy_screening=bool(row.has_allergy_screening),
+            has_cancer_screening=bool(row.has_cancer_screening),
             gender_suitability=row.gender_suitability,
             package_for=row.package_for,
             tests=[self._to_health_parameter_response(test_row) for test_row in tests_value],
@@ -434,6 +436,8 @@ class DiagnosticsService:
         *,
         no_of_tests: int | None = None,
         same_packages: list[DiagnosticPackagePeerResponse] | None = None,
+        has_allergy_screening: bool = False,
+        has_cancer_screening: bool = False,
     ) -> DiagnosticPackageResponse:
         price = float(row.price) if row.price is not None else None
         original_price = float(row.original_price) if row.original_price is not None else None
@@ -456,6 +460,8 @@ class DiagnosticsService:
             original_price=original_price,
             min_price=min_price,
             is_most_popular=row.is_most_popular,
+            has_allergy_screening=has_allergy_screening,
+            has_cancer_screening=has_cancer_screening,
             complementary_consultation=row.complementary_consultation,
             gender_suitability=row.gender_suitability,
             package_for=row.package_for,
@@ -470,6 +476,10 @@ class DiagnosticsService:
         counts = await self._repository.count_distinct_tests_for_packages(
             db, package_ids=[row.diagnostic_package_id]
         )
+        screening = await self._repository.screening_flags_for_packages(
+            db, package_ids=[row.diagnostic_package_id]
+        )
+        allergy, cancer = screening.get(row.diagnostic_package_id, (False, False))
         same_packages: list[DiagnosticPackagePeerResponse] = []
         if row.package_group_id is not None:
             grouped = await self._repository.list_packages_by_group_ids(
@@ -481,6 +491,8 @@ class DiagnosticsService:
             row,
             no_of_tests=counts.get(row.diagnostic_package_id, 0),
             same_packages=same_packages,
+            has_allergy_screening=allergy,
+            has_cancer_screening=cancer,
         )
 
     async def get_packages(
@@ -526,6 +538,7 @@ class DiagnosticsService:
         unmapped_counts = await self._repository.count_unmapped_tests_for_packages(
             db, package_ids=pkg_ids
         )
+        screening_by_pkg = await self._repository.screening_flags_for_packages(db, package_ids=pkg_ids)
         tags_by_pkg = await self._repository.list_tags_for_package_ids(db, package_ids=pkg_ids)
         chip_links_by_pkg = await self._repository.list_filter_chip_links_for_package_ids(
             db, package_ids=pkg_ids
@@ -544,6 +557,7 @@ class DiagnosticsService:
                 if row.package_group_id is not None
                 else []
             )
+            allergy, cancer = screening_by_pkg.get(row.diagnostic_package_id, (False, False))
             items.append(
                 DiagnosticPackageListItem(
                     diagnostic_package_id=row.diagnostic_package_id,
@@ -561,6 +575,8 @@ class DiagnosticsService:
                     min_price=min_price,
                     discount_percent=_discount_percent(price, original_price),
                     is_most_popular=row.is_most_popular,
+                    has_allergy_screening=allergy,
+                    has_cancer_screening=cancer,
                     complementary_consultation=row.complementary_consultation,
                     gender_suitability=row.gender_suitability,
                     package_for=row.package_for,
@@ -583,14 +599,24 @@ class DiagnosticsService:
         counts = await self._repository.count_distinct_tests_for_packages(
             db, package_ids=[row.diagnostic_package_id]
         )
+        screening = await self._repository.screening_flags_for_packages(
+            db, package_ids=[row.diagnostic_package_id]
+        )
         n_tests = counts.get(row.diagnostic_package_id, 0)
+        allergy, cancer = screening.get(row.diagnostic_package_id, (False, False))
         same_packages: list[DiagnosticPackagePeerResponse] = []
         if row.package_group_id is not None:
             grouped = await self._repository.list_packages_by_group_ids(
                 db, group_ids=[int(row.package_group_id)]
             )
             same_packages = self._peer_responses(row, grouped.get(int(row.package_group_id), []))
-        package = self._to_package_response(row, no_of_tests=n_tests, same_packages=same_packages)
+        package = self._to_package_response(
+            row,
+            no_of_tests=n_tests,
+            same_packages=same_packages,
+            has_allergy_screening=allergy,
+            has_cancer_screening=cancer,
+        )
         reasons = sorted(list(row.reasons), key=lambda r: (r.display_order is None, r.display_order or 0, r.reason_id))
         tags = sorted(list(row.tags), key=lambda t: (t.display_order is None, t.display_order or 0, t.tag_id))
         samples = sorted(list(row.samples), key=lambda s: (s.display_order is None, s.display_order or 0, s.sample_id))

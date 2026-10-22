@@ -230,6 +230,8 @@ class DiagnosticTestGroup(Base):
     price = Column(Numeric(10, 2))
     original_price = Column(Numeric(10, 2))
     is_most_popular = Column(Boolean, nullable=False, default=False, server_default="false")
+    has_allergy_screening = Column(Boolean, nullable=False, default=False, server_default="false")
+    has_cancer_screening = Column(Boolean, nullable=False, default=False, server_default="false")
     gender_suitability = Column(gender_suitability_enum, nullable=True)
     package_for = Column(
         package_for_enum,

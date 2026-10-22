@@ -273,3 +273,50 @@ async def test_list_packages_reports_unmapped_provider_test_ids(async_client, te
     empty_row = rows[empty.diagnostic_package_id]
     assert empty_row["no_of_tests"] == 0
     assert empty_row["unmapped_test_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_package_screening_flags_or_across_assigned_groups(async_client, test_db_session):
+    pkg = DiagnosticPackage(package_name="Screening Pkg", status="active", package_for="public")
+    allergy_group = DiagnosticTestGroup(
+        group_name="Allergy",
+        group_key="screening_allergy",
+        has_allergy_screening=True,
+        has_cancer_screening=False,
+    )
+    cancer_group = DiagnosticTestGroup(
+        group_name="Cancer",
+        group_key="screening_cancer",
+        has_allergy_screening=False,
+        has_cancer_screening=True,
+    )
+    test_db_session.add_all([pkg, allergy_group, cancer_group])
+    await test_db_session.flush()
+    test_db_session.add_all(
+        [
+            DiagnosticPackageTestGroup(
+                diagnostic_package_id=pkg.diagnostic_package_id,
+                group_id=allergy_group.group_id,
+                display_order=1,
+            ),
+            DiagnosticPackageTestGroup(
+                diagnostic_package_id=pkg.diagnostic_package_id,
+                group_id=cancer_group.group_id,
+                display_order=2,
+            ),
+        ]
+    )
+    await test_db_session.commit()
+    await test_db_session.refresh(pkg)
+
+    list_resp = await async_client.get("/diagnostic-packages")
+    assert list_resp.status_code == 200
+    row = next(r for r in list_resp.json()["data"] if r["diagnostic_package_id"] == pkg.diagnostic_package_id)
+    assert row["has_allergy_screening"] is True
+    assert row["has_cancer_screening"] is True
+
+    detail_resp = await async_client.get(f"/diagnostic-packages/{pkg.diagnostic_package_id}")
+    assert detail_resp.status_code == 200
+    detail = detail_resp.json()["data"]
+    assert detail["has_allergy_screening"] is True
+    assert detail["has_cancer_screening"] is True
