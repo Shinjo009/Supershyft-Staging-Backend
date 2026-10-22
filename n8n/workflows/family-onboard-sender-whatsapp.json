@@ -2,7 +2,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Family Onboard Gift Sender WhatsApp (camp17)\n\nRequired payload:\n{\n  notification_id: number,\n  members: [{ first_name, last_name, email, phone }],\n  participant_details: { booker_name, recipient_name, relationship, gift_url },\n  engagement_id?: number\n}\n\ncamp17 multi-segment CSV (same shape as thank-you-feedback / booking-confirmation): bookerName, Hello bookerName, \u2026, recipientName, relationship, giftUrl, closing line.",
+        "content": "## Family Onboard Gift Sender WhatsApp (camp13)\n\nRequired payload:\n{\n  notification_id: number,\n  members: [{ first_name, last_name, email, phone }],\n  participant_details: { booker_name, recipient_name, relationship, gift_url },\n  engagement_id?: number\n}\n\ncamp13 CSV (same as welcome-whatsapp / expert-consultation-guide): bookerName, body1, body2, body3, link line with giftUrl, closing.",
         "height": 640,
         "width": 2336
       },
@@ -150,7 +150,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const member = $input.item.json;\nconst pd = member.participant_details || {};\nconst bookerName = (pd.booker_name || member.first_name || 'there').trim();\nconst recipientName = (pd.recipient_name || '-').trim();\nconst relationship = (pd.relationship || '-').trim();\nconst giftUrl = (pd.gift_url || 'https://app.supershyft.com').trim();\n\nlet phone = String(member.phone || '').replace(/\\D/g, '');\nif (phone.length === 10) phone = '91' + phone;\n\nconst message = `camp17,${bookerName},Hello ${bookerName},This Diwali you are giving someone you love something truly special through the gift of health and well being.,Your personalised BIO AI Wellness Assessment for ${recipientName} is being created with love.,Recipient Name: ${recipientName},Relationship: ${relationship},Because the people we love deserve a healthier and happier life with many more beautiful moments together.,You can check the details below for your convenience.,${giftUrl},Thank you for choosing to make someone's well being a little more special this Diwali`;\n\nreturn {\n  json: {\n    notification_id: member.notification_id,\n    phone,\n    message\n  }\n};"
+        "jsCode": "const member = $input.item.json;\nconst pd = member.participant_details || {};\nconst bookerName = (pd.booker_name || member.first_name || 'there').trim();\nconst recipientName = (pd.recipient_name || '-').trim();\nconst relationship = (pd.relationship || '-').trim();\nconst giftUrl = (pd.gift_url || 'https://app.supershyft.com').trim();\n\nlet phone = String(member.phone || '').replace(/\\D/g, '');\nif (phone.length === 10) phone = '91' + phone;\n\nconst message = `camp13,${bookerName},This Diwali you are giving someone you love a special gift of health and well-being through Supershyft.,Your personalised BIO AI Wellness Assessment for ${recipientName} (${relationship}) is being created with love.,Because the people we love deserve a healthier happier life with many more beautiful moments together.,You can check the details here: ${giftUrl},Thank you for making well-being a little more special this Diwali. Wishing you and your family love happiness and good health.`;\n\nreturn {\n  json: {\n    notification_id: member.notification_id,\n    phone,\n    message\n  }\n};"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,

@@ -39,7 +39,7 @@ const giftUrl = (pd.gift_url || 'https://app.supershyft.com').trim();
 let phone = String(member.phone || '').replace(/\\D/g, '');
 if (phone.length === 10) phone = '91' + phone;
 
-const message = `camp17,${bookerName},Hello ${bookerName},This Diwali you are giving someone you love something truly special through the gift of health and well being.,Your personalised BIO AI Wellness Assessment for ${recipientName} is being created with love.,Recipient Name: ${recipientName},Relationship: ${relationship},Because the people we love deserve a healthier and happier life with many more beautiful moments together.,You can check the details below for your convenience.,${giftUrl},Thank you for choosing to make someone's well being a little more special this Diwali`;
+const message = `camp13,${bookerName},This Diwali you are giving someone you love a special gift of health and well-being through Supershyft.,Your personalised BIO AI Wellness Assessment for ${recipientName} (${relationship}) is being created with love.,Because the people we love deserve a healthier happier life with many more beautiful moments together.,You can check the details here: ${giftUrl},Thank you for making well-being a little more special this Diwali. Wishing you and your family love happiness and good health.`;
 
 return {
   json: {
@@ -58,7 +58,7 @@ const giftUrl = (pd.gift_url || 'https://app.supershyft.com').trim();
 let phone = String(member.phone || '').replace(/\\D/g, '');
 if (phone.length === 10) phone = '91' + phone;
 
-const message = `camp17,${recipientName},Hello ${recipientName},Guess what. Someone who loves you has a special surprise for you this Diwali.,${bookerName} has gifted you a personalised BIO AI Wellness Assessment because your health and happiness mean so much to them.,It is their little way of saying that your health matters to me and I want you around for many many more celebrations.,Your gift will help you understand your health better through personalised BIO AI insights and recommendations to support your well being and healthy lifestyle.,You can explore your special gift here.,${giftUrl},May this Diwali bring you good health peaceful moments endless laughter and countless beautiful memories with the people who love you.,Happy Diwali and lots of love to you`;
+const message = `camp13,${recipientName},Guess what. Someone who loves you has a special Diwali surprise for you.,${bookerName} has gifted you a personalised BIO AI Wellness Assessment because your health and happiness mean so much to them.,Your gift helps you understand your health better with personalised BIO AI insights and recommendations for your well-being.,Explore your special gift here: ${giftUrl},May this Diwali bring you good health peaceful moments and beautiful memories. Happy Diwali and lots of love to you.`;
 
 return {
   json: {
@@ -121,7 +121,7 @@ CONFIGS = [
         "webhook_id": "fos-wh-sender-v1",
         "prepare_name": "Prepare Family Onboard Sender WhatsApp",
         "sticky": (
-            "## Family Onboard Gift Sender WhatsApp (camp17)\n\n"
+            "## Family Onboard Gift Sender WhatsApp (camp13)\n\n"
             "Required payload:\n"
             "{\n"
             "  notification_id: number,\n"
@@ -129,8 +129,8 @@ CONFIGS = [
             "  participant_details: { booker_name, recipient_name, relationship, gift_url },\n"
             "  engagement_id?: number\n"
             "}\n\n"
-            "camp17 multi-segment CSV (same shape as thank-you-feedback / booking-confirmation): "
-            "bookerName, Hello bookerName, …, recipientName, relationship, giftUrl, closing line."
+            "camp13 CSV (same as welcome-whatsapp / expert-consultation-guide): "
+            "bookerName, body1, body2, body3, link line with giftUrl, closing."
         ),
         "validate_msg": (
             "Payload validation failed: notification_id, members, and participant_details "
@@ -146,7 +146,7 @@ CONFIGS = [
         "webhook_id": "fos-wh-receiver-v1",
         "prepare_name": "Prepare Family Onboard Receiver WhatsApp",
         "sticky": (
-            "## Family Onboard Gift Receiver WhatsApp (camp17)\n\n"
+            "## Family Onboard Gift Receiver WhatsApp (camp13)\n\n"
             "Required payload:\n"
             "{\n"
             "  notification_id: number,\n"
@@ -154,7 +154,7 @@ CONFIGS = [
             "  participant_details: { booker_name, recipient_name, gift_url },\n"
             "  engagement_id?: number\n"
             "}\n\n"
-            "camp17 multi-segment CSV: recipientName, Hello recipientName, …, bookerName, giftUrl, Diwali closing."
+            "camp13 CSV: recipientName, body1, body2 (bookerName), body3, link line with giftUrl, Diwali closing."
         ),
         "validate_msg": (
             "Payload validation failed: notification_id, members, and participant_details "
