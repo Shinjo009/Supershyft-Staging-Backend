@@ -20,11 +20,13 @@ from modules.blog.content import (
     read_minutes,
     story_chars,
 )
+from modules.blog.dependencies import BlogActor
 from modules.blog.errors import ApiError
 from modules.blog.models import Author, Category, Post
 from modules.blog.repository import BlogRepository
 from modules.blog.schemas import CategoryWrite, PostWrite
 from modules.blog.textutil import as_int, fmt_dt, make_slug
+from modules.employee.models import EmployeeRole
 
 MAX_TITLE_CHARS = 200
 MAX_DESCRIPTION_CHARS = 500
@@ -128,7 +130,7 @@ class BlogService:
             raise ApiError("Post not found", 404)
         return {"post": self._detail(post)}
 
-    async def create_post(self, db: AsyncSession, body: PostWrite, author: Author) -> dict:
+    async def create_post(self, db: AsyncSession, body: PostWrite, actor: BlogActor) -> dict:
         title = self._title(body.title, required=True)
         content = self._story(body)
         category_id = await self._category_id(db, body.category_id)
@@ -145,7 +147,7 @@ class BlogService:
             background_color=self._background_color(body.background_color),
             background_image_url=self._background_image(body.background_image_url),
             category_id=category_id,
-            author_id=author.id,
+            author_id=actor.author.id,
             status=status,
             published_at=published_at,
         )
@@ -155,11 +157,11 @@ class BlogService:
         await db.flush()
         return {"success": True, "id": post.id, "slug": post.slug}
 
-    async def update_post(self, db: AsyncSession, post_id: int, body: PostWrite, author: Author) -> dict:
+    async def update_post(self, db: AsyncSession, post_id: int, body: PostWrite, actor: BlogActor) -> dict:
         post = await self._repository.get_post(db, post_id)
         if post is None:
             raise ApiError("Post not found", 404)
-        self._assert_can_mutate(post, author)
+        self._assert_can_mutate(post, actor)
         status = self._status(body.status)
         post.title = self._title(body.title, required=True)
         post.content = self._story(body)
@@ -177,11 +179,11 @@ class BlogService:
         await db.flush()
         return {"success": True, "id": post.id, "slug": post.slug}
 
-    async def delete_post(self, db: AsyncSession, post_id: int, author: Author) -> dict:
+    async def delete_post(self, db: AsyncSession, post_id: int, actor: BlogActor) -> dict:
         post = await self._repository.get_post(db, post_id)
         if post is None:
             raise ApiError("Post not found", 404)
-        self._assert_can_mutate(post, author)
+        self._assert_can_mutate(post, actor)
         await db.delete(post)
         await db.flush()
         return {"success": True}
@@ -337,8 +339,8 @@ class BlogService:
             "thumbnail_url": post.thumbnail_url,
             "background_color": post.background_color,
             "background_image_url": post.background_image_url,
-            "author_name": author.author_name if author else "",
-            "author_role": _enum_text(author.author_role) if author else "",
+            "author_name": self._author_name(author),
+            "author_role": self._author_role(author),
             "avatar_url": author.avatar_url if author else None,
             "published_at": fmt_dt(post.published_at),
             "read_time": read_minutes(post.content or []),
@@ -361,8 +363,8 @@ class BlogService:
             "background_color": post.background_color,
             "background_image_url": post.background_image_url,
             "category_id": post.category_id,
-            "author_name": author.author_name if author else "",
-            "author_role": _enum_text(author.author_role) if author else "",
+            "author_name": self._author_name(author),
+            "author_role": self._author_role(author),
             "author_bio": author.author_bio if author and author.author_bio else "",
             "avatar_url": author.avatar_url if author else None,
             "status": _enum_text(post.status),
@@ -374,17 +376,39 @@ class BlogService:
             "category": post.category.name if post.category else None,
         }
 
-    def _assert_can_mutate(self, post: Post, author: Author) -> None:
+    def _assert_can_mutate(self, post: Post, actor: BlogActor) -> None:
         """Partner authors may change only their own posts; admin employees may change any."""
-        if author.employee_id is not None:
+        if actor.is_admin:
             return
-        if post.author_id == author.id:
+        if post.author_id == actor.author.id:
             return
         raise AppError(
             status_code=403,
             error_code="FORBIDDEN",
             message="You do not have permission to perform this action",
         )
+
+    def _author_name(self, author: Author | None) -> str:
+        employee = self._admin_employee(author)
+        if employee is not None:
+            return (employee.name or "").strip()
+        partner = author.partner if author else None
+        return (partner.name or "").strip() if partner else ""
+
+    def _author_role(self, author: Author | None) -> str:
+        if self._admin_employee(author) is not None:
+            return "admin"
+        return "author" if author else ""
+
+    def _admin_employee(self, author: Author | None):
+        employee = author.employee if author else None
+        if employee is None:
+            return None
+        role = employee.role
+        value = role.value if isinstance(role, EmployeeRole) else str(role or "")
+        if value != EmployeeRole.admin.value:
+            return None
+        return employee
 
     def _focus_keyword_store(self, value: str | list[str] | None) -> str:
         tags = self._focus_keyword_tags(value)

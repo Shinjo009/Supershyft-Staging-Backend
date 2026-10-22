@@ -14,7 +14,8 @@ from modules.blog.models import Author, Category, Keyword, Post
 class BlogRepository:
     def _post_query(self):
         return select(Post).options(
-            selectinload(Post.author),
+            selectinload(Post.author).selectinload(Author.partner),
+            selectinload(Post.author).selectinload(Author.employee),
             selectinload(Post.category),
             selectinload(Post.keywords),
         )

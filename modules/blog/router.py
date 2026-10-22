@@ -16,11 +16,9 @@ from common.responses import success_response
 
 from db.session import get_db
 
-from modules.blog.dependencies import get_current_author, get_optional_author
+from modules.blog.dependencies import BlogActor, get_current_author, get_optional_author
 
 from modules.blog.errors import ApiError
-
-from modules.blog.models import Author
 
 from modules.blog.schemas import CategoryWrite, PostWrite
 
@@ -58,7 +56,7 @@ async def list_posts(
 
     db: AsyncSession = Depends(get_db),
 
-    author: Author | None = Depends(get_optional_author),
+    author: BlogActor | None = Depends(get_optional_author),
 
     service: BlogService = Depends(get_blog_service),
 
@@ -96,7 +94,7 @@ async def create_post(
 
     db: AsyncSession = Depends(get_db),
 
-    author: Author = Depends(get_current_author),
+    author: BlogActor = Depends(get_current_author),
 
     service: BlogService = Depends(get_blog_service),
 
@@ -120,7 +118,7 @@ async def get_post(
 
     db: AsyncSession = Depends(get_db),
 
-    author: Author | None = Depends(get_optional_author),
+    author: BlogActor | None = Depends(get_optional_author),
 
     service: BlogService = Depends(get_blog_service),
 
@@ -142,7 +140,7 @@ async def update_post(
 
     db: AsyncSession = Depends(get_db),
 
-    author: Author = Depends(get_current_author),
+    author: BlogActor = Depends(get_current_author),
 
     service: BlogService = Depends(get_blog_service),
 
@@ -166,7 +164,7 @@ async def delete_post(
 
     db: AsyncSession = Depends(get_db),
 
-    author: Author = Depends(get_current_author),
+    author: BlogActor = Depends(get_current_author),
 
     service: BlogService = Depends(get_blog_service),
 
@@ -188,7 +186,7 @@ async def list_categories(
 
     db: AsyncSession = Depends(get_db),
 
-    _: Author = Depends(get_current_author),
+    _: BlogActor = Depends(get_current_author),
 
     service: BlogService = Depends(get_blog_service),
 
@@ -208,7 +206,7 @@ async def create_category(
 
     db: AsyncSession = Depends(get_db),
 
-    _: Author = Depends(get_current_author),
+    _: BlogActor = Depends(get_current_author),
 
     service: BlogService = Depends(get_blog_service),
 
@@ -234,7 +232,7 @@ async def update_category(
 
     db: AsyncSession = Depends(get_db),
 
-    _: Author = Depends(get_current_author),
+    _: BlogActor = Depends(get_current_author),
 
     service: BlogService = Depends(get_blog_service),
 
@@ -258,7 +256,7 @@ async def delete_category(
 
     db: AsyncSession = Depends(get_db),
 
-    _: Author = Depends(get_current_author),
+    _: BlogActor = Depends(get_current_author),
 
     service: BlogService = Depends(get_blog_service),
 
@@ -282,7 +280,7 @@ async def upload_media(
 
     image: UploadFile | None = File(None),
 
-    _: Author = Depends(get_current_author),
+    _: BlogActor = Depends(get_current_author),
 
     service: BlogService = Depends(get_blog_service),
 

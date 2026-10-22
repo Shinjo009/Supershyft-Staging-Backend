@@ -1,4 +1,4 @@
-"""Link a partner with role author to one authors row."""
+"""Link a blog writer to one authors row via authors.partner_id."""
 
 from __future__ import annotations
 
@@ -12,10 +12,10 @@ from modules.partners.role_utils import partner_role_value
 
 
 async def ensure_author_profile(db: AsyncSession, partner: Partner) -> Author | None:
-    """Create the author byline row when the partner role is author.
+    """Create the author row when the partner role is author.
 
     Existing rows are kept if the partner later changes role. Returns the row
-    only for author partners.
+    only for author partners. Reuses a row if an admin already stored the same id.
     """
 
     existing = await db.execute(select(Author).where(Author.partner_id == partner.partner_id))
@@ -26,35 +26,21 @@ async def ensure_author_profile(db: AsyncSession, partner: Partner) -> Author | 
     if row is not None:
         return row
 
-    base = (partner.name or "Author").strip()[:140] or "Author"
-    name = base
-    taken = await db.execute(select(Author.id).where(Author.author_name == name))
-    if taken.scalar_one_or_none() is not None:
-        suffix = f" {partner.partner_id}"
-        name = f"{base[: 150 - len(suffix)]}{suffix}"
-
-    created = Author(partner_id=partner.partner_id, author_name=name)
+    created = Author(partner_id=partner.partner_id)
     db.add(created)
     await db.flush()
     return created
 
 
 async def ensure_employee_author(db: AsyncSession, employee: Employee) -> Author:
-    """Create the byline row for an admin employee. One row per employee."""
+    """Find or create an authors row whose partner_id is the employee id."""
 
-    existing = await db.execute(select(Author).where(Author.employee_id == employee.employee_id))
+    existing = await db.execute(select(Author).where(Author.partner_id == employee.employee_id))
     row = existing.scalar_one_or_none()
     if row is not None:
         return row
 
-    base = (employee.name or "Admin").strip()[:140] or "Admin"
-    name = base
-    taken = await db.execute(select(Author.id).where(Author.author_name == name))
-    if taken.scalar_one_or_none() is not None:
-        suffix = f" {employee.employee_id}"
-        name = f"{base[: 150 - len(suffix)]}{suffix}"
-
-    created = Author(employee_id=employee.employee_id, author_name=name)
+    created = Author(partner_id=employee.employee_id)
     db.add(created)
     await db.flush()
     return created

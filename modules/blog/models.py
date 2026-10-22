@@ -2,38 +2,20 @@
 
 from __future__ import annotations
 
-from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
 from db.base import Base
-from db.column_types import blog_author_role_enum, blog_post_status_enum
+from db.column_types import blog_post_status_enum
 
 
 class Author(Base):
     __tablename__ = "authors"
-    __table_args__ = (
-        Index("ix_authors_partner_id", "partner_id", unique=True),
-        Index("ix_authors_employee_id", "employee_id", unique=True),
-        CheckConstraint(
-            "(partner_id IS NOT NULL AND employee_id IS NULL) OR (partner_id IS NULL AND employee_id IS NOT NULL)",
-            name="ck_authors_one_owner",
-        ),
-    )
+    __table_args__ = (Index("ix_authors_partner_id", "partner_id", unique=True),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    partner_id = Column(
-        Integer,
-        ForeignKey("partners.partner_id", ondelete="RESTRICT"),
-        nullable=True,
-    )
-    employee_id = Column(
-        Integer,
-        ForeignKey("employee.employee_id", ondelete="RESTRICT"),
-        nullable=True,
-    )
-    author_name = Column(String(150), nullable=False, unique=True)
-    author_role = Column(blog_author_role_enum, nullable=True)
+    partner_id = Column(Integer, nullable=False)
     author_bio = Column(Text, nullable=True)
     avatar_url = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -44,6 +26,16 @@ class Author(Base):
         onupdate=func.now(),
     )
 
+    partner = relationship(
+        "Partner",
+        primaryjoin="foreign(Author.partner_id) == Partner.partner_id",
+        viewonly=True,
+    )
+    employee = relationship(
+        "Employee",
+        primaryjoin="foreign(Author.partner_id) == Employee.employee_id",
+        viewonly=True,
+    )
     posts = relationship("Post", back_populates="author")
 
 
@@ -105,4 +97,3 @@ class Keyword(Base):
     focus_keyword = Column(Text, nullable=True)
 
     post = relationship("Post", back_populates="keywords")
-

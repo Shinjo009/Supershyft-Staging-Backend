@@ -83,3 +83,30 @@ def test_present_legacy_parallel_checked_array():
     assert shown[0]["items"][0]["checked"] is True
     assert shown[0]["items"][1]["checked"] is False
     assert "checked" not in shown[0]
+
+
+def test_normalize_and_present_use_text_not_content():
+    blocks = normalize_blocks(
+        [
+            {"tag": "h2", "content": "Introduction", "marks": []},
+            {"tag": "p", "text": "Hello from text", "marks": []},
+            {"tag": "pre", "content": "print(1)", "attributes": {"language": "python"}},
+        ]
+    )
+    assert blocks[0] == {"tag": "h2", "text": "Introduction", "marks": []}
+    assert blocks[1] == {"tag": "p", "text": "Hello from text", "marks": []}
+    assert blocks[2]["tag"] == "pre"
+    assert blocks[2]["text"] == "print(1)"
+    assert "content" not in blocks[0]
+    assert "content" not in blocks[2]
+
+    shown = present_blocks(
+        [
+            {"tag": "p", "content": "Legacy paragraph", "marks": []},
+            {"tag": "pre", "content": "print(2)", "attributes": {"language": "python"}},
+        ]
+    )
+    assert shown[0]["text"] == "Legacy paragraph"
+    assert "content" not in shown[0]
+    assert shown[1]["text"] == "print(2)"
+    assert "content" not in shown[1]

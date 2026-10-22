@@ -163,7 +163,7 @@ def blocks_are_empty(blocks: list) -> bool:
             if not blocks_are_empty(block.get("content") or []):
                 return False
             continue
-        if tag in _TEXT_TAGS and _cell_text(block.get("content")).strip():
+        if tag in _TEXT_TAGS and _cell_text(block).strip():
             return False
         if tag in {"ul", "ol"} and any(_cell_text(item).strip() for item in block.get("items") or []):
             return False
@@ -171,7 +171,7 @@ def blocks_are_empty(blocks: list) -> bool:
             return False
         if tag == "img" and _attr(block, "src"):
             return False
-        if tag == "pre" and str(block.get("content") or "").strip():
+        if tag == "pre" and _cell_text(block).strip():
             return False
         if tag in {"audio", "video"} and _attr(block, "src"):
             return False
@@ -188,9 +188,9 @@ def story_chars(blocks) -> int:
         if tag == "section":
             total += story_chars(block.get("content") or [])
         elif tag in _TEXT_TAGS:
-            total += len(_cell_text(block.get("content")))
+            total += len(_cell_text(block))
         elif tag == "pre":
-            total += len(str(block.get("content") or ""))
+            total += len(_cell_text(block))
         elif tag in {"ul", "ol"}:
             total += sum(len(_cell_text(item)) for item in block.get("items") or [])
         elif tag == "table":
@@ -213,9 +213,9 @@ def reading_text(blocks) -> str:
             if nested:
                 parts.append(nested)
         elif tag in _TEXT_TAGS:
-            parts.append(_cell_text(block.get("content")))
+            parts.append(_cell_text(block))
         elif tag == "pre":
-            parts.append(str(block.get("content") or ""))
+            parts.append(_cell_text(block))
         elif tag in {"ul", "ol"}:
             parts.extend(_cell_text(item) for item in block.get("items") or [])
         elif tag == "table":
@@ -455,16 +455,13 @@ def _shape_block(item: dict, strict: bool = False):
             },
         }
     if tag == "pre":
-        content = item.get("content")
-        if content is None:
-            content = ""
-        text = str(content)
+        text = _cell_text(item)
         if not text.strip():
             return None
         language = str(_block_attrs(item).get("language") or "text").strip().lower()
         if language not in CODE_LANGUAGES:
             language = "text"
-        return {"tag": "pre", "content": text, "attributes": {"language": language}}
+        return {"tag": "pre", "text": text, "attributes": {"language": language}}
     if tag == "audio":
         return {"tag": "audio", "attributes": {"src": _attr(item, "src")}}
     if tag == "video":
@@ -526,7 +523,7 @@ def _validate(block: dict) -> dict:
             language = "text"
         return {
             "tag": "pre",
-            "content": _limit(str(block.get("content") or ""), 50_000, "A code block is too long"),
+            "text": _limit(_cell_text(block), 50_000, "A code block is too long"),
             "attributes": {"language": language},
         }
     if tag == "audio":
@@ -636,18 +633,31 @@ def present_blocks(blocks) -> list:
             copy["rows"] = [[_present_cell(cell) for cell in row or []] for row in block.get("rows") or []]
             shown.append(copy)
             continue
-        if tag in _TEXT_TAGS:
+        if tag in _TEXT_TAGS or tag == "pre":
             copy = _strip_legacy(block)
             copy["tag"] = tag
-            copy["marks"] = list(block.get("marks") or [])
-            align = _text_align_from(block)
-            if align:
-                copy["attributes"] = {"style": {"textAlign": align}}
-            else:
-                copy.pop("attributes", None)
+            copy["text"] = _cell_text(block)
+            copy.pop("content", None)
+            if tag in _TEXT_TAGS:
+                copy["marks"] = list(block.get("marks") or [])
+                align = _text_align_from(block)
+                if align:
+                    copy["attributes"] = {"style": {"textAlign": align}}
+                elif "attributes" in copy and tag != "pre":
+                    attrs = dict(copy.get("attributes") or {})
+                    style = dict(attrs.get("style") or {})
+                    style.pop("textAlign", None)
+                    if style:
+                        attrs["style"] = style
+                    else:
+                        attrs.pop("style", None)
+                    if attrs:
+                        copy["attributes"] = attrs
+                    else:
+                        copy.pop("attributes", None)
             shown.append(copy)
             continue
-        # hr / img / video / audio / pre
+        # hr / img / video / audio
         copy = _strip_legacy(block)
         copy["tag"] = tag
         shown.append(copy)
@@ -688,10 +698,10 @@ def _render_block(block: dict) -> str:
         color = escape(_section_background_color(_section_bg_from(block)), quote=True)
         return f'<div data-type="section" style="background-color:{color}">{"".join(inner)}</div>'
     if tag in _HEADING_TAGS or tag == "p":
-        html = _inline(block.get("content"), block.get("marks"))
+        html = _inline(block, block.get("marks"))
         return f"<{tag}{_align_attr(block)}>{html}</{tag}>" if html else ""
     if tag == "blockquote":
-        html = _inline(block.get("content"), block.get("marks"))
+        html = _inline(block, block.get("marks"))
         return f"<blockquote><p{_align_attr(block)}>{html}</p></blockquote>" if html else ""
     if tag == "hr":
         return "<hr>"
@@ -719,7 +729,7 @@ def _render_block(block: dict) -> str:
         return f'<img src="{url}" alt="{alt}"/>'
     if tag == "pre":
         language = escape(str(_block_attrs(block).get("language") or "text"), quote=True)
-        code = escape(str(block.get("content") or ""))
+        code = escape(_cell_text(block))
         return f'<pre class="blog-code" data-language="{language}"><code>{code}</code></pre>'
     if tag == "audio" and _attr(block, "src"):
         url = escape(_attr(block, "src"), quote=True)
@@ -800,7 +810,7 @@ def _walk(node: _Node, out: list[dict]) -> None:
     if tag == "pre":
         text = _plain(node)
         if text:
-            out.append({"tag": "pre", "content": text, "attributes": {"language": "text"}})
+            out.append({"tag": "pre", "text": text, "attributes": {"language": "text"}})
         return
     _unwrap(node, out)
 
@@ -813,7 +823,7 @@ def _unwrap(node: _Node, out: list[dict]) -> None:
         chunks.clear()
         if not text:
             return
-        out.append({"tag": "p", "content": text, "marks": marks})
+        out.append({"tag": "p", "text": text, "marks": marks})
 
     for child in node.children:
         if isinstance(child, str):
@@ -842,7 +852,7 @@ def _append_rich(out: list[dict], tag: str, node: _Node) -> None:
     text, marks = _rich(node)
     if not text:
         return
-    out.append({"tag": tag, "content": text, "marks": marks})
+    out.append({"tag": tag, "text": text, "marks": marks})
 
 
 def _append_image(node: _Node, out: list[dict]) -> None:
@@ -927,10 +937,10 @@ def _cell_text(value) -> str:
 
 
 def _shape_text(tag: str, item: dict, strict: bool) -> dict | None:
-    text, marks = _stored_rich(item.get("content"), item.get("marks"), strict)
+    text, marks = _stored_rich(item, item.get("marks"), strict)
     if not text:
         return None
-    block: dict = {"tag": tag, "content": text, "marks": marks}
+    block: dict = {"tag": tag, "text": text, "marks": marks}
     align = _text_align_from(item)
     if align:
         block["attributes"] = {"style": {"textAlign": align}}
@@ -983,9 +993,9 @@ def _stored_rich(content, marks, strict: bool) -> tuple[str, list]:
 
 
 def _pack_text(tag: str, block: dict, limit: int, message: str) -> dict:
-    text = _limit(_cell_text(block.get("content")), limit, message)
+    text = _limit(_cell_text(block), limit, message)
     marks = _normalize_marks(block.get("marks") or [], len(text), True)
-    result = {"tag": tag, "content": text, "marks": marks}
+    result = {"tag": tag, "text": text, "marks": marks}
     align = _text_align_from(block)
     if align:
         result["attributes"] = {"style": {"textAlign": align}}

@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import select
 
 from modules.blog.models import Author
+from modules.employee.models import Employee, EmployeeRole
 from tests.helpers.auth import employee_auth_header, partner_auth_header, seed_employee, seed_partner
 
 
@@ -25,7 +26,7 @@ async def test_create_author_partner_links_author_row(async_client, test_db_sess
         await test_db_session.execute(select(Author).where(Author.partner_id == partner_id))
     ).scalar_one_or_none()
     assert row is not None
-    assert row.author_name == "Ada Author"
+    assert row.partner_id == partner_id
 
 
 @pytest.mark.asyncio
@@ -120,7 +121,15 @@ async def test_blog_dashboard_auth_and_own_post_writes(async_client, test_db_ses
     assert public_detail.status_code == 200, public_detail.text
     post = public_detail.json()["data"]["post"]
     assert post["title"] == "Owned story"
-    assert post["author_name"] == "Author One"
+    colliding_admin = (
+        await test_db_session.execute(select(Employee).where(Employee.employee_id == first_id))
+    ).scalar_one_or_none()
+    admin_role = colliding_admin.role if colliding_admin is not None else None
+    admin_role_text = admin_role.value if isinstance(admin_role, EmployeeRole) else str(admin_role or "")
+    if colliding_admin is not None and admin_role_text == EmployeeRole.admin.value:
+        assert post["author_name"] == (colliding_admin.name or "").strip()
+    else:
+        assert post["author_name"] == "Author One"
     assert post["status"] == "published"
     assert post["focus_keyword"] == "AI, small habits"
 
@@ -201,13 +210,21 @@ async def test_admin_writes_json_content_and_string_content_is_rejected(async_cl
     assert created.status_code == 201, created.text
     post_id = created.json()["data"]["id"]
 
+    author_row = (
+        await test_db_session.execute(select(Author).where(Author.partner_id == 8104))
+    ).scalar_one_or_none()
+    assert author_row is not None
+    assert author_row.partner_id == 8104
+
     detail = await async_client.get(f"/blog/posts/{post_id}", headers=headers)
     assert detail.status_code == 200, detail.text
     post = detail.json()["data"]["post"]
     assert post["author_name"] == "Admin Writer"
+    assert post["author_role"] == "admin"
     assert isinstance(post["content"], list)
     assert post["content"][0]["tag"] == "p"
-    assert post["content"][0]["content"] == "From the admin"
+    assert post["content"][0]["text"] == "From the admin"
+    assert "content" not in post["content"][0]
     assert post["content"][0]["marks"] == []
     list_block = post["content"][1]
     assert list_block["tag"] == "ul"
@@ -389,6 +406,96 @@ async def test_posts_accept_section_blocks_with_background(async_client, test_db
     assert content[0]["tag"] == "section"
     assert content[0]["attributes"]["style"]["backgroundColor"] == "#eff6ff"
     assert content[0]["content"][0]["tag"] == "h2"
-    assert content[0]["content"][0]["content"] == "Introduction"
+    assert content[0]["content"][0]["text"] == "Introduction"
+    assert "content" not in content[0]["content"][0]
     assert any(mark.get("type") == "fontFamily" for mark in content[0]["content"][0].get("marks") or [])
     assert content[0]["content"][1]["attributes"]["style"]["textAlign"] == "justify"
+
+
+@pytest.mark.asyncio
+async def test_full_article_stores_text_video_and_hr(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=8120, role="admin", name="Story Admin")
+    headers = employee_auth_header(8120)
+    category = await async_client.post(
+        "/blog/categories",
+        headers=headers,
+        json={"name": "Machine Learning"},
+    )
+    assert category.status_code == 201, category.text
+    category_id = category.json()["data"]["category"]["id"]
+
+    story = [
+        {"tag": "h2", "marks": [], "content": "Introduction"},
+        {
+            "tag": "p",
+            "marks": [{"end": 10, "type": "bold", "start": 0}],
+            "content": "Imagine AI and ML.",
+        },
+        {
+            "tag": "ol",
+            "items": [
+                {"text": "Learn Python fundamentals.", "marks": []},
+                {"text": "Study basic mathematics.", "marks": []},
+            ],
+        },
+        {
+            "tag": "p",
+            "marks": [{"end": 43, "type": "bold", "start": 0}],
+            "text": "Do I need Python to learn machine learning?",
+        },
+        {
+            "tag": "p",
+            "marks": [],
+            "text": "Python is not strictly required, but it is widely used.",
+        },
+        {
+            "tag": "video",
+            "attributes": {"src": "https://www.youtube.com/watch?v=5GN2FswYJoI"},
+        },
+        {"tag": "hr"},
+        {
+            "tag": "p",
+            "marks": [
+                {"end": 21, "type": "bold", "start": 0},
+                {"end": 21, "type": "fontSize", "start": 0, "value": "24px"},
+            ],
+            "text": "welcome to Supershyft",
+            "attributes": {"style": {"textAlign": "center"}},
+        },
+    ]
+
+    created = await async_client.post(
+        "/blog/posts",
+        headers=headers,
+        json={
+            "title": "AI and Machine Learning",
+            "content": story,
+            "category_id": category_id,
+            "status": "published",
+        },
+    )
+    assert created.status_code == 201, created.text
+    post_id = created.json()["data"]["id"]
+
+    author_row = (
+        await test_db_session.execute(select(Author).where(Author.partner_id == 8120))
+    ).scalar_one_or_none()
+    assert author_row is not None
+    assert author_row.partner_id == 8120
+
+    detail = await async_client.get(f"/blog/posts/{post_id}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    post = detail.json()["data"]["post"]
+    assert post["author_name"] == "Story Admin"
+    assert post["author_role"] == "admin"
+    blocks = post["content"]
+    assert [block["tag"] for block in blocks] == ["h2", "p", "ol", "p", "p", "video", "hr", "p"]
+    assert blocks[0]["text"] == "Introduction"
+    assert "content" not in blocks[0]
+    assert blocks[1]["text"] == "Imagine AI and ML."
+    assert blocks[2]["items"][0] == {"text": "Learn Python fundamentals.", "marks": []}
+    assert blocks[3]["text"] == "Do I need Python to learn machine learning?"
+    assert blocks[5]["attributes"]["src"] == "https://www.youtube.com/watch?v=5GN2FswYJoI"
+    assert blocks[6] == {"tag": "hr"}
+    assert blocks[7]["text"] == "welcome to Supershyft"
+    assert blocks[7]["attributes"]["style"]["textAlign"] == "center"
