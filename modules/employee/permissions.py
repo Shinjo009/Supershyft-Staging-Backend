@@ -271,7 +271,7 @@ def _excluded(path: str, method: str) -> bool:
         return True
     if path.startswith("/admin/dashboard"):
         return True
-    if path.startswith(("/auth", "/webhooks", "/media", "/pdf-upload", "/payment-test")):
+    if path.startswith(("/auth", "/webhooks", "/media", "/pdf-upload", "/payment-test", "/blog")):
         return True
     if path.startswith("/experts/portal"):
         return True

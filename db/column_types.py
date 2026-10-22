@@ -288,6 +288,27 @@ class PartnerRoleEnum(str, enum.Enum):
     phlebo = "phlebo"
     expert = "expert"
     organization_manager = "organization_manager"
+    author = "author"
+
+
+class BlogAuthorRole(str, enum.Enum):
+    nutritionist = "nutritionist"
+    doctor = "doctor"
+    dietitian = "dietitian"
+    fitness_trainer = "fitness_trainer"
+    psychologist = "psychologist"
+    mental_health_expert = "mental_health_expert"
+    health_coach = "health_coach"
+    wellness_expert = "wellness_expert"
+    researcher = "researcher"
+    medical_researcher = "medical_researcher"
+    physiotherapist = "physiotherapist"
+    yoga_instructor = "yoga_instructor"
+
+
+class BlogPostStatus(str, enum.Enum):
+    draft = "draft"
+    published = "published"
 
 
 class NotificationChannel(str, enum.Enum):
@@ -414,6 +435,8 @@ user_gender_enum = _pg_enum(UserGender, "user_gender_enum")
 user_relationship_enum = _pg_enum(UserRelationship, "user_relationship_enum")
 diet_preference_enum = _pg_enum(DietPreference, "diet_preference_enum")
 partner_role_enum = _pg_enum(PartnerRoleEnum, "partner_role_enum")
+blog_author_role_enum = _pg_enum(BlogAuthorRole, "author_role")
+blog_post_status_enum = _pg_enum(BlogPostStatus, "post_status")
 notification_channel_enum = _pg_enum(NotificationChannel, "notification_channel_enum")
 discount_type_enum = _pg_enum(DiscountTypeEnum, "discount_type_enum")
 discount_audience_enum = _pg_enum(DiscountAudience, "discount_audience_enum")

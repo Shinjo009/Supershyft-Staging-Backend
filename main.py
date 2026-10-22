@@ -53,6 +53,7 @@ from modules.employee.permissions import authorize_inferior_admin_request
 from modules.discounts.router import router as discounts_router
 from modules.export_logs.router import router as export_logs_router
 from modules.dashboard.router import router as dashboard_router
+from modules.blog.router import router as blog_router
 
 
 # Configure logging
@@ -151,6 +152,7 @@ app.include_router(server_health_router)
 app.include_router(db_health_router)
 app.include_router(discounts_router)
 app.include_router(dashboard_router)
+app.include_router(blog_router)
 
 
 _media_root = Path(settings.MEDIA_ROOT)

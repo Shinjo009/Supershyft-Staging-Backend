@@ -19,6 +19,7 @@ class PartnerRole(str, enum.Enum):
     phlebo = "phlebo"
     expert = "expert"
     organization_manager = "organization_manager"
+    author = "author"
 
 
 class Partner(Base):

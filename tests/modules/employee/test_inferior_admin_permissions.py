@@ -140,6 +140,8 @@ def test_every_category_has_configurable_tasks():
         ("POST", "/partners/auth/send-otp"),
         ("POST", "/discounts/validate"),
         ("POST", "/discounts/auto-apply"),
+        ("GET", "/blog/posts"),
+        ("POST", "/blog/posts"),
     ],
 )
 def test_operation_manifest_explicit_exclusions(method, path):

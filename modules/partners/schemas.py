@@ -125,4 +125,4 @@ class PartnerLogoutRequest(BaseModel):
     refresh_token: str = Field(..., min_length=10)
 
 
-PartnerRoleFilter = Literal["phlebo", "expert", "organization_manager"]
+PartnerRoleFilter = Literal["phlebo", "expert", "organization_manager", "author"]
