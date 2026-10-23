@@ -38,4 +38,4 @@ In `dev-admin`:
 STAGING_EMPLOYEE_PHONE=8762830757 STAGING_BYPASS_OTP=654321 npm run test:e2e:staging:notifications
 ```
 
-Optional: `STAGING_API_URL`, `STAGING_ADMIN_URL`. Payload hints: `e2e/fixtures/notification-dispatch-hints.json`.
+Optional: `STAGING_API_URL`, `STAGING_ADMIN_URL`, `STAGING_TEST_USER_ID` (defaults to onboarding a participant at `STAGING_EMPLOYEE_PHONE` if missing). Payload hints: `e2e/fixtures/notification-dispatch-hints.json`.
