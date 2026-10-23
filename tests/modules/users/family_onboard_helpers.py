@@ -8,6 +8,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.column_types import STATUS_ENGAGEMENT
+from modules.engagements.constants import DEFAULT_ENGAGEMENT_NOTIFICATION_SERVICE_KEY
+from tests.helpers.auth import seed_employee
+
+ONBOARDING_ALERT_SERVICE_KEY = DEFAULT_ENGAGEMENT_NOTIFICATION_SERVICE_KEY
 
 
 def engagement_status_is(raw_status: object, label: str) -> bool:
@@ -50,6 +54,93 @@ async def seed_family_onboard_gift_notification_services(test_db_session: AsyncS
             ),
             {"sk": key, "ch": channel, "path": path},
         )
+    await test_db_session.commit()
+
+
+async def seed_family_onboard_onboarding_notification_setup(
+    test_db_session: AsyncSession,
+    *,
+    employee_id: int = 8801,
+) -> None:
+    """Default OA + onboarding event services so family confirm fires Booking Alert."""
+    service_key = ONBOARDING_ALERT_SERVICE_KEY
+    await test_db_session.execute(
+        text(
+            "INSERT INTO notification_services "
+            "(service_key, display_name, channel, webhook_path, is_active, "
+            "require_blood_report_url, require_bio_ai_report_url, require_participant_detail, "
+            "require_otp, require_session_details, require_external_link) "
+            "VALUES (:sk, 'Booking Alert', 'whatsapp', '/booking-alert-test-v1', true, "
+            "false, false, false, false, false, false) "
+            "ON CONFLICT (service_key) DO UPDATE SET is_active = true"
+        ),
+        {"sk": service_key},
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO engagement_types (code, display_name, is_active) "
+            "VALUES ('bio_ai', 'BioAI', true) "
+            "ON CONFLICT (code) DO UPDATE SET is_active = true"
+        )
+    )
+    type_row = (
+        await test_db_session.execute(
+            text("SELECT id FROM engagement_types WHERE code = 'bio_ai'")
+        )
+    ).one()
+    type_id = int(type_row[0])
+    await test_db_session.execute(
+        text(
+            "INSERT INTO auto_notification_events (event_code, display_name, engagement_type_ids, description) "
+            "VALUES ('onboarding', 'Onboarding Notification', :type_ids, 'Test onboarding event') "
+            "ON CONFLICT (event_code) DO UPDATE SET display_name = EXCLUDED.display_name"
+        ),
+        {"type_ids": [type_id]},
+    )
+    event_row = (
+        await test_db_session.execute(
+            text("SELECT id FROM auto_notification_events WHERE event_code = 'onboarding'")
+        )
+    ).one()
+    event_id = int(event_row[0])
+    services_json = json.dumps([{"service_key": service_key, "external_link": None}])
+    await test_db_session.execute(
+        text(
+            "INSERT INTO engagement_notification_defaults "
+            "(engagement_type_id, notification_event_id, notification_services) "
+            "VALUES (:type_id, :event_id, CAST(:services AS jsonb)) "
+            "ON CONFLICT (engagement_type_id, notification_event_id) DO UPDATE "
+            "SET notification_services = EXCLUDED.notification_services"
+        ),
+        {"type_id": type_id, "event_id": event_id, "services": services_json},
+    )
+    await seed_employee(
+        test_db_session,
+        employee_id=employee_id,
+        role="admin",
+        name="Family OA",
+        phone="8801000001",
+        email="family.oa@test.example",
+        commit=False,
+    )
+    await test_db_session.execute(
+        text(
+            "UPDATE platform_settings SET default_onboarding_assistant_employee_ids = :ids "
+            "WHERE settings_id = 1"
+        ),
+        {"ids": str(employee_id)},
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO platform_settings "
+            "(settings_id, b2c_default_assessment_package_id, b2c_default_diagnostic_package_id, "
+            "default_onboarding_assistant_employee_ids) "
+            "VALUES (1, 1, 6, :ids) "
+            "ON CONFLICT (settings_id) DO UPDATE SET "
+            "default_onboarding_assistant_employee_ids = EXCLUDED.default_onboarding_assistant_employee_ids"
+        ),
+        {"ids": str(employee_id)},
+    )
     await test_db_session.commit()
 
 

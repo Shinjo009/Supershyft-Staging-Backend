@@ -3988,6 +3988,12 @@ class UsersService:
             bookings_result = await db.execute(select(Booking).where(Booking.booking_id.in_(booking_ids)))
             bookings = list(bookings_result.scalars().all())
             order_members = booking_service._members_from_order_bookings(bookings)
+            pay_member_results: dict[tuple[int, int], dict[str, Any]] = {}
+            for pay_member in pay_result.get("members") or []:
+                uid = pay_member.get("user_id")
+                eid = pay_member.get("engagement_id")
+                if uid is not None and eid is not None:
+                    pay_member_results[(int(uid), int(eid))] = pay_member
             await self._promote_family_engagements_to_scheduled(
                 db,
                 engagement_ids=[int(m["engagement_id"]) for m in order_members],
@@ -4018,16 +4024,47 @@ class UsersService:
                     source="family-onboard",
                     blood_collection_cabin=None,
                 )
+                participant = await self._engagements_service.get_participant_for_user_engagement(
+                    db,
+                    user_id=int(member["user_id"]),
+                    engagement_id=int(member["engagement_id"]),
+                )
+                pay_member_result = pay_member_results.get(
+                    (int(member["user_id"]), int(member["engagement_id"]))
+                )
+                vendor_booking_id = (
+                    (pay_member_result.get("booking_id") or "").strip()
+                    if pay_member_result is not None
+                    else ""
+                )
+                vendor_already_notified = bool(engagement.auto_booking) and (
+                    (pay_member_result or {}).get("status") == "success" and bool(vendor_booking_id)
+                )
+                if not vendor_already_notified:
+                    from modules.engagements.blood_bookings_access import (
+                        get_current_row,
+                        read_schedule_from_row,
+                    )
+
+                    sched = read_schedule_from_row(
+                        await get_current_row(db, participant) if participant is not None else None
+                    )
+                    coll_date = sched.get("engagement_date")
+                    coll_time = sched.get("slot_start_time")
+                    await self._notify_onboarding_assistants_for_user(
+                        db,
+                        engagement=engagement,
+                        user=member_user,
+                        source=engagement.engagement_code or "family-onboard",
+                        collection_date=coll_date.isoformat() if coll_date is not None else None,
+                        collection_time=coll_time.isoformat() if coll_time is not None else None,
+                        cabin_key=sched.get("blood_collection_cabin"),
+                    )
                 if booker_user is not None and self._notifications_service is not None:
                     from modules.notifications.family_onboard_gift_notify import (
                         notify_family_onboard_gift,
                     )
 
-                    participant = await self._engagements_service.get_participant_for_user_engagement(
-                        db,
-                        user_id=int(member["user_id"]),
-                        engagement_id=int(member["engagement_id"]),
-                    )
                     await notify_family_onboard_gift(
                         db,
                         notifications_service=self._notifications_service,

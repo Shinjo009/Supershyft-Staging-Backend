@@ -18,10 +18,12 @@ from modules.notifications.family_onboard_gift_notify import (
     SENDER_WHATSAPP_KEY,
 )
 from tests.modules.users.family_onboard_helpers import (
+    ONBOARDING_ALERT_SERVICE_KEY,
     engagement_ids_from_start,
     engagement_status_is,
     family_onboard_start_payload,
     seed_family_onboard_gift_notification_services,
+    seed_family_onboard_onboarding_notification_setup,
     seed_family_onboard_platform_defaults,
 )
 
@@ -235,6 +237,86 @@ async def test_family_onboard_confirm_dispatches_gift_notifications(
     assert SENDER_EMAIL_KEY in rows
     assert RECEIVER_WHATSAPP_KEY in rows
     assert RECEIVER_EMAIL_KEY not in rows
+
+
+@pytest.mark.asyncio
+async def test_family_onboard_confirm_dispatches_onboarding_notification_per_member(
+    async_client, test_db_session, monkeypatch
+):
+    await seed_family_onboard_platform_defaults(test_db_session)
+    await seed_family_onboard_onboarding_notification_setup(test_db_session)
+    webhook_calls: list[dict] = []
+
+    monkeypatch.setattr(
+        "modules.notifications.service.httpx.AsyncClient",
+        _fake_n8n_httpx_client(webhook_calls),
+    )
+    monkeypatch.setattr(settings, "RAZORPAY_KEY_SECRET", "test_razorpay_secret")
+    monkeypatch.setattr(settings, "RAZORPAY_KEY_ID", "rzp_test")
+    monkeypatch.setattr(
+        "modules.payments.services._create_razorpay_order_sync",
+        _mock_razorpay_order,
+    )
+
+    booker_phone = "9000100251"
+    start_resp = await async_client.post(
+        "/users/public/family-onboard",
+        json=family_onboard_start_payload(
+            booker_phone=booker_phone,
+            member_phone="9000100252",
+            second_member_phone="9000100253",
+        ),
+    )
+    assert start_resp.status_code == 200
+    start_data = start_resp.json()["data"]
+    booker_user_id = start_data["booker_user_id"]
+
+    previous_bypass = settings.ALLOW_BYPASS_OTP
+    settings.ALLOW_BYPASS_OTP = True
+    try:
+        verify_resp = await async_client.post(
+            "/users/public/family-onboard/verify-pay",
+            json={
+                "phone": booker_phone,
+                "otp": "654321",
+                "engagement_ids": engagement_ids_from_start(start_data),
+            },
+        )
+    finally:
+        settings.ALLOW_BYPASS_OTP = previous_bypass
+    assert verify_resp.status_code == 200
+    order_id = verify_resp.json()["data"]["razorpay_order_id"]
+
+    payment_id = "pay_family_onboarding_test"
+    signature = _razorpay_signature(order_id=order_id, payment_id=payment_id)
+    confirm_resp = await async_client.post(
+        "/users/public/family-onboard/confirm-payment",
+        headers=user_auth_header(booker_user_id),
+        json={
+            "razorpay_order_id": order_id,
+            "razorpay_payment_id": payment_id,
+            "razorpay_signature": signature,
+        },
+    )
+    assert confirm_resp.status_code == 200
+
+    alert_calls = [c for c in webhook_calls if "booking-alert-test" in c["url"]]
+    assert len(alert_calls) == len(start_data["members"])
+    sample_pd = alert_calls[0]["json"]["participant_details"]
+    assert sample_pd["collection_date"] == "2026-03-15"
+    assert sample_pd["collection_time"] == "10:00:00"
+
+    for member in start_data["members"]:
+        rows = (
+            await test_db_session.execute(
+                text(
+                    "SELECT service_key FROM notifications WHERE engagement_id = :eid "
+                    "AND service_key = :sk"
+                ),
+                {"eid": member["engagement_id"], "sk": ONBOARDING_ALERT_SERVICE_KEY},
+            )
+        ).scalars().all()
+        assert len(rows) == 1
 
 
 @pytest.mark.asyncio
