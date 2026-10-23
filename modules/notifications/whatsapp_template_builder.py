@@ -11,7 +11,15 @@ from modules.notifications.whatapi_client import WhatApiClient
 
 # n8n legacy first-segment aliases → WABA template names (when GET by alias fails)
 _TEMPLATE_ALIASES: dict[str, str] = {
-    "otp": "otp_new",
+    "otp": "otpv4",
+}
+
+# WhatAPI GET webhook expects comma message=prefix,var1,... (not always the WABA template name)
+_FALLBACK_FIRST_SEGMENT: dict[str, str] = {
+    "otp_new": "otp",
+    "otpv4": "otp",
+    "app_authentication_2": "otp",
+    "otpmsg__": "otpmsg",
 }
 
 _template_cache: dict[str, dict[str, Any]] = {}
@@ -143,5 +151,6 @@ def build_fallback_message_and_medialink(
             continue
         body_parts.append(resolve_binding_value(binding, context))
 
-    message = ",".join([template_name, *body_parts])
+    first_segment = _FALLBACK_FIRST_SEGMENT.get(template_name, template_name)
+    message = ",".join([first_segment, *body_parts])
     return message, medialink

@@ -900,7 +900,7 @@
     "display_name": "OTP via WhatsApp",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "otp_new",
+    "template_name": "otpv4",
     "template_variables": ["{{otp}}"],
     "email_subject": null,
     "email_body": null,

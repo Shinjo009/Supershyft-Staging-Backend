@@ -1,11 +1,17 @@
-"""Tests for template variable resolution."""
+"""Tests for WhatsApp template builder helpers."""
 
 from __future__ import annotations
 
-from modules.notifications.template_variables import resolve_text
+from types import SimpleNamespace
+
+from modules.notifications.whatsapp_template_builder import build_fallback_message_and_medialink
 
 
-def test_resolve_text_placeholder():
-    ctx = {"first_name": "Alex", "session_details": {"date": "2024-01-01"}}
-    assert resolve_text("{{first_name}}", ctx) == "Alex"
-    assert resolve_text("Date: {{session_details.date}}", ctx) == "Date: 2024-01-01"
+def test_fallback_otp_service_uses_legacy_otp_prefix():
+    svc = SimpleNamespace(
+        template_name="otpv4",
+        template_variables=["{{otp}}"],
+    )
+    message, medialink = build_fallback_message_and_medialink(svc, {"otp": "123456"})
+    assert message == "otp,123456"
+    assert medialink is None
