@@ -12,6 +12,8 @@ OUT_DIR = ROOT / "n8n" / "workflows"
 META = {
     "instanceId": "eed8b3457b986f6362867dfc9a5378439da2846ec92ad64fddac97c84b5cba32"
 }
+WHATAPI_WEBHOOK_CAMP13 = "https://webhook.whatapi.in/webhook/69ea095002e28c7ee412c02d"
+WHATAPI_WEBHOOK_CAMP15_PDF = "https://webhook.whatapi.in/webhook/6a057e696f1a8bf9dd523d1f"
 
 SPLIT_JS = """const body = $input.first().json.body;
 const notificationId = body.notification_id;
@@ -39,7 +41,14 @@ const giftUrl = (pd.gift_url || 'https://app.supershyft.com').trim();
 let phone = String(member.phone || '').replace(/\\D/g, '');
 if (phone.length === 10) phone = '91' + phone;
 
-const message = `camp13,${bookerName},This Diwali you are giving someone you love a special gift of health and well-being through Supershyft.,Your personalised BIO AI Wellness Assessment for ${recipientName} (${relationship}) is being created with love.,Because the people we love deserve a healthier happier life with many more beautiful moments together.,You can check the details here: ${giftUrl},Thank you for making well-being a little more special this Diwali. Wishing you and your family love happiness and good health.`;
+// camp13: v1..v6 — maps to template {{1}} booker, {{2}} recipient, {{3}} relationship, {{4}} gift link
+const v1 = bookerName;
+const v2 = recipientName;
+const v3 = relationship;
+const v4 = giftUrl;
+const v5 = '';
+const v6 = '';
+const message = `camp13,${v1},${v2},${v3},${v4},${v5},${v6}`;
 
 return {
   json: {
@@ -58,13 +67,21 @@ const giftUrl = (pd.gift_url || 'https://app.supershyft.com').trim();
 let phone = String(member.phone || '').replace(/\\D/g, '');
 if (phone.length === 10) phone = '91' + phone;
 
-const message = `camp13,${recipientName},Guess what. Someone who loves you has a special Diwali surprise for you.,${bookerName} has gifted you a personalised BIO AI Wellness Assessment because your health and happiness mean so much to them.,Your gift helps you understand your health better with personalised BIO AI insights and recommendations for your well-being.,Explore your special gift here: ${giftUrl},May this Diwali bring you good health peaceful moments and beautiful memories. Happy Diwali and lots of love to you.`;
+// camp15: name, v1, v2, v3, v4, Gift Card — gift PDF via pdflink (not in message CSV)
+const v1 =
+  'Guess what. Someone who loves you has a special surprise for you this Diwali.';
+const v2 = bookerName;
+const v3 = 'Open your attached Diwali gift card below to explore your special surprise.';
+const v4 =
+  'May this Diwali bring you good health peaceful moments endless laughter and countless beautiful memories with the people who love you. Happy Diwali and lots of love to you.';
+const message = `camp15,${recipientName},${v1},${v2},${v3},${v4},Gift Card`;
 
 return {
   json: {
     notification_id: member.notification_id,
     phone,
-    message
+    message,
+    pdflink: giftUrl
   }
 };"""
 
@@ -122,6 +139,8 @@ CONFIGS = [
         "prepare_name": "Prepare Family Onboard Sender WhatsApp",
         "sticky": (
             "## Family Onboard Gift Sender WhatsApp (camp13)\n\n"
+            "WhatAPI: webhook 69ea095002e28c7ee412c02d (same as welcome-whatsapp)\n"
+            "message=camp13,v1,v2,v3,v4,v5,v6\n\n"
             "Required payload:\n"
             "{\n"
             "  notification_id: number,\n"
@@ -129,8 +148,8 @@ CONFIGS = [
             "  participant_details: { booker_name, recipient_name, relationship, gift_url },\n"
             "  engagement_id?: number\n"
             "}\n\n"
-            "camp13 CSV (same as welcome-whatsapp / expert-consultation-guide): "
-            "bookerName, body1, body2, body3, link line with giftUrl, closing."
+            "Template mapping: v1={{1}} booker, v2={{2}} recipient, v3={{3}} relationship, "
+            "v4={{4}} details link (gift_url). v5/v6 reserved (empty) for camp13 six-param shape."
         ),
         "validate_msg": (
             "Payload validation failed: notification_id, members, and participant_details "
@@ -138,6 +157,7 @@ CONFIGS = [
         ),
         "sender": True,
         "prepare_js": SENDER_PREPARE,
+        "whatapi_url": WHATAPI_WEBHOOK_CAMP13,
     },
     {
         "file": "family-onboard-receiver-whatsapp.json",
@@ -146,7 +166,7 @@ CONFIGS = [
         "webhook_id": "fos-wh-receiver-v1",
         "prepare_name": "Prepare Family Onboard Receiver WhatsApp",
         "sticky": (
-            "## Family Onboard Gift Receiver WhatsApp (camp13)\n\n"
+            "## Family Onboard Gift Receiver WhatsApp (camp15 + pdflink)\n\n"
             "Required payload:\n"
             "{\n"
             "  notification_id: number,\n"
@@ -154,7 +174,10 @@ CONFIGS = [
             "  participant_details: { booker_name, recipient_name, gift_url },\n"
             "  engagement_id?: number\n"
             "}\n\n"
-            "camp13 CSV: recipientName, body1, body2 (bookerName), body3, link line with giftUrl, Diwali closing."
+            "WhatAPI query: number, message, pdflink\n"
+            "message=camp15,recipientName,v1,v2,v3,v4,Gift Card\n"
+            "v1=surprise intro, v2=bookerName ({{2}}), v3=explore CTA ({{3}}), v4=Diwali closing\n"
+            "pdflink=participant_details.gift_url (bio-ai-reports greeting card PDF)"
         ),
         "validate_msg": (
             "Payload validation failed: notification_id, members, and participant_details "
@@ -162,6 +185,8 @@ CONFIGS = [
         ),
         "sender": False,
         "prepare_js": RECEIVER_PREPARE,
+        "use_pdflink": True,
+        "whatapi_url": WHATAPI_WEBHOOK_CAMP15_PDF,
     },
 ]
 
@@ -208,6 +233,16 @@ def build_workflow(cfg: dict) -> dict:
                     assignment["value"] = (
                         f"={{{{ $('{prepare_name}').item.json.notification_id }}}}"
                     )
+        elif name == "Send WhatsApp Message":
+            if cfg.get("whatapi_url"):
+                node["parameters"]["url"] = cfg["whatapi_url"]
+            if cfg.get("use_pdflink"):
+                node["parameters"]["queryParameters"]["parameters"].append(
+                    {
+                        "name": "pdflink",
+                        "value": "={{ $json.pdflink }}",
+                    }
+                )
 
     con = wf["connections"]
     con[webhook_name] = con.pop("Booking Confirmation WhatsApp")

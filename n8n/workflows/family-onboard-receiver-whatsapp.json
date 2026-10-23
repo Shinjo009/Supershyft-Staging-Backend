@@ -2,7 +2,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Family Onboard Gift Receiver WhatsApp (camp13)\n\nRequired payload:\n{\n  notification_id: number,\n  members: [{ first_name, last_name, email, phone }],\n  participant_details: { booker_name, recipient_name, gift_url },\n  engagement_id?: number\n}\n\ncamp13 CSV: recipientName, body1, body2 (bookerName), body3, link line with giftUrl, Diwali closing.",
+        "content": "## Family Onboard Gift Receiver WhatsApp (camp15 + pdflink)\n\nRequired payload:\n{\n  notification_id: number,\n  members: [{ first_name, last_name, email, phone }],\n  participant_details: { booker_name, recipient_name, gift_url },\n  engagement_id?: number\n}\n\nWhatAPI query: number, message, pdflink\nmessage=camp15,recipientName,v1,v2,v3,v4,Gift Card\nv1=surprise intro, v2=bookerName ({{2}}), v3=explore CTA ({{3}}), v4=Diwali closing\npdflink=participant_details.gift_url (bio-ai-reports greeting card PDF)",
         "height": 640,
         "width": 2336
       },
@@ -140,7 +140,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const member = $input.item.json;\nconst pd = member.participant_details || {};\nconst recipientName = (pd.recipient_name || member.first_name || 'there').trim();\nconst bookerName = (pd.booker_name || '-').trim();\nconst giftUrl = (pd.gift_url || 'https://app.supershyft.com').trim();\n\nlet phone = String(member.phone || '').replace(/\\D/g, '');\nif (phone.length === 10) phone = '91' + phone;\n\nconst message = `camp13,${recipientName},Guess what. Someone who loves you has a special Diwali surprise for you.,${bookerName} has gifted you a personalised BIO AI Wellness Assessment because your health and happiness mean so much to them.,Your gift helps you understand your health better with personalised BIO AI insights and recommendations for your well-being.,Explore your special gift here: ${giftUrl},May this Diwali bring you good health peaceful moments and beautiful memories. Happy Diwali and lots of love to you.`;\n\nreturn {\n  json: {\n    notification_id: member.notification_id,\n    phone,\n    message\n  }\n};"
+        "jsCode": "const member = $input.item.json;\nconst pd = member.participant_details || {};\nconst recipientName = (pd.recipient_name || member.first_name || 'there').trim();\nconst bookerName = (pd.booker_name || '-').trim();\nconst giftUrl = (pd.gift_url || 'https://app.supershyft.com').trim();\n\nlet phone = String(member.phone || '').replace(/\\D/g, '');\nif (phone.length === 10) phone = '91' + phone;\n\n// camp15: name, v1, v2, v3, v4, Gift Card \u2014 gift PDF via pdflink (not in message CSV)\nconst v1 =\n  'Guess what. Someone who loves you has a special surprise for you this Diwali.';\nconst v2 = bookerName;\nconst v3 = 'Open your attached Diwali gift card below to explore your special surprise.';\nconst v4 =\n  'May this Diwali bring you good health peaceful moments endless laughter and countless beautiful memories with the people who love you. Happy Diwali and lots of love to you.';\nconst message = `camp15,${recipientName},${v1},${v2},${v3},${v4},Gift Card`;\n\nreturn {\n  json: {\n    notification_id: member.notification_id,\n    phone,\n    message,\n    pdflink: giftUrl\n  }\n};"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -164,6 +164,10 @@
             {
               "name": "message",
               "value": "={{ $json.message }}"
+            },
+            {
+              "name": "pdflink",
+              "value": "={{ $json.pdflink }}"
             }
           ]
         },
