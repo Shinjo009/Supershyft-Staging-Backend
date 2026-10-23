@@ -22,6 +22,12 @@ _FALLBACK_FIRST_SEGMENT: dict[str, str] = {
     "app_authentication_2": "otp",
     "otpmsg": "otpmsg",
     "otpmsg__": "otpmsg",
+    "welcome_new": "camp13",
+    "pretest_new": "pretest_new",
+    "camp13": "camp13",
+    "camp15": "camp15",
+    "camp16": "camp16",
+    "camp17": "camp17",
 }
 
 _template_cache: dict[str, dict[str, Any]] = {}

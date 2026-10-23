@@ -4,9 +4,15 @@
     "display_name": "Questionnaire Remainder",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "assessment_reminder_whatsapp_metsights",
+    "template_name": "camp17",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Your Health Assessment is Incomplete",
+      "Please complete for SuperShyft Bio-AI Health Report",
+      "By answering a few quick questions about your nutrition",
+      "sleep and physical activity.Your responses directly shape your Bio-AI Health Report the more accurate your inputs the more useful your report",
+      "If you have any query feel free to reach out on 8209512559",
+      "Please visit: www.metsights.com"
     ],
     "email_subject": null,
     "email_body": null,
@@ -17,10 +23,8 @@
     "display_name": "B2B Booking Alert (Participant Only Msg)",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "b2b_booking_alert_whatsapp",
-    "template_variables": [
-      "{{first_name}}"
-    ],
+    "template_name": null,
+    "template_variables": null,
     "email_subject": null,
     "email_body": null,
     "email_html": null
@@ -32,18 +36,24 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Book Doctor Consultation",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Book Your doctor Consultation",
+    "email_body": "Hi ${name},\\n\\nYour health assessment has been completed and you are now eligible for a consultation with one of our doctors.\\n\\nThe consultation will help you better understand your report findings and develop a personalized action plan.\\n\\nPlease book a convenient slot below:\\n${bookingLink}\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "book-doctor-consultation-whatsapp",
     "display_name": "Book COnsultation Whatsapp",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "book_doctor_consultation",
+    "template_name": "camp17",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Your Bio-AI Health Assessment has been completed and your consultation is now available for booking.",
+      "Choose a convenient time slot that works best for your schedule through the booking link below.",
+      "This consultation will help you understand your health risks and create an actionable plan.",
+      "You can check the details below for your convenience",
+      "{{first_name}}",
+      "Thanks for taking a moment to read this message"
     ],
     "email_subject": null,
     "email_body": null,
@@ -56,17 +66,23 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Book Nutrition Consultation 1Plus1",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Book Your Nutrition Consultation",
+    "email_body": "Hello ${name},\\n\\nYour Bio-AI Health Assessment is complete and your nutrition consultation is now available for booking.\\n\\nChoose a convenient time with our nutritionist using the link below:\\nBook your consultation:\\n${bookingLink}\\n\\nWe look forward to helping you turn your health insights into actionable nutrition goals.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "book-nutrition-consultation-whatsapp-1plus1-v1",
     "display_name": "Book Nutrition Consultation 1Plus1",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "book_nutrition_consultation_whatsapp",
-    "template_variables": null,
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Your Bio-AI Health Assessment is complete and your nutrition consultation is now available for booking.",
+      "Choose a convenient time with our nutritionist using the link below.",
+      "Book your consultation: {{first_name}}",
+      "We look forward to helping you turn your health insights into actionable nutrition goals."
+    ],
     "email_subject": null,
     "email_body": null,
     "email_html": null
@@ -78,18 +94,24 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Book Consultation NVIDIA",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Book Your doctor Consultation",
+    "email_body": "Hi ${name},\\n\\nYour health assessment has been completed and you are now eligible for your doctor consultation.\\n\\nThe consultation will help you better understand your report findings and develop a personalized action plan.\\n\\nPlease book a convenient slot below:\\n${bookingLink}\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "book-nvidia-consultation-whatsapp-v1",
     "display_name": "Book NVIDIA Consultation Whatsapp",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "book_nvidia_consultation_whatsapp",
+    "template_name": "camp17",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Your Bio-AI Health Assessment has been completed and your doctor consultation is now available for booking.",
+      "Choose a convenient time slot that works best for your schedule through the booking link below.",
+      "This consultation will help you understand your health risks and create an actionable plan.",
+      "You can check the details below for your convenience",
+      "{{first_name}}",
+      "Thanks for taking a moment to read this message"
     ],
     "email_subject": null,
     "email_body": null,
@@ -99,33 +121,77 @@
     "service_key": "booking-alert-email+whatsapp+participant-welcome-metsights",
     "display_name": "Booking Alert + User Welcome to ME",
     "channel": "whatsapp",
-    "is_active": true,
-    "template_name": "booking_alert_email+whatsapp+participant_welcome_metsights",
+    "is_active": false,
+    "template_name": "camp16",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Please initiate the process and proceed with the booking",
+      "Details Name: {{participant_details.name}} Phone: {{participant_details.phone}} Email: {{participant_details.email}}",
+      "Date: {{session_details.date}} Time: {{session_details.slot}}",
+      "Address in Admin You can check the details below for your convenience. Please visit:https://admin.supershyft.com/"
     ],
-    "email_subject": null,
+    "email_subject": "Booking Alert - SuperShyft",
     "email_body": null,
-    "email_html": null
+    "email_html": "<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\n    .container { max-width: 600px; margin: 0 auto; padding: 20px; }\n    .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }\n    .content { background-color: #f9f9f9; padding: 20px; border: 1px solid #ddd; }\n    .field { margin: 10px 0; }\n    .label { font-weight: bold; color: #555; }\n    .value { color: #333; }\n    .footer { background-color: #333; color: white; padding: 15px; text-align: center; border-radius: 0 0 5px 5px; }\n    .highlight { background-color: #e8f5e8; padding: 10px; border-radius: 5px; margin: 15px 0; }\n  </style>\n</head>\n<body>\n  <div class=\\\"container\\\">\n    <div class=\\\"header\\\"><h2>&#127881; New Health Camp Registration</h2><p>SuperShyft Health Camp</p></div>\n    <div class=\\\"content\\\">\n      <div class=\\\"highlight\\\"><strong>&#128197; New registration received at:</strong> ${currentTime}</div>\n      <h3>&#128100; Participant Information</h3>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Name:</span> <span class=\\\"value\\\">${pd.name || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Email:</span> <span class=\\\"value\\\">${pd.email || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Phone:</span> <span class=\\\"value\\\">${pd.phone || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Age:</span> <span class=\\\"value\\\">${pd.age || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Gender:</span> <span class=\\\"value\\\">${pd.gender || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Address:</span> <span class=\\\"value\\\">${pd.address || 'Not provided'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Pincode:</span> <span class=\\\"value\\\">${pd.pincode || 'Not provided'}</span></div>\n      <h3>&#128197; Appointment Details</h3>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Date:</span> <span class=\\\"value\\\">${apptDate}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Time:</span> <span class=\\\"value\\\">${formattedTime}</span></div>\n      <div class=\\\"highlight\\\"><strong>&#128161; Next Steps:</strong><ul><li>Review the registration details</li><li>Confirm the appointment if needed</li><li>Access the admin panel: <a href=\\\"https://admin.supershyft.com/\\\">admin.supershyft.com</a></li></ul></div>\n    </div>\n    <div class=\\\"footer\\\"><p>Automated notification from SuperShyft Health Camp Registration System</p><p>Please do not reply to this email</p></div>\n  </div>\n</body>\n</html>"
+  },
+  {
+    "service_key": "booking-alert-email-metsights",
+    "display_name": "Booking Alert Email (Metsights)",
+    "channel": "email",
+    "is_active": true,
+    "template_name": null,
+    "template_variables": null,
+    "email_subject": "Booking Alert - SuperShyft",
+    "email_body": null,
+    "email_html": "<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\n    .container { max-width: 600px; margin: 0 auto; padding: 20px; }\n    .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }\n    .content { background-color: #f9f9f9; padding: 20px; border: 1px solid #ddd; }\n    .field { margin: 10px 0; }\n    .label { font-weight: bold; color: #555; }\n    .value { color: #333; }\n    .footer { background-color: #333; color: white; padding: 15px; text-align: center; border-radius: 0 0 5px 5px; }\n    .highlight { background-color: #e8f5e8; padding: 10px; border-radius: 5px; margin: 15px 0; }\n  </style>\n</head>\n<body>\n  <div class=\\\"container\\\">\n    <div class=\\\"header\\\"><h2>&#127881; New Health Camp Registration</h2><p>SuperShyft Health Camp</p></div>\n    <div class=\\\"content\\\">\n      <div class=\\\"highlight\\\"><strong>&#128197; New registration received at:</strong> ${currentTime}</div>\n      <h3>&#128100; Participant Information</h3>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Name:</span> <span class=\\\"value\\\">${pd.name || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Email:</span> <span class=\\\"value\\\">${pd.email || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Phone:</span> <span class=\\\"value\\\">${pd.phone || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Age:</span> <span class=\\\"value\\\">${pd.age || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Gender:</span> <span class=\\\"value\\\">${pd.gender || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Address:</span> <span class=\\\"value\\\">${pd.address || 'Not provided'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Pincode:</span> <span class=\\\"value\\\">${pd.pincode || 'Not provided'}</span></div>\n      <h3>&#128197; Appointment Details</h3>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Date:</span> <span class=\\\"value\\\">${apptDate}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Time:</span> <span class=\\\"value\\\">${formattedTime}</span></div>\n      <div class=\\\"highlight\\\"><strong>&#128161; Next Steps:</strong><ul><li>Review the registration details</li><li>Confirm the appointment if needed</li><li>Access the admin panel: <a href=\\\"https://admin.supershyft.com/\\\">admin.supershyft.com</a></li></ul></div>\n    </div>\n    <div class=\\\"footer\\\"><p>Automated notification from SuperShyft Health Camp Registration System</p><p>Please do not reply to this email</p></div>\n  </div>\n</body>\n</html>"
   },
   {
     "service_key": "booking-alert-email-whatsapp-welcome-booking-1plus1-v1",
     "display_name": "Booking Alert 1Plus 1",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "booking_alert_email_whatsapp_welcome_booking",
-    "template_variables": null,
-    "email_subject": null,
+    "template_name": "camp16",
+    "template_variables": [
+      "{{first_name}}",
+      "Please initiate the process and proceed with the booking",
+      "Details Name: {{participant_details.name}} Phone: {{participant_details.phone}} Email: {{participant_details.email}}",
+      "Date: {{session_details.date}} Time: {{session_details.slot}} Cabin: {{session_details.cabin}}",
+      "Address in Admin You can check the details below for your convenience. Please visit:https://admin.supershyft.com/"
+    ],
+    "email_subject": "Booking Alert - SuperShyft",
     "email_body": null,
-    "email_html": null
+    "email_html": "<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\n    .container { max-width: 600px; margin: 0 auto; padding: 20px; }\n    .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }\n    .content { background-color: #f9f9f9; padding: 20px; border: 1px solid #ddd; }\n    .field { margin: 10px 0; }\n    .label { font-weight: bold; color: #555; }\n    .value { color: #333; }\n    .footer { background-color: #333; color: white; padding: 15px; text-align: center; border-radius: 0 0 5px 5px; }\n    .highlight { background-color: #e8f5e8; padding: 10px; border-radius: 5px; margin: 15px 0; }\n  </style>\n</head>\n<body>\n  <div class=\\\"container\\\">\n    <div class=\\\"header\\\"><h2>&#127881; New Health Camp Registration</h2><p>SuperShyft Health Camp</p></div>\n    <div class=\\\"content\\\">\n      <div class=\\\"highlight\\\"><strong>&#128197; New registration received at:</strong> ${currentTime}</div>\n      <h3>&#128100; Participant Information</h3>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Name:</span> <span class=\\\"value\\\">${pd.name || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Email:</span> <span class=\\\"value\\\">${pd.email || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Phone:</span> <span class=\\\"value\\\">${pd.phone || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Age:</span> <span class=\\\"value\\\">${pd.age || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Gender:</span> <span class=\\\"value\\\">${pd.gender || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Address:</span> <span class=\\\"value\\\">${pd.address || 'Not provided'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Pincode:</span> <span class=\\\"value\\\">${pd.pincode || 'Not provided'}</span></div>\n      <h3>&#128197; Appointment Details</h3>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Date:</span> <span class=\\\"value\\\">${apptDate}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Time:</span> <span class=\\\"value\\\">${formattedTime}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Cabin:</span> <span class=\\\"value\\\">${pd.cabin_name || 'N/A'}</span></div>\n      <div class=\\\"highlight\\\"><strong>&#128161; Next Steps:</strong><ul><li>Review the registration details</li><li>Confirm the appointment if needed</li><li>Access the admin panel: <a href=\\\"https://admin.supershyft.com/\\\">admin.supershyft.com</a></li></ul></div>\n    </div>\n    <div class=\\\"footer\\\"><p>Automated notification from SuperShyft Health Camp Registration System</p><p>Please do not reply to this email</p></div>\n  </div>\n</body>\n</html>"
   },
   {
     "service_key": "booking-alert-whatsapp",
     "display_name": "Booking Alert + Welcome User to SU",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "booking_alert",
-    "template_variables": null,
+    "template_name": "camp16",
+    "template_variables": [
+      "{{first_name}}",
+      "Please initiate the process and proceed with the booking",
+      "Details Name: {{participant_details.name}} Phone: {{participant_details.phone}} Email: {{participant_details.email}}",
+      "Date: {{session_details.date}} Time: {{session_details.slot}}",
+      "Address in Admin You can check the details below for your convenience. Please visit:https://admin.supershyft.com/"
+    ],
+    "email_subject": "Booking Alert - SuperShyft",
+    "email_body": null,
+    "email_html": "<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\n    .container { max-width: 600px; margin: 0 auto; padding: 20px; }\n    .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }\n    .content { background-color: #f9f9f9; padding: 20px; border: 1px solid #ddd; }\n    .field { margin: 10px 0; }\n    .label { font-weight: bold; color: #555; }\n    .value { color: #333; }\n    .footer { background-color: #333; color: white; padding: 15px; text-align: center; border-radius: 0 0 5px 5px; }\n    .highlight { background-color: #e8f5e8; padding: 10px; border-radius: 5px; margin: 15px 0; }\n  </style>\n</head>\n<body>\n  <div class=\\\"container\\\">\n    <div class=\\\"header\\\"><h2>&#127881; New Health Camp Registration</h2><p>SuperShyft Health Camp</p></div>\n    <div class=\\\"content\\\">\n      <div class=\\\"highlight\\\"><strong>&#128197; New registration received at:</strong> ${currentTime}</div>\n      <h3>&#128100; Participant Information</h3>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Name:</span> <span class=\\\"value\\\">${pd.name || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Email:</span> <span class=\\\"value\\\">${pd.email || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Phone:</span> <span class=\\\"value\\\">${pd.phone || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Age:</span> <span class=\\\"value\\\">${pd.age || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Gender:</span> <span class=\\\"value\\\">${pd.gender || 'N/A'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Address:</span> <span class=\\\"value\\\">${pd.address || 'Not provided'}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Pincode:</span> <span class=\\\"value\\\">${pd.pincode || 'Not provided'}</span></div>\n      <h3>&#128197; Appointment Details</h3>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Date:</span> <span class=\\\"value\\\">${apptDate}</span></div>\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Time:</span> <span class=\\\"value\\\">${formattedTime}</span></div>\n      <div class=\\\"highlight\\\"><strong>&#128161; Next Steps:</strong><ul><li>Review the registration details</li><li>Confirm the appointment if needed</li><li>Access the admin panel: <a href=\\\"https://admin.supershyft.com/\\\">admin.supershyft.com</a></li></ul></div>\n    </div>\n    <div class=\\\"footer\\\"><p>Automated notification from SuperShyft Health Camp Registration System</p><p>Please do not reply to this email</p></div>\n  </div>\n</body>\n</html>"
+  },
+  {
+    "service_key": "booking-alert-whatsapp-metsights",
+    "display_name": "Booking Alert WhatsApp (Metsights)",
+    "channel": "whatsapp",
+    "is_active": true,
+    "template_name": "camp16",
+    "template_variables": [
+      "{{first_name}}",
+      "Please initiate the process and proceed with the booking",
+      "Details Name: {{participant_details.name}} Phone: {{participant_details.phone}} Email: {{participant_details.email}}",
+      "Date: {{session_details.date}} Time: {{session_details.slot}}",
+      "Address in Admin You can check the details below for your convenience. Please visit:https://admin.supershyft.com/"
+    ],
     "email_subject": null,
     "email_body": null,
     "email_html": null
@@ -137,18 +203,25 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Booking Confirmation Email",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Your SuperShyft booking is confirmed",
+    "email_body": "Hello ${name},\\n\\nYour blood collection booking has been successfully confirmed.\\n\\nDate: ${collectionDate}\\nTime: ${collectionTime}${cabinLine}\\n\\nWe look forward to supporting you on your preventive health journey.\\n\\nYou can check your details anytime at: app.supershyft.com\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "booking-confirmation-whatsapp",
     "display_name": "Booking Confirmation WhatsApp",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "booking_confirmation",
+    "template_name": "camp17",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Your blood collection booking has been successfully confirmed.",
+      "Date: {{session_details.date}}",
+      "Time: {{session_details.slot}}",
+      "We look forward to supporting you on your preventive health journey.",
+      "Please visit: app.supershyft.com",
+      "{{session_details.cabin}}",
+      "Thanks for taking a moment to read this message."
     ],
     "email_subject": null,
     "email_body": null,
@@ -159,13 +232,17 @@
     "display_name": "Consultation Booking Alert",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "consultation_booking_alert",
+    "template_name": "camp16",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Please initiate the process and proceed with the consultation booking",
+      "Details Name: {{participant_details.name}} Phone: {{participant_details.phone}} Email: {{participant_details.email}}",
+      "Date: {{session_details.date}} Time: {{session_details.slot}} Expert: {{first_name}}",
+      "Address in Admin You can check the details below for your convenience. Please visit:https://admin.supershyft.com/"
     ],
-    "email_subject": null,
+    "email_subject": "Consultation Booking Alert - SuperShyft",
     "email_body": null,
-    "email_html": null
+    "email_html": "<!DOCTYPE html>\\n<html>\\n<head>\\n  <style>\\n    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\\n    .container { max-width: 600px; margin: 0 auto; padding: 20px; }\\n    .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }\\n    .content { background-color: #f9f9f9; padding: 20px; border: 1px solid #ddd; }\\n    .field { margin: 10px 0; }\\n    .label { font-weight: bold; color: #555; }\\n    .value { color: #333; }\\n    .footer { background-color: #333; color: white; padding: 15px; text-align: center; border-radius: 0 0 5px 5px; }\\n    .highlight { background-color: #e8f5e8; padding: 10px; border-radius: 5px; margin: 15px 0; }\\n  </style>\\n</head>\\n<body>\\n  <div class=\\\"container\\\">\\n    <div class=\\\"header\\\"><h2>&#128197; New Consultation Booking</h2><p>SuperShyft Consultation</p></div>\\n    <div class=\\\"content\\\">\\n      <div class=\\\"highlight\\\"><strong>&#128197; New consultation booking received at:</strong> ${currentTime}</div>\\n      <h3>&#128100; Participant Information</h3>\\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Name:</span> <span class=\\\"value\\\">${pd.name || 'N/A'}</span></div>\\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Email:</span> <span class=\\\"value\\\">${pd.email || 'N/A'}</span></div>\\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Phone:</span> <span class=\\\"value\\\">${pd.phone || 'N/A'}</span></div>\\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Age:</span> <span class=\\\"value\\\">${pd.age || 'N/A'}</span></div>\\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Gender:</span> <span class=\\\"value\\\">${pd.gender || 'N/A'}</span></div>\\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Address:</span> <span class=\\\"value\\\">${pd.address || 'Not provided'}</span></div>\\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Pincode:</span> <span class=\\\"value\\\">${pd.pincode || 'Not provided'}</span></div>\\n      <h3>&#128197; Consultation Details</h3>\\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Date:</span> <span class=\\\"value\\\">${apptDate}</span></div>\\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Time:</span> <span class=\\\"value\\\">${formattedTime}</span></div>\\n      <div class=\\\"field\\\"><span class=\\\"label\\\">Expert Type:</span> <span class=\\\"value\\\">${expertType}</span></div>\\n      <div class=\\\"highlight\\\"><strong>&#128161; Next Steps:</strong><ul><li>Review the consultation booking details</li><li>Confirm or assign an expert if needed</li><li>Access the admin panel: <a href=\\\"https://admin.supershyft.com/\\\">admin.supershyft.com</a></li></ul></div>\\n    </div>\\n    <div class=\\\"footer\\\"><p>Automated notification from SuperShyft Consultation Booking System</p><p>Please do not reply to this email</p></div>\\n  </div>\\n</body>\\n</html>"
   },
   {
     "service_key": "consultation-confirmed-email",
@@ -174,18 +251,25 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Consultation Confirmed",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Your Doctor Consultation is Confirmed",
+    "email_body": "Hi ${name},\\n\\nYour doctor consultation has been successfully scheduled.\\n\\nDate: ${consultationDate}\\nTime: ${consultationTime}\\n\\nPlease keep your Bio-AI Health Report accessible during the session so your doctor can walk you through the findings in detail.\\n\\nIf you need to reschedule, please inform us in advance.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "consultation-confirmed-whatsapp",
     "display_name": "Consultation Confirmed Whatsapp",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "consultation_confirmed",
+    "template_name": "camp17",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Your doctor consultation has been successfully confirmed.",
+      "Date: {{first_name}}",
+      "Time: {{first_name}}",
+      "Let us know in advance if you need to reschedule the session.",
+      "You can check the details below for your convenience",
+      "app.supershyft.com",
+      "Thanks for taking a moment to read this message"
     ],
     "email_subject": null,
     "email_body": null,
@@ -198,18 +282,24 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Consultation Remainder",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Reminder - Your Consultation is Today",
+    "email_body": "Hi ${name},\\n\\nThis is a reminder that your doctor consultation is scheduled for today.\\n\\nPlease keep your phone available during the scheduled time and have your Bio-AI Health Report accessible so the discussion can be as productive as possible.\\n\\nYou can check the details below at your convenience\\napp.supershyft.com\\n\\nWe look forward to helping you take the next step toward better health.\\n\\nWarm regards,\\nSupport Team\\nSupershyft",
+    "email_html": null
   },
   {
     "service_key": "consultation-remainder-whatsapp",
     "display_name": "Consultation Remainder Whatsapp",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "consultation_remainder",
+    "template_name": "camp17",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "This is a reminder that your doctor consultation is scheduled for today.",
+      "Please attend the session with them at your scheduled time.",
+      "We look forward to supporting you on your health journey.",
+      "You can check the details below at your convenience",
+      "app.supershyft.com",
+      "Thanks for taking a moment to read this message"
     ],
     "email_subject": null,
     "email_body": null,
@@ -222,9 +312,9 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "CPU overload",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "CPU Overload",
+    "email_body": "={{ $json.body }}",
+    "email_html": null
   },
   {
     "service_key": "doctor-consultation-booking-notice-email-v1",
@@ -233,9 +323,9 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Doc Consultation Notice",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Doctor Consultation Booking on Supershyft App",
+    "email_body": "Dear ${name},\n\nYou will receive access to book your doctor consultation through the Supershyft app. The entire consultation process will be managed through the app, where you can select your preferred cabin, date, and time slot.\n\nYour HR team will reach out to you once the booking option is released on the app.\n\nRegards,\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "email-otp",
@@ -244,16 +334,16 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "OTP via Email",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Your SuperShyft verification code",
+    "email_body": null,
+    "email_html": "<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <style>\n    * { margin: 0; padding: 0; box-sizing: border-box; }\n    body { font-family: Arial, sans-serif; background-color: #f0f2f5; color: #333; -webkit-text-size-adjust: 100%; }\n    .wrapper { background-color: #f0f2f5; padding: 24px 12px; }\n    .container { max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.10); width: 100%; }\n\n    .header { background: linear-gradient(135deg, #0a2e2a 0%, #0d4a42 60%, #0f5c52 100%); padding: 32px 24px 26px; text-align: center; }\n    .header-title { color: #ffffff; font-size: 22px; font-weight: 700; letter-spacing: 1px; }\n    .header-subtitle { color: #7ecfc4; font-size: 11px; margin-top: 6px; letter-spacing: 2.5px; text-transform: uppercase; }\n\n    .body { padding: 28px 24px; }\n    .greeting { font-size: 17px; font-weight: 700; color: #111; margin-bottom: 12px; }\n    .message { font-size: 14px; color: #555; line-height: 1.75; margin-bottom: 28px; }\n\n    .otp-label { font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 2px; text-align: center; margin-bottom: 14px; }\n    .otp-box { background: linear-gradient(135deg, #0a2e2a, #0f5c52); border-radius: 14px; padding: 28px 16px; text-align: center; margin-bottom: 28px; }\n    .otp-table { border-collapse: separate; border-spacing: 0; margin: 0 auto; }\n    .otp-validity { font-size: 12px; color: #7ecfc4; margin-top: 16px; letter-spacing: 0.3px; }\n\n    .divider { border: none; border-top: 1px solid #f0f0f0; margin: 0 0 22px; }\n\n    .warning { background-color: #fffbef; border-left: 3px solid #f0a500; padding: 12px 14px; border-radius: 6px; margin-bottom: 24px; }\n    .warning p { font-size: 13px; color: #7a5c00; line-height: 1.65; }\n\n    .help { font-size: 13px; color: #666; line-height: 1.7; }\n    .help a { color: #0d4a42; font-weight: 600; text-decoration: none; }\n\n    .footer { background-color: #f7f8f9; border-top: 1px solid #ececec; padding: 20px 24px; text-align: center; }\n    .footer p { font-size: 11px; color: #bbb; line-height: 1.9; }\n    .footer a { color: #0d4a42; font-weight: 600; text-decoration: none; }\n  </style>\n</head>\n<body>\n  <div class=\"wrapper\">\n    <div class=\"container\">\n\n      <div class=\"header\">\n        <div class=\"header-title\">Supershyft</div>\n        <div class=\"header-subtitle\">Precision Health Solutions</div>\n      </div>\n\n      <div class=\"body\">\n        <p class=\"greeting\">Hi ${name},</p>\n        <p class=\"message\">\n          You requested a one-time password to access your Supershyft account.\n          Use the code below to complete your verification.\n          This code is valid for <strong>10 minutes</strong>.\n        </p>\n\n        <p class=\"otp-label\">Your One-Time Password</p>\n        <div class=\"otp-box\">\n          <table class=\"otp-table\" cellpadding=\"0\" cellspacing=\"0\" role=\"presentation\">\n            <tr>${digitSpans}</tr>\n          </table>\n          <div class=\"otp-validity\">Valid for 10 minutes &bull; Do not share this code</div>\n        </div>\n\n        <hr class=\"divider\">\n\n        <div class=\"warning\">\n          <p>&#x26a0;&#xfe0f;&nbsp; <strong>Security notice:</strong> Supershyft will never ask for your OTP over call or message. If you did not request this code, please ignore this email or contact our support team immediately.</p>\n        </div>\n\n        <p class=\"help\">Need help? Reach us at <a href=\"mailto:support@supershyft.com\">support@supershyft.com</a></p>\n      </div>\n\n      <div class=\"footer\">\n        <p>Warm regards,<br><strong style=\"color:#444;\">Support Team - Supershyft</strong></p>\n        <p style=\"margin-top:10px;\"><a href=\"https://www.supershyft.com\">www.supershyft.com</a></p>\n        <p style=\"margin-top:10px;\">This is an automated email. Please do not reply directly to this message.</p>\n      </div>\n\n    </div>\n  </div>\n</body>\n</html>"
   },
   {
     "service_key": "face-scan-report",
     "display_name": "Face Scan Report",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "face_scan_report",
+    "template_name": null,
     "template_variables": null,
     "email_subject": null,
     "email_body": null,
@@ -266,18 +356,23 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Family Onboard Gift Receiver Email",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "A special Diwali gift for you from Supershyft",
+    "email_body": "Hello ${recipientName},\n\nThis Diwali we have a little surprise for you from someone who cares about you deeply.\n\n${bookerName} has chosen to gift you a personalised BIO AI Wellness Assessment because they want you to prioritise your health and take a little time for yourself.\n\nLife gets busy with work family and everything in between and sometimes we forget to look after ourselves.\n\nThis gift is a gentle reminder that your health matters and that the people who love you want to see you happy healthy and around for many more Diwalis together.\n\nThrough personalised BIO AI insights you can learn more about your health and discover recommendations to help you make informed choices for your well being.\n\nYour special gift is waiting for you here.\n\n${giftUrl}\n\nWe hope this little gesture brings a smile to your face and reminds you how deeply you are loved.\n\nWishing you and your family a Diwali filled with good health happiness and beautiful moments together.\n\nWith warmth and love\n\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "family-onboard-receiver-whatsapp",
     "display_name": "Family Onboard Gift Receiver WhatsApp",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "family_onboard_receiver",
+    "template_name": "camp13",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Guess what. Someone who loves you has a special Diwali surprise for you.",
+      "{{first_name}} has gifted you a personalised BIO AI Wellness Assessment because your health and happiness mean so much to them.",
+      "Your gift helps you understand your health better with personalised BIO AI insights and recommendations for your well-being.",
+      "Explore your special gift here: {{first_name}}",
+      "May this Diwali bring you good health peaceful moments and beautiful memories. Happy Diwali and lots of love to you."
     ],
     "email_subject": null,
     "email_body": null,
@@ -290,18 +385,23 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Family Onboard Gift Sender Email",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Your Diwali gift of health from Supershyft",
+    "email_body": "Hello ${bookerName},\n\nThis Diwali you are giving someone you love something truly special through the gift of health and well being.\n\nYour personalised BIO AI Wellness Assessment for ${recipientName} is being created with love.\n\nRecipient Name: ${recipientName}\nRelationship: ${relationship}\n\nBecause the people we love deserve a healthier and happier life with many more beautiful moments together.\n\nYou can check the details below for your convenience.\n\n${giftUrl}\n\nThank you for choosing to make someone's well being a little more special this Diwali.\n\nWishing you and your family a beautiful Diwali filled with love happiness and good health.\n\nWarm regards\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "family-onboard-sender-whatsapp",
     "display_name": "Family Onboard Gift Sender WhatsApp",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "family_onboard_sender",
+    "template_name": "camp13",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "This Diwali you are giving someone you love a special gift of health and well-being through Supershyft.",
+      "Your personalised BIO AI Wellness Assessment for {{first_name}} ({{first_name}}) is being created with love.",
+      "Because the people we love deserve a healthier happier life with many more beautiful moments together.",
+      "You can check the details here: {{first_name}}",
+      "Thank you for making well-being a little more special this Diwali. Wishing you and your family love happiness and good health."
     ],
     "email_subject": null,
     "email_body": null,
@@ -314,9 +414,9 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Support Query",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": null,
+    "email_body": null,
+    "email_html": "<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <style>\n    * { margin: 0; padding: 0; box-sizing: border-box; }\n    body { font-family: Arial, sans-serif; background-color: #f0f2f5; color: #333; -webkit-text-size-adjust: 100%; }\n    .wrapper { background-color: #f0f2f5; padding: 24px 12px; }\n    .container { max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.10); width: 100%; }\n    .header { background: linear-gradient(135deg, #0a2e2a 0%, #0d4a42 60%, #0f5c52 100%); padding: 32px 24px 26px; text-align: center; }\n    .header-title { color: #ffffff; font-size: 22px; font-weight: 700; letter-spacing: 1px; }\n    .header-subtitle { color: #7ecfc4; font-size: 11px; margin-top: 6px; letter-spacing: 2.5px; text-transform: uppercase; }\n    .body { padding: 28px 24px; }\n    .greeting { font-size: 17px; font-weight: 700; color: #111; margin-bottom: 12px; }\n    .message { font-size: 14px; color: #555; line-height: 1.75; margin-bottom: 24px; }\n    .detail-box { background-color: #f7faf9; border: 1px solid #e3ece9; border-radius: 12px; padding: 4px 20px; margin-bottom: 24px; }\n    .detail-row { display: table; width: 100%; padding: 12px 0; border-bottom: 1px solid #eef2f1; }\n    .detail-row:last-child { border-bottom: none; }\n    .detail-label { display: table-cell; font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 1px; width: 90px; vertical-align: top; padding-top: 2px; }\n    .detail-value { display: table-cell; font-size: 14px; color: #222; font-weight: 600; white-space: pre-wrap; }\n    .cta-wrap { text-align: center; margin-bottom: 28px; }\n    .cta-button { display: inline-block; background: linear-gradient(135deg, #0a2e2a, #0f5c52); color: #ffffff !important; text-decoration: none; font-size: 14px; font-weight: 700; padding: 13px 32px; border-radius: 8px; letter-spacing: 0.3px; }\n    .divider { border: none; border-top: 1px solid #f0f0f0; margin: 0 0 22px; }\n    .note { background-color: #fffbef; border-left: 3px solid #f0a500; padding: 12px 14px; border-radius: 6px; margin-bottom: 8px; }\n    .note p { font-size: 13px; color: #7a5c00; line-height: 1.65; }\n    .footer { background-color: #f7f8f9; border-top: 1px solid #ececec; padding: 20px 24px; text-align: center; }\n    .footer p { font-size: 11px; color: #bbb; line-height: 1.9; }\n    .footer a { color: #0d4a42; font-weight: 600; text-decoration: none; }\n  </style>\n</head>\n<body>\n  <div class=\"wrapper\">\n    <div class=\"container\">\n      <div class=\"header\">\n        <div class=\"header-title\">Supershyft</div>\n        <div class=\"header-subtitle\">Support Notification</div>\n      </div>\n      <div class=\"body\">\n        <p class=\"greeting\">Hi ${escapeHtml(adminName)},</p>\n        <p class=\"message\">A user has submitted a support query. Details are below &mdash; please follow up as soon as possible.</p>\n        <div class=\"detail-box\">\n          <div class=\"detail-row\"><div class=\"detail-label\">Ticket</div><div class=\"detail-value\">#${escapeHtml(ticketId)}</div></div>\n          <div class=\"detail-row\"><div class=\"detail-label\">Name</div><div class=\"detail-value\">${escapeHtml(userName)}</div></div>\n          <div class=\"detail-row\"><div class=\"detail-label\">Phone</div><div class=\"detail-value\">${escapeHtml(userPhone)}</div></div>\n          <div class=\"detail-row\"><div class=\"detail-label\">Email</div><div class=\"detail-value\">${escapeHtml(userEmail)}</div></div>\n          <div class=\"detail-row\"><div class=\"detail-label\">Query</div><div class=\"detail-value\">${escapeHtml(queryText)}</div></div>\n        </div>\n        <div class=\"cta-wrap\"><a href=\"${adminPanelUrl}\" class=\"cta-button\">View Support Tickets</a></div>\n        <hr class=\"divider\">\n        <div class=\"note\"><p><strong>Action needed:</strong> This user is waiting on a response. Please reach out via phone or email at your earliest convenience.</p></div>\n      </div>\n      <div class=\"footer\">\n        <p>Automated alert from <strong style=\"color:#444;\">Supershyft</strong></p>\n        <p style=\"margin-top:10px;\"><a href=\"https://www.supershyft.com\">www.supershyft.com</a></p>\n        <p style=\"margin-top:10px;\">This is an automated email. Please do not reply directly to this message.</p>\n      </div>\n    </div>\n  </div>\n</body>\n</html>"
   },
   {
     "service_key": "nutrition-consultation-confirmed-email-1plus1-v1",
@@ -325,17 +425,23 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Nutrition Consultation Confirmed 1Plus1",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Your Nutrition Consultation is Confirmed",
+    "email_body": "Hello ${name},\\n\\nYour nutrition consultation has been successfully confirmed.\\n\\nDate: ${consultationDate}\\nTime: ${consultationTime}\\n\\nPlease be available at your scheduled time.\\n\\nWe look forward to supporting you on your health journey.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "nutrition-consultation-confirmed-whatsapp-1plus1-v1",
     "display_name": "Nutrition Consultation Confirmed 1Plus1",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "nutrition_consultation_confirmed_whatsapp",
-    "template_variables": null,
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Your nutrition consultation has been successfully confirmed.",
+      "Date: {{first_name}}",
+      "Time: {{first_name}}",
+      "Please be available at your scheduled time. We look forward to supporting you on your health journey."
+    ],
     "email_subject": null,
     "email_body": null,
     "email_html": null
@@ -347,17 +453,22 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Nutrition Consultation Remainder 1Plus1",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Reminder: Your Nutrition Consultation is Tomorrow",
+    "email_body": "Hello ${name},\\n\\nJust a reminder that your Supershyft nutrition consultation is scheduled for tomorrow.\\n\\nTime: ${consultationTime}\\n\\nPlease be available at the scheduled time.\\n\\nWe look forward to speaking with you.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "nutrition-consultation-reminder-whatsapp-1plus1-v1",
     "display_name": "Nutrition Consultation Remainder 1Plus1",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "nutrition_consultation_reminder_whatsapp",
-    "template_variables": null,
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Just a reminder that your Supershyft nutrition consultation is scheduled for tomorrow.",
+      "Time: {{first_name}}",
+      "Please be available at the scheduled time. We look forward to speaking with you."
+    ],
     "email_subject": null,
     "email_body": null,
     "email_html": null
@@ -369,18 +480,27 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Consultation Thankyou",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Thank You for Attending Your Nutrition Consultation",
+    "email_body": "Hi ${name},\\n\\nThank you for attending your consultation with our doctor. We hope the session provided you with a clearer understanding of your Bio-AI Health Report, your current health status, and the recommendations discussed during the consultation.\\n\\nWe would love to hear your thoughts on your overall experience with Supershyft so far.\\nYour feedback helps us continue shaping a better preventive health journey for you and every member of our community.\\nYou can share your feedback using the link below.\\n${feedbackLink}\\n\\nShould you have any additional questions or require further assistance, please don't hesitate to reach out to us.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "nutrition-consultation-thank-you-whatsapp",
     "display_name": "Consultation Thankyou Whatsapp",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "nutrition_consultation_thank_you",
+    "template_name": "camp17",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Thank you for attending your consultation with our doctor.",
+      "We hope the session helped you better understand your Bio-AI Health Report and your overall health status.",
+      "We would love to hear your thoughts on your overall experience with Supershyft so far.",
+      "Your feedback helps us continue shaping a better preventive health journey for you.",
+      "You can check the details below for your convenience.",
+      "{{first_name}}",
+      "Thanks for taking a moment to read this message.",
+      "Regards",
+      "Team Supershyft"
     ],
     "email_subject": null,
     "email_body": null,
@@ -391,10 +511,8 @@
     "display_name": "Nvidia Booking alert",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "nvidia_collection_booking_alert_whatsapp",
-    "template_variables": [
-      "{{first_name}}"
-    ],
+    "template_name": null,
+    "template_variables": null,
     "email_subject": null,
     "email_body": null,
     "email_html": null
@@ -406,18 +524,27 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Nvidia Collection Confirmed",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Your Supershyft Health Assessment Collection is Confirmed",
+    "email_body": "Hello ${name},\\n\\nThank you so much for trusting Supershyft and taking the first step towards preventive healthcare.\\n\\nYour Supershyft health profile is ready, and your health sample collection has been successfully confirmed.\\n\\nCollection Details:\\nDate: ${consultationDate}\\nTime: ${consultationTime}\\nCabin: ${cabinName}\\n\\nBefore your collection, please take a few minutes to complete your Health Assessment questionnaire, covering your lifestyle and daily activity. Your responses help us build your personalized Bio-AI Health Report.\\n\\nYou can access your Supershyft health profile and complete the assessment here:\\napp.supershyft.com\\n\\nThank you for taking a moment to complete this important step towards understanding and improving your health.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "nvidia-collection-confirmed-whatsapp-v1",
     "display_name": "Nvidia Collection Confirmed",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "nvidia_collection_confirmed_whatsapp",
+    "template_name": "camp17",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Thank you so much for trusting us and taking the first step towards prevention.",
+      "Your SuperShyft health profile is ready and your collection has been successfully confirmed.",
+      "Date: {{first_name}}",
+      "Time: {{first_name}}",
+      "Cabin: {{session_details.cabin}}",
+      "Please take a few minutes to complete your Health Assessment covering lifestyle and daily activity as your inputs help build your Bio AI Health Report.",
+      "You can check the details below for your convenience.",
+      "Please visit: app.supershyft.com",
+      "Thanks for taking a moment to read this message."
     ],
     "email_subject": null,
     "email_body": null,
@@ -428,10 +555,8 @@
     "display_name": "Nvidia Consultation Booking Alert",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "nvidia_consultation_booking_alert_whatsapp",
-    "template_variables": [
-      "{{first_name}}"
-    ],
+    "template_name": null,
+    "template_variables": null,
     "email_subject": null,
     "email_body": null,
     "email_html": null
@@ -443,18 +568,25 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Nvidia COnsultation Confirm",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Your Doctor Consultation is Confirmed",
+    "email_body": "Hi ${name},\\n\\nYour doctor consultation has been successfully scheduled.\\n\\nDate: ${consultationDate}\\nTime: ${consultationTime}\\nCabin: ${cabinName}\\n\\nPlease keep your Bio-AI Health Report accessible during the session so your doctor can walk you through the findings in detail.\\n\\nIf you need to reschedule, please inform us in advance.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "nvidia-consultation-confirmed-whatsapp-v1",
     "display_name": "Consultation Nvidia Confirm",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "nvidia_consultation_confirmed_whatsapp",
+    "template_name": "camp17",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Your doctor consultation has been successfully confirmed.",
+      "Date: {{first_name}}",
+      "Time: {{first_name}}",
+      "Cabin: {{session_details.cabin}}",
+      "You can check the details below for your convenience",
+      "app.supershyft.com",
+      "Thanks for taking a moment to read this message"
     ],
     "email_subject": null,
     "email_body": null,
@@ -467,18 +599,25 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "NVidia Consultation Remainder",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Reminder Your Doctor consultation is Today",
+    "email_body": "Hi ${name},\\n\\nThis is a reminder that your doctor consultation is scheduled for today.\\n\\nTime: ${consultationTime}\\nCabin: ${cabinName}\\n\\nPlease attend your consultation at the scheduled time and have your Bio-AI Health Report accessible so the discussion can be as productive as possible.\\n\\nYou can check the details below at your convenience\\napp.supershyft.com\\n\\nWe look forward to helping you take the next step toward better health.\\n\\nWarm regards,\\nSupport Team\\nSupershyft",
+    "email_html": null
   },
   {
     "service_key": "nvidia-consultation-remainder-whatsapp-v1",
     "display_name": "Nvidia Consultation Remainder",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "consultation_remainder",
+    "template_name": "camp17",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "This is a reminder that your doctor consultation is scheduled for today.",
+      "Time: {{first_name}}",
+      "Cabin: {{session_details.cabin}}",
+      "We look forward to supporting you on your health journey.",
+      "You can check the details below at your convenience",
+      "app.supershyft.com",
+      "Thanks for taking a moment to read this message"
     ],
     "email_subject": null,
     "email_body": null,
@@ -491,18 +630,27 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Nvidia Consultation Thank you",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Thank You for Attending Your Doctor Consultation",
+    "email_body": "Hi ${name},\\n\\nThank you for attending your consultation with our doctor. We hope the session provided you with a clearer understanding of your Bio-AI Health Report, your current health status, and the recommendations discussed during the consultation.\\n\\nWe would love to hear your thoughts on your overall experience with Supershyft so far.\\nYour feedback helps us continue shaping a better preventive health journey for you and every member of our community.\\nYou can share your feedback using the link below.\\n${feedbackLink}\\n\\nShould you have any additional questions or require further assistance, please don't hesitate to reach out to us.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "nvidia-consultation-thank-you-whatsapp-v1",
     "display_name": "Nvidia Consultation Thank you Whatsapp",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "nvidia_consultation_thank_you_whatsapp",
+    "template_name": "camp17",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Thank you for attending your checkup and consultation with our doctor.",
+      "We hope the session helped you better understand your Bio-AI Health Report and your overall health status.",
+      "We would love to hear your thoughts on your overall experience with Supershyft so far.",
+      "Your feedback helps us continue shaping a better preventive health journey for you.",
+      "You can check the details below for your convenience.",
+      "{{first_name}}",
+      "Thanks for taking a moment to read this message.",
+      "Regards",
+      "Team Supershyft"
     ],
     "email_subject": null,
     "email_body": null,
@@ -513,7 +661,7 @@
     "display_name": "Onboard Face Scan Alert",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "onboard_face_scan_alert",
+    "template_name": null,
     "template_variables": null,
     "email_subject": null,
     "email_body": null,
@@ -526,18 +674,25 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Phlebo Assigned Email",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Your phlebotomist has been assigned",
+    "email_body": "Hello ${name},\\n\\nYour phlebotomist ${phleboName} has been assigned for your blood collection.\\n\\nDate: ${collectionDate}\\nTime: ${collectionTime}${maskedLine}${trackingLine}\\n\\nYou can check your details anytime at: app.supershyft.com\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "phlebo-assigned-whatsapp",
     "display_name": "Phlebo Assigned WhatsApp",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "phlebo_assigned",
+    "template_name": "camp17",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Your phlebotomist {{first_name}} has been assigned for your blood collection.",
+      "Date: {{session_details.date}}",
+      "Time: {{session_details.slot}}",
+      "{{first_name}}",
+      "{{first_name}}",
+      "Please visit: app.supershyft.com",
+      "Thanks for taking a moment to read this message."
     ],
     "email_subject": null,
     "email_body": null,
@@ -550,18 +705,22 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Phlebo Delay Email",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Your phlebotomist is delayed",
+    "email_body": "Hello ${name},\\n\\nYour phlebotomist ${phleboName} is delayed and will arrive in about ${eta} minutes.\\n\\nContact: ${masked}\\n\\nYou can check your details anytime at: app.supershyft.com\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "phlebo-delay-whatsapp",
     "display_name": "Phlebo Delay WhatsApp",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "phlebo_delay",
+    "template_name": "camp17",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Your phlebotomist {{first_name}} is delayed and will arrive in about {{first_name}} minutes.",
+      "Contact: {{first_name}}",
+      "Please visit: app.supershyft.com",
+      "Thanks for taking a moment to read this message."
     ],
     "email_subject": null,
     "email_body": null,
@@ -574,18 +733,23 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Phlebo Enroute Email",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Your phlebotomist is on the way",
+    "email_body": "Hello ${name},\\n\\nYour phlebotomist ${phleboName} is on the way for your blood collection.\\n\\nContact: ${masked}\\nTrack: ${tracking}\\n\\nYou can check your details anytime at: app.supershyft.com\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "phlebo-enroute-whatsapp",
     "display_name": "Phlebo Enroute WhatsApp",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "phlebo_enroute",
+    "template_name": "camp17",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Your phlebotomist {{first_name}} is on the way for your blood collection.",
+      "Contact: {{first_name}}",
+      "Track your phlebotomist: {{first_name}}",
+      "Please visit: app.supershyft.com",
+      "Thanks for taking a moment to read this message."
     ],
     "email_subject": null,
     "email_body": null,
@@ -598,18 +762,25 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Phlebo Reassigned Email",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Your phlebotomist has been reassigned",
+    "email_body": "Hello ${name},\\n\\nYour phlebotomist ${phleboName} has been reassigned for your blood collection.\\n\\nDate: ${collectionDate}\\nTime: ${collectionTime}${maskedLine}${trackingLine}\\n\\nYou can check your details anytime at: app.supershyft.com\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "phlebo-reassigned-whatsapp",
     "display_name": "Phlebo Reassigned WhatsApp",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "phlebo_reassigned",
+    "template_name": "camp17",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Your phlebotomist {{first_name}} has been reassigned for your blood collection.",
+      "Date: {{session_details.date}}",
+      "Time: {{session_details.slot}}",
+      "{{first_name}}",
+      "{{first_name}}",
+      "Please visit: app.supershyft.com",
+      "Thanks for taking a moment to read this message."
     ],
     "email_subject": null,
     "email_body": null,
@@ -622,9 +793,9 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Pre-Test Guidlines",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Bio-AI Health Report \\u2013 Pre-test guidelines",
+    "email_body": "Hi ${name},\n\nTo ensure accurate and reliable results for your Bio-AI Health Report, please follow the pre-test guidelines below:\n\nFasting:\nA 10 - 12 hour fasting period is recommended before the test.\n\nIf fasting is not possible, you may have a very light, non-greasy breakfast such as:\n*   Plain idli, plain dosa, upma, or poha\n*   Black tea or black coffee\n*   Tender coconut water\n*   A small fruit such as apple or guava\n*   4 - 5 plain almonds or walnuts\n*   Plenty of water\n\nPlease avoid before the test:\n*   Fried items such as medu vada, parathas, or buttered toast\n*   Sugary beverages or juices\n*   Milk or dairy-based drinks\n*   Bananas, mangoes, or other high-sugar fruits\n\nConsuming high-fat or high-sugar foods before the test can significantly alter lipid profile, blood sugar levels, and other metabolic markers, which may impact the accuracy of your Bio-AI Health Report. Also please complete your Health Assessment before your test, as it is essential for generating your Bio-AI report.\n\nThank you for your cooperation, and we look forward to supporting you on your preventive health journey.\n\nWarm regards,\nTeam SuperShyft",
+    "email_html": null
   },
   {
     "service_key": "pretest-email-1plus1-v1",
@@ -633,16 +804,16 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Pretest Email 1Plus1",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Pre-Test Guidelines \u2014 Your blood test is tomorrow",
+    "email_body": "Hello ${name},\\n\\nThis is a reminder that your Supershyft Preventive Health blood test is scheduled for tomorrow.\\n\\nTime: ${consultationTime}\\n\\nWe recommend 10-12 hours of fasting before the test. Please refer to the attached pre-test guidelines for complete preparation instructions:\\n${preTestPdf}\\n\\nAlso, please ensure that your Health Assessment is completed before your test.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "pretest-whatsapp",
     "display_name": "Pre-Test Guidlines",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "pretest_new",
+    "template_name": "camp14",
     "template_variables": [
       "{{first_name}}"
     ],
@@ -655,8 +826,15 @@
     "display_name": "Pretest Whatsapp 1Plus1",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "pretest_new",
-    "template_variables": null,
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Your Supershyft Preventive Health blood test is scheduled for tomorrow.",
+      "Time: {{first_name}}",
+      "Please follow the pre-test guidelines before your blood test. We recommend 10-12 hours of fasting and plenty of water.",
+      "Please refer to the attached guidelines for complete preparation details: {{first_name}}",
+      "Also make sure your Health Assessment is completed before the test."
+    ],
     "email_subject": null,
     "email_body": null,
     "email_html": null
@@ -666,9 +844,13 @@
     "display_name": "Pretest Whatsapp with PDF",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "pretest_new",
+    "template_name": "camp15",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "This is a reminder that your Supershyft Preventive Health blood test is scheduled for tomorrow. Before your upcoming test to understand how to prepare you can refer to the document attached.",
+      "Time: {{first_name}}",
+      "Cabin: {{session_details.cabin}}",
+      "Also please complete your Health Assessment on the Supershyft app before your test. Thanks for your cooperation!"
     ],
     "email_subject": null,
     "email_body": null,
@@ -679,7 +861,7 @@
     "display_name": "Questionnaire Remainder Supershyft",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "questionnaire_reminder_supershyft",
+    "template_name": null,
     "template_variables": null,
     "email_subject": null,
     "email_body": null,
@@ -692,18 +874,22 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Only BioAi",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Your Personalized Bio-AI Health Report",
+    "email_body": null,
+    "email_html": "<!DOCTYPE html>\n<html>\n<body>\n  <div class=\"container\">\n    <p>Hi ${name},</p>\n    <p>Thank you for completing your Bio-AI health assessment with Supershyft.</p>\n    <p>Please find your personalized Bio-AI Health Report attached to this email. The report combines your blood biomarkers and lifestyle inputs to provide deeper insights into your metabolic health, potential future risk areas, and preventive health recommendations.</p>\n    <p>You can also access and review your reports and insights through:<br>\n    <a href=\"${fileUrl}\">BioAI Report</a></p>\n    <p>Please log in using your registered mobile number and OTP.</p>\n    <p>If you need any assistance accessing your reports or understanding the findings, please feel free to reach out to our support team.</p>\n    <p>Warm regards,<br>\n    Support Team<br>\n    Supershyft<br>\n    <a href=\"https://www.supershyft.com\">www.supershyft.com</a></p>\n  </div>\n</body>\n</html>"
   },
   {
     "service_key": "send-bioai-whatsapp",
     "display_name": "BioAI Report",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "send_bioai",
+    "template_name": "camp15",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Your personalized Bio-AI Health Report is attached below.",
+      "Your report includes personalized metabolic health insights and recommendations.",
+      "You can find everything you need below for easy access",
+      "Please visit: app.supershyft.com"
     ],
     "email_subject": null,
     "email_body": null,
@@ -716,9 +902,9 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Send Blood Report 1Plus1",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Your Supershyft Blood Test Report is Ready",
+    "email_body": "Hello ${name},\\n\\nYour Supershyft Blood Test Report is now ready.\\n\\nThe report provides a detailed view of your blood biomarkers and key clinical parameters.\\n\\nView your report:\\n${reportUrl}\\n\\nYour Bio-AI Health Report will help you understand these results in greater detail.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "send-blood-report-email-v2",
@@ -727,18 +913,22 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Blood Report | No Questionnaire",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Supershyft Blood Report",
+    "email_body": null,
+    "email_html": "<!DOCTYPE html>\n<html>\n<body>\n  <div class=\"container\">\n    <p>Hi ${name},</p>\n    <p>Thank you for completing your blood collection with Supershyft.</p>\n    <p>Please find your blood test report attached to this email for your reference. Please review the report carefully.</p>\n    <p>Your personalized Bio-AI Health Report, which offers a more comprehensive understanding of your health insights and preventive risk analysis, will be shared separately once you complete the health assessment on the Supershyft app.</p>\n    <p>You can also access your reports and health insights through:<br>\n    <a href=\"${fileUrl}\">Blood Report</a></p>\n    <p>Please log in using your registered mobile number and OTP.</p>\n    <p>If you need any assistance or have questions regarding your reports, feel free to reach out to our support team.</p>\n    <p>Warm regards,<br>\n    Support Team<br>\n    Supershyft<br>\n    <a href=\"https://www.supershyft.com\">www.supershyft.com</a></p>\n  </div>\n</body>\n</html>"
   },
   {
     "service_key": "send-blood-report-whatsapp",
     "display_name": "Blood Report",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "send_blood_report",
+    "template_name": "camp15",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Thank you for completing your blood sample collection and the Lifestyle Questionnaire.",
+      "Your Blood Test Reports are attached below.",
+      "The report includes 88+ biomarker profiles.",
+      "Please visit: app.supershyft.com"
     ],
     "email_subject": null,
     "email_body": null,
@@ -749,8 +939,14 @@
     "display_name": "Send Blood Report 1Plus1",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "send_blood_report_whatsapp",
-    "template_variables": null,
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Your Supershyft Blood Test Report is now ready.",
+      "The report provides a detailed view of your blood biomarkers and key clinical parameters.",
+      "You can check your report here: {{first_name}}",
+      "Your Bio-AI Health Report will help you understand these results in greater detail."
+    ],
     "email_subject": null,
     "email_body": null,
     "email_html": null
@@ -760,9 +956,14 @@
     "display_name": "Expert Consultation Guide",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "send_expert_consultation_guide_whatsapp",
+    "template_name": "camp13",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Welcome to SuperShyft Expert Portal.",
+      "Use the portal to review camp consultations and manage participant sessions.",
+      "Open your camp consultations using the link below.",
+      "{{first_name}}",
+      "Please review your consultations and let us know if you need any assistance. Thanks!"
     ],
     "email_subject": null,
     "email_body": null,
@@ -773,9 +974,15 @@
     "display_name": "Booking Guide",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "send_phlebo_booking_guide_whatsapp",
+    "template_name": "camp15",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Welcome! \ud83d\udc4b",
+      "We have shared a quick step-by-step guide to help you create bookings using the SuperShyft Engagement Console. Please refer to the attached guide before creating your first booking.",
+      "You can access your Engagement Console using the link below:",
+      "{{first_name}}",
+      "Please go through the guide and let us know if you have any questions or need any assistance.",
+      "Thanks!"
     ],
     "email_subject": null,
     "email_body": null,
@@ -788,16 +995,16 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "BioAI & Blood Report",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Your Blood and Bio-AI Reports are Ready",
+    "email_body": "Hi ${member.first_name},\n\nThank you for completing your blood sample collection and Lifestyle Questionnaire.\n\nYour reports are now ready:\n\n- Blood Test Report: ${bloodLink}\n- Personalized Bio-AI Health Report: ${bioLink}\n\nWarm regards,\nTeam SuperShyft",
+    "email_html": null
   },
   {
     "service_key": "tech-hr-discount",
     "display_name": "TechHR Discount",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "tech_hr_discount",
+    "template_name": null,
     "template_variables": null,
     "email_subject": null,
     "email_body": null,
@@ -810,17 +1017,26 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Thankyou 1Plus1",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Thank You for Choosing Supershyft",
+    "email_body": "Hello ${name},\\n\\nThank you for completing your Supershyft health journey with us.\\n\\nWe hope the experience helped you better understand your health and take meaningful steps towards prevention.\\n\\nWe would love to hear your feedback. Your experience helps us improve and serve our community better.\\n\\nShare your feedback:\\n${feedbackLink}\\n\\nThank you for choosing Supershyft.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "thank-you-feedback-whatsapp-1plus1-v1",
     "display_name": "Thankyou 1Plus1",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "thank_you_feedback_whatsapp",
-    "template_variables": null,
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Thank you for completing your Supershyft health journey with us.",
+      "We hope the experience helped you better understand your health and take meaningful steps towards prevention.",
+      "We would love to hear your feedback. Your experience helps us improve and serve our community better.",
+      "Share your feedback here: {{first_name}}",
+      "Thank you for choosing Supershyft.",
+      "Regards",
+      "Team Supershyft"
+    ],
     "email_subject": null,
     "email_body": null,
     "email_html": null
@@ -832,17 +1048,23 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Welcom Booking Email 1plus1",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Welcome to Supershyft \u2014 Assessment Booked",
+    "email_body": "Hello ${name},\\n\\nWelcome to Supershyft! Your preventive health assessment has been successfully booked.\\n\\nDate: ${collectionDate}\\nTime: ${collectionTime}\\nCabin: ${cabinName}\\n\\nWe look forward to supporting you on your preventive health journey.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "welcome-booking-whatsapp-1plus1-v1",
     "display_name": "Welcome Booking 1Plus1",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "welcome_new",
-    "template_variables": null,
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Welcome to Supershyft! Your preventive health assessment has been successfully booked.",
+      "Date: {{session_details.date}}",
+      "Time: {{session_details.slot}}",
+      "We look forward to supporting you on your preventive health journey."
+    ],
     "email_subject": null,
     "email_body": null,
     "email_html": null
@@ -854,16 +1076,16 @@
     "is_active": true,
     "template_name": null,
     "template_variables": null,
-    "email_subject": "Welcome to Supershyft",
-    "email_body": "Hello {{first_name}},\n\nThis is a notification from SuperShyft.",
-    "email_html": "<p>Hello {{first_name}},</p><p>This is a notification from SuperShyft.</p>"
+    "email_subject": "Your Supershyft Profile is Ready",
+    "email_body": "Hi ${name},\n\nThank you for trusting us and taking the first step towards preventive health, your profile is now ready !\n\nReady to get started?\nPlease visit: https://app.supershyft.com/\nLog in using your registered mobile number and Verify via OTP for secure access\n\nTo unlock your personalized Bio-AI Health Report, please complete your Health Assessment. These inputs enable us to generate more accurate, personalized, and actionable insights for your Bio-AI report.\n\nIf you need any assistance, please feel free to reach out, we're happy to help. Looking forward to supporting you on your health journey.\n\nWarm regards,\nTeam Supershyft",
+    "email_html": null
   },
   {
     "service_key": "welcome-for-face-scan-techhr",
     "display_name": "Face Scan TechHr - Welcome",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "welcome_new",
+    "template_name": null,
     "template_variables": null,
     "email_subject": null,
     "email_body": null,
@@ -874,9 +1096,14 @@
     "display_name": "Welcome to Supershyft",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "welcome_new",
+    "template_name": "camp13",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Thank you so much for trusting us and taking the first step towards prevention.",
+      "Your SuperShyft health profile is ready!",
+      "Please take a few minutes to complete your Health Assessment covering lifestyle and daily activity.",
+      "Your inputs help build your Bio AI Health Report and better details will lead to more meaningful insights.",
+      "Please visit: app.supershyft.com"
     ],
     "email_subject": null,
     "email_body": null,
@@ -887,9 +1114,15 @@
     "display_name": "Welcome to Metsights",
     "channel": "whatsapp",
     "is_active": true,
-    "template_name": "welcome_new",
+    "template_name": "camp17",
     "template_variables": [
-      "{{first_name}}"
+      "{{first_name}}",
+      "Thank you so much for trusting us and taking the first step towards prevention",
+      "Your SuperShyft health profile is ready!",
+      "Complete your Health Assessment by answering a few quick questions about your nutrition",
+      "sleep and physical activity.",
+      "If you have any query or want to reschedule your test feel free to reach out on 8209512559",
+      "Please visit: www.metsights.com"
     ],
     "email_subject": null,
     "email_body": null,
@@ -901,7 +1134,10 @@
     "channel": "whatsapp",
     "is_active": true,
     "template_name": "otpmsg",
-    "template_variables": ["{{otp}}", "verification code"],
+    "template_variables": [
+      "{{otp}}",
+      "verification code"
+    ],
     "email_subject": null,
     "email_body": null,
     "email_html": null

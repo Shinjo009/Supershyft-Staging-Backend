@@ -1,0 +1,35 @@
+{
+  "webhook_to_service_key": {
+    "booking-alert-email+whatsapp+participant-welcome-supershyft-v2": "booking-alert-whatsapp",
+    "send-otp-email-v3": "email-otp",
+    "send-otp-whatsapp-v3": "whatapi-otp"
+  },
+  "deprecated_service_keys": [
+    "booking-alert-email+whatsapp+participant-welcome-metsights"
+  ],
+  "split_services": {
+    "booking-alert-email+whatsapp+participant-welcome-metsights": [
+      {
+        "service_key": "booking-alert-whatsapp-metsights",
+        "display_name": "Booking Alert WhatsApp (Metsights)",
+        "channel": "whatsapp",
+        "prepare_node_name_contains": "Booking Message"
+      },
+      {
+        "service_key": "booking-alert-email-metsights",
+        "display_name": "Booking Alert Email (Metsights)",
+        "channel": "email",
+        "prepare_node_name_contains": "Booking Email"
+      }
+    ]
+  },
+  "service_content": {
+    "whatapi-otp": {
+      "template_name": "otpmsg",
+      "template_variables": ["{{otp}}", "verification code"]
+    },
+    "email-otp": {
+      "email_subject": "Your SuperShyft verification code"
+    }
+  }
+}

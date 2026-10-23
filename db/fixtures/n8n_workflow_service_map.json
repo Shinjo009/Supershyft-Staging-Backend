@@ -1,0 +1,900 @@
+[
+  {
+    "workflow_file": "n8n/workflows/assessment-reminder-whatsapp-metsights-v2.json",
+    "webhook_path": "assessment-reminder-whatsapp-metsights-v3",
+    "primary_service_key": "assessment-reminder-whatsapp-metsights-v2",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Your Health Assessment is Incomplete",
+      "Please complete for SuperShyft Bio-AI Health Report",
+      "By answering a few quick questions about your nutrition",
+      "sleep and physical activity.Your responses directly shape your Bio-AI Health Report the more accurate your inputs the more useful your report",
+      "If you have any query feel free to reach out on 8209512559",
+      "Please visit: www.metsights.com"
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/b2b-booking-alert-whatsapp.json",
+    "webhook_path": "b2b-booking-alert-whatsapp-v1",
+    "primary_service_key": "b2b-booking-alert-whatsapp-v1",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": [
+      {
+        "node_name": "Dispatch Welcome WhatsApp",
+        "service_key": "welcome-whatsapp"
+      },
+      {
+        "node_name": "Dispatch Welcome Email",
+        "service_key": "welcome-email"
+      }
+    ]
+  },
+  {
+    "workflow_file": "n8n/workflows/book-doctor-consultation-email.json",
+    "webhook_path": "book-doctor-consultation-email-v1",
+    "primary_service_key": "book-doctor-consultation-email",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/book-doctor-consultation-whatsapp.json",
+    "webhook_path": "book-doctor-consultation-whatsapp-v1",
+    "primary_service_key": "book-doctor-consultation-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Your Bio-AI Health Assessment has been completed and your consultation is now available for booking.",
+      "Choose a convenient time slot that works best for your schedule through the booking link below.",
+      "This consultation will help you understand your health risks and create an actionable plan.",
+      "You can check the details below for your convenience",
+      "{{first_name}}",
+      "Thanks for taking a moment to read this message"
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/book-nutrition-consultation-email-1+1.json",
+    "webhook_path": "book-nutrition-consultation-email-1+1-v1",
+    "primary_service_key": "book-nutrition-consultation-email-1plus1-v1",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/book-nutrition-consultation-whatsapp-1+1.json",
+    "webhook_path": "book-nutrition-consultation-whatsapp-1+1-v1",
+    "primary_service_key": "book-nutrition-consultation-whatsapp-1plus1-v1",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Your Bio-AI Health Assessment is complete and your nutrition consultation is now available for booking.",
+      "Choose a convenient time with our nutritionist using the link below.",
+      "Book your consultation: {{first_name}}",
+      "We look forward to helping you turn your health insights into actionable nutrition goals."
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/book-nvidia-consultation-email.json",
+    "webhook_path": "book-nvidia-consultation-email-v1",
+    "primary_service_key": "book-nvidia-consultation-email-v1",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/book-nvidia-consultation-whatsapp.json",
+    "webhook_path": "book-nvidia-consultation-whatsapp-v1",
+    "primary_service_key": "book-nvidia-consultation-whatsapp-v1",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Your Bio-AI Health Assessment has been completed and your doctor consultation is now available for booking.",
+      "Choose a convenient time slot that works best for your schedule through the booking link below.",
+      "This consultation will help you understand your health risks and create an actionable plan.",
+      "You can check the details below for your convenience",
+      "{{first_name}}",
+      "Thanks for taking a moment to read this message"
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/booking-alert-email+whatsapp+participant-welcome-metsights.json",
+    "webhook_path": "booking-alert-email+whatsapp+participant-welcome-metsights-v2",
+    "primary_service_key": "booking-alert-email+whatsapp+participant-welcome-metsights",
+    "template_name": "camp16",
+    "template_variables": [
+      "{{first_name}}",
+      "Please initiate the process and proceed with the booking",
+      "Details Name: {{participant_details.name}} Phone: {{participant_details.phone}} Email: {{participant_details.email}}",
+      "Date: {{session_details.date}} Time: {{session_details.slot}}",
+      "Address in Admin You can check the details below for your convenience. Please visit:https://admin.supershyft.com/"
+    ],
+    "chained_dispatches": [
+      {
+        "node_name": "Dispatch Notification4",
+        "service_key": "welcome-whatsapp-metsights"
+      }
+    ]
+  },
+  {
+    "workflow_file": "n8n/workflows/booking-alert-whatsapp-1+1.json",
+    "webhook_path": "booking-alert-email+whatsapp+welcome-booking-1+1-v1",
+    "primary_service_key": "booking-alert-email-whatsapp-welcome-booking-1plus1-v1",
+    "template_name": "camp16",
+    "template_variables": [
+      "{{first_name}}",
+      "Please initiate the process and proceed with the booking",
+      "Details Name: {{participant_details.name}} Phone: {{participant_details.phone}} Email: {{participant_details.email}}",
+      "Date: {{session_details.date}} Time: {{session_details.slot}} Cabin: {{session_details.cabin}}",
+      "Address in Admin You can check the details below for your convenience. Please visit:https://admin.supershyft.com/"
+    ],
+    "chained_dispatches": [
+      {
+        "node_name": "Dispatch Welcome Booking WhatsApp",
+        "service_key": "welcome-booking-whatsapp-1-1-v1"
+      },
+      {
+        "node_name": "Dispatch Welcome Booking Email",
+        "service_key": "welcome-booking-email-1-1-v1"
+      }
+    ]
+  },
+  {
+    "workflow_file": "n8n/workflows/booking-alert-whatsapp.json",
+    "webhook_path": "booking-alert-email+whatsapp+participant-welcome-supershyft-v2",
+    "primary_service_key": "booking-alert-whatsapp",
+    "template_name": "camp16",
+    "template_variables": [
+      "{{first_name}}",
+      "Please initiate the process and proceed with the booking",
+      "Details Name: {{participant_details.name}} Phone: {{participant_details.phone}} Email: {{participant_details.email}}",
+      "Date: {{session_details.date}} Time: {{session_details.slot}}",
+      "Address in Admin You can check the details below for your convenience. Please visit:https://admin.supershyft.com/"
+    ],
+    "chained_dispatches": [
+      {
+        "node_name": "Dispatch Notification2",
+        "service_key": "welcome-whatsapp"
+      }
+    ]
+  },
+  {
+    "workflow_file": "n8n/workflows/booking-confirmation-email.json",
+    "webhook_path": "booking-confirmation-email-v1",
+    "primary_service_key": "booking-confirmation-email",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/booking-confirmation-whatsapp.json",
+    "webhook_path": "booking-confirmation-whatsapp-v1",
+    "primary_service_key": "booking-confirmation-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Your blood collection booking has been successfully confirmed.",
+      "Date: {{session_details.date}}",
+      "Time: {{session_details.slot}}",
+      "We look forward to supporting you on your preventive health journey.",
+      "Please visit: app.supershyft.com",
+      "{{session_details.cabin}}",
+      "Thanks for taking a moment to read this message."
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/consultation-booking-alert-whatsapp.json",
+    "webhook_path": "consultation-booking-alert-whatsapp-v1",
+    "primary_service_key": "consultation-booking-alert-whatsapp",
+    "template_name": "camp16",
+    "template_variables": [
+      "{{first_name}}",
+      "Please initiate the process and proceed with the consultation booking",
+      "Details Name: {{participant_details.name}} Phone: {{participant_details.phone}} Email: {{participant_details.email}}",
+      "Date: {{session_details.date}} Time: {{session_details.slot}} Expert: {{first_name}}",
+      "Address in Admin You can check the details below for your convenience. Please visit:https://admin.supershyft.com/"
+    ],
+    "chained_dispatches": [
+      {
+        "node_name": "Dispatch Confirmed WhatsApp",
+        "service_key": "consultation-confirmed-whatsapp"
+      },
+      {
+        "node_name": "Dispatch Confirmed Email",
+        "service_key": "consultation-confirmed-email"
+      }
+    ]
+  },
+  {
+    "workflow_file": "n8n/workflows/consultation-confirmed-email.json",
+    "webhook_path": "consultation-confirmed-email-v1",
+    "primary_service_key": "consultation-confirmed-email",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/consultation-confirmed-whatsapp.json",
+    "webhook_path": "consultation-confirmed-whatsapp-v1",
+    "primary_service_key": "consultation-confirmed-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Your doctor consultation has been successfully confirmed.",
+      "Date: {{first_name}}",
+      "Time: {{first_name}}",
+      "Let us know in advance if you need to reschedule the session.",
+      "You can check the details below for your convenience",
+      "app.supershyft.com",
+      "Thanks for taking a moment to read this message"
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/consultation-remainder-email.json",
+    "webhook_path": "consultation-remainder-email-v3",
+    "primary_service_key": "consultation-remainder-email",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/consultation-remainder-whatsapp.json",
+    "webhook_path": "consultation-remainder-whatsapp-v1",
+    "primary_service_key": "consultation-remainder-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "This is a reminder that your doctor consultation is scheduled for today.",
+      "Please attend the session with them at your scheduled time.",
+      "We look forward to supporting you on your health journey.",
+      "You can check the details below at your convenience",
+      "app.supershyft.com",
+      "Thanks for taking a moment to read this message"
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/cpu-overload-email.json",
+    "webhook_path": "cpu_above_threshold",
+    "primary_service_key": "cpu_above_threshold",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/doctor-consultation-booking-notice-email.json",
+    "webhook_path": "doctor-consultation-booking-notice-email-v1",
+    "primary_service_key": "doctor-consultation-booking-notice-email-v1",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/email-otp.json",
+    "webhook_path": "send-otp-email-v3",
+    "primary_service_key": "email-otp",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/family-onboard-receiver-email.json",
+    "webhook_path": "family-onboard-receiver-email-v1",
+    "primary_service_key": "family-onboard-receiver-email",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/family-onboard-receiver-whatsapp.json",
+    "webhook_path": "family-onboard-receiver-whatsapp-v1",
+    "primary_service_key": "family-onboard-receiver-whatsapp",
+    "template_name": "camp13",
+    "template_variables": [
+      "{{first_name}}",
+      "Guess what. Someone who loves you has a special Diwali surprise for you.",
+      "{{first_name}} has gifted you a personalised BIO AI Wellness Assessment because your health and happiness mean so much to them.",
+      "Your gift helps you understand your health better with personalised BIO AI insights and recommendations for your well-being.",
+      "Explore your special gift here: {{first_name}}",
+      "May this Diwali bring you good health peaceful moments and beautiful memories. Happy Diwali and lots of love to you."
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/family-onboard-sender-email.json",
+    "webhook_path": "family-onboard-sender-email-v1",
+    "primary_service_key": "family-onboard-sender-email",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/family-onboard-sender-whatsapp.json",
+    "webhook_path": "family-onboard-sender-whatsapp-v1",
+    "primary_service_key": "family-onboard-sender-whatsapp",
+    "template_name": "camp13",
+    "template_variables": [
+      "{{first_name}}",
+      "This Diwali you are giving someone you love a special gift of health and well-being through Supershyft.",
+      "Your personalised BIO AI Wellness Assessment for {{first_name}} ({{first_name}}) is being created with love.",
+      "Because the people we love deserve a healthier happier life with many more beautiful moments together.",
+      "You can check the details here: {{first_name}}",
+      "Thank you for making well-being a little more special this Diwali. Wishing you and your family love happiness and good health."
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/notify-admin-contact-query.json",
+    "webhook_path": "notify-admin-contact-query",
+    "primary_service_key": "notify-admin-contact-query",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/nutrition-consultation-confirmed-email-1+1.json",
+    "webhook_path": "nutrition-consultation-confirmed-email-1+1-v1",
+    "primary_service_key": "nutrition-consultation-confirmed-email-1plus1-v1",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/nutrition-consultation-confirmed-whatsapp-1+1.json",
+    "webhook_path": "nutrition-consultation-confirmed-whatsapp-1+1-v1",
+    "primary_service_key": "nutrition-consultation-confirmed-whatsapp-1plus1-v1",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Your nutrition consultation has been successfully confirmed.",
+      "Date: {{first_name}}",
+      "Time: {{first_name}}",
+      "Please be available at your scheduled time. We look forward to supporting you on your health journey."
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/nutrition-consultation-reminder-email-1+1.json",
+    "webhook_path": "nutrition-consultation-reminder-email-1+1-v1",
+    "primary_service_key": "nutrition-consultation-reminder-email-1plus1-v1",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/nutrition-consultation-reminder-whatsapp-1+1.json",
+    "webhook_path": "nutrition-consultation-reminder-whatsapp-1+1-v1",
+    "primary_service_key": "nutrition-consultation-reminder-whatsapp-1plus1-v1",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Just a reminder that your Supershyft nutrition consultation is scheduled for tomorrow.",
+      "Time: {{first_name}}",
+      "Please be available at the scheduled time. We look forward to speaking with you."
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/nutrition-consultation-thank-you-email.json",
+    "webhook_path": "nutrition-consultation-thank-you-email-v1",
+    "primary_service_key": "nutrition-consultation-thank-you-email",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/nutrition-consultation-thank-you-whatsapp.json",
+    "webhook_path": "nutrition-consultation-thank-you-whatsapp-v1",
+    "primary_service_key": "nutrition-consultation-thank-you-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Thank you for attending your consultation with our doctor.",
+      "We hope the session helped you better understand your Bio-AI Health Report and your overall health status.",
+      "We would love to hear your thoughts on your overall experience with Supershyft so far.",
+      "Your feedback helps us continue shaping a better preventive health journey for you.",
+      "You can check the details below for your convenience.",
+      "{{first_name}}",
+      "Thanks for taking a moment to read this message.",
+      "Regards",
+      "Team Supershyft"
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/nvidia-collection-booking-alert-whatsapp.json",
+    "webhook_path": "nvidia-collection-booking-alert-whatsapp-v1",
+    "primary_service_key": "nvidia-collection-booking-alert-whatsapp-v1",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": [
+      {
+        "node_name": "Dispatch Nvidia Collection Confirmed WhatsApp",
+        "service_key": "nvidia-collection-confirmed-whatsapp-v1"
+      },
+      {
+        "node_name": "Dispatch Nvidia Collection Confirmed Email",
+        "service_key": "nvidia-collection-confirmed-email-v1"
+      }
+    ]
+  },
+  {
+    "workflow_file": "n8n/workflows/nvidia-collection-confirmed-email.json",
+    "webhook_path": "nvidia-collection-confirmed-email-v1",
+    "primary_service_key": "nvidia-collection-confirmed-email-v1",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/nvidia-collection-confirmed-whatsapp.json",
+    "webhook_path": "nvidia-collection-confirmed-whatsapp-v1",
+    "primary_service_key": "nvidia-collection-confirmed-whatsapp-v1",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Thank you so much for trusting us and taking the first step towards prevention.",
+      "Your SuperShyft health profile is ready and your collection has been successfully confirmed.",
+      "Date: {{first_name}}",
+      "Time: {{first_name}}",
+      "Cabin: {{session_details.cabin}}",
+      "Please take a few minutes to complete your Health Assessment covering lifestyle and daily activity as your inputs help build your Bio AI Health Report.",
+      "You can check the details below for your convenience.",
+      "Please visit: app.supershyft.com",
+      "Thanks for taking a moment to read this message."
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/nvidia-consultation-booking-alert-whatsapp.json",
+    "webhook_path": "nvidia-consultation-booking-alert-whatsapp-v1",
+    "primary_service_key": "nvidia-consultation-booking-alert-whatsapp-v1",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": [
+      {
+        "node_name": "Dispatch Nvidia Confirmed WhatsApp",
+        "service_key": "nvidia-consultation-confirmed-whatsapp-v1"
+      },
+      {
+        "node_name": "Dispatch Nvidia Confirmed Email",
+        "service_key": "nvidia-consultation-confirmed-email-v1"
+      }
+    ]
+  },
+  {
+    "workflow_file": "n8n/workflows/nvidia-consultation-confirmed-email.json",
+    "webhook_path": "nvidia-consultation-confirmed-email-v1",
+    "primary_service_key": "nvidia-consultation-confirmed-email-v1",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/nvidia-consultation-confirmed-whatsapp.json",
+    "webhook_path": "nvidia-consultation-confirmed-whatsapp-v1",
+    "primary_service_key": "nvidia-consultation-confirmed-whatsapp-v1",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Your doctor consultation has been successfully confirmed.",
+      "Date: {{first_name}}",
+      "Time: {{first_name}}",
+      "Cabin: {{session_details.cabin}}",
+      "You can check the details below for your convenience",
+      "app.supershyft.com",
+      "Thanks for taking a moment to read this message"
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/nvidia-consultation-remainder-email.json",
+    "webhook_path": "nvidia-consultation-remainder-email-v1",
+    "primary_service_key": "nvidia-consultation-remainder-email-v1",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/nvidia-consultation-remainder-whatsapp.json",
+    "webhook_path": "nvidia-consultation-remainder-whatsapp-v1",
+    "primary_service_key": "nvidia-consultation-remainder-whatsapp-v1",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "This is a reminder that your doctor consultation is scheduled for today.",
+      "Time: {{first_name}}",
+      "Cabin: {{session_details.cabin}}",
+      "We look forward to supporting you on your health journey.",
+      "You can check the details below at your convenience",
+      "app.supershyft.com",
+      "Thanks for taking a moment to read this message"
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/nvidia-consultation-thank-you-email.json",
+    "webhook_path": "nvidia-consultation-thank-you-email-v1",
+    "primary_service_key": "nvidia-consultation-thank-you-email-v1",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/nvidia-consultation-thank-you-whatsapp.json",
+    "webhook_path": "nvidia-consultation-thank-you-whatsapp-v1",
+    "primary_service_key": "nvidia-consultation-thank-you-whatsapp-v1",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Thank you for attending your checkup and consultation with our doctor.",
+      "We hope the session helped you better understand your Bio-AI Health Report and your overall health status.",
+      "We would love to hear your thoughts on your overall experience with Supershyft so far.",
+      "Your feedback helps us continue shaping a better preventive health journey for you.",
+      "You can check the details below for your convenience.",
+      "{{first_name}}",
+      "Thanks for taking a moment to read this message.",
+      "Regards",
+      "Team Supershyft"
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/phlebo-assigned-email.json",
+    "webhook_path": "phlebo-assigned-email-v1",
+    "primary_service_key": "phlebo-assigned-email",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/phlebo-assigned-whatsapp.json",
+    "webhook_path": "phlebo-assigned-whatsapp-v1",
+    "primary_service_key": "phlebo-assigned-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Your phlebotomist {{first_name}} has been assigned for your blood collection.",
+      "Date: {{session_details.date}}",
+      "Time: {{session_details.slot}}",
+      "{{first_name}}",
+      "{{first_name}}",
+      "Please visit: app.supershyft.com",
+      "Thanks for taking a moment to read this message."
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/phlebo-delay-email.json",
+    "webhook_path": "phlebo-delay-email-v1",
+    "primary_service_key": "phlebo-delay-email",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/phlebo-delay-whatsapp.json",
+    "webhook_path": "phlebo-delay-whatsapp-v1",
+    "primary_service_key": "phlebo-delay-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Your phlebotomist {{first_name}} is delayed and will arrive in about {{first_name}} minutes.",
+      "Contact: {{first_name}}",
+      "Please visit: app.supershyft.com",
+      "Thanks for taking a moment to read this message."
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/phlebo-enroute-email.json",
+    "webhook_path": "phlebo-enroute-email-v1",
+    "primary_service_key": "phlebo-enroute-email",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/phlebo-enroute-whatsapp.json",
+    "webhook_path": "phlebo-enroute-whatsapp-v1",
+    "primary_service_key": "phlebo-enroute-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Your phlebotomist {{first_name}} is on the way for your blood collection.",
+      "Contact: {{first_name}}",
+      "Track your phlebotomist: {{first_name}}",
+      "Please visit: app.supershyft.com",
+      "Thanks for taking a moment to read this message."
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/phlebo-reassigned-email.json",
+    "webhook_path": "phlebo-reassigned-email-v1",
+    "primary_service_key": "phlebo-reassigned-email",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/phlebo-reassigned-whatsapp.json",
+    "webhook_path": "phlebo-reassigned-whatsapp-v1",
+    "primary_service_key": "phlebo-reassigned-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Your phlebotomist {{first_name}} has been reassigned for your blood collection.",
+      "Date: {{session_details.date}}",
+      "Time: {{session_details.slot}}",
+      "{{first_name}}",
+      "{{first_name}}",
+      "Please visit: app.supershyft.com",
+      "Thanks for taking a moment to read this message."
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/pretest-email-1+1.json",
+    "webhook_path": "pretest-email-1+1-v1",
+    "primary_service_key": "pretest-email-1plus1-v1",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/pretest-email.json",
+    "webhook_path": "pretest-email-v3",
+    "primary_service_key": "pretest-email",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/pretest-whatsapp-1+1.json",
+    "webhook_path": "pretest-whatsapp-1+1-v1",
+    "primary_service_key": "pretest-whatsapp-1plus1-v1",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Your Supershyft Preventive Health blood test is scheduled for tomorrow.",
+      "Time: {{first_name}}",
+      "Please follow the pre-test guidelines before your blood test. We recommend 10-12 hours of fasting and plenty of water.",
+      "Please refer to the attached guidelines for complete preparation details: {{first_name}}",
+      "Also make sure your Health Assessment is completed before the test."
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/pretest-whatsapp-session.json",
+    "webhook_path": "pretest-whatsapp-session-v1",
+    "primary_service_key": "pretest-whatsapp-session-v1",
+    "template_name": "camp15",
+    "template_variables": [
+      "{{first_name}}",
+      "This is a reminder that your Supershyft Preventive Health blood test is scheduled for tomorrow. Before your upcoming test to understand how to prepare you can refer to the document attached.",
+      "Time: {{first_name}}",
+      "Cabin: {{session_details.cabin}}",
+      "Also please complete your Health Assessment on the Supershyft app before your test. Thanks for your cooperation!"
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/pretest-whatsapp.json",
+    "webhook_path": "pretest-whatsapp-v3",
+    "primary_service_key": "pretest-whatsapp",
+    "template_name": "camp14",
+    "template_variables": [
+      "{{first_name}}"
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/send-bioai-report-email-v2.json",
+    "webhook_path": "send-bioai-report-email-v4",
+    "primary_service_key": "send-bioai-report-email-v2",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/send-bioai-whatsapp.json",
+    "webhook_path": "send-bioai-whatsapp-v4",
+    "primary_service_key": "send-bioai-whatsapp",
+    "template_name": "camp15",
+    "template_variables": [
+      "{{first_name}}",
+      "Your personalized Bio-AI Health Report is attached below.",
+      "Your report includes personalized metabolic health insights and recommendations.",
+      "You can find everything you need below for easy access",
+      "Please visit: app.supershyft.com"
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/send-blood-report-email-1+1.json",
+    "webhook_path": "send-blood-report-email-1+1-v1",
+    "primary_service_key": "send-blood-report-email-1plus1-v1",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/send-blood-report-email-v2.json",
+    "webhook_path": "send-blood-report-email-v4",
+    "primary_service_key": "send-blood-report-email-v2",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/send-blood-report-whatsapp-1+1.json",
+    "webhook_path": "send-blood-report-whatsapp-1+1-v1",
+    "primary_service_key": "send-blood-report-whatsapp-1plus1-v1",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Your Supershyft Blood Test Report is now ready.",
+      "The report provides a detailed view of your blood biomarkers and key clinical parameters.",
+      "You can check your report here: {{first_name}}",
+      "Your Bio-AI Health Report will help you understand these results in greater detail."
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/send-blood-report-whatsapp.json",
+    "webhook_path": "send-blood-report-whatsapp-v4",
+    "primary_service_key": "send-blood-report-whatsapp",
+    "template_name": "camp15",
+    "template_variables": [
+      "{{first_name}}",
+      "Thank you for completing your blood sample collection and the Lifestyle Questionnaire.",
+      "Your Blood Test Reports are attached below.",
+      "The report includes 88+ biomarker profiles.",
+      "Please visit: app.supershyft.com"
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/send-expert-consultation-guide-whatsapp.json",
+    "webhook_path": "send-expert-consultation-guide-whatsapp-v1",
+    "primary_service_key": "send-expert-consultation-guide-whatsapp-v1",
+    "template_name": "camp13",
+    "template_variables": [
+      "{{first_name}}",
+      "Welcome to SuperShyft Expert Portal.",
+      "Use the portal to review camp consultations and manage participant sessions.",
+      "Open your camp consultations using the link below.",
+      "{{first_name}}",
+      "Please review your consultations and let us know if you need any assistance. Thanks!"
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/send-phlebo-booking-guide-whatsapp.json",
+    "webhook_path": "send-phlebo-booking-guide-whatsapp-v1",
+    "primary_service_key": "send-phlebo-booking-guide-whatsapp-v1",
+    "template_name": "camp15",
+    "template_variables": [
+      "{{first_name}}",
+      "Welcome! \ud83d\udc4b",
+      "We have shared a quick step-by-step guide to help you create bookings using the SuperShyft Engagement Console. Please refer to the attached guide before creating your first booking.",
+      "You can access your Engagement Console using the link below:",
+      "{{first_name}}",
+      "Please go through the guide and let us know if you have any questions or need any assistance.",
+      "Thanks!"
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/send-reports-email.json",
+    "webhook_path": "send-reports-email-v4",
+    "primary_service_key": "send-reports-email",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/thank-you-feedback-email-1+1.json",
+    "webhook_path": "thank-you-feedback-email-1+1-v1",
+    "primary_service_key": "thank-you-feedback-email-1plus1-v1",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/thank-you-feedback-whatsapp-1+1.json",
+    "webhook_path": "thank-you-feedback-whatsapp-1+1-v1",
+    "primary_service_key": "thank-you-feedback-whatsapp-1plus1-v1",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Thank you for completing your Supershyft health journey with us.",
+      "We hope the experience helped you better understand your health and take meaningful steps towards prevention.",
+      "We would love to hear your feedback. Your experience helps us improve and serve our community better.",
+      "Share your feedback here: {{first_name}}",
+      "Thank you for choosing Supershyft.",
+      "Regards",
+      "Team Supershyft"
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/welcome-booking-email-1+1.json",
+    "webhook_path": "welcome-booking-email-1+1-v1",
+    "primary_service_key": "welcome-booking-email-1plus1-v1",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/welcome-booking-whatsapp-1+1.json",
+    "webhook_path": "welcome-booking-whatsapp-1+1-v1",
+    "primary_service_key": "welcome-booking-whatsapp-1plus1-v1",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Welcome to Supershyft! Your preventive health assessment has been successfully booked.",
+      "Date: {{session_details.date}}",
+      "Time: {{session_details.slot}}",
+      "We look forward to supporting you on your preventive health journey."
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/welcome-email.json",
+    "webhook_path": "welcome-email-v3",
+    "primary_service_key": "welcome-email",
+    "template_name": null,
+    "template_variables": null,
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/welcome-whatsapp-metsights.json",
+    "webhook_path": "welcome-whatsapp-metsights-v3",
+    "primary_service_key": "welcome-whatsapp-metsights",
+    "template_name": "camp17",
+    "template_variables": [
+      "{{first_name}}",
+      "Thank you so much for trusting us and taking the first step towards prevention",
+      "Your SuperShyft health profile is ready!",
+      "Complete your Health Assessment by answering a few quick questions about your nutrition",
+      "sleep and physical activity.",
+      "If you have any query or want to reschedule your test feel free to reach out on 8209512559",
+      "Please visit: www.metsights.com"
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/welcome-whatsapp.json",
+    "webhook_path": "welcome-whatsapp-v3",
+    "primary_service_key": "welcome-whatsapp",
+    "template_name": "camp13",
+    "template_variables": [
+      "{{first_name}}",
+      "Thank you so much for trusting us and taking the first step towards prevention.",
+      "Your SuperShyft health profile is ready!",
+      "Please take a few minutes to complete your Health Assessment covering lifestyle and daily activity.",
+      "Your inputs help build your Bio AI Health Report and better details will lead to more meaningful insights.",
+      "Please visit: app.supershyft.com"
+    ],
+    "chained_dispatches": []
+  },
+  {
+    "workflow_file": "n8n/workflows/whatapi-otp.json",
+    "webhook_path": "send-otp-whatsapp-v3",
+    "primary_service_key": "whatapi-otp",
+    "template_name": "otp",
+    "template_variables": [
+      "{{otp}}"
+    ],
+    "chained_dispatches": []
+  }
+]
