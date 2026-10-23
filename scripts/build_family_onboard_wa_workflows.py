@@ -38,16 +38,20 @@ const recipientName = (pd.recipient_name || '-').trim();
 const relationship = (pd.relationship || '-').trim();
 const giftUrl = (pd.gift_url || 'https://app.supershyft.com').trim();
 
-let phone = String(member.phone || '').replace(/\\D/g, '');
+let rawPhone = String(pd.booker_phone || member.phone || '').trim();
+if (rawPhone === '-') rawPhone = String(member.phone || '').trim();
+let phone = rawPhone.replace(/\\D/g, '');
 if (phone.length === 10) phone = '91' + phone;
 
-// camp13: v1..v6 — maps to template {{1}} booker, {{2}} recipient, {{3}} relationship, {{4}} gift link
+// camp13: v1..v6 — {{1}} booker, {{2}} recipient, {{3}} relationship, {{4}} link, {{5}}/{{6}} closing
 const v1 = bookerName;
 const v2 = recipientName;
 const v3 = relationship;
 const v4 = giftUrl;
-const v5 = '';
-const v6 = '';
+const v5 =
+  'Thank you for choosing to make someone\\'s well-being a little more special this Diwali.';
+const v6 =
+  'Wishing you and your family a beautiful Diwali filled with love happiness and good health.';
 const message = `camp13,${v1},${v2},${v3},${v4},${v5},${v6}`;
 
 return {
@@ -127,6 +131,7 @@ def _build_conditions(sender: bool) -> list[dict]:
     ]
     if sender:
         conds.append(_pd_field_cond("fog-rel", "relationship"))
+        conds.append(_pd_field_cond("fog-booker-phone", "booker_phone"))
     return conds
 
 
@@ -139,21 +144,22 @@ CONFIGS = [
         "prepare_name": "Prepare Family Onboard Sender WhatsApp",
         "sticky": (
             "## Family Onboard Gift Sender WhatsApp (camp13)\n\n"
-            "WhatAPI: webhook 69ea095002e28c7ee412c02d (same as welcome-whatsapp)\n"
-            "message=camp13,v1,v2,v3,v4,v5,v6\n\n"
+            "WhatAPI: https://webhook.whatapi.in/webhook/69ea095002e28c7ee412c02d\n"
+            "Query: number=booker phone (booker_phone preferred, else members[].phone), message=camp13,v1..v6\n\n"
             "Required payload:\n"
             "{\n"
             "  notification_id: number,\n"
             "  members: [{ first_name, last_name, email, phone }],\n"
-            "  participant_details: { booker_name, recipient_name, relationship, gift_url },\n"
+            "  participant_details: {\n"
+            "    booker_name, booker_phone, recipient_name, relationship, gift_url\n"
+            "  },\n"
             "  engagement_id?: number\n"
             "}\n\n"
-            "Template mapping: v1={{1}} booker, v2={{2}} recipient, v3={{3}} relationship, "
-            "v4={{4}} details link (gift_url). v5/v6 reserved (empty) for camp13 six-param shape."
+            "v1={{1}} booker, v2={{2}} recipient, v3={{3}} relationship, v4={{4}} gift_url, v5/v6=Diwali closing lines."
         ),
         "validate_msg": (
             "Payload validation failed: notification_id, members, and participant_details "
-            "(booker_name, recipient_name, relationship, gift_url) are required"
+            "(booker_name, booker_phone, recipient_name, relationship, gift_url) are required"
         ),
         "sender": True,
         "prepare_js": SENDER_PREPARE,

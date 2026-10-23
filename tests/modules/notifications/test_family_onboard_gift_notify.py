@@ -199,6 +199,7 @@ async def test_notify_family_onboard_gift_dispatches_four_services(test_db_sessi
     assert len(sender_calls) == 1
     assert receiver_calls[0]["json"]["participant_details"]["gift_url"] == _TEST_CARD_URL
     assert sender_calls[0]["json"]["participant_details"]["gift_url"] == GIFT_URL
+    assert sender_calls[0]["json"]["participant_details"]["booker_phone"] == booker.phone
 
     sync_row = (
         await test_db_session.execute(

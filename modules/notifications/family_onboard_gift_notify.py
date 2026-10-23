@@ -74,6 +74,7 @@ def _participant_details(
 ) -> dict[str, str]:
     return {
         "booker_name": detail_or_hyphen(_display_name(booker)),
+        "booker_phone": detail_or_hyphen((getattr(booker, "phone", None) or "").strip()),
         "recipient_name": detail_or_hyphen(_display_name(recipient)),
         "relationship": detail_or_hyphen(_format_relationship(relationship)),
         "gift_url": gift_url,
