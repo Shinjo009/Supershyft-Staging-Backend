@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.exceptions import AppError
+from modules.audit.cron_sync_logging import tracked_integration_call
 from modules.bioai_report.client import BioAiReportsClient, extract_gift_card_url
+from modules.bioai_report.pdf_registration import bioreport_gift_card_endpoint
 from modules.notifications.dedup import should_skip_notification
 from modules.notifications.onboarding_notify import detail_or_hyphen
 from modules.notifications.repository import NotificationsRepository
@@ -84,9 +86,11 @@ def _gift_card_message(booker_message: str | None) -> str:
 
 
 async def _resolve_receiver_gift_card_url(
+    db: AsyncSession,
     *,
     booker: User,
     recipient: User,
+    engagement_id: int,
     relationship: str | None,
     booker_message: str | None,
     bio_ai_reports_client: BioAiReportsClient | None = None,
@@ -100,7 +104,22 @@ async def _resolve_receiver_gift_card_url(
         "occasion": GIFT_CARD_OCCASION,
     }
     try:
-        response = await client.create_gift_card(payload)
+        response = await tracked_integration_call(
+            db,
+            provider="bio_ai_reports",
+            api_url=bioreport_gift_card_endpoint(),
+            engagement_id=int(engagement_id),
+            user_id=int(recipient.user_id),
+            request_payload=payload,
+            operation=lambda: client.create_gift_card(payload),
+            reraise=True,
+        )
+        if not isinstance(response, dict):
+            raise AppError(
+                status_code=502,
+                error_code="BIO_AI_REPORTS_ERROR",
+                message="bio-ai-reports returned an invalid response",
+            )
         return extract_gift_card_url(response)
     except AppError as exc:
         logger.warning(
@@ -207,10 +226,13 @@ async def notify_family_onboard_gift(
         return
 
     repo = notifications_service._repo
+    eid = int(engagement_id)
     base_details = _participant_details(booker=booker, recipient=recipient, relationship=relationship)
     receiver_gift_url = await _resolve_receiver_gift_card_url(
+        db,
         booker=booker,
         recipient=recipient,
+        engagement_id=eid,
         relationship=relationship,
         booker_message=booker_message,
         bio_ai_reports_client=bio_ai_reports_client,
@@ -218,7 +240,6 @@ async def notify_family_onboard_gift(
     receiver_wa_details = {**base_details, "gift_url": receiver_gift_url}
     booker_id = int(booker.user_id)
     recipient_id = int(recipient.user_id)
-    eid = int(engagement_id)
 
     await _dispatch_one(
         db,

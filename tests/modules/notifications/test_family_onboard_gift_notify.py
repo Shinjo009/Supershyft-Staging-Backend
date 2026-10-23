@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import select, text
 
 from core.exceptions import AppError
+from db.column_types import STATUS_INTEGRATION_SYNC
 from modules.bioai_report.client import BioAiReportsClient
 from modules.engagements.models import Engagement
 from modules.notifications.family_onboard_gift_notify import (
@@ -199,6 +200,21 @@ async def test_notify_family_onboard_gift_dispatches_four_services(test_db_sessi
     assert receiver_calls[0]["json"]["participant_details"]["gift_url"] == _TEST_CARD_URL
     assert sender_calls[0]["json"]["participant_details"]["gift_url"] == GIFT_URL
 
+    sync_row = (
+        await test_db_session.execute(
+            text(
+                "SELECT status, api_endpoint_url, response_payload "
+                "FROM integration_sync_logs "
+                "WHERE provider = 'bio_ai_reports' AND engagement_id = :eid AND user_id = :uid"
+            ),
+            {"eid": 88099, "uid": 88002},
+        )
+    ).first()
+    assert sync_row is not None
+    assert sync_row.status == STATUS_INTEGRATION_SYNC["success"]
+    assert str(sync_row.api_endpoint_url).endswith("/api/cards")
+    assert (sync_row.response_payload or {}).get("url") == _TEST_CARD_URL
+
 
 @pytest.mark.asyncio
 async def test_receiver_gift_card_api_failure_falls_back_to_app_url(test_db_session, monkeypatch):
@@ -279,6 +295,20 @@ async def test_receiver_gift_card_api_failure_falls_back_to_app_url(test_db_sess
     ]
     assert len(receiver_calls) == 1
     assert receiver_calls[0]["json"]["participant_details"]["gift_url"] == GIFT_URL
+
+    failed_row = (
+        await test_db_session.execute(
+            text(
+                "SELECT status, api_endpoint_url "
+                "FROM integration_sync_logs "
+                "WHERE provider = 'bio_ai_reports' AND engagement_id = :eid AND user_id = :uid"
+            ),
+            {"eid": 88089, "uid": 88082},
+        )
+    ).first()
+    assert failed_row is not None
+    assert failed_row.status == STATUS_INTEGRATION_SYNC["failed"]
+    assert str(failed_row.api_endpoint_url).endswith("/api/cards")
 
 
 @pytest.mark.asyncio

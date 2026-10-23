@@ -43,6 +43,11 @@ def bioreport_regenerate_endpoint() -> str:
     return f"{base}/api/reports/regenerate"
 
 
+def bioreport_gift_card_endpoint() -> str:
+    base = (settings.BIO_AI_REPORTS_BASE_URL or "").strip().rstrip("/")
+    return f"{base}/api/cards"
+
+
 def extract_slug_from_report_url(url: str | None) -> str | None:
     """Parse the public slug from a bio-ai-reports permanent URL."""
     cleaned = (url or "").strip()
