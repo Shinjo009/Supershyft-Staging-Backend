@@ -251,7 +251,7 @@ async def test_patch_default_onboarding_assistants_persists(async_client, test_d
     test_db_session.add(User(user_id=oid, age=30, phone="92020000001", status="active", first_name="Omar", last_name="OA"))
     await test_db_session.flush()
     test_db_session.add(Employee(employee_id=9201, name="Employee 9201", phone="0000009201", email="employee9201@test.example", role="admin", status="active"))
-    test_db_session.add(Employee(employee_id=9202, name="Employee 9202", phone="0000009202", email="employee9202@test.example", role="onboarding_assistant", status="active"))
+    test_db_session.add(Employee(employee_id=9202, name="Employee 9202", phone="0000009202", email="employee9202@test.example", role="inferior_admin", status="active"))
 
     await test_db_session.execute(
         text(
@@ -302,6 +302,26 @@ async def test_patch_default_onboarding_assistants_rejects_unknown_employee(asyn
 
 
 @pytest.mark.asyncio
+async def test_patch_default_onboarding_assistants_rejects_invalid_role(async_client, test_db_session):
+    uid = 9108
+    test_db_session.add(User(user_id=uid, age=30, phone="91080000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(Employee(employee_id=9108, name="Employee 9108", phone="0000009108", email="employee9108@test.example", role="admin", status="active"))
+    test_db_session.add(
+        Employee(employee_id=9302, name="Employee 9302", phone="0000009302", email="employee9302@test.example", role="onboarding_assistant", status="active")
+    )
+    await test_db_session.commit()
+
+    response = await async_client.patch(
+        "/platform-settings/default-onboarding-assistants",
+        headers=_auth_header(uid),
+        json={"employee_ids": [9302]},
+    )
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "INVALID_INPUT"
+
+
+@pytest.mark.asyncio
 async def test_patch_default_onboarding_assistants_rejects_inactive_employee(async_client, test_db_session):
     uid = 9107
     test_db_session.add(User(user_id=uid, age=30, phone="91070000001", status="active"))
@@ -312,7 +332,7 @@ async def test_patch_default_onboarding_assistants_rejects_inactive_employee(asy
     test_db_session.add(User(user_id=inactive_uid, age=30, phone="93010000001", status="active"))
     await test_db_session.flush()
     test_db_session.add(
-        Employee(employee_id=9301, name="Employee 9301", phone="0000009301", email="employee9301@test.example", role="onboarding_assistant", status="inactive")
+        Employee(employee_id=9301, name="Employee 9301", phone="0000009301", email="employee9301@test.example", role="inferior_admin", status="inactive")
     )
     await test_db_session.commit()
 

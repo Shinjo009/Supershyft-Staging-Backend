@@ -11,9 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.exceptions import AppError
 from modules.assessments.models import AssessmentPackage
 from modules.diagnostics.models import DiagnosticPackage
-from modules.partners.models import PartnerRole
-from modules.partners.role_utils import partner_role_value
-from modules.partners.repository import PartnersRepository
+from modules.employee.access_control import (
+    ONBOARDING_ASSISTANT_ASSIGNEE_EMPLOYEE_ROLES,
+    ensure_valid_onboarding_assistant_assignee_employee_role,
+)
 from modules.employee.models import EmployeeRole
 from modules.employee.repository import EmployeeRepository
 from modules.employee.service import EmployeeContext
@@ -453,61 +454,62 @@ class PlatformSettingsService:
         db: AsyncSession,
         employee_ids: list[int],
     ) -> list[int]:
-        """Validate IDs as active phlebo partners (setting column name is historical)."""
-        partners_repo = PartnersRepository()
+        """Validate IDs as active admin / inferior_admin staff employees."""
         normalized: list[int] = []
         seen: set[int] = set()
         for raw in employee_ids:
             if not isinstance(raw, int) or raw <= 0 or raw in seen:
                 continue
             seen.add(raw)
-            partner = await partners_repo.get_by_id(db, raw)
-            if partner is None:
+            emp = await self._employee_repository.get_by_id(db, raw)
+            if emp is None:
                 raise AppError(
                     status_code=404,
-                    error_code="PARTNER_NOT_FOUND",
-                    message=f"Partner with ID {raw} does not exist",
+                    error_code="EMPLOYEE_NOT_FOUND",
+                    message=f"Employee with ID {raw} does not exist",
                 )
-            if (partner.status or "").lower() != "active":
+            if (emp.status or "").lower() != "active":
                 raise AppError(
                     status_code=422,
                     error_code="INVALID_ONBOARDING_ASSISTANT",
-                    message=f"Partner {raw} is not active",
+                    message=f"Employee {raw} is not active",
                 )
-            role = partner_role_value(partner.role)
-            if role != PartnerRole.phlebo.value:
-                raise AppError(
-                    status_code=422,
-                    error_code="INVALID_ONBOARDING_ASSISTANT",
-                    message=f"Partner {raw} cannot be assigned as an onboarding assistant",
-                )
+            ensure_valid_onboarding_assistant_assignee_employee_role(emp.role)
             normalized.append(raw)
         return normalized
+
+    def _is_assignable_default_assistant_employee(self, emp) -> bool:
+        if emp is None or (emp.status or "").lower() != "active":
+            return False
+        role = emp.role if isinstance(emp.role, EmployeeRole) else EmployeeRole(str(emp.role))
+        return role in ONBOARDING_ASSISTANT_ASSIGNEE_EMPLOYEE_ROLES
 
     async def _build_default_onboarding_assistants_read(
         self,
         db: AsyncSession,
         employee_ids: list[int],
     ) -> DefaultOnboardingAssistantsRead:
-        partners_repo = PartnersRepository()
         assistants: list[DefaultOnboardingAssistantItem] = []
-        for partner_id in employee_ids:
-            partner = await partners_repo.get_by_id(db, partner_id)
-            if partner is None:
+        resolved_ids: list[int] = []
+        for eid in employee_ids:
+            emp = await self._employee_repository.get_by_id(db, eid)
+            if not self._is_assignable_default_assistant_employee(emp):
                 continue
-            name = (partner.name or "").strip()
+            resolved_ids.append(eid)
+            name = (emp.name or "").strip()
             parts = name.split(None, 1)
+            role_val = emp.role.value if isinstance(emp.role, EmployeeRole) else str(emp.role)
             assistants.append(
                 DefaultOnboardingAssistantItem(
-                    employee_id=partner.partner_id,
-                    user_id=partner.partner_id,
-                    role=partner_role_value(partner.role),
-                    status=partner.status,
+                    employee_id=emp.employee_id,
+                    user_id=emp.employee_id,
+                    role=role_val,
+                    status=emp.status,
                     first_name=parts[0] if parts else "",
                     last_name=parts[1] if len(parts) > 1 else "",
                 )
             )
-        return DefaultOnboardingAssistantsRead(employee_ids=employee_ids, assistants=assistants)
+        return DefaultOnboardingAssistantsRead(employee_ids=resolved_ids, assistants=assistants)
 
     async def get_default_onboarding_assistants(self, db: AsyncSession) -> DefaultOnboardingAssistantsRead:
         row = await self._repository.get_by_id(db)

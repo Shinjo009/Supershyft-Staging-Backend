@@ -44,7 +44,7 @@ async def _ensure_packages(test_db_session) -> None:
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'R1', 'D1', 'p', 1) ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
+            "VALUES (1, 'R1', 'D1', 'healthians', 1) ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
         )
     )
     await test_db_session.commit()
@@ -65,20 +65,17 @@ async def test_support_notify_dispatches_to_default_assistants(test_db_session, 
         last_name="User",
         status="active",
     )
-    oa_user = User(
-        user_id=9402,
-        age=30,
-        phone="94020000001",
-        email="oa@example.com",
-        first_name="Omar",
-        last_name="Assistant",
-        status="active",
-    )
     test_db_session.add(user)
-    test_db_session.add(oa_user)
     await test_db_session.flush()
     test_db_session.add(
-        Employee(employee_id=9402, name="Employee 9402", phone="0000009402", email="employee9402@test.example", role="onboarding_assistant", status="active")
+        Employee(
+            employee_id=9402,
+            name="Omar Assistant",
+            phone="0000009402",
+            email="oa@example.com",
+            role="admin",
+            status="active",
+        )
     )
 
     await test_db_session.execute(text("DELETE FROM platform_settings"))
@@ -104,7 +101,7 @@ async def test_support_notify_dispatches_to_default_assistants(test_db_session, 
 
     dispatch_mock = AsyncMock()
     notifications_service = NotificationsService(NotificationsRepository())
-    monkeypatch.setattr(notifications_service, "dispatch", dispatch_mock)
+    monkeypatch.setattr(notifications_service, "dispatch_to_contacts", dispatch_mock)
 
     await notify_default_onboarding_assistants_on_support_query(
         test_db_session,
@@ -116,12 +113,13 @@ async def test_support_notify_dispatches_to_default_assistants(test_db_session, 
     )
 
     dispatch_mock.assert_awaited_once()
-    payload = dispatch_mock.await_args.kwargs["payload"]
-    assert payload.service_key == service_key
-    assert payload.user_ids == [9402]
-    assert payload.participant_details["query_text"] == "Need help with my report"
-    assert payload.participant_details["ticket_id"] == str(ticket.ticket_id)
-    assert payload.participant_details["name"] == "Pat User"
+    kwargs = dispatch_mock.await_args.kwargs
+    assert kwargs["service_key"] == service_key
+    assert kwargs["contacts"][0]["phone"] == "0000009402"
+    assert kwargs["contacts"][0]["email"] == "oa@example.com"
+    assert kwargs["participant_details"]["query_text"] == "Need help with my report"
+    assert kwargs["participant_details"]["ticket_id"] == str(ticket.ticket_id)
+    assert kwargs["participant_details"]["name"] == "Pat User"
 
 
 @pytest.mark.asyncio

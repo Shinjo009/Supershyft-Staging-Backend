@@ -1,4 +1,4 @@
-"""Dispatch support-query notifications to default onboarding assistants (phlebo partners)."""
+"""Dispatch support-query notifications to default onboarding assistants (staff employees)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.notifications.repository import NotificationsRepository
 from modules.notifications.service import NotificationsService
-from modules.partners.models import Partner
+from modules.employee.access_control import ONBOARDING_ASSISTANT_ASSIGNEE_EMPLOYEE_ROLES
+from modules.employee.models import Employee, EmployeeRole
 from modules.platform_settings.repository import PlatformSettingsRepository
 from modules.support.models import SupportTicket
 
@@ -44,24 +45,29 @@ async def _resolve_default_assistant_contacts(
     *,
     platform_settings_repository: PlatformSettingsRepository,
 ) -> list[dict]:
-    """Default assistant IDs are partner_ids after migration 0133."""
-    partner_ids = await platform_settings_repository.resolve_default_onboarding_assistant_employee_ids(db)
-    if not partner_ids:
+    """Default assistant IDs are active admin / inferior_admin employee_ids."""
+    employee_ids = await platform_settings_repository.resolve_default_onboarding_assistant_employee_ids(db)
+    if not employee_ids:
         return []
 
     result = await db.execute(
-        select(Partner)
-        .where(Partner.partner_id.in_(partner_ids))
-        .where(Partner.status == "active")
+        select(Employee)
+        .where(Employee.employee_id.in_(employee_ids))
+        .where(Employee.status == "active")
     )
     contacts: list[dict] = []
-    for partner in result.scalars().all():
+    for emp in result.scalars().all():
+        role = emp.role if isinstance(emp.role, EmployeeRole) else EmployeeRole(str(emp.role))
+        if role not in ONBOARDING_ASSISTANT_ASSIGNEE_EMPLOYEE_ROLES:
+            continue
+        name = (emp.name or "").strip()
+        parts = name.split(None, 1)
         contacts.append(
             {
-                "first_name": partner.name or "",
-                "last_name": "",
-                "phone": partner.phone or "",
-                "email": partner.email or "",
+                "first_name": parts[0] if parts else "",
+                "last_name": parts[1] if len(parts) > 1 else "",
+                "phone": emp.phone or "",
+                "email": emp.email or "",
             }
         )
     return contacts
@@ -76,7 +82,7 @@ async def notify_default_onboarding_assistants_on_support_query(
     ticket: SupportTicket,
     user,
 ) -> None:
-    """Dispatch each configured support notification service to default phlebo partners."""
+    """Dispatch each configured support notification service to default staff assistants."""
     settings_row = await platform_settings_repository.get_by_id(db)
     service_keys = _parse_service_keys(
         getattr(settings_row, "default_support_query_notification", None) if settings_row else None

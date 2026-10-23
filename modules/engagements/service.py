@@ -37,9 +37,11 @@ from modules.assessments.service import AssessmentsService
 from modules.audit.service import AuditService
 from modules.checklists.schemas import ChecklistReadiness
 from modules.employee.access_control import (
+    ONBOARDING_ASSISTANT_ASSIGNEE_EMPLOYEE_ROLES,
     ensure_admin,
 )
 from modules.employee.models import EmployeeRole
+from modules.employee.repository import EmployeeRepository
 from modules.employee.service import EmployeeContext
 from modules.engagements.blood_booking_id_validation import (
     booking_id_integrity_app_error,
@@ -415,6 +417,7 @@ class EngagementsService:
         self._notifications_service = notifications_service
         self._platform_settings_repository = PlatformSettingsRepository()
         self._partners_repository = PartnersRepository()
+        self._employee_repository = EmployeeRepository()
         self._assessments_repository = AssessmentsRepository()
         self._questionnaire_repository = QuestionnaireRepository()
         self._reports_repository = ReportsRepository()
@@ -1823,7 +1826,6 @@ class EngagementsService:
         )
 
     async def _resolve_default_onboarding_assistant_employee_ids(self, db: AsyncSession) -> list[int]:
-        # Stored setting still named employee_ids historically; values are phlebo partner_ids.
         return await self._platform_settings_repository.resolve_default_onboarding_assistant_employee_ids(db)
 
     async def _assign_default_onboarding_assistants(
@@ -1834,34 +1836,35 @@ class EngagementsService:
         organization_id: int | None,
     ) -> None:
         _ = organization_id
-        partner_ids = await self._resolve_default_onboarding_assistant_employee_ids(db)
-        if not partner_ids:
+        employee_ids = await self._resolve_default_onboarding_assistant_employee_ids(db)
+        if not employee_ids:
             return
 
-        for partner_id in partner_ids:
-            row = await self._partners_repository.get_by_id(db, partner_id)
-            if row is None:
-                logger.warning("Skipping default onboarding assistant %s: partner not found", partner_id)
+        for employee_id in employee_ids:
+            emp = await self._employee_repository.get_by_id(db, employee_id)
+            if emp is None:
+                logger.warning("Skipping default onboarding assistant %s: employee not found", employee_id)
                 continue
-            if (row.status or "").lower() != "active":
-                logger.warning("Skipping default onboarding assistant %s: partner not active", partner_id)
+            if (emp.status or "").lower() != "active":
+                logger.warning("Skipping default onboarding assistant %s: employee not active", employee_id)
                 continue
-            role = partner_role_value(row.role)
-            if role != PartnerRole.phlebo.value:
-                logger.warning("Skipping default onboarding assistant %s: invalid role", partner_id)
+            role = emp.role if isinstance(emp.role, EmployeeRole) else EmployeeRole(str(emp.role))
+            if role not in ONBOARDING_ASSISTANT_ASSIGNEE_EMPLOYEE_ROLES:
+                logger.warning("Skipping default onboarding assistant %s: invalid role", employee_id)
                 continue
 
             existing = await self._repository.get_onboarding_assistant_assignment(
                 db,
                 engagement_id=engagement_id,
-                partner_id=partner_id,
+                employee_id=employee_id,
             )
             if existing is not None:
                 continue
 
             assignment = OnboardingAssistantAssignment(
                 engagement_id=engagement_id,
-                partner_id=partner_id,
+                partner_id=None,
+                employee_id=employee_id,
             )
             await self._repository.create_onboarding_assistant_assignment(db, assignment)
 

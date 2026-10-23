@@ -9,7 +9,7 @@ from sqlalchemy import text
 
 from modules.engagements.repository import EngagementsRepository
 from modules.engagements.service import EngagementsService
-from tests.helpers.auth import seed_partner
+from tests.helpers.auth import seed_employee, seed_partner
 
 
 async def _seed_packages_and_engagement(
@@ -300,7 +300,7 @@ async def test_b2c_engagement_assigns_no_assistants_when_defaults_empty(test_db_
 
 @pytest.mark.asyncio
 async def test_b2c_engagement_assigns_default_assistants_from_platform_settings(test_db_session):
-    """B2C engagements auto-assign phlebo partners configured in platform settings."""
+    """B2C engagements auto-assign staff employees configured in platform settings."""
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
@@ -314,19 +314,19 @@ async def test_b2c_engagement_assigns_default_assistants_from_platform_settings(
             "ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
         )
     )
-    await seed_partner(
+    await seed_employee(
         test_db_session,
-        partner_id=110,
-        role="phlebo",
-        name="Default Phlebo A",
+        employee_id=110,
+        role="admin",
+        name="Default Admin A",
         phone="5010000000",
         commit=False,
     )
-    await seed_partner(
+    await seed_employee(
         test_db_session,
-        partner_id=111,
-        role="phlebo",
-        name="Default Phlebo B",
+        employee_id=111,
+        role="inferior_admin",
+        name="Default Employee B",
         phone="5011000000",
         commit=False,
     )
@@ -356,5 +356,5 @@ async def test_b2c_engagement_assigns_default_assistants_from_platform_settings(
     assignments = await repository.list_onboarding_assistants(
         test_db_session, engagement_id=engagement.engagement_id
     )
-    assigned_ids = sorted(a.partner_id for a in assignments)
+    assigned_ids = sorted(a.employee_id for a in assignments)
     assert assigned_ids == [110, 111]
