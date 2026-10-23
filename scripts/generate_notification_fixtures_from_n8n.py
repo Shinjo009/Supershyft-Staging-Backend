@@ -60,9 +60,9 @@ def _service_key_from_webhook(webhook_path: str, known_keys: set[str]) -> str | 
 
 def _template_name_from_service_key(service_key: str) -> str:
     if service_key in ("whatapi-otp",):
-        return "otp_new"
+        return "otpmsg"
     if "otp" in service_key:
-        return "otp_new"
+        return "otpmsg"
     if service_key.startswith("welcome"):
         return "welcome_new"
     if service_key.startswith("pretest"):
@@ -151,7 +151,7 @@ def main() -> int:
             if not row.get("template_variables"):
                 # default single-body binding for common patterns
                 if sk == "whatapi-otp" or "otp" in sk:
-                    row["template_variables"] = ["{{otp}}"]
+                    row["template_variables"] = ["{{otp}}", "verification code"]
                 elif row.get("template_variables") is None:
                     row["template_variables"] = ["{{first_name}}"]
         elif channel == "email":

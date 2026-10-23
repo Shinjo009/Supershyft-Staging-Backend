@@ -11,7 +11,8 @@ from modules.notifications.whatapi_client import WhatApiClient
 
 # n8n legacy first-segment aliases → WABA template names (when GET by alias fails)
 _TEMPLATE_ALIASES: dict[str, str] = {
-    "otp": "otpv4",
+    "otp": "otpmsg",
+    "otpmsg": "otpmsg__",
 }
 
 # WhatAPI GET webhook expects comma message=prefix,var1,... (not always the WABA template name)
@@ -19,6 +20,7 @@ _FALLBACK_FIRST_SEGMENT: dict[str, str] = {
     "otp_new": "otp",
     "otpv4": "otp",
     "app_authentication_2": "otp",
+    "otpmsg": "otpmsg",
     "otpmsg__": "otpmsg",
 }
 
