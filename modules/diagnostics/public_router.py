@@ -10,6 +10,7 @@ from core.rate_limit import limiter
 from db.session import get_db
 from modules.diagnostics.public_schemas import (
     PublicAvailableSlotsRequest,
+    PublicPincodeServiceabilityRequest,
     PublicServiceabilityRequest,
 )
 from modules.diagnostics import public_service
@@ -34,6 +35,21 @@ async def public_serviceability(
         latitude=payload.latitude,
         longitude=payload.longitude,
         diagnostic_package_id=payload.diagnostic_package_id,
+    )
+    return success_response(result)
+
+
+@router.post("/pincode-serviceability")
+@limiter.limit("10/minute")
+async def public_pincode_serviceability(
+    payload: PublicPincodeServiceabilityRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await public_service.public_check_pincode_serviceability(
+        db,
+        provider=payload.provider,
+        pincode=payload.pincode,
     )
     return success_response(result)
 

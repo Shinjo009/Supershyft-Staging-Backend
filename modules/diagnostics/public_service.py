@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +19,9 @@ from modules.bookings.service import (
 from modules.bookings import orange_health_flow
 from modules.diagnostics.external_codes import healthians_package_deal_id
 from modules.diagnostics.healthians import client as healthians_client
+from modules.diagnostics.orange_health import client as orange_health_client
 from modules.diagnostics.orange_health.booking_helpers import is_orange_health
+from modules.diagnostics.orange_health.client import OrangeHealthApiError
 from modules.diagnostics.models import DiagnosticPackage
 from modules.geocoding.client import enrich_location_fields
 from modules.platform_settings.repository import PlatformSettingsRepository
@@ -227,6 +229,121 @@ async def public_check_serviceability(
                 )
             )
 
+    return {"providers": providers_out}
+
+
+def _orange_pincode_serviceable_status(body: Any) -> bool:
+    if not isinstance(body, dict):
+        return False
+    status = body.get("status")
+    if not isinstance(status, str):
+        return False
+    normalized = status.strip().lower()
+    return "serviceable" in normalized and "unserviceable" not in normalized
+
+
+async def _check_healthians_pincode_serviceability(
+    db: AsyncSession,
+    *,
+    pincode: str,
+) -> dict[str, Any]:
+    access_token = await _get_healthians_token()
+    try:
+        active = await healthians_client.get_active_zipcodes(access_token)
+    except Exception as exc:
+        logger.exception("Public Healthians getActiveZipcodes failed")
+        return {
+            "provider": "healthians",
+            "serviceable": False,
+            "message": str(exc),
+            "data": None,
+        }
+
+    serviceable = pincode in active
+    message = (
+        "Pincode is serviceable for Healthians home collection"
+        if serviceable
+        else "Pincode is not in Healthians active zipcode list"
+    )
+    return {
+        "provider": "healthians",
+        "serviceable": serviceable,
+        "message": message,
+        "data": {"pincode": pincode, "active_zipcode_count": len(active)},
+    }
+
+
+async def _check_orange_health_pincode_serviceability(
+    *,
+    pincode: str,
+) -> dict[str, Any]:
+    req_date = (date.today() + timedelta(days=1)).isoformat()
+    try:
+        resp = await orange_health_client.check_serviceability_by_pincode(
+            pincode=pincode,
+            request_date=req_date,
+        )
+        serviceable = _orange_pincode_serviceable_status(resp)
+        message = resp.get("status") if isinstance(resp.get("status"), str) else None
+        return {
+            "provider": "orange_health",
+            "serviceable": serviceable,
+            "message": message or (
+                "Serviceable pincode region" if serviceable else "Unserviceable pincode region"
+            ),
+            "data": resp,
+        }
+    except OrangeHealthApiError as exc:
+        if exc.status_code == 404:
+            body = exc.body if isinstance(exc.body, dict) else {"status": str(exc)}
+            return {
+                "provider": "orange_health",
+                "serviceable": False,
+                "message": _format_orange_pincode_message(body),
+                "data": body,
+            }
+        logger.exception("Public Orange Health pincode serviceability failed")
+        return {
+            "provider": "orange_health",
+            "serviceable": False,
+            "message": str(exc),
+            "data": exc.body if isinstance(exc.body, dict) else None,
+        }
+    except Exception as exc:
+        logger.exception("Public Orange Health pincode serviceability failed")
+        return {
+            "provider": "orange_health",
+            "serviceable": False,
+            "message": str(exc),
+            "data": None,
+        }
+
+
+def _format_orange_pincode_message(body: dict) -> str:
+    status = body.get("status")
+    if isinstance(status, str) and status.strip():
+        return status.strip()
+    return "Unserviceable pincode region"
+
+
+async def public_check_pincode_serviceability(
+    db: AsyncSession,
+    *,
+    provider: str | None,
+    pincode: str,
+) -> dict[str, Any]:
+    _ = db
+    targets = _provider_targets(provider)
+    providers_out: list[dict[str, Any]] = []
+    for prov in targets:
+        if prov == "healthians":
+            providers_out.append(
+                await _check_healthians_pincode_serviceability(db, pincode=pincode)
+            )
+        elif prov == "orange_health":
+            providers_out.append(
+                await _check_orange_health_pincode_serviceability(pincode=pincode)
+            )
     return {"providers": providers_out}
 
 

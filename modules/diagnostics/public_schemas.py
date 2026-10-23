@@ -24,6 +24,18 @@ def _normalize_provider_key(provider: str | None) -> str | None:
     return key or None
 
 
+class PublicPincodeServiceabilityRequest(BaseModel):
+    provider: str | None = Field(default=None, max_length=50)
+    pincode: PinCode
+
+    @model_validator(mode="after")
+    def validate_provider_when_set(self) -> PublicPincodeServiceabilityRequest:
+        key = _normalize_provider_key(self.provider)
+        if key is not None and key not in _SUPPORTED_SLOT_PROVIDERS:
+            raise ValueError("Unsupported diagnostic provider")
+        return self
+
+
 class PublicServiceabilityRequest(BaseModel):
     provider: str | None = Field(default=None, max_length=50)
     address_line: AddressText

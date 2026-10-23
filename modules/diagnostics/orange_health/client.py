@@ -61,19 +61,47 @@ def _headers() -> dict[str, str]:
     return {"api_key": settings.ORANGE_HEALTH_API_KEY or ""}
 
 
+def _serviceability_not_serviceable_body(data: Any, fallback: str) -> OrangeHealthApiError:
+    if not isinstance(data, dict):
+        data = {"status": str(data)}
+    return OrangeHealthApiError(
+        _format_api_error(data, fallback),
+        status_code=404,
+        body=data,
+    )
+
+
 async def check_serviceability(
     *,
     latitude: float,
     longitude: float,
     request_date: str,
 ) -> dict[str, Any]:
-    """GET /v1/partner/serviceability."""
+    """GET /v1/partner/serviceability (lat/lng)."""
     url = serviceability_api_url()
     params = {
         "latitude": _coord(latitude),
         "longitude": _coord(longitude),
         "request_date": request_date,
     }
+    return await _get_serviceability(url, params)
+
+
+async def check_serviceability_by_pincode(
+    *,
+    pincode: str,
+    request_date: str,
+) -> dict[str, Any]:
+    """GET /v1/partner/serviceability (pincode only)."""
+    url = serviceability_api_url()
+    params = {
+        "pincode": str(pincode).strip(),
+        "request_date": request_date,
+    }
+    return await _get_serviceability(url, params)
+
+
+async def _get_serviceability(url: str, params: dict[str, Any]) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.get(url, params=params, headers=_headers())
     if resp.status_code == 401:
@@ -83,11 +111,7 @@ async def check_serviceability(
             data = resp.json()
         except Exception:
             data = {"status": resp.text}
-        raise OrangeHealthApiError(
-            _format_api_error(data, "Location is not serviceable"),
-            status_code=404,
-            body=data,
-        )
+        raise _serviceability_not_serviceable_body(data, "Location is not serviceable")
     if resp.status_code == 400:
         try:
             data = resp.json()

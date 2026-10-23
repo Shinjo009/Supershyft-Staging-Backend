@@ -17,12 +17,65 @@ _cached_token: str | None = None
 _cached_token_at: float = 0.0
 _TOKEN_TTL_SECONDS = 4 * 60  # Healthians tokens are short-lived; refresh before expiry.
 
+_cached_active_zipcodes: set[str] | None = None
+_cached_active_zipcodes_at: float = 0.0
+_ACTIVE_ZIPCODES_TTL_SECONDS = 6 * 60 * 60
+
 
 def clear_access_token_cache() -> None:
     """Drop the in-process Healthians token cache (e.g. after auth failures)."""
     global _cached_token, _cached_token_at
     _cached_token = None
     _cached_token_at = 0.0
+
+
+def clear_active_zipcodes_cache() -> None:
+    """Drop the in-process active zipcodes cache."""
+    global _cached_active_zipcodes, _cached_active_zipcodes_at
+    _cached_active_zipcodes = None
+    _cached_active_zipcodes_at = 0.0
+
+
+def _parse_active_zipcodes_payload(data: dict) -> set[str]:
+    zips: set[str] = set()
+    for key, value in data.items():
+        if key == "code":
+            continue
+        if not isinstance(value, dict):
+            continue
+        raw = value.get("zipcode")
+        if raw is None:
+            continue
+        text = str(raw).strip()
+        if text:
+            zips.add(text)
+    return zips
+
+
+async def get_active_zipcodes(access_token: str) -> set[str]:
+    """Fetch Healthians active serviceable zipcodes (cached in-process)."""
+    global _cached_active_zipcodes, _cached_active_zipcodes_at
+
+    if _cached_active_zipcodes is not None and (
+        time.monotonic() - _cached_active_zipcodes_at
+    ) < _ACTIVE_ZIPCODES_TTL_SECONDS:
+        return _cached_active_zipcodes
+
+    url = f"{settings.HEALTHIANS_BASE_URL}/getActiveZipcodes"
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.get(
+            url,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    if not isinstance(data, dict):
+        raise RuntimeError(f"Healthians getActiveZipcodes unexpected response: {data!r}")
+
+    zips = _parse_active_zipcodes_payload(data)
+    _cached_active_zipcodes = zips
+    _cached_active_zipcodes_at = time.monotonic()
+    return zips
 
 
 async def get_access_token() -> str:

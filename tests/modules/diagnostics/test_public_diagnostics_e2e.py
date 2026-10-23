@@ -186,3 +186,110 @@ async def test_public_available_slots_orange_without_package(async_client):
     data = response.json()["data"]
     assert data["provider"] == "orange_health"
     assert len(data["slots"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_public_pincode_serviceability_healthians(async_client):
+    with patch(
+        "modules.diagnostics.public_service._get_healthians_token",
+        new_callable=AsyncMock,
+        return_value="token",
+    ), patch(
+        "modules.diagnostics.public_service.healthians_client.get_active_zipcodes",
+        new_callable=AsyncMock,
+        return_value={"110001", "560048"},
+    ):
+        hit = await async_client.post(
+            "/diagnostics/public/pincode-serviceability",
+            json={"provider": "healthians", "pincode": "110001"},
+        )
+        miss = await async_client.post(
+            "/diagnostics/public/pincode-serviceability",
+            json={"provider": "healthians", "pincode": "999999"},
+        )
+
+    assert hit.status_code == 200
+    hi_hit = hit.json()["data"]["providers"][0]
+    assert hi_hit["provider"] == "healthians"
+    assert hi_hit["serviceable"] is True
+
+    assert miss.status_code == 200
+    hi_miss = miss.json()["data"]["providers"][0]
+    assert hi_miss["serviceable"] is False
+
+
+@pytest.mark.asyncio
+async def test_public_pincode_serviceability_orange(async_client):
+    with patch(
+        "modules.diagnostics.public_service.orange_health_client.check_serviceability_by_pincode",
+        new_callable=AsyncMock,
+        return_value={"status": "Serviceable Pincode Region"},
+    ) as mock_ok:
+        ok_resp = await async_client.post(
+            "/diagnostics/public/pincode-serviceability",
+            json={"provider": "orange_health", "pincode": "560048"},
+        )
+    assert ok_resp.status_code == 200
+    oh_ok = ok_resp.json()["data"]["providers"][0]
+    assert oh_ok["provider"] == "orange_health"
+    assert oh_ok["serviceable"] is True
+    mock_ok.assert_awaited_once()
+
+    from modules.diagnostics.orange_health.client import OrangeHealthApiError
+
+    with patch(
+        "modules.diagnostics.public_service.orange_health_client.check_serviceability_by_pincode",
+        new_callable=AsyncMock,
+        side_effect=OrangeHealthApiError(
+            "Unserviceable Pincode Region",
+            status_code=404,
+            body={"status": "Unserviceable Pincode Region"},
+        ),
+    ):
+        fail_resp = await async_client.post(
+            "/diagnostics/public/pincode-serviceability",
+            json={"provider": "orange_health", "pincode": "000000"},
+        )
+    assert fail_resp.status_code == 200
+    oh_fail = fail_resp.json()["data"]["providers"][0]
+    assert oh_fail["serviceable"] is False
+
+
+@pytest.mark.asyncio
+async def test_public_pincode_serviceability_all_providers(async_client):
+    with patch(
+        "modules.diagnostics.public_service._get_healthians_token",
+        new_callable=AsyncMock,
+        return_value="token",
+    ), patch(
+        "modules.diagnostics.public_service.healthians_client.get_active_zipcodes",
+        new_callable=AsyncMock,
+        return_value={"110001"},
+    ), patch(
+        "modules.diagnostics.public_service.orange_health_client.check_serviceability_by_pincode",
+        new_callable=AsyncMock,
+        return_value={"status": "Serviceable Pincode Region"},
+    ):
+        response = await async_client.post(
+            "/diagnostics/public/pincode-serviceability",
+            json={"pincode": "110001"},
+        )
+
+    assert response.status_code == 200
+    providers = response.json()["data"]["providers"]
+    assert len(providers) == 2
+    assert {p["provider"] for p in providers} == {"healthians", "orange_health"}
+
+
+@pytest.mark.asyncio
+async def test_geocode_public_search_no_auth(async_client):
+    with patch(
+        "modules.geocoding.router.search_places_with_fallback",
+        new_callable=AsyncMock,
+        return_value=([{"display_name": "Delhi", "city": "Delhi"}], {"geocoding_provider": "google"}),
+    ):
+        response = await async_client.get("/geocode/public/search", params={"q": "Delhi"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"][0]["display_name"] == "Delhi"
