@@ -35,6 +35,21 @@ class PrepareReportsRequest(BaseModel):
     require_bio_ai_report_url: bool = False
 
 
+def _drop_empty_participant_detail_strings(value: Any) -> Any:
+    """Remove blank strings so optional UI fields (e.g. engagement) do not fail SafeText validation."""
+    if isinstance(value, dict):
+        cleaned: dict[Any, Any] = {}
+        for key, item in value.items():
+            pruned = _drop_empty_participant_detail_strings(item)
+            if isinstance(pruned, str) and not pruned.strip():
+                continue
+            cleaned[key] = pruned
+        return cleaned
+    if isinstance(value, list):
+        return [_drop_empty_participant_detail_strings(item) for item in value]
+    return value
+
+
 class DispatchRequest(BaseModel):
     service_key: ServiceKey
     user_ids: list[PositiveIntId] = Field(..., min_length=1)
@@ -49,7 +64,11 @@ class DispatchRequest(BaseModel):
     @model_validator(mode="after")
     def sanitize_participant_details(self) -> "DispatchRequest":
         if self.participant_details is not None:
-            validate_nested_strings(self.participant_details)
+            pruned = _drop_empty_participant_detail_strings(self.participant_details)
+            if isinstance(pruned, dict):
+                self.participant_details = pruned or None
+            if self.participant_details:
+                validate_nested_strings(self.participant_details)
         return self
 
     @field_validator("external_link")

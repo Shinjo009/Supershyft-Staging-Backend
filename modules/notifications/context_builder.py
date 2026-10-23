@@ -38,6 +38,11 @@ def service_needs_participant_detail(service: NotificationService) -> bool:
     )
 
 
+def service_requires_participant_details_payload(service: NotificationService) -> bool:
+    """True when dispatch must include a non-empty participant_details object."""
+    return _template_needs_key(service, "participant_details")
+
+
 def service_needs_session_details(service: NotificationService) -> bool:
     return _template_needs_key(service, "session_details")
 

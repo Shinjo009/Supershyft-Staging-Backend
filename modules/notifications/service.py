@@ -26,6 +26,7 @@ from modules.notifications.context_builder import (
     service_needs_external_link,
     service_needs_otp,
     service_needs_participant_detail,
+    service_requires_participant_details_payload,
     service_needs_session_details,
 )
 from modules.notifications.direct_dispatch import execute_direct_dispatch
@@ -201,7 +202,7 @@ class NotificationsService:
                 message=f"Users not found: {missing_ids}",
             )
 
-        if service_needs_participant_detail(svc) and not payload.participant_details:
+        if service_requires_participant_details_payload(svc) and not payload.participant_details:
             raise AppError(
                 status_code=400,
                 error_code="INVALID_INPUT",
@@ -493,7 +494,7 @@ class NotificationsService:
                 error_code="INVALID_INPUT",
                 message="This service requires otp but none was provided",
             )
-        if service_needs_participant_detail(svc) and not participant_details:
+        if service_requires_participant_details_payload(svc) and not participant_details:
             raise AppError(
                 status_code=400,
                 error_code="INVALID_INPUT",
