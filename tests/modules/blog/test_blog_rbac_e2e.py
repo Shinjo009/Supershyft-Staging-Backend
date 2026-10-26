@@ -1,4 +1,4 @@
-"""E2E RBAC for the blog dashboard (current model: author partner + full admin only)."""
+"""E2E RBAC for the blog dashboard (author partners, full admins, and granted employees)."""
 
 from __future__ import annotations
 
@@ -136,7 +136,7 @@ async def test_inferior_admin_with_partners_edit_can_create_author_but_not_use_b
         json=_paragraph_post(1, title="Should fail"),
     )
     assert blog_write.status_code == 403
-    assert blog_write.json()["error_code"] == "FORBIDDEN"
+    assert blog_write.json()["error_code"] == "PERMISSION_DENIED"
 
 
 @pytest.mark.asyncio
@@ -266,6 +266,107 @@ async def test_blog_rbac_access_matrix(async_client, test_db_session):
     assert admin_update.status_code == 200
 
     deleted = await async_client.delete(f"/blog/posts/{draft_id}", headers=author_headers)
+    assert deleted.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_inferior_admin_with_blog_view_can_read_not_write(async_client, test_db_session):
+    await seed_inferior_admin(
+        test_db_session,
+        employee_id=8240,
+        role=EmployeeRole.inferior_admin,
+        grants={"blog": (True, False)},
+    )
+    await seed_employee(test_db_session, employee_id=8241, role="admin")
+    author = await seed_partner(
+        test_db_session,
+        partner_id=8242,
+        role="author",
+        phone="8242000001",
+        name="Seed Author",
+    )
+    test_db_session.add(Author(partner_id=author.partner_id))
+    await test_db_session.commit()
+
+    author_headers = partner_auth_header(author.partner_id)
+    category_id = await _create_category(async_client, author_headers, name="ViewOnly")
+    draft = await async_client.post(
+        "/blog/posts",
+        headers=author_headers,
+        json=_paragraph_post(category_id, title="View grant draft", status="draft"),
+    )
+    assert draft.status_code == 201, draft.text
+    draft_id = draft.json()["data"]["id"]
+
+    view_headers = employee_auth_header(8240)
+    listed = await async_client.get("/blog/posts", headers=view_headers)
+    assert listed.status_code == 200
+    assert "View grant draft" in {row["title"] for row in listed.json()["data"]["posts"]}
+
+    categories = await async_client.get("/blog/categories", headers=view_headers)
+    assert categories.status_code == 200
+
+    blocked = await async_client.post(
+        "/blog/posts",
+        headers=view_headers,
+        json=_paragraph_post(category_id, title="Should fail"),
+    )
+    assert blocked.status_code == 403
+    assert blocked.json()["error_code"] == "PERMISSION_DENIED"
+
+    blocked_update = await async_client.put(
+        f"/blog/posts/{draft_id}",
+        headers=view_headers,
+        json=_paragraph_post(category_id, title="Nope", status="draft"),
+    )
+    assert blocked_update.status_code == 403
+    assert blocked_update.json()["error_code"] == "PERMISSION_DENIED"
+
+
+@pytest.mark.asyncio
+async def test_inferior_admin_with_blog_edit_can_manage_any_post(async_client, test_db_session):
+    await seed_inferior_admin(
+        test_db_session,
+        employee_id=8250,
+        role=EmployeeRole.inferior_admin,
+        grants={"blog": (True, True)},
+    )
+    author = await seed_partner(
+        test_db_session,
+        partner_id=8251,
+        role="author",
+        phone="8251000001",
+        name="Other Author",
+    )
+    test_db_session.add(Author(partner_id=author.partner_id))
+    await test_db_session.commit()
+
+    author_headers = partner_auth_header(author.partner_id)
+    category_id = await _create_category(async_client, author_headers, name="EditGrant")
+    seed_post = await async_client.post(
+        "/blog/posts",
+        headers=author_headers,
+        json=_paragraph_post(category_id, title="Authors post", status="draft"),
+    )
+    assert seed_post.status_code == 201, seed_post.text
+    post_id = seed_post.json()["data"]["id"]
+
+    employee_headers = employee_auth_header(8250)
+    created = await async_client.post(
+        "/blog/posts",
+        headers=employee_headers,
+        json=_paragraph_post(category_id, title="Employee post", status="draft"),
+    )
+    assert created.status_code == 201, created.text
+
+    updated = await async_client.put(
+        f"/blog/posts/{post_id}",
+        headers=employee_headers,
+        json=_paragraph_post(category_id, title="Employee edited author", status="draft"),
+    )
+    assert updated.status_code == 200
+
+    deleted = await async_client.delete(f"/blog/posts/{post_id}", headers=employee_headers)
     assert deleted.status_code == 200
 
 

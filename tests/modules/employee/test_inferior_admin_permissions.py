@@ -26,7 +26,7 @@ def _headers(employee_id: int) -> dict[str, str]:
     return employee_auth_header(employee_id)
 
 
-def test_catalog_contract_has_exact_seventeen_categories():
+def test_catalog_contract_has_exact_eighteen_categories():
     assert PERMISSION_CATEGORY_KEYS == {
         "users",
         "organizations",
@@ -43,6 +43,7 @@ def test_catalog_contract_has_exact_seventeen_categories():
         "support",
         "employees",
         "partners",
+        "blog",
         "platform_settings",
         "system_monitoring",
     }
@@ -141,7 +142,7 @@ def test_every_category_has_configurable_tasks():
         ("POST", "/discounts/validate"),
         ("POST", "/discounts/auto-apply"),
         ("GET", "/blog/posts"),
-        ("POST", "/blog/posts"),
+        ("GET", "/blog/posts/{post_id}"),
     ],
 )
 def test_operation_manifest_explicit_exclusions(method, path):

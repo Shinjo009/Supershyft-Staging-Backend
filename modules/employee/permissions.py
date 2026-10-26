@@ -44,6 +44,7 @@ CATEGORY_LABELS: Mapping[str, str] = MappingProxyType(
         "support": "Support",
         "employees": "Employees",
         "partners": "Partners",
+        "blog": "Blogs",
         "platform_settings": "Platform Settings",
         "system_monitoring": "System Monitoring",
     }
@@ -155,6 +156,11 @@ TASK_CATALOG: Mapping[str, tuple[tuple[str, str, str], ...]] = MappingProxyType(
             ("records", "Partner records", "Create and update partner details"),
             ("status", "Partner status", "Activate or deactivate partners"),
         ),
+        "blog": (
+            ("posts", "Blog posts", "Create, update, and manage blog posts"),
+            ("categories", "Blog categories", "Manage blog categories"),
+            ("uploads", "Blog uploads", "Upload blog images and media"),
+        ),
         "platform_settings": (
             ("settings", "Platform settings", "Manage platform-wide settings"),
             ("engagement_types", "Engagement types", "Manage engagement type definitions"),
@@ -227,6 +233,48 @@ def grant_allows(grant: PermissionGrant | None, action: PermissionAction) -> boo
     return bool(grant.can_view or grant.can_edit)
 
 
+async def inferior_admin_task_allowed(
+    db: AsyncSession,
+    employee_id: int,
+    category: str,
+    task_key: str,
+    action: PermissionAction,
+) -> bool:
+    """Check category and optional task grants for an inferior admin (mirrors request middleware)."""
+
+    grant_result = await db.execute(
+        select(EmployeeCategoryPermission).where(
+            EmployeeCategoryPermission.employee_id == employee_id,
+            EmployeeCategoryPermission.category_key == category,
+        )
+    )
+    row = grant_result.scalar_one_or_none()
+    grant = (
+        PermissionGrant(can_view=bool(row.can_view), can_edit=bool(row.can_edit))
+        if row is not None
+        else None
+    )
+    if not grant_allows(grant, action):
+        return False
+
+    task_result = await db.execute(
+        select(EmployeeTaskPermission).where(
+            EmployeeTaskPermission.employee_id == employee_id,
+            EmployeeTaskPermission.category_key == category,
+        )
+    )
+    task_rows = list(task_result.scalars().all())
+    if not task_rows:
+        return True
+    task_row = next((item for item in task_rows if item.task_key == task_key), None)
+    task_grant = (
+        PermissionGrant(can_view=bool(task_row.can_view), can_edit=bool(task_row.can_edit))
+        if task_row is not None
+        else None
+    )
+    return grant_allows(task_grant, action)
+
+
 def context_task_allows(
     employee,
     category: str,
@@ -271,7 +319,9 @@ def _excluded(path: str, method: str) -> bool:
         return True
     if path.startswith("/admin/dashboard"):
         return True
-    if path.startswith(("/auth", "/webhooks", "/media", "/pdf-upload", "/payment-test", "/blog")):
+    if path.startswith(("/auth", "/webhooks", "/media", "/pdf-upload", "/payment-test")):
+        return True
+    if path in {"/blog/posts", "/blog/posts/{post_id}"} and method == "GET":
         return True
     if path.startswith("/experts/portal"):
         return True
@@ -506,6 +556,12 @@ def _task_for_operation(category: str, path: str, method: str) -> str:
         if path.endswith("/status"):
             return "status"
         return "directory" if method == "GET" else "records"
+    if category == "blog":
+        if "upload" in path:
+            return "uploads"
+        if "categor" in path:
+            return "categories"
+        return "posts"
     if category == "platform_settings":
         if path.startswith("/engagement-types"):
             return "engagement_types"
@@ -600,6 +656,8 @@ def classify_operation(route_template: str, method: str) -> RouteCapability | No
         category = "payments_bookings"
     elif path.startswith("/discounts"):
         category = "discounts"
+    elif path.startswith("/blog"):
+        category = "blog"
     elif path.startswith("/integrations"):
         category = "diagnostics"
     elif path.startswith(("/notifications", "/notification-events")):
