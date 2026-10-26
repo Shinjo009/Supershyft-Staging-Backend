@@ -2776,6 +2776,43 @@ async def test_get_engagement_by_code_includes_consultation_mode(async_client, t
 
 
 @pytest.mark.asyncio
+async def test_get_engagement_by_code_includes_payment_type_and_auto_booking(async_client, test_db_session):
+    await _seed_employee(test_db_session, employee_id=422)
+    await _seed_organization(test_db_session, organization_id=9203, name="Payment Public Org")
+    await _seed_assessment_package(test_db_session, package_id=9203, package_code="PKG9203")
+    await _seed_diagnostic_package(test_db_session, diagnostic_package_id=9203)
+    type_id = await _engagement_type_id(test_db_session, "bio_ai")
+
+    create = await async_client.post(
+        "/engagements",
+        headers=_auth_header(422),
+        json={
+            "engagement_name": "Payment Public Camp",
+            "organization_id": 9203,
+            "engagement_type": type_id,
+            "assessment_package_id": 9203,
+            "diagnostic_package_id": 9203,
+            "city": "BLR",
+            "slot_duration": 30,
+            "start_date": "2026-08-20",
+            "end_date": "2026-08-21",
+            "engagement_code": "PAYPUB1",
+            "consultations": {"doctor": True},
+            "consultation_mode": "offline",
+            "payment_type": "paid_by_patient",
+            "auto_booking": True,
+        },
+    )
+    assert create.status_code == 201, create.text
+
+    public = await async_client.get("/engagements/code/PAYPUB1")
+    assert public.status_code == 200, public.text
+    data = public.json()["data"]
+    assert data["payment_type"] == "paid_by_patient"
+    assert data["auto_booking"] is True
+
+
+@pytest.mark.asyncio
 async def test_create_engagement_online_strips_consultation_slot_detail(async_client, test_db_session):
     await _seed_employee(test_db_session, employee_id=421)
     await _seed_organization(test_db_session, organization_id=9202, name="Online Mode Org")
