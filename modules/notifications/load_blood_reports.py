@@ -63,7 +63,7 @@ from modules.notifications.service import NotificationsService
 from modules.reports.blood_parameters_normalizer import build_grouped_from_healthians
 from modules.reports.blood_report_archival import (
     diagnostic_report_url_to_persist,
-    is_archived_blood_report_url,
+    is_persistable_blood_report_url,
     resolve_persistable_diagnostic_report_url,
 )
 from modules.reports.blood_report_resolver import _match_customer_by_name
@@ -114,10 +114,10 @@ def _metsights_report_url(*, record_id: str, assessment_type_code: str) -> str:
 
 
 def _blood_report_data_complete(blood_parameters: Any, diagnostic_report_url: Any) -> bool:
-    """True when blood values exist and the PDF URL is a permanent archived link."""
+    """True when blood values exist and the PDF URL is a usable stored link."""
     return (
         has_usable_provider_blood_parameters(blood_parameters)
-        and is_archived_blood_report_url(
+        and is_persistable_blood_report_url(
             str(diagnostic_report_url).strip() if diagnostic_report_url is not None else None
         )
     )
@@ -1019,7 +1019,7 @@ async def load_blood_reports(
                 # archived link is missing (or still a transient Healthians/S3 URL),
                 # re-enter the load path so archival can retry even when verified_at
                 # matches.
-                has_archived_pdf = is_archived_blood_report_url(
+                has_archived_pdf = is_persistable_blood_report_url(
                     str(diag_url).strip() if diag_url is not None else None
                 )
                 skip_digital_reload = (

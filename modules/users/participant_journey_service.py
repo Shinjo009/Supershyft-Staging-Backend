@@ -19,7 +19,7 @@ from modules.payments.models import Booking, Payment
 from modules.questionnaire.models import QuestionnaireResponse
 from modules.questionnaire.repository import QuestionnaireRepository
 from modules.questionnaire.service import QuestionnaireService
-from modules.reports.blood_report_archival import is_archived_blood_report_url
+from modules.reports.blood_report_archival import is_persistable_blood_report_url
 from modules.support.models import SupportTicket
 from modules.users.repository import UsersRepository
 
@@ -183,7 +183,7 @@ class ParticipantJourneyService:
             )
             has_blood = bool(
                 blood_root
-                and is_archived_blood_report_url((blood_root.diagnostic_report_url or "").strip())
+                and is_persistable_blood_report_url((blood_root.diagnostic_report_url or "").strip())
             )
             type_code = (getattr(package, "assessment_type_code", None) or "").strip()
             has_report_url = bool((ihr.report_url or "").strip()) if ihr else False
@@ -455,7 +455,7 @@ class ParticipantJourneyService:
                 blood_url = (
                     (blood_root.diagnostic_report_url or "").strip() if blood_root else ""
                 )
-                if blood_url and is_archived_blood_report_url(blood_url):
+                if blood_url and is_persistable_blood_report_url(blood_url):
                     reports.append(
                         {
                             "report_type": "blood",
@@ -540,7 +540,7 @@ class ParticipantJourneyService:
         }
         for bb in blood_bookings:
             url = (bb.get("diagnostic_report_url") or "").strip()
-            if not url or not is_archived_blood_report_url(url):
+            if not url or not is_persistable_blood_report_url(url):
                 continue
             key = (bb.get("engagement_id"), url)
             if key in seen_blood_urls:

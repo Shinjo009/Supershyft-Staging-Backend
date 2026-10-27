@@ -37,6 +37,21 @@ def is_archived_blood_report_url(url: str | None) -> bool:
     return bool(_FILENAME_PATTERN.match(filename))
 
 
+def is_persistable_blood_report_url(url: str | None) -> bool:
+    """Return True when ``url`` is a usable stored blood report link for the current mode."""
+    if is_archived_blood_report_url(url):
+        return True
+    if not settings.DEBUG:
+        return False
+    if not url or not isinstance(url, str):
+        return False
+    stripped = url.strip()
+    if not stripped:
+        return False
+    lower = stripped.lower()
+    return lower.startswith("http://") or lower.startswith("https://")
+
+
 def generate_blood_report_filename() -> str:
     """Return a random 16-character alphanumeric filename (without extension)."""
     return "".join(secrets.choice(_FILENAME_ALPHABET) for _ in range(_FILENAME_LENGTH))
@@ -51,6 +66,13 @@ async def archive_blood_report_pdf(
     source = (source_url or "").strip()
     if not source:
         raise ValueError("source_url is required")
+
+    if settings.DEBUG:
+        logger.info(
+            "DEBUG: skipping blood report PDF download for assessment_instance_id=%s",
+            assessment_instance_id,
+        )
+        return source
 
     max_bytes = settings.BLOOD_REPORTS_MAX_MB * 1024 * 1024
     timeout = float(settings.BLOOD_REPORTS_TIMEOUT_SECONDS)
@@ -114,27 +136,30 @@ async def resolve_persistable_diagnostic_report_url(
     existing_url: str | None,
     assessment_instance_id: int,
 ) -> str | None:
-    """Return the URL to store in ``individual_health_report.diagnostic_report_url``.
+    """Return the URL to store in ``participant_blood_bookings.diagnostic_report_url``.
 
     Partial Healthians reports must never be persisted (their signed S3 links expire).
-    Only a successful archive to ``BLOOD_REPORTS_BASE_URL`` (or an already-archived
-    existing URL) is stored. Callers should write the returned value even when it is
-    ``None`` so leftover S3 URLs are cleared.
+    Production: only a successful archive to ``BLOOD_REPORTS_BASE_URL`` (or an already-
+    archived existing URL) is stored. DEBUG: full reports store the Healthians source URL
+    without downloading. Callers should write the returned value even when it is ``None``
+    so leftover transient URLs are cleared.
     """
     healthians = (healthians_url or "").strip()
     existing = (existing_url or "").strip()
 
     if not is_full_report:
-        # Keep an already-archived supershyft URL; otherwise leave/clear to null.
-        if existing and is_archived_blood_report_url(existing):
+        if existing and is_persistable_blood_report_url(existing):
             return existing
         return None
 
-    if existing and is_archived_blood_report_url(existing):
+    if existing and is_persistable_blood_report_url(existing):
         return existing
 
     if not healthians:
         return None
+
+    if settings.DEBUG:
+        return healthians
 
     try:
         return await archive_blood_report_pdf(
@@ -156,16 +181,18 @@ def diagnostic_report_url_to_persist(
     persistable_url: str | None,
     existing_url: str | None,
 ) -> str | None:
-    """Canonical ``diagnostic_report_url`` value to write (never a Healthians/S3 link)."""
+    """Canonical ``diagnostic_report_url`` value to write.
+
+    Production never stores Healthians/S3 links. DEBUG may store the source URL for full
+    reports when ``persistable_url`` is that link.
+    """
     existing = (existing_url or "").strip() or None
     persistable = (persistable_url or "").strip() or None
 
-    if persistable and is_archived_blood_report_url(persistable):
+    if persistable and is_persistable_blood_report_url(persistable):
         return persistable
 
-    if existing and is_archived_blood_report_url(existing):
-        # Full-report archival failed: keep prior archive. Partial: keep archive.
+    if existing and is_persistable_blood_report_url(existing):
         return existing
 
-    # Never persist Healthians/S3 (or any non-archived) URLs.
     return None

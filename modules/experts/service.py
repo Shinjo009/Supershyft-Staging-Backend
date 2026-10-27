@@ -2867,7 +2867,7 @@ class ExpertAvailabilityService:
         consent = normalize_consent(booking.consent)
 
         from modules.reports.blood_booking_reports import get_current_report_root
-        from modules.reports.blood_report_archival import is_archived_blood_report_url
+        from modules.reports.blood_report_archival import is_persistable_blood_report_url
         from modules.reports.models import IndividualHealthReport
 
         result = await db.execute(
@@ -2885,7 +2885,7 @@ class ExpertAvailabilityService:
         )
         has_blood_report = bool(
             blood_root
-            and is_archived_blood_report_url((blood_root.diagnostic_report_url or "").strip())
+            and is_persistable_blood_report_url((blood_root.diagnostic_report_url or "").strip())
         )
 
         from modules.assessments.repository import AssessmentsRepository
@@ -3037,7 +3037,7 @@ class ExpertAvailabilityService:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Unknown report kind")
 
         from modules.reports.blood_booking_reports import get_current_report_root
-        from modules.reports.blood_report_archival import is_archived_blood_report_url
+        from modules.reports.blood_report_archival import is_persistable_blood_report_url
         from modules.reports.models import IndividualHealthReport
 
         url = None
@@ -3061,7 +3061,7 @@ class ExpertAvailabilityService:
             )
             candidate = blood_root.diagnostic_report_url if blood_root else None
             if isinstance(candidate, str) and candidate.strip():
-                if is_archived_blood_report_url(candidate.strip()):
+                if is_persistable_blood_report_url(candidate.strip()):
                     url = candidate.strip()
         if not url:
             raise AppError(

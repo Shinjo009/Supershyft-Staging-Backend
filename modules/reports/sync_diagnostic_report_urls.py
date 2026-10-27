@@ -26,7 +26,7 @@ from modules.engagements.models import Engagement, EngagementParticipant, Partic
 from modules.reports.blood_booking_reports import get_current_report_root, get_participant_for_user_engagement
 from modules.reports.blood_report_archival import (
     diagnostic_report_url_to_persist,
-    is_archived_blood_report_url,
+    is_persistable_blood_report_url,
     resolve_persistable_diagnostic_report_url,
 )
 from modules.reports.healthians_report_fields import (
@@ -228,13 +228,13 @@ async def sync_diagnostic_report_urls(
             )
 
             existing_url = (diag_url or "").strip()
-            if not force and existing_url and is_archived_blood_report_url(existing_url):
+            if not force and existing_url and is_persistable_blood_report_url(existing_url):
                 skipped += 1
                 details.append({
                     "user_id": user_id,
                     "engagement_id": row_engagement_id,
                     "action": "skipped",
-                    "reason": "diagnostic_report_url already archived",
+                    "reason": "diagnostic_report_url already stored",
                 })
                 continue
 
@@ -349,7 +349,9 @@ async def sync_diagnostic_report_urls(
                 existing_url=diag_url,
                 assessment_instance_id=storage_instance_id,
             )
-            if is_full_report and persistable_url is None and not is_archived_blood_report_url(diag_url):
+            if is_full_report and persistable_url is None and not is_persistable_blood_report_url(
+                diag_url
+            ):
                 details.append({
                     "user_id": user_id,
                     "engagement_id": row_engagement_id,

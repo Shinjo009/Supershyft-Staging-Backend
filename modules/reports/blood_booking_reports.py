@@ -12,7 +12,7 @@ from modules.engagements.blood_bookings_repository import BloodBookingsRepositor
 from modules.engagements.models import EngagementParticipant, ParticipantBloodBooking
 from core.exceptions import AppError
 from modules.reports.blood_parameters_schemas import has_usable_provider_blood_parameters
-from modules.reports.blood_report_archival import is_archived_blood_report_url
+from modules.reports.blood_report_archival import is_persistable_blood_report_url
 
 
 async def get_participant_for_user_engagement(
@@ -66,7 +66,7 @@ async def has_archived_diagnostic_blood_report(
     if root is None:
         return False
     url = (root.diagnostic_report_url or "").strip()
-    return is_archived_blood_report_url(url)
+    return is_persistable_blood_report_url(url)
 
 
 async def require_archived_diagnostic_blood_report(
@@ -111,7 +111,7 @@ async def list_archived_diagnostic_urls(
     for group in groups:
         root = await repo.get_report_root(db, collection_row=group)
         url = (root.diagnostic_report_url or "").strip()
-        if not url or not is_archived_blood_report_url(url):
+        if not url or not is_persistable_blood_report_url(url):
             continue
         if url in seen:
             continue

@@ -21,7 +21,7 @@ from modules.metsights.service import MetsightsService
 from modules.reports.blood_booking_reports import get_current_report_root, get_participant_for_user_engagement
 from modules.reports.blood_report_archival import (
     diagnostic_report_url_to_persist,
-    is_archived_blood_report_url,
+    is_persistable_blood_report_url,
     resolve_persistable_diagnostic_report_url,
 )
 from modules.reports.healthians_booking_resolver import (
@@ -204,7 +204,7 @@ async def resolve_blood_report_url(
     )
     if blood_root is not None:
         cached = (blood_root.diagnostic_report_url or "").strip()
-        if cached and is_archived_blood_report_url(cached):
+        if cached and is_persistable_blood_report_url(cached):
             return cached
 
     storage_assessment_id = await repo.resolve_blood_storage_assessment_instance_id(
@@ -270,10 +270,10 @@ async def resolve_blood_report_url(
     existing_diag = None
     if blood_root is not None:
         cached_existing = (blood_root.diagnostic_report_url or "").strip()
-        if cached_existing and is_archived_blood_report_url(cached_existing):
+        if cached_existing and is_persistable_blood_report_url(cached_existing):
             existing_diag = cached_existing
 
-    if report_url and is_archived_blood_report_url(report_url.strip()):
+    if report_url and is_persistable_blood_report_url(report_url.strip()):
         source_for_resolve = report_url.strip()
         existing_for_resolve = report_url.strip()
         is_full_for_resolve = True

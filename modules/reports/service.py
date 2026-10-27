@@ -48,7 +48,7 @@ from modules.reports.blood_parameters_questionnaire_reader import BloodParameter
 from modules.reports.blood_parameters_schemas import has_usable_provider_blood_parameters
 from modules.reports.blood_report_archival import (
     diagnostic_report_url_to_persist,
-    is_archived_blood_report_url,
+    is_persistable_blood_report_url,
     resolve_persistable_diagnostic_report_url,
 )
 from modules.reports.healthians_booking_resolver import (
@@ -691,7 +691,7 @@ class ReportsService:
         )
         cached = (blood_root.diagnostic_report_url if blood_root is not None else None) or ""
         # Only serve permanently archived supershyft URLs from cache — never Healthians/S3.
-        if cached.strip() and is_archived_blood_report_url(cached):
+        if cached.strip() and is_persistable_blood_report_url(cached):
             await self._require_audit_service().log_event(
                 db,
                 action="USER_FETCH_DIAGNOSTIC_PDF_REPORT",
@@ -788,8 +788,8 @@ class ReportsService:
             full_report = True
 
         is_full = bool(full_report) if full_report is not None else False
-        existing_diag = cached.strip() if is_archived_blood_report_url(cached.strip() or None) else None
-        if report_url and is_archived_blood_report_url(report_url.strip()):
+        existing_diag = cached.strip() if is_persistable_blood_report_url(cached.strip() or None) else None
+        if report_url and is_persistable_blood_report_url(report_url.strip()):
             source_for_resolve = report_url.strip()
             existing_for_resolve = report_url.strip()
             is_full_for_resolve = True

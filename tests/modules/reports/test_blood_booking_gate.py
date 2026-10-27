@@ -71,3 +71,30 @@ async def test_has_archived_diagnostic_blood_report_true_with_pdf(test_db_sessio
         user_id=991003,
         engagement_id=991003,
     )
+
+
+@pytest.mark.asyncio
+async def test_has_archived_diagnostic_blood_report_true_with_healthians_url_when_debug(
+    test_db_session, monkeypatch
+):
+    healthians_url = "https://s3.amazonaws.com/healthians/signed/report.pdf"
+    monkeypatch.setattr(settings, "DEBUG", True)
+    await _seed_bioai_participant(
+        test_db_session,
+        user_id=991004,
+        engagement_id=991004,
+        assessment_id=991004,
+        bioai_notification=None,
+        seed_archived_blood=False,
+    )
+    await seed_archived_diagnostic_blood_report(
+        test_db_session,
+        user_id=991004,
+        engagement_id=991004,
+        diagnostic_report_url=healthians_url,
+    )
+    assert await has_archived_diagnostic_blood_report(
+        test_db_session,
+        user_id=991004,
+        engagement_id=991004,
+    )

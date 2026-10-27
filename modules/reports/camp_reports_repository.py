@@ -46,7 +46,7 @@ from modules.reports.camp_report_section_builders import (
 )
 from modules.notifications.expire_stale import DEFAULT_PENDING_TIMEOUT_HOURS
 from modules.notifications.models import Notification
-from modules.reports.blood_report_archival import is_archived_blood_report_url
+from modules.reports.blood_report_archival import is_persistable_blood_report_url
 from modules.reports.models import CampReport, IndividualHealthReport
 from modules.users.models import User
 
@@ -1074,7 +1074,7 @@ class CampReportsRepository:
                 "has_assessment": assessment_instance_id is not None,
                 "has_blood_parameters": blood_parameters is not None,
                 "has_diagnostic_report_url": bool(
-                    is_archived_blood_report_url(
+                    is_persistable_blood_report_url(
                         str(diagnostic_report_url).strip() if diagnostic_report_url else ""
                     )
                 ),
@@ -2617,7 +2617,7 @@ class CampReportsRepository:
             key = (int(user_id), int(engagement_id))
             if key not in enrollment_keys:
                 continue
-            if diagnostic_url and is_archived_blood_report_url(str(diagnostic_url).strip()):
+            if diagnostic_url and is_persistable_blood_report_url(str(diagnostic_url).strip()):
                 blood_generated.add(key)
         for user_id, engagement_id, reports in ihr_result.all():
             key = (int(user_id), int(engagement_id))

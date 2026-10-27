@@ -10,8 +10,10 @@ import pytest
 from core.config import settings
 from modules.reports.blood_report_archival import (
     archive_blood_report_pdf,
+    diagnostic_report_url_to_persist,
     generate_blood_report_filename,
     is_archived_blood_report_url,
+    is_persistable_blood_report_url,
     resolve_persistable_diagnostic_report_url,
 )
 
@@ -44,8 +46,18 @@ def test_is_archived_blood_report_url():
     assert is_archived_blood_report_url("https://supershyft.com/reports/short.pdf") is False
 
 
+def test_is_persistable_blood_report_url_respects_debug(monkeypatch):
+    monkeypatch.setattr(settings, "DEBUG", False)
+    assert is_persistable_blood_report_url(_ARCHIVED_URL) is True
+    assert is_persistable_blood_report_url(_HEALTHIANS_URL) is False
+    monkeypatch.setattr(settings, "DEBUG", True)
+    assert is_persistable_blood_report_url(_HEALTHIANS_URL) is True
+    assert is_persistable_blood_report_url("not-a-url") is False
+
+
 @pytest.mark.asyncio
 async def test_archive_blood_report_pdf_success(blood_reports_paths, monkeypatch):
+    monkeypatch.setattr(settings, "DEBUG", False)
     async def _handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=_MIN_PDF)
 
@@ -67,7 +79,22 @@ async def test_archive_blood_report_pdf_success(blood_reports_paths, monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_archive_blood_report_pdf_debug_skips_download(blood_reports_paths, monkeypatch):
+    monkeypatch.setattr(settings, "DEBUG", True)
+
+    async def _should_not_run(*args, **kwargs):
+        raise AssertionError("httpx should not be called when DEBUG=True")
+
+    monkeypatch.setattr("modules.reports.blood_report_archival.httpx.AsyncClient", _should_not_run)
+
+    url = await archive_blood_report_pdf(_HEALTHIANS_URL, assessment_instance_id=1)
+    assert url == _HEALTHIANS_URL
+    assert not list(blood_reports_paths.iterdir())
+
+
+@pytest.mark.asyncio
 async def test_archive_blood_report_pdf_rejects_non_pdf(blood_reports_paths, monkeypatch):
+    monkeypatch.setattr(settings, "DEBUG", False)
     async def _handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=b"not-a-pdf")
 
@@ -129,7 +156,39 @@ async def test_diagnostic_report_url_to_persist_clears_s3_on_partial():
 
 
 @pytest.mark.asyncio
+async def test_resolve_persistable_diagnostic_report_url_full_debug_stores_healthians(
+    blood_reports_paths, monkeypatch
+):
+    monkeypatch.setattr(settings, "DEBUG", True)
+
+    async def _should_not_run(*args, **kwargs):
+        raise AssertionError("archive should not run when DEBUG=True")
+
+    monkeypatch.setattr(
+        "modules.reports.blood_report_archival.archive_blood_report_pdf",
+        _should_not_run,
+    )
+
+    url = await resolve_persistable_diagnostic_report_url(
+        _HEALTHIANS_URL,
+        is_full_report=True,
+        existing_url=None,
+        assessment_instance_id=99,
+    )
+    assert url == _HEALTHIANS_URL
+    assert (
+        diagnostic_report_url_to_persist(
+            is_full_report=True,
+            persistable_url=url,
+            existing_url=None,
+        )
+        == _HEALTHIANS_URL
+    )
+
+
+@pytest.mark.asyncio
 async def test_resolve_persistable_diagnostic_report_url_full_archives(blood_reports_paths, monkeypatch):
+    monkeypatch.setattr(settings, "DEBUG", False)
     async def _handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=_MIN_PDF)
 
@@ -164,8 +223,8 @@ async def test_resolve_persistable_diagnostic_report_url_reuses_existing_archive
 
 
 @pytest.mark.asyncio
-async def test_diagnostic_report_url_to_persist_never_stores_s3_on_full():
-    from modules.reports.blood_report_archival import diagnostic_report_url_to_persist
+async def test_diagnostic_report_url_to_persist_never_stores_s3_on_full(monkeypatch):
+    monkeypatch.setattr(settings, "DEBUG", False)
 
     assert (
         diagnostic_report_url_to_persist(
@@ -187,6 +246,8 @@ async def test_diagnostic_report_url_to_persist_never_stores_s3_on_full():
 
 @pytest.mark.asyncio
 async def test_resolve_persistable_diagnostic_report_url_returns_none_on_failure(monkeypatch):
+    monkeypatch.setattr(settings, "DEBUG", False)
+
     async def _fail_archive(*args, **kwargs):
         raise RuntimeError("download failed")
 

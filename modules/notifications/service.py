@@ -35,7 +35,7 @@ from modules.reports.blood_booking_reports import (
     get_participant_for_user_engagement,
     list_archived_diagnostic_urls,
 )
-from modules.reports.blood_report_archival import is_archived_blood_report_url
+from modules.reports.blood_report_archival import is_persistable_blood_report_url
 from modules.reports.blood_report_resolver import resolve_blood_report_url
 
 logger = logging.getLogger(__name__)
@@ -291,8 +291,7 @@ class NotificationsService:
                     url = (
                         (blood_root.diagnostic_report_url if blood_root else None) or None
                     )
-                    # Never send Healthians/S3 signed links — only archived supershyft URLs.
-                    if url and not is_archived_blood_report_url(str(url).strip()):
+                    if url and not is_persistable_blood_report_url(str(url).strip()):
                         url = None
                     if not (url and str(url).strip()):
                         try:

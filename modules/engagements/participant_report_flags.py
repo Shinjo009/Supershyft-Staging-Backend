@@ -14,7 +14,7 @@ from modules.reports.blood_parameters_schemas import (
     has_usable_provider_blood_parameters,
     is_empty_blood_parameters,
 )
-from modules.reports.blood_report_archival import is_archived_blood_report_url
+from modules.reports.blood_report_archival import is_persistable_blood_report_url
 from modules.reports.camp_reports_repository import _coerce_reports_dict
 from modules.reports.models import IndividualHealthReport
 from modules.reports.service import ReportsService
@@ -126,7 +126,7 @@ async def engagement_report_flags_by_user(
         if diagnostic_url:
             if not flags.get("blood_report_url"):
                 flags["blood_report_url"] = diagnostic_url
-            if is_archived_blood_report_url(diagnostic_url):
+            if is_persistable_blood_report_url(diagnostic_url):
                 flags["has_blood_report"] = True
         if has_usable_provider_blood_parameters(row.blood_parameters):
             flags["has_blood_values"] = True

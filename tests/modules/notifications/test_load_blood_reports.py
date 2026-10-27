@@ -217,6 +217,24 @@ async def _fake_resolve_persistable_diagnostic_report_url(
     return _ARCHIVED_REPORT_URL
 
 
+def _build_services_without_resolve_mock(
+    monkeypatch,
+) -> tuple[MetsightsService, MetsightsSyncService, AssessmentsService, NotificationsService]:
+    monkeypatch.setattr(settings, "METSIGHTS_API_KEY", "test-key")
+    metsights_service = MetsightsService(client=MetsightsClient())
+    sync_service = MetsightsSyncService(
+        metsights_service=metsights_service,
+        users_repository=UsersRepository(),
+        engagements_service=get_engagements_service(),
+        assessments_service=get_assessments_service(),
+        platform_settings_service=get_platform_settings_service_readonly(),
+        questionnaire_repository=QuestionnaireRepository(),
+    )
+    assessments_service = get_assessments_service()
+    notifications_service = NotificationsService(NotificationsRepository())
+    return metsights_service, sync_service, assessments_service, notifications_service
+
+
 def _build_services(monkeypatch) -> tuple[MetsightsService, MetsightsSyncService, AssessmentsService, NotificationsService]:
     monkeypatch.setattr(settings, "METSIGHTS_API_KEY", "test-key")
     monkeypatch.setattr(
@@ -2317,4 +2335,97 @@ async def test_load_blood_reports_maps_archived_url_to_assessment_instance(
     assert ihr.user_id == 88022
     assert ihr.engagement_id == 88022
     assert ihr.diagnostic_report_url == _ARCHIVED_REPORT_URL
+
+
+@pytest.mark.asyncio
+async def test_load_blood_reports_debug_persists_healthians_url_without_archival(
+    test_db_session, monkeypatch
+):
+    user_id = 88023
+    engagement_id = 88023
+    assessment_id = 88023
+    healthians_s3 = "https://s3.amazonaws.com/healthians/signed/report.pdf"
+    monkeypatch.setattr(settings, "DEBUG", True)
+
+    await _seed_running_participant(
+        test_db_session,
+        user_id=user_id,
+        engagement_id=engagement_id,
+        assessment_id=assessment_id,
+        blood_report_notification=None,
+    )
+
+    archive_calls: list[int] = []
+
+    async def _track_archive(*args, **kwargs):
+        archive_calls.append(1)
+        raise AssertionError("archive_blood_report_pdf should not run when DEBUG=True")
+
+    monkeypatch.setattr(
+        "modules.reports.blood_report_archival.archive_blood_report_pdf",
+        _track_archive,
+    )
+
+    async def _fake_token():
+        return "token"
+
+    async def _fake_report(_token, _booking_id):
+        return _report_payload(report_url=healthians_s3)
+
+    async def _fake_digital(_token, _booking_id):
+        return {
+            "data": [
+                {
+                    "customer_name": "John Doe",
+                    "digital_data": [{"parameter_id": "1", "value": "91.0", "unit": "mg/dL"}],
+                }
+            ]
+        }
+
+    monkeypatch.setattr(
+        "modules.notifications.load_blood_reports.healthians_client.get_access_token",
+        _fake_token,
+    )
+    monkeypatch.setattr(
+        "modules.notifications.load_blood_reports.healthians_client.get_booking_report",
+        _fake_report,
+    )
+    monkeypatch.setattr(
+        "modules.notifications.load_blood_reports.healthians_client.get_booking_digital_value",
+        _fake_digital,
+    )
+    monkeypatch.setattr(
+        "modules.notifications.load_blood_reports._group_provider_blood",
+        _fake_group_factory(),
+    )
+
+    metsights_service, sync_service, assessments_service, notifications_service = (
+        _build_services_without_resolve_mock(monkeypatch)
+    )
+
+    async def _fake_draft(db, *, user_id, assessment_instance_id, allow_completed=False):
+        return {"responses_drafted": 0}
+
+    monkeypatch.setattr(assessments_service, "draft_blood_parameters_from_report", _fake_draft)
+
+    result = await load_blood_reports(
+        test_db_session,
+        metsights_service=metsights_service,
+        notifications_service=notifications_service,
+        assessments_service=assessments_service,
+        sync_service=sync_service,
+    )
+
+    assert archive_calls == []
+    assert result["loaded"] >= 1
+
+    from modules.reports.blood_booking_reports import get_current_report_root
+
+    blood_root = await get_current_report_root(
+        test_db_session,
+        user_id=user_id,
+        engagement_id=engagement_id,
+    )
+    assert blood_root is not None
+    assert blood_root.diagnostic_report_url == healthians_s3
 

@@ -2683,7 +2683,7 @@ class EngagementsService:
             engagement_consultations = {}
 
         from modules.reports.blood_booking_reports import get_current_report_root
-        from modules.reports.blood_report_archival import is_archived_blood_report_url
+        from modules.reports.blood_report_archival import is_persistable_blood_report_url
         from modules.reports.models import IndividualHealthReport
 
         blood_root = await get_current_report_root(
@@ -2693,7 +2693,7 @@ class EngagementsService:
         )
         blood_report_generated = bool(
             blood_root
-            and is_archived_blood_report_url((blood_root.diagnostic_report_url or "").strip())
+            and is_persistable_blood_report_url((blood_root.diagnostic_report_url or "").strip())
         )
 
         ihr_result = await db.execute(
@@ -4337,7 +4337,7 @@ class EngagementsService:
         from modules.engagements.blood_bookings_repository import current_blood_booking_subquery
         from modules.engagements.models import EngagementParticipant
         from modules.reports.blood_parameters_schemas import has_usable_provider_blood_parameters
-        from modules.reports.blood_report_archival import is_archived_blood_report_url
+        from modules.reports.blood_report_archival import is_persistable_blood_report_url
         from modules.reports.camp_reports_repository import _coerce_reports_dict
         from modules.reports.models import IndividualHealthReport
         from modules.users.models import User
@@ -4463,7 +4463,7 @@ class EngagementsService:
                     "has_bio_ai_json": False,
                 },
             )
-            if row.diagnostic_report_url and is_archived_blood_report_url(
+            if row.diagnostic_report_url and is_persistable_blood_report_url(
                 str(row.diagnostic_report_url).strip()
             ):
                 flags["has_blood_report"] = True
