@@ -3189,6 +3189,11 @@ class ExpertAvailabilityService:
             categories_out: list[dict[str, Any]] = []
             for category_id in ordered_category_ids:
                 cat = await q_repo.get_category_by_id(db, category_id)
+                if cat is None:
+                    continue
+                cat_of = (getattr(cat, "category_of", None) or "supershyft").strip().lower()
+                if cat_of != "supershyft":
+                    continue
                 cat_pr = cat_progress_map.get(category_id)
                 cat_is_submitted = bool(cat_pr.is_submitted) if cat_pr else False
                 questions = await q_service.list_category_questions_for_user(db, category_id=category_id)
@@ -3212,8 +3217,9 @@ class ExpertAvailabilityService:
                 categories_out.append(
                     {
                         "category_id": category_id,
-                        "display_name": getattr(cat, "display_name", None) if cat else None,
-                        "category_key": getattr(cat, "category_key", None) if cat else None,
+                        "display_name": getattr(cat, "display_name", None),
+                        "category_key": getattr(cat, "category_key", None),
+                        "category_of": cat_of,
                         "questions": questions_out,
                     }
                 )
