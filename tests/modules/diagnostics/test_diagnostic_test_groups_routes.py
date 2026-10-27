@@ -51,6 +51,40 @@ async def test_list_diagnostic_test_groups_requires_auth(async_client):
 
 
 @pytest.mark.asyncio
+async def test_test_group_healthians_group_code_create_get_update(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=921, role="admin")
+
+    create_resp = await async_client.post(
+        "/diagnostic-test-groups",
+        headers=employee_auth_header(921),
+        json={
+            "group_name": "Lipid Panel Plus",
+            "group_key": "lipid_panel_healthians_code",
+            "healthians_group_code": "ABC123",
+        },
+    )
+    assert create_resp.status_code == 201
+    created = create_resp.json()["data"]
+    assert created["healthians_group_code"] == "ABC123"
+    group_id = created["group_id"]
+
+    get_resp = await async_client.get(
+        f"/diagnostic-test-groups/{group_id}",
+        headers=employee_auth_header(921),
+    )
+    assert get_resp.status_code == 200
+    assert get_resp.json()["data"]["healthians_group_code"] == "ABC123"
+
+    update_resp = await async_client.put(
+        f"/diagnostic-test-groups/{group_id}",
+        headers=employee_auth_header(921),
+        json={"healthians_group_code": None},
+    )
+    assert update_resp.status_code == 200
+    assert update_resp.json()["data"]["healthians_group_code"] is None
+
+
+@pytest.mark.asyncio
 async def test_paginated_list_diagnostic_test_groups(async_client, test_db_session):
     await seed_employee(test_db_session, employee_id=920, role="admin")
     for index in range(15):

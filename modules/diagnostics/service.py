@@ -417,6 +417,7 @@ class DiagnosticsService:
             group_id=row.group_id,
             group_name=row.group_name,
             group_key=row.group_key,
+            healthians_group_code=row.healthians_group_code,
             display_order=row.display_order,
             test_count=resolved_count,
             price=price,
@@ -1317,6 +1318,8 @@ class DiagnosticsService:
         self._validate_optional_gender_field(payload)
         self._validate_package_for_field(payload)
         payload.setdefault("package_for", "public")
+        if "healthians_group_code" in payload:
+            payload["healthians_group_code"] = self._normalize(payload.get("healthians_group_code"))
 
         try:
             created = await self._repository.create_group(db, DiagnosticTestGroup(**payload))
@@ -1365,6 +1368,8 @@ class DiagnosticsService:
                 raise AppError(status_code=400, error_code="INVALID_INPUT", message="Group key already exists")
         self._validate_optional_gender_field(payload)
         self._validate_package_for_field(payload)
+        if "healthians_group_code" in data.model_fields_set:
+            payload["healthians_group_code"] = self._normalize(data.healthians_group_code)
 
         try:
             updated = await self._repository.update_group(db, group_id=group_id, data=payload)

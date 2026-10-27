@@ -309,6 +309,7 @@ class HealthParameterResponse(BaseModel):
 class TestGroupCreate(BaseModel):
     group_name: SafeDisplayName
     group_key: SlugKey
+    healthians_group_code: Optional[str] = None
     display_order: Optional[int] = None
     price: Optional[float] = None
     original_price: Optional[float] = None
@@ -322,6 +323,7 @@ class TestGroupCreate(BaseModel):
 class TestGroupUpdate(BaseModel):
     group_name: OptionalSafeDisplayName = None
     group_key: OptionalSlugKey = None
+    healthians_group_code: Optional[str] = None
     display_order: Optional[int] = None
     price: Optional[float] = None
     original_price: Optional[float] = None
@@ -336,6 +338,7 @@ class TestGroupResponse(BaseModel):
     group_id: int
     group_name: str
     group_key: str
+    healthians_group_code: Optional[str] = None
     test_count: int
     display_order: Optional[int] = None
     price: Optional[float] = None

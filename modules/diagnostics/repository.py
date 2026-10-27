@@ -1160,6 +1160,7 @@ class DiagnosticsRepository:
         copy = DiagnosticTestGroup(
             group_name=source.group_name,
             group_key=new_key,
+            healthians_group_code=source.healthians_group_code,
             display_order=source.display_order,
             price=source.price,
             original_price=source.original_price,
@@ -1258,7 +1259,7 @@ class DiagnosticsRepository:
         if row is None:
             return None
         for key, value in data.items():
-            if value is not None:
+            if value is not None or key == "healthians_group_code":
                 setattr(row, key, value)
         db.add(row)
         await db.flush()
