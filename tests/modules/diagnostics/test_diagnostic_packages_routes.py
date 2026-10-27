@@ -320,3 +320,38 @@ async def test_package_screening_flags_or_across_assigned_groups(async_client, t
     detail = detail_resp.json()["data"]
     assert detail["has_allergy_screening"] is True
     assert detail["has_cancer_screening"] is True
+
+
+@pytest.mark.asyncio
+async def test_paginated_list_diagnostic_packages(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=906, role="admin")
+    for index in range(12):
+        test_db_session.add(
+            DiagnosticPackage(
+                package_name=f"Paged Package {index}",
+                status="active",
+                package_for="public",
+            )
+        )
+    await test_db_session.commit()
+
+    unpaged = await async_client.get(
+        "/diagnostic-packages",
+        params={"include_inactive": True, "type": "public_package"},
+        headers=employee_auth_header(906),
+    )
+    assert unpaged.status_code == 200
+    assert "meta" not in unpaged.json() or unpaged.json().get("meta") in ({}, None) or unpaged.json()["meta"] == {}
+
+    paged = await async_client.get(
+        "/diagnostic-packages",
+        params={"include_inactive": True, "type": "public_package", "page": 1, "limit": 10},
+        headers=employee_auth_header(906),
+    )
+    assert paged.status_code == 200
+    body = paged.json()
+    assert len(body["data"]) == 10
+    assert body["meta"]["page"] == 1
+    assert body["meta"]["limit"] == 10
+    assert body["meta"]["total"] >= 12
+    assert "filter_options" in body["meta"]

@@ -43,6 +43,20 @@ def page_params(
 PageParamsDep = Annotated[PageParams, Depends(page_params)]
 
 
+def optional_page_params(
+    *,
+    page: int | None = None,
+    limit: int | None = None,
+    max_limit: int = 100,
+) -> PageParams | None:
+    """Return resolved pagination when either page or limit is provided; otherwise None (full list)."""
+    if page is None and limit is None:
+        return None
+    resolved_page = page if page is not None else 1
+    resolved_limit = limit if limit is not None else 20
+    return resolve_page_params(page=resolved_page, limit=resolved_limit, max_limit=max_limit)
+
+
 def normalize_sort_dir(sort_dir: str | None) -> str:
     if (sort_dir or "").lower() == SORT_ASC:
         return SORT_ASC

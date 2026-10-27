@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.listing import optional_page_params, sanitize_list_search
 from common.responses import success_response
 from core.dependencies import _http_bearer, authenticate_bearer_user
 from db.session import get_db
@@ -65,6 +66,11 @@ async def list_diagnostic_packages(
     package_list_type: PackageListType = Query(default=PackageListType.PUBLIC_PACKAGE, alias="type"),
     include_inactive: bool = Query(default=False),
     package_for: str | None = Query(default=None),
+    page: int | None = Query(default=None, ge=1),
+    limit: int | None = Query(default=None, ge=1, le=100),
+    search: str | None = None,
+    diagnostic_provider: str | None = None,
+    status: str | None = None,
     db: AsyncSession = Depends(get_db),
     credentials: HTTPAuthorizationCredentials | None = Depends(_http_bearer),
     diagnostics_service: DiagnosticsService = Depends(get_diagnostics_service),
@@ -81,7 +87,9 @@ async def list_diagnostic_packages(
         await get_current_employee_from_token(db, credentials)
         active_only = False
 
-    data = await diagnostics_service.get_packages(
+    pagination = optional_page_params(page=page, limit=limit)
+    search_value = sanitize_list_search(search)
+    data, total, extra_meta = await diagnostics_service.get_packages(
         db,
         gender=gender,
         tag=tag,
@@ -90,17 +98,56 @@ async def list_diagnostic_packages(
         list_type=package_list_type.value,
         requesting_user_id=requesting_user_id,
         package_for=package_for,
+        page=pagination.page if pagination else None,
+        limit=pagination.limit if pagination else None,
+        search=search_value,
+        diagnostic_provider=diagnostic_provider,
+        status=status,
     )
+    if pagination:
+        meta = {
+            "page": pagination.page,
+            "limit": pagination.limit,
+            "total": total,
+            **(extra_meta or {}),
+        }
+        return success_response([item.model_dump() for item in data], meta=meta)
     return success_response([item.model_dump() for item in data])
 
 
 @router.get("/diagnostic-packages/filters-chips")
 async def list_diagnostic_filter_chips(
     chip_scope: FilterChipForSchema = Query(default=FilterChipForSchema.PUBLIC_PACKAGE, alias="for"),
+    include_inactive: bool = Query(default=False),
+    page: int | None = Query(default=None, ge=1),
+    limit: int | None = Query(default=None, ge=1, le=100),
+    search: str | None = None,
     db: AsyncSession = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_http_bearer),
     diagnostics_service: DiagnosticsService = Depends(get_diagnostics_service),
 ):
-    data = await diagnostics_service.get_filter_chips(db, chip_for=chip_scope.value)
+    active_only = True
+    if include_inactive:
+        from core.dependencies import get_current_employee_from_token
+
+        await get_current_employee_from_token(db, credentials)
+        active_only = False
+
+    pagination = optional_page_params(page=page, limit=limit)
+    search_value = sanitize_list_search(search)
+    data, total = await diagnostics_service.get_filter_chips(
+        db,
+        chip_for=chip_scope.value,
+        active_only=active_only,
+        page=pagination.page if pagination else None,
+        limit=pagination.limit if pagination else None,
+        search=search_value,
+    )
+    if pagination:
+        return success_response(
+            [item.model_dump() for item in data],
+            meta={"page": pagination.page, "limit": pagination.limit, "total": total},
+        )
     return success_response([item.model_dump() for item in data])
 
 
@@ -661,11 +708,27 @@ async def delete_preparation(
 @router.get("/diagnostics/health-parameters")
 async def list_health_parameters(
     parameter_type: ParameterType | None = None,
+    page: int | None = Query(default=None, ge=1),
+    limit: int | None = Query(default=None, ge=1, le=100),
+    search: str | None = None,
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
     diagnostics_service: DiagnosticsService = Depends(get_diagnostics_service),
 ):
-    data = await diagnostics_service.list_parameters(db, parameter_type=parameter_type)
+    pagination = optional_page_params(page=page, limit=limit)
+    search_value = sanitize_list_search(search)
+    data, total = await diagnostics_service.list_parameters(
+        db,
+        parameter_type=parameter_type,
+        page=pagination.page if pagination else None,
+        limit=pagination.limit if pagination else None,
+        search=search_value,
+    )
+    if pagination:
+        return success_response(
+            [item.model_dump() for item in data],
+            meta={"page": pagination.page, "limit": pagination.limit, "total": total},
+        )
     return success_response([item.model_dump() for item in data])
 
 
@@ -746,11 +809,28 @@ async def delete_health_parameter(
 async def list_diagnostic_test_groups(
     filter_chip: str | None = Query(default=None),
     package_for: str | None = Query(default=None),
+    page: int | None = Query(default=None, ge=1),
+    limit: int | None = Query(default=None, ge=1, le=100),
+    search: str | None = None,
     db: AsyncSession = Depends(get_db),
     _actor: DiagnosticsPackageActor = Depends(get_diagnostics_package_actor),
     diagnostics_service: DiagnosticsService = Depends(get_diagnostics_service),
 ):
-    data = await diagnostics_service.get_all_groups(db, filter_chip=filter_chip, package_for=package_for)
+    pagination = optional_page_params(page=page, limit=limit)
+    search_value = sanitize_list_search(search)
+    data, total = await diagnostics_service.get_all_groups(
+        db,
+        filter_chip=filter_chip,
+        package_for=package_for,
+        page=pagination.page if pagination else None,
+        limit=pagination.limit if pagination else None,
+        search=search_value,
+    )
+    if pagination:
+        return success_response(
+            [item.model_dump() for item in data],
+            meta={"page": pagination.page, "limit": pagination.limit, "total": total},
+        )
     return success_response([item.model_dump() for item in data])
 
 

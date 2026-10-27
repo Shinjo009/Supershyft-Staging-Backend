@@ -931,8 +931,8 @@ class EngagementsService:
             engagement_types,
             org_result,
             assessment_result,
-            camp_packages,
-            public_packages,
+            camp_packages_result,
+            public_packages_result,
             notification_services,
             expert_types,
         ) = await asyncio.gather(
@@ -972,6 +972,8 @@ class EngagementsService:
             notifications_service.list_services(db),
             expert_types_service.list_expert_types(db),
         )
+        camp_packages, _, _ = camp_packages_result
+        public_packages, _, _ = public_packages_result
         org_rows, _org_total = org_result
         assessment_rows, _ = assessment_result
         organizations = [

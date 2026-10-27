@@ -51,6 +51,28 @@ async def test_list_diagnostic_test_groups_requires_auth(async_client):
 
 
 @pytest.mark.asyncio
+async def test_paginated_list_diagnostic_test_groups(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=920, role="admin")
+    for index in range(15):
+        test_db_session.add(
+            DiagnosticTestGroup(group_name=f"Paged Group {index}", group_key=f"paged_group_{index}")
+        )
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        "/diagnostic-test-groups",
+        headers=employee_auth_header(920),
+        params={"page": 1, "limit": 10},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["data"]) == 10
+    assert body["meta"]["page"] == 1
+    assert body["meta"]["limit"] == 10
+    assert body["meta"]["total"] >= 15
+
+
+@pytest.mark.asyncio
 async def test_employee_can_list_group_tests(async_client, test_db_session):
     await seed_employee(test_db_session, employee_id=911, role="admin")
     group = DiagnosticTestGroup(group_name="CBC", group_key="cbc_tests_test")

@@ -14,6 +14,7 @@ from collections import Counter
 
 from sqlalchemy.exc import IntegrityError
 
+from common.listing import sanitize_list_search
 from core.exceptions import AppError
 from modules.audit.service import AuditService
 from modules.diagnostics.models import (
@@ -495,44 +496,11 @@ class DiagnosticsService:
             has_cancer_screening=cancer,
         )
 
-    async def get_packages(
+    async def _package_rows_to_list_items(
         self,
         db,
-        *,
-        gender: str | None,
-        tag: str | None,
-        filter_chip: str | None = None,
-        active_only: bool = True,
-        list_type: str = "public_package",
-        requesting_user_id: int | None = None,
-        package_for: str | None = None,
+        rows: list[DiagnosticPackage],
     ) -> list[DiagnosticPackageListItem]:
-        gender_value = self._normalize_lower(gender)
-        tag_value = self._normalize(tag)
-        chip_key_value = self._normalize(filter_chip)
-
-        if gender_value is not None and gender_value not in _ALLOWED_GENDER_VALUES:
-            raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
-
-        if list_type not in ("public_package", "custom_package"):
-            raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
-        public_only = list_type == "public_package"
-        created_by_user_id = None if public_only else requesting_user_id
-
-        resolved_package_for = package_for
-        if resolved_package_for is None and public_only and active_only:
-            resolved_package_for = "public"
-
-        rows = await self._repository.get_all_packages(
-            db,
-            gender=gender_value,
-            tag=tag_value,
-            filter_chip=chip_key_value,
-            active_only=active_only,
-            public_only=public_only,
-            created_by_user_id=created_by_user_id,
-            package_for=resolved_package_for,
-        )
         pkg_ids = [r.diagnostic_package_id for r in rows]
         counts = await self._repository.count_distinct_tests_for_packages(db, package_ids=pkg_ids)
         unmapped_counts = await self._repository.count_unmapped_tests_for_packages(
@@ -590,6 +558,74 @@ class DiagnosticsService:
                 )
             )
         return items
+
+    async def get_packages(
+        self,
+        db,
+        *,
+        gender: str | None,
+        tag: str | None,
+        filter_chip: str | None = None,
+        active_only: bool = True,
+        list_type: str = "public_package",
+        requesting_user_id: int | None = None,
+        package_for: str | None = None,
+        page: int | None = None,
+        limit: int | None = None,
+        search: str | None = None,
+        diagnostic_provider: str | None = None,
+        status: str | None = None,
+    ) -> tuple[list[DiagnosticPackageListItem], int | None, dict | None]:
+        gender_value = self._normalize_lower(gender)
+        tag_value = self._normalize(tag)
+        chip_key_value = self._normalize(filter_chip)
+        search_value = sanitize_list_search(search)
+        provider_value = self._normalize(diagnostic_provider)
+        status_value = self._normalize_lower(status)
+
+        if gender_value is not None and gender_value not in _ALLOWED_GENDER_VALUES:
+            raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+
+        if list_type not in ("public_package", "custom_package"):
+            raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+        public_only = list_type == "public_package"
+        created_by_user_id = None if public_only else requesting_user_id
+
+        resolved_package_for = package_for
+        if resolved_package_for is None and public_only and active_only:
+            resolved_package_for = "public"
+
+        list_kwargs = {
+            "gender": gender_value,
+            "tag": tag_value,
+            "filter_chip": chip_key_value,
+            "active_only": active_only,
+            "public_only": public_only,
+            "created_by_user_id": created_by_user_id,
+            "package_for": resolved_package_for,
+            "search": search_value,
+            "diagnostic_provider": provider_value,
+            "status": status_value,
+        }
+
+        paginate = page is not None and limit is not None
+        extra_meta: dict | None = None
+        total: int | None = None
+        if paginate:
+            total = await self._repository.count_packages(db, **list_kwargs)
+            tag_names = await self._repository.list_distinct_package_tag_names(db, **list_kwargs)
+            extra_meta = {"filter_options": {"tags": tag_names}}
+
+        rows = await self._repository.get_all_packages(
+            db,
+            **list_kwargs,
+            page=page if paginate else None,
+            limit=limit if paginate else None,
+        )
+        items = await self._package_rows_to_list_items(db, rows)
+        if paginate:
+            return items, total, extra_meta
+        return items, None, None
 
     async def get_package_detail(self, db, *, package_id: int) -> DiagnosticPackageDetailResponse:
         row = await self._repository.get_package_by_id(db, package_id=package_id)
@@ -1032,10 +1068,27 @@ class DiagnosticsService:
         db,
         *,
         parameter_type: ParameterType | None = None,
-    ) -> list[HealthParameterResponse]:
+        page: int | None = None,
+        limit: int | None = None,
+        search: str | None = None,
+    ) -> tuple[list[HealthParameterResponse], int | None]:
         orm_type = self._orm_parameter_type(parameter_type) if parameter_type is not None else None
-        rows = await self._repository.get_all_parameters(db, parameter_type=orm_type)
-        return [self._to_health_parameter_response(row) for row in rows]
+        search_value = sanitize_list_search(search)
+        paginate = page is not None and limit is not None
+        total: int | None = None
+        if paginate:
+            total = await self._repository.count_parameters(
+                db, parameter_type=orm_type, search=search_value
+            )
+        rows = await self._repository.get_all_parameters(
+            db,
+            parameter_type=orm_type,
+            search=search_value,
+            page=page if paginate else None,
+            limit=limit if paginate else None,
+        )
+        items = [self._to_health_parameter_response(row) for row in rows]
+        return items, total
 
     async def get_parameter(self, db, *, test_id: int) -> HealthParameterResponse:
         row = await self._repository.get_parameter_by_id(db, test_id=test_id)
@@ -1198,10 +1251,37 @@ class DiagnosticsService:
         )
         return {"deleted": True}
 
-    async def get_all_groups(self, db, *, filter_chip: str | None = None, package_for: str | None = None) -> list[TestGroupResponse]:
+    async def get_all_groups(
+        self,
+        db,
+        *,
+        filter_chip: str | None = None,
+        package_for: str | None = None,
+        page: int | None = None,
+        limit: int | None = None,
+        search: str | None = None,
+    ) -> tuple[list[TestGroupResponse], int | None]:
         chip_key_value = self._normalize(filter_chip)
-        rows = await self._repository.get_all_groups(db, filter_chip_key=chip_key_value, package_for=package_for)
-        return [self._to_group_response(group, tests=[], test_count=test_count) for group, test_count in rows]
+        search_value = sanitize_list_search(search)
+        paginate = page is not None and limit is not None
+        total: int | None = None
+        if paginate:
+            total = await self._repository.count_groups(
+                db,
+                filter_chip_key=chip_key_value,
+                package_for=package_for,
+                search=search_value,
+            )
+        rows = await self._repository.get_all_groups(
+            db,
+            filter_chip_key=chip_key_value,
+            package_for=package_for,
+            search=search_value,
+            page=page if paginate else None,
+            limit=limit if paginate else None,
+        )
+        items = [self._to_group_response(group, tests=[], test_count=test_count) for group, test_count in rows]
+        return items, total
 
     async def get_group_detail(self, db, *, group_id: int) -> TestGroupResponse:
         group = await self._repository.get_group_by_id(db, group_id=group_id)
@@ -1737,14 +1817,37 @@ class DiagnosticsService:
             session_id=None,
         )
 
-    async def get_filter_chips(self, db, *, chip_for: str | None = None) -> list[FilterChipResponse]:
+    async def get_filter_chips(
+        self,
+        db,
+        *,
+        chip_for: str | None = None,
+        active_only: bool = True,
+        page: int | None = None,
+        limit: int | None = None,
+        search: str | None = None,
+    ) -> tuple[list[FilterChipResponse], int | None]:
         scope = self._normalize_lower(chip_for) if chip_for is not None else "public_package"
         if scope is None:
             scope = "public_package"
         if scope not in _ALLOWED_CHIP_FOR:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
-        rows = await self._repository.get_all_filter_chips(db, chip_for=scope)
-        return [
+        search_value = sanitize_list_search(search)
+        paginate = page is not None and limit is not None
+        total: int | None = None
+        if paginate:
+            total = await self._repository.count_filter_chips(
+                db, chip_for=scope, active_only=active_only, search=search_value
+            )
+        rows = await self._repository.get_all_filter_chips(
+            db,
+            chip_for=scope,
+            active_only=active_only,
+            search=search_value,
+            page=page if paginate else None,
+            limit=limit if paginate else None,
+        )
+        items = [
             FilterChipResponse(
                 filter_chip_id=row.filter_chip_id,
                 chip_key=row.chip_key,
@@ -1755,6 +1858,7 @@ class DiagnosticsService:
             )
             for row in rows
         ]
+        return items, total
 
     async def create_filter_chip(
         self,

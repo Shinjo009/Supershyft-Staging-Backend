@@ -2692,7 +2692,7 @@ class ReportsService:
 
         Prefer METRIC over TEST when both exist for the same key.
         """
-        rows = await self._diagnostics_service.list_parameters(db)
+        rows, _ = await self._diagnostics_service.list_parameters(db)
         name_by_key: dict[str, str] = {}
         # Process TEST first, then METRIC so METRIC overwrites duplicates.
         ordered = sorted(
