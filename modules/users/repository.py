@@ -9,10 +9,10 @@ from typing import Optional
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Integer, and_, asc, cast, delete, desc, extract, func, or_, select, update
+from sqlalchemy import Integer, and_, asc, cast, delete, desc, extract, func, or_, select, type_coerce, update
 
 from common.listing import apply_sort, ilike_pattern, normalize_sort_dir
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.users.models import User, UserAddress, UserPreference
@@ -1003,3 +1003,117 @@ class UsersRepository:
             return 0
         result = await db.execute(delete(User).where(User.user_id.in_(user_ids)))
         return int(result.rowcount or 0)
+
+    @staticmethod
+    def _sports_playlists_jsonb(column):
+        return func.coalesce(cast(column, JSONB), cast("{}", JSONB))
+
+    @classmethod
+    def _superclub_has_playlist_clause(cls, sports_jsonb):
+        return or_(
+            and_(
+                func.jsonb_typeof(sports_jsonb["sportIds"]) == "array",
+                func.jsonb_array_length(sports_jsonb["sportIds"]) > 0,
+            ),
+            sports_jsonb["otherSelected"].astext == "true",
+        )
+
+    def _superclub_base_query(self, *, search: str | None = None):
+        sports_jsonb = self._sports_playlists_jsonb(UserPreference.sports_playlists)
+        query = (
+            select(User, UserPreference)
+            .join(UserPreference, User.user_id == UserPreference.user_id)
+            .where(self._superclub_has_playlist_clause(sports_jsonb))
+        )
+        query = self._apply_user_list_filters(query, search=search)
+        return query, sports_jsonb
+
+    def _apply_superclub_sport_filter(self, query, sports_jsonb, sport_ids: list[str] | None):
+        if not sport_ids:
+            return query
+        parts = []
+        for sid in sport_ids:
+            normalized = (sid or "").strip()
+            if not normalized:
+                continue
+            if normalized == "other":
+                parts.append(sports_jsonb["otherSelected"].astext == "true")
+            else:
+                parts.append(
+                    and_(
+                        func.jsonb_typeof(sports_jsonb["sportIds"]) == "array",
+                        sports_jsonb["sportIds"].contains(type_coerce([normalized], JSONB)),
+                    )
+                )
+        if not parts:
+            return query
+        return query.where(or_(*parts))
+
+    def _apply_superclub_other_selected(self, query, sports_jsonb, other_selected: bool | None):
+        if other_selected is None:
+            return query
+        if other_selected:
+            return query.where(sports_jsonb["otherSelected"].astext == "true")
+        return query.where(
+            or_(
+                sports_jsonb["otherSelected"].is_(None),
+                sports_jsonb["otherSelected"].astext != "true",
+            )
+        )
+
+    async def count_superclub_playlists(
+        self,
+        db: AsyncSession,
+        *,
+        search: str | None = None,
+        sport_ids: list[str] | None = None,
+        other_selected: bool | None = None,
+    ) -> int:
+        query, sports_jsonb = self._superclub_base_query(search=search)
+        query = self._apply_superclub_sport_filter(query, sports_jsonb, sport_ids)
+        query = self._apply_superclub_other_selected(query, sports_jsonb, other_selected)
+        count_query = select(func.count()).select_from(query.subquery())
+        result = await db.execute(count_query)
+        return int(result.scalar_one())
+
+    async def list_superclub_playlists(
+        self,
+        db: AsyncSession,
+        *,
+        page: int,
+        limit: int,
+        search: str | None = None,
+        sport_ids: list[str] | None = None,
+        other_selected: bool | None = None,
+        sort_by: str | None = None,
+        sort_dir: str | None = None,
+    ) -> list[tuple[User, UserPreference]]:
+        offset = (page - 1) * limit
+        query, sports_jsonb = self._superclub_base_query(search=search)
+        query = self._apply_superclub_sport_filter(query, sports_jsonb, sport_ids)
+        query = self._apply_superclub_other_selected(query, sports_jsonb, other_selected)
+
+        sort_key = (sort_by or "").strip()
+        direction = asc if normalize_sort_dir(sort_dir) == "asc" else desc
+        if sort_key == "name":
+            query = query.order_by(direction(User.first_name), direction(User.last_name), direction(User.user_id))
+        elif sort_key == "city":
+            query = query.order_by(direction(User.city), direction(User.user_id))
+        elif sort_key == "updated_at":
+            query = query.order_by(direction(UserPreference.updated_at), direction(User.user_id))
+        else:
+            query = query.order_by(direction(User.user_id))
+
+        query = query.offset(offset).limit(limit)
+        result = await db.execute(query)
+        return list(result.all())
+
+    async def list_superclub_playlist_payloads_for_search(
+        self,
+        db: AsyncSession,
+        *,
+        search: str | None = None,
+    ) -> list[object | None]:
+        query, _sports_jsonb = self._superclub_base_query(search=search)
+        result = await db.execute(query)
+        return [pref.sports_playlists for _user, pref in result.all()]

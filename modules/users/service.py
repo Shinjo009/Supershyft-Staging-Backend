@@ -1876,6 +1876,73 @@ class UsersService:
 
         return created, True
 
+    async def list_superclub_playlists_for_employee(
+        self,
+        db: AsyncSession,
+        *,
+        employee,
+        page: int,
+        limit: int,
+        search: str | None = None,
+        sport_ids: list[str] | None = None,
+        other_selected: bool | None = None,
+        sort_by: str | None = None,
+        sort_dir: str | None = None,
+    ) -> tuple[list[tuple[User, UserPreference]], int, dict]:
+        from modules.users.superclub_catalog import (
+            SUPERCLUB_SPORT_CATALOG,
+            has_submitted_playlist,
+            normalize_sports_playlists,
+        )
+
+        self._ensure_employee_access(employee)
+
+        rows = await self._repository.list_superclub_playlists(
+            db,
+            page=page,
+            limit=limit,
+            search=search,
+            sport_ids=sport_ids,
+            other_selected=other_selected,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+        )
+        total = await self._repository.count_superclub_playlists(
+            db,
+            search=search,
+            sport_ids=sport_ids,
+            other_selected=other_selected,
+        )
+
+        facet_payloads = await self._repository.list_superclub_playlist_payloads_for_search(
+            db, search=search
+        )
+        sport_counts: dict[str, int] = {}
+        other_count = 0
+        total_sport_picks = 0
+        playlists_submitted = 0
+        for raw in facet_payloads:
+            normalized = normalize_sports_playlists(raw)
+            if not has_submitted_playlist(normalized):
+                continue
+            playlists_submitted += 1
+            if normalized["otherSelected"]:
+                other_count += 1
+                sport_counts["other"] = sport_counts.get("other", 0) + 1
+            for sport_id in normalized["sportIds"]:
+                sport_counts[str(sport_id)] = sport_counts.get(str(sport_id), 0) + 1
+                total_sport_picks += 1
+
+        avg_sports = round(total_sport_picks / playlists_submitted, 1) if playlists_submitted else 0.0
+        meta = {
+            "playlists_submitted": playlists_submitted,
+            "other_count": other_count,
+            "avg_sports": avg_sports,
+            "sport_catalog": SUPERCLUB_SPORT_CATALOG,
+            "sport_counts": sport_counts,
+        }
+        return rows, total, meta
+
     async def list_users_for_employee(
         self,
         db: AsyncSession,

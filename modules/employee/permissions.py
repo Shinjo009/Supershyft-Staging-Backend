@@ -45,6 +45,7 @@ CATEGORY_LABELS: Mapping[str, str] = MappingProxyType(
         "employees": "Employees",
         "partners": "Partners",
         "blog": "Blogs",
+        "superclub": "Super Club",
         "platform_settings": "Platform Settings",
         "system_monitoring": "System Monitoring",
     }
@@ -160,6 +161,9 @@ TASK_CATALOG: Mapping[str, tuple[tuple[str, str, str], ...]] = MappingProxyType(
             ("posts", "Blog posts", "Create, update, and manage blog posts"),
             ("categories", "Blog categories", "Manage blog categories"),
             ("uploads", "Blog uploads", "Upload blog images and media"),
+        ),
+        "superclub": (
+            ("playlists", "Sports playlists", "View Super Club sports playlists"),
         ),
         "platform_settings": (
             ("settings", "Platform settings", "Manage platform-wide settings"),
@@ -562,6 +566,8 @@ def _task_for_operation(category: str, path: str, method: str) -> str:
         if "categor" in path:
             return "categories"
         return "posts"
+    if category == "superclub":
+        return "playlists"
     if category == "platform_settings":
         if path.startswith("/engagement-types"):
             return "engagement_types"
@@ -658,6 +664,8 @@ def classify_operation(route_template: str, method: str) -> RouteCapability | No
         category = "discounts"
     elif path.startswith("/blog"):
         category = "blog"
+    elif path.startswith("/superclub"):
+        category = "superclub"
     elif path.startswith("/integrations"):
         category = "diagnostics"
     elif path.startswith(("/notifications", "/notification-events")):

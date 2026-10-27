@@ -19,6 +19,7 @@ from modules.engagements.assessment_packages_router import (
 from modules.checklists.router import router as checklists_router
 from modules.organizations.router import router as organizations_router
 from modules.users.router import router as users_router
+from modules.users.superclub_router import router as superclub_router
 from modules.employee.router import router as employees_router
 from modules.partners.router import router as partners_router
 from modules.assessments.router import router as assessments_router
@@ -112,6 +113,7 @@ async def request_size_limit_middleware(request: Request, call_next):
 # Include routers
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(superclub_router)
 app.include_router(organizations_router)
 app.include_router(engagements_router)
 app.include_router(engagement_console_router)
