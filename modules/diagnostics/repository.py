@@ -1494,6 +1494,44 @@ class DiagnosticsRepository:
         )
         return list(result.scalars().all())
 
+    async def copy_test_groups_from_package(
+        self,
+        db: AsyncSession,
+        *,
+        source_package_id: int,
+        target_package_id: int,
+    ) -> int:
+        result = await db.execute(
+            select(DiagnosticPackageTestGroup, DiagnosticTestGroup)
+            .join(DiagnosticTestGroup, DiagnosticPackageTestGroup.group_id == DiagnosticTestGroup.group_id)
+            .where(DiagnosticPackageTestGroup.diagnostic_package_id == source_package_id)
+            .order_by(
+                DiagnosticPackageTestGroup.display_order.asc().nulls_last(),
+                DiagnosticPackageTestGroup.id.asc(),
+            )
+        )
+        copied = 0
+        for assignment, group in result.all():
+            catalog_root = group.forked_from_group_id or group.group_id
+            copy = await self.duplicate_test_group_for_package(
+                db,
+                source_group_id=int(group.group_id),
+                forked_from_group_id=int(catalog_root),
+                package_id=target_package_id,
+            )
+            if copy is None:
+                continue
+            db.add(
+                DiagnosticPackageTestGroup(
+                    diagnostic_package_id=target_package_id,
+                    group_id=copy.group_id,
+                    display_order=assignment.display_order,
+                )
+            )
+            copied += 1
+        await db.flush()
+        return copied
+
     async def assign_groups_to_package(
         self,
         db: AsyncSession,

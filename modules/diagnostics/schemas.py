@@ -65,6 +65,7 @@ class DiagnosticPackageCreate(BaseModel):
     health_areas_covered: OptionalDiagnosticPackageMultilineText = None
     about_text: OptionalDiagnosticPackageMultilineText = None
     same_as_package_id: PositiveIntId | None = None
+    copy_test_groups_from_package_id: PositiveIntId | None = None
     bookings_count: Optional[int] = None
     price: Optional[float] = None
     original_price: Optional[float] = None

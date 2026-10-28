@@ -963,6 +963,7 @@ class DiagnosticsService:
         payload.pop("no_of_tests", None)
         payload.pop("custom", None)
         same_as_package_id = payload.pop("same_as_package_id", None)
+        copy_test_groups_from_package_id = payload.pop("copy_test_groups_from_package_id", None)
         payload.pop("is_default_for_group", None)
 
         if employee is not None:
@@ -1006,6 +1007,46 @@ class DiagnosticsService:
             package.is_default_for_group = True
         db.add(package)
         await db.flush()
+
+        if copy_test_groups_from_package_id is not None:
+            if same_as_package_id is None:
+                raise AppError(
+                    status_code=400,
+                    error_code="INVALID_INPUT",
+                    message="copy_test_groups_from_package_id requires same_as_package_id",
+                )
+            source_id = int(copy_test_groups_from_package_id)
+            source = await self._repository.get_package_by_id_basic(db, package_id=source_id)
+            if source is None:
+                raise AppError(
+                    status_code=404,
+                    error_code="DIAGNOSTIC_PACKAGE_NOT_FOUND",
+                    message="Source package for test group copy does not exist",
+                )
+            if (
+                package.package_group_id is None
+                or source.package_group_id is None
+                or int(source.package_group_id) != int(package.package_group_id)
+            ):
+                raise AppError(
+                    status_code=400,
+                    error_code="INVALID_INPUT",
+                    message="Test groups can only be copied from a package in the same group",
+                )
+            await self._repository.copy_test_groups_from_package(
+                db,
+                source_package_id=source_id,
+                target_package_id=int(package.diagnostic_package_id),
+            )
+            await self._require_audit_service().log_event(
+                db,
+                action="EMPLOYEE_COPY_PACKAGE_TEST_GROUPS",
+                endpoint=endpoint,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                user_id=current_user_id,
+                session_id=None,
+            )
 
         action = "EMPLOYEE_CREATE_DIAGNOSTIC_PACKAGE" if employee is not None else "USER_CREATE_DIAGNOSTIC_PACKAGE"
         await self._require_audit_service().log_event(

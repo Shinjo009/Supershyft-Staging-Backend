@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from modules.diagnostics.models import DiagnosticPackage, DiagnosticPackageGroup
+from modules.diagnostics.models import (
+    DiagnosticPackage,
+    DiagnosticPackageGroup,
+    DiagnosticPackageTestGroup,
+    DiagnosticTestGroup,
+    DiagnosticTestGroupTest,
+    HealthParameter,
+)
 from tests.helpers.auth import employee_auth_header, seed_employee
 
 
@@ -142,3 +149,73 @@ async def test_per_package_list_still_returns_all_skus(async_client, test_db_ses
     ids = {row["diagnostic_package_id"] for row in response.json()["data"]}
     assert healthians.diagnostic_package_id in ids
     assert orange.diagnostic_package_id in ids
+
+
+async def _assign_test_group(session, package: DiagnosticPackage, *, group_key: str = "core_panel") -> DiagnosticTestGroup:
+    test = HealthParameter(test_name="Haemoglobin", parameter_type="test")
+    group = DiagnosticTestGroup(group_name="Core panel", group_key=group_key)
+    session.add_all([test, group])
+    await session.flush()
+    session.add(
+        DiagnosticPackageTestGroup(
+            diagnostic_package_id=package.diagnostic_package_id,
+            group_id=group.group_id,
+            display_order=1,
+        )
+    )
+    session.add(
+        DiagnosticTestGroupTest(
+            group_id=group.group_id,
+            test_id=test.test_id,
+            display_order=0,
+        )
+    )
+    await session.commit()
+    await session.refresh(group)
+    return group
+
+
+@pytest.mark.asyncio
+async def test_create_joining_package_copies_test_groups(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=921, role="admin")
+    healthians = await _add_package_with_group(
+        test_db_session,
+        package_name="Copy Groups Core",
+        diagnostic_provider="healthians",
+        status="active",
+        package_for="public",
+        is_default_for_group=True,
+    )
+    source_group = await _assign_test_group(test_db_session, healthians, group_key="copy_source_group")
+
+    create_resp = await async_client.post(
+        "/diagnostic-packages",
+        headers=employee_auth_header(921),
+        json={
+            "package_name": "Copy Groups Core",
+            "diagnostic_provider": "orange_health",
+            "package_for": "public",
+            "same_as_package_id": healthians.diagnostic_package_id,
+            "copy_test_groups_from_package_id": healthians.diagnostic_package_id,
+        },
+    )
+    assert create_resp.status_code in (200, 201)
+    new_id = create_resp.json()["data"]["diagnostic_package_id"]
+
+    source_tests = await async_client.get(
+        f"/diagnostic-packages/{healthians.diagnostic_package_id}/tests",
+        headers=employee_auth_header(921),
+    )
+    new_tests = await async_client.get(
+        f"/diagnostic-packages/{new_id}/tests",
+        headers=employee_auth_header(921),
+    )
+    assert source_tests.status_code == 200
+    assert new_tests.status_code == 200
+    source_groups = source_tests.json()["data"]["groups"]
+    new_groups = new_tests.json()["data"]["groups"]
+    assert len(source_groups) == 1
+    assert len(new_groups) == 1
+    assert source_groups[0]["group_id"] == source_group.group_id
+    assert new_groups[0]["group_id"] != source_group.group_id
+    assert new_groups[0]["group_name"] == source_groups[0]["group_name"]
