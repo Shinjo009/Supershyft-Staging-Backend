@@ -43,6 +43,7 @@ from modules.diagnostics.schemas import (
     AssignTestsToGroupResponse,
     DiagnosticPackageCreate,
     DiagnosticPackageDetailResponse,
+    DiagnosticPackageGroupListItem,
     DiagnosticPackageListItem,
     DiagnosticPackagePeerResponse,
     DiagnosticPackageResponse,
@@ -221,10 +222,48 @@ class DiagnosticsService:
                 diagnostic_package_id=member.diagnostic_package_id,
                 package_name=member.package_name,
                 diagnostic_provider=member.diagnostic_provider,
+                price=float(member.price) if member.price is not None else None,
+                status=member.status,
+                is_default_for_group=bool(member.is_default_for_group),
             )
             for member in members
             if member.diagnostic_package_id != package.diagnostic_package_id
         ]
+
+    @staticmethod
+    def _provider_enum_key(provider: str | None) -> str | None:
+        if provider is None:
+            return None
+        if hasattr(provider, "value"):
+            provider = provider.value
+        text = str(provider).strip()
+        return text if text else None
+
+    def _package_group_map(self, members: list[DiagnosticPackage]) -> dict[str, int]:
+        mapping: dict[str, int] = {}
+        for member in members:
+            key = self._provider_enum_key(member.diagnostic_provider)
+            if key is None:
+                continue
+            mapping[key] = int(member.diagnostic_package_id)
+        return mapping
+
+    async def _promote_default_if_needed(
+        self,
+        db,
+        *,
+        group_id: int | None,
+        exclude_package_id: int | None = None,
+    ) -> None:
+        if group_id is None:
+            return
+        if await self._repository.group_has_default(db, group_id=int(group_id)):
+            return
+        await self._repository.promote_min_price_default_in_group(
+            db,
+            group_id=int(group_id),
+            exclude_package_id=exclude_package_id,
+        )
 
     async def _resolve_same_as_package_group(
         self,
@@ -462,6 +501,7 @@ class DiagnosticsService:
             original_price=original_price,
             min_price=min_price,
             is_most_popular=row.is_most_popular,
+            is_default_for_group=bool(row.is_default_for_group),
             has_allergy_screening=has_allergy_screening,
             has_cancer_screening=has_cancer_screening,
             complementary_consultation=row.complementary_consultation,
@@ -544,6 +584,7 @@ class DiagnosticsService:
                     min_price=min_price,
                     discount_percent=_discount_percent(price, original_price),
                     is_most_popular=row.is_most_popular,
+                    is_default_for_group=bool(row.is_default_for_group),
                     has_allergy_screening=allergy,
                     has_cancer_screening=cancer,
                     complementary_consultation=row.complementary_consultation,
@@ -559,6 +600,29 @@ class DiagnosticsService:
                 )
             )
         return items
+
+    async def _package_rows_to_group_list_items(
+        self,
+        db,
+        rows: list[DiagnosticPackage],
+    ) -> list[DiagnosticPackageGroupListItem]:
+        base_items = await self._package_rows_to_list_items(db, rows)
+        group_ids = [int(r.package_group_id) for r in rows if r.package_group_id is not None]
+        members_by_group = await self._repository.list_packages_by_group_ids(db, group_ids=group_ids)
+        group_items: list[DiagnosticPackageGroupListItem] = []
+        for row, item in zip(rows, base_items, strict=True):
+            members = (
+                members_by_group.get(int(row.package_group_id), [])
+                if row.package_group_id is not None
+                else [row]
+            )
+            group_items.append(
+                DiagnosticPackageGroupListItem(
+                    **item.model_dump(),
+                    package_group=self._package_group_map(members),
+                )
+            )
+        return group_items
 
     async def get_packages(
         self,
@@ -624,6 +688,75 @@ class DiagnosticsService:
             limit=limit if paginate else None,
         )
         items = await self._package_rows_to_list_items(db, rows)
+        if paginate:
+            return items, total, extra_meta
+        return items, None, None
+
+    async def get_package_groups(
+        self,
+        db,
+        *,
+        gender: str | None,
+        tag: str | None,
+        filter_chip: str | None = None,
+        active_only: bool = True,
+        list_type: str = "public_package",
+        requesting_user_id: int | None = None,
+        package_for: str | None = None,
+        page: int | None = None,
+        limit: int | None = None,
+        search: str | None = None,
+        diagnostic_provider: str | None = None,
+        status: str | None = None,
+    ) -> tuple[list[DiagnosticPackageGroupListItem], int | None, dict | None]:
+        gender_value = self._normalize_lower(gender)
+        tag_value = self._normalize(tag)
+        chip_key_value = self._normalize(filter_chip)
+        search_value = sanitize_list_search(search)
+        provider_value = self._normalize(diagnostic_provider)
+        status_value = self._normalize_lower(status)
+
+        if gender_value is not None and gender_value not in _ALLOWED_GENDER_VALUES:
+            raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+
+        if list_type not in ("public_package", "custom_package"):
+            raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+        public_only = list_type == "public_package"
+        created_by_user_id = None if public_only else requesting_user_id
+
+        resolved_package_for = package_for
+        if resolved_package_for is None and public_only and active_only:
+            resolved_package_for = "public"
+
+        list_kwargs = {
+            "gender": gender_value,
+            "tag": tag_value,
+            "filter_chip": chip_key_value,
+            "active_only": active_only,
+            "public_only": public_only,
+            "created_by_user_id": created_by_user_id,
+            "package_for": resolved_package_for,
+            "search": search_value,
+            "diagnostic_provider": provider_value,
+            "status": status_value,
+            "default_for_group_only": True,
+        }
+
+        paginate = page is not None and limit is not None
+        extra_meta: dict | None = None
+        total: int | None = None
+        if paginate:
+            total = await self._repository.count_packages(db, **list_kwargs)
+            tag_names = await self._repository.list_distinct_package_tag_names(db, **list_kwargs)
+            extra_meta = {"filter_options": {"tags": tag_names}}
+
+        rows = await self._repository.get_all_packages(
+            db,
+            **list_kwargs,
+            page=page if paginate else None,
+            limit=limit if paginate else None,
+        )
+        items = await self._package_rows_to_group_list_items(db, rows)
         if paginate:
             return items, total, extra_meta
         return items, None, None
@@ -830,6 +963,7 @@ class DiagnosticsService:
         payload.pop("no_of_tests", None)
         payload.pop("custom", None)
         same_as_package_id = payload.pop("same_as_package_id", None)
+        payload.pop("is_default_for_group", None)
 
         if employee is not None:
             if is_custom:
@@ -862,9 +996,14 @@ class DiagnosticsService:
                 provider=package.diagnostic_provider,
                 same_as_package_id=int(same_as_package_id),
             )
+            if await self._repository.group_has_default(db, group_id=int(package.package_group_id)):
+                package.is_default_for_group = False
+            else:
+                package.is_default_for_group = True
         else:
             group = await self._repository.create_package_group(db)
             package.package_group_id = group.package_group_id
+            package.is_default_for_group = True
         db.add(package)
         await db.flush()
 
@@ -904,21 +1043,52 @@ class DiagnosticsService:
                     message="You do not have permission to perform this action",
                 )
 
+        old_group_id = existing.package_group_id
+        was_default = bool(existing.is_default_for_group)
         fields_set = data.model_fields_set
         payload = data.model_dump(exclude_none=True)
         payload.pop("no_of_tests", None)
+
+        want_set_default = False
+        if "is_default_for_group" in fields_set:
+            if data.is_default_for_group is False and was_default and old_group_id is not None:
+                members = await self._repository.list_packages_in_group(db, group_id=int(old_group_id))
+                if len(members) > 1 and not any(
+                    member.diagnostic_package_id != package_id and member.is_default_for_group
+                    for member in members
+                ):
+                    raise AppError(
+                        status_code=400,
+                        error_code="INVALID_INPUT",
+                        message="Cannot unset the only catalog default for this package group",
+                    )
+            if data.is_default_for_group is True:
+                want_set_default = True
+            elif data.is_default_for_group is False:
+                payload["is_default_for_group"] = False
+            payload.pop("is_default_for_group", None)
+
+        new_group_id: int | None = old_group_id
+        group_membership_changed = False
         if "same_as_package_id" in fields_set:
             payload.pop("same_as_package_id", None)
+            group_membership_changed = True
             if data.same_as_package_id is None:
                 group = await self._repository.create_package_group(db)
-                payload["package_group_id"] = group.package_group_id
+                new_group_id = int(group.package_group_id)
+                payload["package_group_id"] = new_group_id
+                payload["is_default_for_group"] = True
             else:
                 merged_provider = payload.get("diagnostic_provider", existing.diagnostic_provider)
-                payload["package_group_id"] = await self._resolve_same_as_package_group(
+                new_group_id = await self._resolve_same_as_package_group(
                     db,
                     package_id=package_id,
                     provider=merged_provider,
                     same_as_package_id=int(data.same_as_package_id),
+                )
+                payload["package_group_id"] = new_group_id
+                payload["is_default_for_group"] = not await self._repository.group_has_default(
+                    db, group_id=int(new_group_id)
                 )
         if "package_name" in payload:
             name = self._normalize(payload["package_name"])
@@ -950,6 +1120,28 @@ class DiagnosticsService:
         updated = await self._repository.update_package(db, package_id=package_id, data=payload)
         if updated is None:
             raise AppError(status_code=404, error_code="DIAGNOSTIC_PACKAGE_NOT_FOUND", message="Package does not exist")
+
+        if (
+            group_membership_changed
+            and old_group_id is not None
+            and int(old_group_id) != int(updated.package_group_id or 0)
+            and was_default
+        ):
+            await self._promote_default_if_needed(
+                db,
+                group_id=int(old_group_id),
+                exclude_package_id=package_id,
+            )
+
+        if want_set_default and updated.package_group_id is not None:
+            await self._repository.set_package_as_group_default(
+                db,
+                package_id=package_id,
+                group_id=int(updated.package_group_id),
+            )
+            refreshed = await self._repository.get_package_by_id_basic(db, package_id=package_id)
+            if refreshed is not None:
+                updated = refreshed
 
         action = "EMPLOYEE_UPDATE_DIAGNOSTIC_PACKAGE" if employee is not None else "USER_UPDATE_DIAGNOSTIC_PACKAGE"
         await self._require_audit_service().log_event(
@@ -1811,6 +2003,12 @@ class DiagnosticsService:
         existing = await self._repository.get_package_by_id_basic(db, package_id=package_id)
         if existing is None:
             raise AppError(status_code=404, error_code="DIAGNOSTIC_PACKAGE_NOT_FOUND", message="Package does not exist")
+        if existing.is_default_for_group and existing.package_group_id is not None:
+            await self._repository.promote_min_price_default_in_group(
+                db,
+                group_id=int(existing.package_group_id),
+                exclude_package_id=package_id,
+            )
         await self._repository.delete_package(db, package_id=package_id)
         await self._require_audit_service().log_event(
             db,

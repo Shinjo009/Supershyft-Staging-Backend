@@ -151,6 +151,63 @@ async def list_diagnostic_filter_chips(
     return success_response([item.model_dump() for item in data])
 
 
+@router.get("/diagnostic-packages/groups")
+async def list_diagnostic_package_groups(
+    gender: str | None = None,
+    tag: str | None = None,
+    filter_chip: str | None = None,
+    package_list_type: PackageListType = Query(default=PackageListType.PUBLIC_PACKAGE, alias="type"),
+    include_inactive: bool = Query(default=False),
+    package_for: str | None = Query(default=None),
+    page: int | None = Query(default=None, ge=1),
+    limit: int | None = Query(default=None, ge=1, le=100),
+    search: str | None = None,
+    diagnostic_provider: str | None = None,
+    status: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_http_bearer),
+    diagnostics_service: DiagnosticsService = Depends(get_diagnostics_service),
+    employee_service: EmployeeService = Depends(get_employee_service),
+):
+    active_only = True
+    requesting_user_id = None
+    if package_list_type == PackageListType.CUSTOM_PACKAGE:
+        auth_user = await authenticate_bearer_user(db, credentials)
+        requesting_user_id = auth_user.user_id
+    if include_inactive:
+        from core.dependencies import get_current_employee_from_token
+
+        await get_current_employee_from_token(db, credentials)
+        active_only = False
+
+    pagination = optional_page_params(page=page, limit=limit)
+    search_value = sanitize_list_search(search)
+    data, total, extra_meta = await diagnostics_service.get_package_groups(
+        db,
+        gender=gender,
+        tag=tag,
+        filter_chip=filter_chip,
+        active_only=active_only,
+        list_type=package_list_type.value,
+        requesting_user_id=requesting_user_id,
+        package_for=package_for,
+        page=pagination.page if pagination else None,
+        limit=pagination.limit if pagination else None,
+        search=search_value,
+        diagnostic_provider=diagnostic_provider,
+        status=status,
+    )
+    if pagination:
+        meta = {
+            "page": pagination.page,
+            "limit": pagination.limit,
+            "total": total,
+            **(extra_meta or {}),
+        }
+        return success_response([item.model_dump() for item in data], meta=meta)
+    return success_response([item.model_dump() for item in data])
+
+
 @router.get("/diagnostic-packages/{package_id}")
 async def get_diagnostic_package_detail(
     package_id: int,

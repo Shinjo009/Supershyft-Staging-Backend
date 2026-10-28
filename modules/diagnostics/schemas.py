@@ -47,6 +47,9 @@ class DiagnosticPackagePeerResponse(BaseModel):
     diagnostic_package_id: int
     package_name: str
     diagnostic_provider: Optional[str] = None
+    price: Optional[float] = None
+    status: Optional[str] = None
+    is_default_for_group: Optional[bool] = None
 
 
 class DiagnosticPackageCreate(BaseModel):
@@ -70,6 +73,7 @@ class DiagnosticPackageCreate(BaseModel):
         validation_alias=AliasChoices("min_price", "minimum_price"),
     )
     is_most_popular: Optional[bool] = None
+    is_default_for_group: Optional[bool] = None
     complementary_consultation: Optional[dict[str, bool]] = None
     gender_suitability: Optional[str] = None
     reference_id: Optional[str] = None
@@ -96,6 +100,7 @@ class DiagnosticPackageUpdate(BaseModel):
         validation_alias=AliasChoices("min_price", "minimum_price"),
     )
     is_most_popular: Optional[bool] = None
+    is_default_for_group: Optional[bool] = None
     complementary_consultation: Optional[dict[str, bool]] = None
     gender_suitability: Optional[str] = None
     reference_id: Optional[str] = None
@@ -124,6 +129,7 @@ class DiagnosticPackageResponse(BaseModel):
     original_price: Optional[float] = None
     min_price: Optional[float] = None
     is_most_popular: Optional[bool] = None
+    is_default_for_group: Optional[bool] = None
     has_allergy_screening: Optional[bool] = None
     has_cancer_screening: Optional[bool] = None
     complementary_consultation: Optional[dict[str, bool]] = None
@@ -514,6 +520,7 @@ class DiagnosticPackageListItem(BaseModel):
     min_price: Optional[float] = None
     discount_percent: Optional[int] = None
     is_most_popular: Optional[bool] = None
+    is_default_for_group: Optional[bool] = None
     has_allergy_screening: Optional[bool] = None
     has_cancer_screening: Optional[bool] = None
     complementary_consultation: Optional[dict[str, bool]] = None
@@ -524,3 +531,7 @@ class DiagnosticPackageListItem(BaseModel):
     filter_chips: list[PackageFilterChipResponse] = Field(default_factory=list)
     package_group_id: Optional[int] = None
     same_packages: list[DiagnosticPackagePeerResponse] = Field(default_factory=list)
+
+
+class DiagnosticPackageGroupListItem(DiagnosticPackageListItem):
+    package_group: dict[str, int] = Field(default_factory=dict)

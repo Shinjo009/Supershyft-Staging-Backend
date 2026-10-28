@@ -71,6 +71,7 @@ class DiagnosticPackage(Base):
     original_price = Column(Numeric(10, 2))
     min_price = Column(Numeric(10, 2), nullable=True)
     is_most_popular = Column(Boolean, nullable=False, default=False, server_default="false")
+    is_default_for_group = Column(Boolean, nullable=False, default=False, server_default="false")
     complementary_consultation = Column(JSON, nullable=True)
     gender_suitability = Column(gender_suitability_enum, nullable=True)
     status = Column(

@@ -45,6 +45,7 @@ class DiagnosticsRepository:
         search: str | None = None,
         diagnostic_provider: str | None = None,
         status: str | None = None,
+        default_for_group_only: bool = False,
     ):
         if active_only:
             query = query.where(DiagnosticPackage.status == "active")
@@ -92,6 +93,9 @@ class DiagnosticsRepository:
         if status is not None:
             query = query.where(DiagnosticPackage.status == status)
 
+        if default_for_group_only:
+            query = query.where(DiagnosticPackage.is_default_for_group.is_(True))
+
         return query
 
     async def get_all_packages(
@@ -108,6 +112,7 @@ class DiagnosticsRepository:
         search: str | None = None,
         diagnostic_provider: str | None = None,
         status: str | None = None,
+        default_for_group_only: bool = False,
         page: int | None = None,
         limit: int | None = None,
     ) -> list[DiagnosticPackage]:
@@ -124,6 +129,7 @@ class DiagnosticsRepository:
             search=search,
             diagnostic_provider=diagnostic_provider,
             status=status,
+            default_for_group_only=default_for_group_only,
         )
         query = query.order_by(
             DiagnosticPackage.display_order.asc().nulls_last(),
@@ -149,6 +155,7 @@ class DiagnosticsRepository:
         search: str | None = None,
         diagnostic_provider: str | None = None,
         status: str | None = None,
+        default_for_group_only: bool = False,
     ) -> int:
         query = select(func.count()).select_from(DiagnosticPackage)
         query = self._apply_package_list_filters(
@@ -163,6 +170,7 @@ class DiagnosticsRepository:
             search=search,
             diagnostic_provider=diagnostic_provider,
             status=status,
+            default_for_group_only=default_for_group_only,
         )
         result = await db.execute(query)
         return int(result.scalar_one())
@@ -181,6 +189,7 @@ class DiagnosticsRepository:
         search: str | None = None,
         diagnostic_provider: str | None = None,
         status: str | None = None,
+        default_for_group_only: bool = False,
     ) -> list[str]:
         pkg_ids_query = select(DiagnosticPackage.diagnostic_package_id)
         pkg_ids_query = self._apply_package_list_filters(
@@ -195,6 +204,7 @@ class DiagnosticsRepository:
             search=search,
             diagnostic_provider=diagnostic_provider,
             status=status,
+            default_for_group_only=default_for_group_only,
         )
         result = await db.execute(
             select(distinct(DiagnosticPackageTag.tag_name))
@@ -419,6 +429,67 @@ class DiagnosticsRepository:
         )
         return list(result.scalars().all())
 
+    async def group_has_default(self, db: AsyncSession, *, group_id: int) -> bool:
+        result = await db.execute(
+            select(func.count())
+            .select_from(DiagnosticPackage)
+            .where(
+                DiagnosticPackage.package_group_id == group_id,
+                DiagnosticPackage.is_default_for_group.is_(True),
+            )
+        )
+        return int(result.scalar_one()) > 0
+
+    async def set_package_as_group_default(
+        self,
+        db: AsyncSession,
+        *,
+        package_id: int,
+        group_id: int,
+    ) -> None:
+        await db.execute(
+            sql_update(DiagnosticPackage)
+            .where(DiagnosticPackage.package_group_id == group_id)
+            .values(is_default_for_group=False)
+        )
+        package = await self.get_package_by_id_basic(db, package_id=package_id)
+        if package is not None:
+            package.is_default_for_group = True
+            db.add(package)
+            await db.flush()
+
+    async def promote_min_price_default_in_group(
+        self,
+        db: AsyncSession,
+        *,
+        group_id: int,
+        exclude_package_id: int | None = None,
+    ) -> None:
+        members = await self.list_packages_in_group(db, group_id=group_id)
+        candidates = [
+            member
+            for member in members
+            if exclude_package_id is None or member.diagnostic_package_id != exclude_package_id
+        ]
+        if not candidates:
+            return
+        await db.execute(
+            sql_update(DiagnosticPackage)
+            .where(DiagnosticPackage.package_group_id == group_id)
+            .values(is_default_for_group=False)
+        )
+        chosen = min(
+            candidates,
+            key=lambda row: (
+                row.price is None,
+                float(row.price) if row.price is not None else 0,
+                row.diagnostic_package_id,
+            ),
+        )
+        chosen.is_default_for_group = True
+        db.add(chosen)
+        await db.flush()
+
     async def update_package(self, db: AsyncSession, *, package_id: int, data: dict) -> DiagnosticPackage | None:
         package = await self.get_package_by_id_basic(db, package_id=package_id)
         if package is None:
@@ -499,6 +570,7 @@ class DiagnosticsRepository:
         db.add(new_group)
         await db.flush()
         duplicated.package_group_id = new_group.package_group_id
+        duplicated.is_default_for_group = True
         db.add(duplicated)
 
         for r in original.reasons:
