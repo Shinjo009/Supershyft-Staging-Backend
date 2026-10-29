@@ -720,9 +720,6 @@ class DiagnosticsService:
         base_items = await self._package_rows_to_list_items(db, rows)
         pkg_ids = [r.diagnostic_package_id for r in rows]
         unmapped_ids = await self._repository.packages_with_unmapped_tests(db, package_ids=pkg_ids)
-        null_provider_ids = await self._repository.packages_with_null_provider_test_groups(
-            db, package_ids=pkg_ids
-        )
         group_ids = [int(r.package_group_id) for r in rows if r.package_group_id is not None]
         members_by_group = await self._repository.list_packages_by_group_ids(db, group_ids=group_ids)
         group_items: list[DiagnosticPackageGroupListItem] = []
@@ -734,7 +731,6 @@ class DiagnosticsService:
             )
             pkg_id = int(row.diagnostic_package_id)
             has_unmapped = pkg_id in unmapped_ids
-            has_null_tg = pkg_id in null_provider_ids
             group_items.append(
                 DiagnosticPackageGroupListItem(
                     **item.model_dump(),
@@ -742,7 +738,7 @@ class DiagnosticsService:
                     has_unmapped_tests=has_unmapped,
                     warnings=self._build_package_warnings(
                         has_unmapped=has_unmapped,
-                        has_null_provider_test_groups=has_null_tg,
+                        has_null_provider_test_groups=False,
                     ),
                 )
             )

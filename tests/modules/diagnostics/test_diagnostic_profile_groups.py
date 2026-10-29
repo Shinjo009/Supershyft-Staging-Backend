@@ -178,7 +178,7 @@ async def test_assign_test_group_provider_mismatch_rejected(async_client, test_d
 
 
 @pytest.mark.asyncio
-async def test_assign_null_provider_test_group_allowed_with_warning_on_package_list(
+async def test_assign_null_provider_test_group_allowed_not_warned_on_package_list(
     async_client, test_db_session,
 ):
     await seed_employee(test_db_session, employee_id=934, role="admin")
@@ -224,4 +224,13 @@ async def test_assign_null_provider_test_group_allowed_with_warning_on_package_l
         item for item in groups.json()["data"] if item["diagnostic_package_id"] == package.diagnostic_package_id
     )
     codes = {w["code"] for w in row.get("warnings", [])}
-    assert "test_group_provider_missing" in codes
+    assert "test_group_provider_missing" not in codes
+
+    tests_resp = await async_client.get(
+        f"/diagnostic-packages/{package.diagnostic_package_id}/tests",
+        headers=employee_auth_header(934),
+    )
+    assert tests_resp.status_code == 200
+    assigned = tests_resp.json()["data"]["groups"]
+    assert len(assigned) == 1
+    assert assigned[0]["diagnostic_provider"] is None
