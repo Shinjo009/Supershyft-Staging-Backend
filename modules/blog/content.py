@@ -23,11 +23,42 @@ FONT_FAMILIES = {
     "Arial": "Arial, Helvetica, sans-serif",
     "Georgia": "Georgia, serif",
     "Times New Roman": '"Times New Roman", Times, serif',
+    "Montserrat": '"Montserrat", Arial, sans-serif',
+    "Poppins": '"Poppins", Arial, sans-serif',
+    "DM Sans": '"DM Sans", Arial, sans-serif',
+    "Lato": '"Lato", Arial, sans-serif',
+    "Sora": '"Sora", Arial, sans-serif',
 }
 FONT_SIZE_MIN = 8
 FONT_SIZE_MAX = 96
 _FONT_SIZE = re.compile(r"^(\d+)px$")
+FONT_WEIGHTS = {
+    "light": "300",
+    "regular": "400",
+    "medium": "500",
+    "semibold": "600",
+    "bold": "700",
+}
+_FONT_WEIGHT_ALIASES = {
+    "light": "light",
+    "300": "light",
+    "regular": "regular",
+    "normal": "regular",
+    "400": "regular",
+    "medium": "medium",
+    "500": "medium",
+    "semibold": "semibold",
+    "semi-bold": "semibold",
+    "600": "semibold",
+    "bold": "bold",
+    "700": "bold",
+}
 _HEX_COLOR = re.compile(r"^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+_PAINT_MAX = 300
+_FORBIDDEN_PAINT = re.compile(r"url\s*\(|javascript:|expression\s*\(", re.I)
+_LINEAR_GRADIENT = re.compile(r"^linear-gradient\(\s*(-?\d+(?:\.\d+)?)deg\s*,\s*(.+)\)$", re.I)
+_GRADIENT_STOP = re.compile(r"^(#[0-9a-fA-F]{3}|#[0-9a-fA-F]{6})(?:\s+(\d{1,3}%))?$")
+_BG_IMAGE_STYLE = re.compile(r"(?:^|;)\s*background-image\s*:\s*([^;]+)", re.I)
 SECTION_DEFAULT_BG = "#eff6ff"
 MAX_BLOCKS = 200
 # Highlight colours offered by the editor (Tiptap template names -> light background).
@@ -45,11 +76,10 @@ HIGHLIGHTS = {
 ALIGNS = {"left", "center", "right", "justify"}
 _SIMPLE_MARKS = {"bold", "italic", "code", "underline", "strike", "subscript", "superscript"}
 _INLINE = {"strong", "em", "b", "i", "u", "s", "strike", "del", "mark", "a", "span", "font", "small", "sub", "sup", "code"}
-_PALETTE = {color.lower(): color for color in PALETTE}
-_PALETTE_RGB = {tuple(int(color[index:index + 2], 16) for index in (1, 3, 5)): color for color in PALETTE}
 _COLOR_STYLE = re.compile(r"(?:^|;)\s*color\s*:\s*([^;]+)", re.I)
 _FONT_FAMILY_STYLE = re.compile(r"(?:^|;)\s*font-family\s*:\s*([^;]+)", re.I)
 _FONT_SIZE_STYLE = re.compile(r"(?:^|;)\s*font-size\s*:\s*([^;]+)", re.I)
+_FONT_WEIGHT_STYLE = re.compile(r"(?:^|;)\s*font-weight\s*:\s*([^;]+)", re.I)
 _RGB_COLOR = re.compile(r"rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})", re.I)
 _SKIP = {"script", "style"}
 _VOID = {"br", "img", "hr", "wbr", "source"}
@@ -320,18 +350,77 @@ def _convert_blocks(items: list) -> list[dict]:
     return blocks
 
 
-def _section_background_color(value, strict: bool = False) -> str:
+def normalize_hex(value) -> str | None:
     text = str(value or "").strip()
-    if not text:
-        return SECTION_DEFAULT_BG
     if not _HEX_COLOR.match(text):
-        if strict:
-            raise ApiError("Section backgroundColor must be a hex color like #rgb or #rrggbb")
-        return SECTION_DEFAULT_BG
+        return None
     if len(text) == 4:
         _, r, g, b = text
         text = f"#{r}{r}{g}{g}{b}{b}"
     return text.lower()
+
+
+def is_gradient_paint(value) -> bool:
+    return str(value or "").strip().lower().startswith("linear-gradient(")
+
+
+def _hex_from_rgb(value: str) -> str | None:
+    match = _RGB_COLOR.search(value)
+    if not match:
+        return None
+    parts = [int(part) for part in match.groups()]
+    if any(part < 0 or part > 255 for part in parts):
+        return None
+    return f"#{parts[0]:02x}{parts[1]:02x}{parts[2]:02x}"
+
+
+def _normalize_linear_gradient(value: str) -> str | None:
+    text = re.sub(r"\s+", " ", (value or "").strip())
+    if not text or len(text) > _PAINT_MAX or _FORBIDDEN_PAINT.search(text):
+        return None
+    match = _LINEAR_GRADIENT.fullmatch(text)
+    if not match:
+        return None
+    angle = round(float(match.group(1)))
+    if angle < 0 or angle > 360:
+        return None
+    stops = [part.strip() for part in match.group(2).split(",") if part.strip()]
+    if not (2 <= len(stops) <= 4):
+        return None
+    cleaned: list[str] = []
+    for stop in stops:
+        stop_match = _GRADIENT_STOP.fullmatch(stop)
+        if not stop_match:
+            return None
+        hex_color = normalize_hex(stop_match.group(1))
+        if not hex_color:
+            return None
+        percent = stop_match.group(2)
+        cleaned.append(f"{hex_color} {percent}" if percent else hex_color)
+    return f"linear-gradient({angle}deg, {', '.join(cleaned)})"
+
+
+def normalize_paint(value, strict: bool = False, empty_error: str = "Invalid color") -> str | None:
+    text = str(value or "").strip()
+    if not text or len(text) > _PAINT_MAX:
+        if strict:
+            raise ApiError(empty_error)
+        return None
+    paint = normalize_hex(text) or _hex_from_rgb(text) or _normalize_linear_gradient(text)
+    if paint:
+        return paint
+    if strict:
+        raise ApiError(empty_error)
+    return None
+
+
+def _section_background_color(value, strict: bool = False) -> str:
+    paint = normalize_paint(value, strict=False)
+    if paint:
+        return paint
+    if strict:
+        raise ApiError("Section backgroundColor must be a hex color or linear-gradient")
+    return SECTION_DEFAULT_BG
 
 
 def _block_attrs(block: dict) -> dict:
@@ -696,7 +785,8 @@ def _render_block(block: dict) -> str:
         if not inner:
             return ""
         color = escape(_section_background_color(_section_bg_from(block)), quote=True)
-        return f'<div data-type="section" style="background-color:{color}">{"".join(inner)}</div>'
+        style = f"background-image:{color}" if is_gradient_paint(color) else f"background-color:{color}"
+        return f'<div data-type="section" data-background-color="{color}" style="{style}">{"".join(inner)}</div>'
     if tag in _HEADING_TAGS or tag == "p":
         html = _inline(block, block.get("marks"))
         return f"<{tag}{_align_attr(block)}>{html}</{tag}>" if html else ""
@@ -1093,6 +1183,9 @@ def _open_mark(node: _Node) -> list:
                 marks.append({"type": "fontFamily", "value": family})
             if size:
                 marks.append({"type": "fontSize", "value": size})
+            weight = _font_weight_from_style(style)
+            if weight:
+                marks.append({"type": "fontWeight", "value": weight})
         return marks
     return []
 
@@ -1100,7 +1193,14 @@ def _open_mark(node: _Node) -> list:
 def _color_source(node: _Node) -> str:
     if node.tag == "font":
         return node.attrs.get("color") or ""
-    match = _COLOR_STYLE.search(node.attrs.get("style") or "")
+    paint = str(node.attrs.get("data-text-paint") or "").strip()
+    if paint:
+        return paint
+    style = node.attrs.get("style") or ""
+    background = _BG_IMAGE_STYLE.search(style)
+    if background and "linear-gradient" in background.group(1).lower():
+        return background.group(1).strip()
+    match = _COLOR_STYLE.search(style)
     return match.group(1).strip() if match else ""
 
 
@@ -1168,13 +1268,19 @@ def _normalize_marks(marks, length: int, strict: bool) -> list:
             if family in FONT_FAMILIES:
                 cleaned.append({"type": "fontFamily", "start": start, "end": end, "value": family})
             elif strict:
-                raise ApiError("Font family must be Arial, Georgia, or Times New Roman")
+                raise ApiError("Font family must be Arial, Georgia, Times New Roman, Montserrat, Poppins, DM Sans, Lato, or Sora")
         elif kind == "fontSize":
             size = _font_size_value(mark.get("value"))
             if size:
                 cleaned.append({"type": "fontSize", "start": start, "end": end, "value": size})
             elif strict:
                 raise ApiError("Font size must be between 8px and 96px")
+        elif kind == "fontWeight":
+            weight = _font_weight_name(mark.get("value"))
+            if weight:
+                cleaned.append({"type": "fontWeight", "start": start, "end": end, "value": weight})
+            elif strict:
+                raise ApiError("Font weight must be light, regular, medium, semibold, or bold")
         elif strict:
             raise ApiError("Invalid text marks")
     return _merge_marks(cleaned)
@@ -1246,22 +1352,20 @@ def _font_size_name(style: str) -> str | None:
     return _font_size_value(match.group(1).strip().lower())
 
 
-def _palette_color(value, strict: bool) -> str | None:
-    text = str(value or "").strip().lower()
-    if not text:
-        if strict:
-            raise ApiError("Text color must be one of the story colors")
+def _font_weight_name(value) -> str | None:
+    key = str(value or "").strip().lower()
+    return _FONT_WEIGHT_ALIASES.get(key)
+
+
+def _font_weight_from_style(style: str) -> str | None:
+    match = _FONT_WEIGHT_STYLE.search(style or "")
+    if not match:
         return None
-    if text in _PALETTE:
-        return _PALETTE[text]
-    match = _RGB_COLOR.search(text)
-    if match:
-        rgb = tuple(int(part) for part in match.groups())
-        if rgb in _PALETTE_RGB:
-            return _PALETTE_RGB[rgb]
-    if strict:
-        raise ApiError("Text color must be one of the story colors")
-    return None
+    return _font_weight_name(match.group(1).strip())
+
+
+def _palette_color(value, strict: bool) -> str | None:
+    return normalize_paint(value, strict=strict, empty_error="Text color must be a hex color or linear-gradient")
 
 
 def _paint(text: str, marks: list) -> str:
@@ -1282,7 +1386,7 @@ def _paint(text: str, marks: list) -> str:
 
 def _wrap_marks(chunk: str, marks: list) -> str:
     piece = "<br>".join(escape(line) for line in chunk.split("\n"))
-    for kind in ("code", "subscript", "superscript", "strike", "underline", "highlight", "fontSize", "fontFamily", "color", "italic", "bold", "link"):
+    for kind in ("code", "subscript", "superscript", "strike", "underline", "highlight", "fontSize", "fontFamily", "fontWeight", "color", "italic", "bold", "link"):
         mark = next((item for item in marks if item.get("type") == kind), None)
         if not mark:
             continue
@@ -1305,9 +1409,20 @@ def _wrap_marks(chunk: str, marks: list) -> str:
         elif kind == "fontFamily":
             family = escape(FONT_FAMILIES.get(str(mark.get("value") or ""), ""), quote=True)
             piece = f'<span style="font-family:{family}">{piece}</span>'
+        elif kind == "fontWeight":
+            weight = escape(FONT_WEIGHTS.get(str(mark.get("value") or ""), ""), quote=True)
+            if weight:
+                piece = f'<span style="font-weight:{weight}">{piece}</span>'
         elif kind == "color":
             color = escape(str(mark.get("value") or ""), quote=True)
-            piece = f'<span style="color:{color}">{piece}</span>'
+            if is_gradient_paint(color):
+                piece = (
+                    f'<span data-text-paint="{color}" '
+                    f'style="background-image:{color};-webkit-background-clip:text;'
+                    f'background-clip:text;color:transparent">{piece}</span>'
+                )
+            else:
+                piece = f'<span style="color:{color}">{piece}</span>'
         elif kind == "italic":
             piece = f"<em>{piece}</em>"
         elif kind == "bold":
