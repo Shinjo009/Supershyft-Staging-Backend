@@ -8,6 +8,7 @@ from modules.employee.repository import EmployeeRepository
 from modules.organizations.repository import OrganizationsRepository
 from modules.organizations.service import OrganizationsService
 from modules.users.repository import UsersRepository
+from modules.engagements.dependencies import get_camp_onboarding_payload_service
 
 
 def get_organizations_service() -> OrganizationsService:
@@ -17,4 +18,5 @@ def get_organizations_service() -> OrganizationsService:
         employee_repository=EmployeeRepository(),
         users_repository=UsersRepository(),
         audit_service=audit_service,
+        camp_onboarding_payload_service=get_camp_onboarding_payload_service(),
     )

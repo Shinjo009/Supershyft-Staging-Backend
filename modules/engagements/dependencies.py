@@ -25,6 +25,33 @@ from modules.organizations.repository import OrganizationsRepository
 from modules.questionnaire.repository import QuestionnaireRepository
 from modules.reports.repository import ReportsRepository
 from modules.users.repository import UsersRepository
+from modules.audit.repository import AuditRepository
+from modules.audit.service import AuditService
+from modules.engagements.onboarding_payload_repository import (
+    CampOnboardingPayloadRepository,
+    UserOnboardingPayloadFieldsRepository,
+)
+from modules.engagements.onboarding_payload_service import (
+    CampOnboardingPayloadService,
+    UserOnboardingPayloadFieldsService,
+)
+from modules.experts.repository import ExpertTypesRepository
+
+
+def get_user_onboarding_payload_fields_service() -> UserOnboardingPayloadFieldsService:
+    return UserOnboardingPayloadFieldsService(
+        repository=UserOnboardingPayloadFieldsRepository(),
+        audit_service=AuditService(AuditRepository()),
+    )
+
+
+def get_camp_onboarding_payload_service() -> CampOnboardingPayloadService:
+    return CampOnboardingPayloadService(
+        camp_repository=CampOnboardingPayloadRepository(),
+        fields_repository=UserOnboardingPayloadFieldsRepository(),
+        expert_types_repository=ExpertTypesRepository(),
+        audit_service=AuditService(AuditRepository()),
+    )
 
 
 def get_engagements_repository() -> EngagementsRepository:
@@ -52,6 +79,7 @@ def get_engagements_service() -> EngagementsService:
         notifications_repository=NotificationsRepository(),
         notifications_service=get_notifications_service(),
         expert_types_service=get_expert_types_service(),
+        camp_onboarding_payload_service=get_camp_onboarding_payload_service(),
     )
 
 

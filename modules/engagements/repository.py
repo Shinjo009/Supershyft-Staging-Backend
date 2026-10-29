@@ -1955,3 +1955,21 @@ class EngagementsRepository:
             )
             for row in result.all()
         ]
+
+    async def list_engagement_codes_and_cities_by_camp_no(
+        self,
+        db: AsyncSession,
+        *,
+        camp_no: int,
+    ) -> list[tuple[str, str | None]]:
+        result = await db.execute(
+            select(Engagement.engagement_code, Engagement.city)
+            .where(Engagement.camp_no == camp_no)
+            .order_by(Engagement.engagement_code.asc())
+        )
+        rows: list[tuple[str, str | None]] = []
+        for code, city in result.all():
+            if code is None:
+                continue
+            rows.append((str(code), city))
+        return rows

@@ -25,6 +25,7 @@ from modules.organizations.schemas import (
     CampRemapRequest,
 )
 from modules.organizations.service import OrganizationsService
+from modules.engagements.onboarding_payload_schemas import CampOnboardingPayloadUpdateRequest
 
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
@@ -242,6 +243,78 @@ async def get_camp_engagement_count(
         camp_no=camp_no,
     )
     return success_response({"camp_no": camp_no, "engagement_count": total})
+
+
+@router.get("/camps/{camp_no}")
+async def get_camp(
+    camp_no: int,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    organizations_service: OrganizationsService = Depends(get_organizations_service),
+):
+    camp = await organizations_service.get_camp_for_employee(
+        db,
+        employee=employee,
+        camp_no=camp_no,
+    )
+    return success_response(camp)
+
+
+@router.get("/camps/{camp_no}/onboarding-payload")
+async def get_camp_onboarding_payload(
+    camp_no: int,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    organizations_service: OrganizationsService = Depends(get_organizations_service),
+):
+    data = await organizations_service.get_camp_onboarding_payload_for_employee(
+        db,
+        employee=employee,
+        camp_no=camp_no,
+    )
+    return success_response(data)
+
+
+@router.post("/camps/{camp_no}/onboarding-payload", status_code=201)
+async def initialize_camp_onboarding_payload(
+    camp_no: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    organizations_service: OrganizationsService = Depends(get_organizations_service),
+):
+    data = await organizations_service.initialize_camp_onboarding_payload_for_employee(
+        db,
+        employee=employee,
+        camp_no=camp_no,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response(data)
+
+
+@router.put("/camps/{camp_no}/onboarding-payload")
+async def update_camp_onboarding_payload(
+    camp_no: int,
+    payload: CampOnboardingPayloadUpdateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    organizations_service: OrganizationsService = Depends(get_organizations_service),
+):
+    data = await organizations_service.update_camp_onboarding_payload_for_employee(
+        db,
+        employee=employee,
+        camp_no=camp_no,
+        onboarding_payload=payload.onboarding_payload,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response(data)
 
 
 @router.get("/we")

@@ -75,6 +75,9 @@ from db.session import get_db
 from modules.auth.dependencies import get_auth_service
 from modules.auth.router import router as auth_router
 from modules.engagements.router import router as engagements_router
+from modules.engagements.user_onboarding_payload_fields_router import (
+    router as user_onboarding_payload_fields_router,
+)
 from modules.engagements.console.router import router as engagement_console_router
 from modules.engagements.assessment_packages_router import (
     router as engagement_assessment_packages_router,
@@ -375,6 +378,7 @@ async def fastapi_app(
     app.include_router(superclub_router)
     app.include_router(organizations_router)
     app.include_router(engagements_router)
+    app.include_router(user_onboarding_payload_fields_router)
     app.include_router(engagement_console_router)
     app.include_router(engagement_assessment_packages_router)
     app.include_router(checklists_router)

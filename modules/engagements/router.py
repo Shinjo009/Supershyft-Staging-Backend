@@ -584,6 +584,16 @@ async def get_public_occupied_slots(
     return success_response({"occupied_slots": occupied})
 
 
+@router.get("/public/camps/{camp_no}/onboarding")
+async def get_public_camp_onboarding(
+    camp_no: int,
+    db: AsyncSession = Depends(get_db),
+    engagements_service: EngagementsService = Depends(get_engagements_service),
+):
+    data = await engagements_service.get_public_camp_onboarding(db, camp_no=camp_no)
+    return success_response(data)
+
+
 @router.delete("/{engagement_id}")
 async def delete_engagement(
     engagement_id: int,

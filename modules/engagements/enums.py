@@ -55,3 +55,19 @@ class EngagementFeedbackOverallRating(str, enum.Enum):
     good = "good"
     could_be_better = "could_be_better"
     bad = "bad"
+
+
+class UserOnboardingPayloadSection(str, enum.Enum):
+    """PostgreSQL enum `user_onboarding_payload_section`."""
+
+    personal_information = "personal_information"
+    address = "address"
+    schedule = "schedule"
+
+
+class UserOnboardingPayloadInputType(str, enum.Enum):
+    """PostgreSQL enum `user_onboarding_payload_input_type`."""
+
+    number = "number"
+    text = "text"
+    json = "json"

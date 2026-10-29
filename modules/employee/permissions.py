@@ -64,6 +64,11 @@ TASK_CATALOG: Mapping[str, tuple[tuple[str, str, str], ...]] = MappingProxyType(
             ("organizations", "Organizations", "Manage organization records and contacts"),
             ("industries", "Industries", "Manage organization industries"),
             ("camps", "Camps", "Manage organization camps"),
+            (
+                "onboarding_payload_fields",
+                "Onboarding payload fields",
+                "Manage user onboarding payload field definitions",
+            ),
             ("participants", "Organization participants", "View organization participant lists"),
             ("assets", "Organization assets", "Manage organization logos and assets"),
             ("geocoding", "Addresses & geocoding", "Resolve and update organization addresses"),
@@ -413,6 +418,8 @@ def _task_for_operation(category: str, path: str, method: str) -> str:
             return "import_export"
         return "directory" if method == "GET" else "profiles"
     if category == "organizations":
+        if "onboarding-payload-field" in path or path.startswith("/user-onboarding-payload-fields"):
+            return "onboarding_payload_fields"
         if "industr" in path:
             return "industries"
         if "/participants" in path:
@@ -638,6 +645,8 @@ def classify_operation(route_template: str, method: str) -> RouteCapability | No
     elif path.startswith("/engagements"):
         category = "engagements"
     elif path.startswith("/organizations"):
+        category = "organizations"
+    elif path.startswith("/user-onboarding-payload-fields"):
         category = "organizations"
     elif path.startswith("/geocode"):
         category, action = "organizations", PermissionAction.edit

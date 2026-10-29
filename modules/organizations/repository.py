@@ -631,6 +631,11 @@ class OrganizationsRepository:
         )
         return int(result.scalar_one() or 0)
 
+    async def get_camp_group_row(self, db: AsyncSession, *, camp_no: int) -> tuple | None:
+        query = self._camps_grouped_query(initialized_only=False).where(Engagement.camp_no == camp_no)
+        result = await db.execute(query)
+        return result.first()
+
     async def remap_engagement_camp_no(
         self,
         db: AsyncSession,

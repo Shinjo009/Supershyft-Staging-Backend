@@ -42,6 +42,8 @@ from modules.engagements.enums import (
     EngagementKind,
     EngagementPaymentType,
     EngagementStatus,
+    UserOnboardingPayloadInputType,
+    UserOnboardingPayloadSection,
 )
 
 _blood_booking_relation = SAEnum(
@@ -61,6 +63,22 @@ _engagement_kind = SAEnum(
 _engagement_feedback_overall_rating = SAEnum(
     EngagementFeedbackOverallRating,
     name="engagement_feedback_overall_rating",
+    values_callable=lambda obj: [e.value for e in obj],
+    validate_strings=True,
+    create_type=False,
+)
+
+_user_onboarding_payload_section = SAEnum(
+    UserOnboardingPayloadSection,
+    name="user_onboarding_payload_section",
+    values_callable=lambda obj: [e.value for e in obj],
+    validate_strings=True,
+    create_type=False,
+)
+
+_user_onboarding_payload_input_type = SAEnum(
+    UserOnboardingPayloadInputType,
+    name="user_onboarding_payload_input_type",
     values_callable=lambda obj: [e.value for e in obj],
     validate_strings=True,
     create_type=False,
@@ -361,3 +379,25 @@ class EngagementNotificationDefault(Base):
     engagement_type_id = Column(Integer, ForeignKey("engagement_types.id"), nullable=False)
     notification_event_id = Column(Integer, ForeignKey("auto_notification_events.id"), nullable=False)
     notification_services = Column(JSON, nullable=False)
+
+
+class UserOnboardingPayloadField(Base):
+    """Catalog of fields collected during user onboarding."""
+
+    __tablename__ = "user_onboarding_payload_fields"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    payload_key = Column(String, nullable=False, unique=True)
+    display_name = Column(String, nullable=True)
+    section = Column(_user_onboarding_payload_section, nullable=False)
+    input_type = Column(_user_onboarding_payload_input_type, nullable=False)
+
+
+class CampUserOnboardingPayloadField(Base):
+    """Per-camp onboarding requirement configuration."""
+
+    __tablename__ = "camp_user_onboarding_payload_fields"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    camp_no = Column(BigInteger, nullable=False, unique=True, index=True)
+    onboarding_payload = Column(JSON, nullable=False, server_default=text("'{}'"))

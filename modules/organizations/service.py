@@ -11,6 +11,8 @@ Business rules:
 
 from __future__ import annotations
 
+from typing import Any
+
 from core.exceptions import AppError
 from common.masking import mask_email, mask_phone
 from common.slug import slugify_department
@@ -137,12 +139,14 @@ class OrganizationsService:
         users_repository: UsersRepository | None = None,
         audit_service: AuditService | None = None,
         partners_repository: PartnersRepository | None = None,
+        camp_onboarding_payload_service: Any | None = None,
     ):
         self._repository = repository
         self._employee_repository = employee_repository or EmployeeRepository()
         self._users_repository = users_repository or UsersRepository()
         self._audit_service = audit_service
         self._partners_repository = partners_repository or PartnersRepository()
+        self._camp_onboarding_payload_service = camp_onboarding_payload_service
 
     def _require_audit_service(self) -> AuditService:
         if self._audit_service is None:
@@ -932,6 +936,13 @@ class OrganizationsService:
             to_camp_no=new_camp_no,
         )
 
+        if self._camp_onboarding_payload_service is not None:
+            await self._camp_onboarding_payload_service.remap_camp_no(
+                db,
+                from_camp_no=camp_no,
+                to_camp_no=new_camp_no,
+            )
+
         await self._require_audit_service().log_event(
             db,
             action="EMPLOYEE_REMAP_CAMP_NO",
@@ -958,3 +969,95 @@ class OrganizationsService:
     ) -> int:
         ensure_admin(employee)
         return await self._repository.count_engagements_by_camp_no(db, camp_no=camp_no)
+
+    async def get_camp_for_employee(
+        self,
+        db,
+        *,
+        employee: EmployeeContext,
+        camp_no: int,
+    ) -> dict:
+        ensure_admin(employee)
+        row = await self._repository.get_camp_group_row(db, camp_no=camp_no)
+        if row is None:
+            raise AppError(
+                status_code=404,
+                error_code="CAMP_NOT_FOUND",
+                message="Camp does not exist",
+            )
+        enriched = await self._enrich_camp_rows(db, [row])
+        return enriched[0]
+
+    async def get_camp_onboarding_payload_for_employee(
+        self,
+        db,
+        *,
+        employee: EmployeeContext,
+        camp_no: int,
+    ) -> dict:
+        ensure_admin(employee)
+        if await self._repository.count_engagements_by_camp_no(db, camp_no=camp_no) == 0:
+            raise AppError(
+                status_code=404,
+                error_code="CAMP_NOT_FOUND",
+                message="Camp does not exist",
+            )
+        if self._camp_onboarding_payload_service is None:
+            return {
+                "camp_no": camp_no,
+                "initialized": False,
+                "onboarding_payload": None,
+            }
+        return await self._camp_onboarding_payload_service.get_payload_state(db, camp_no=camp_no)
+
+    async def initialize_camp_onboarding_payload_for_employee(
+        self,
+        db,
+        *,
+        employee: EmployeeContext,
+        camp_no: int,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> dict:
+        if self._camp_onboarding_payload_service is None:
+            raise AppError(status_code=500, error_code="INTERNAL_ERROR", message="An unexpected error occurred")
+        camp_exists = await self._repository.count_engagements_by_camp_no(db, camp_no=camp_no) > 0
+        return await self._camp_onboarding_payload_service.initialize_payload(
+            db,
+            employee=employee,
+            camp_no=camp_no,
+            camp_exists=camp_exists,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            endpoint=endpoint,
+        )
+
+    async def update_camp_onboarding_payload_for_employee(
+        self,
+        db,
+        *,
+        employee: EmployeeContext,
+        camp_no: int,
+        onboarding_payload: dict,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> dict:
+        if self._camp_onboarding_payload_service is None:
+            raise AppError(status_code=500, error_code="INTERNAL_ERROR", message="An unexpected error occurred")
+        if await self._repository.count_engagements_by_camp_no(db, camp_no=camp_no) == 0:
+            raise AppError(
+                status_code=404,
+                error_code="CAMP_NOT_FOUND",
+                message="Camp does not exist",
+            )
+        return await self._camp_onboarding_payload_service.update_payload(
+            db,
+            employee=employee,
+            camp_no=camp_no,
+            payload=onboarding_payload,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            endpoint=endpoint,
+        )

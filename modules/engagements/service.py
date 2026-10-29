@@ -406,6 +406,7 @@ class EngagementsService:
         consultation_bookings_repository: ConsultationBookingsRepository | None = None,
         expert_types_service: ExpertTypesService | None = None,
         slot_info_repository: EngagementSlotInfoRepository | None = None,
+        camp_onboarding_payload_service: Any | None = None,
     ):
         self._repository = repository
         self._audit_service = audit_service
@@ -425,6 +426,7 @@ class EngagementsService:
         self._expert_types_service = expert_types_service or ExpertTypesService(repository=ExpertTypesRepository())
         self._slot_info_repository = slot_info_repository or EngagementSlotInfoRepository()
         self._checklists_service = None
+        self._camp_onboarding_payload_service = camp_onboarding_payload_service
 
     async def resolve_slot_detail(self, db: AsyncSession, engagement: Engagement) -> dict[str, Any] | None:
         if engagement.slot_detail_id is None:
@@ -835,6 +837,12 @@ class EngagementsService:
             organization_id=engagement.organization_id,
         )
 
+        if self._camp_onboarding_payload_service is not None and engagement.camp_no is not None:
+            await self._camp_onboarding_payload_service.ensure_row_for_camp_no(
+                db,
+                camp_no=int(engagement.camp_no),
+            )
+
         return engagement
 
     async def list_engagements_for_employee(
@@ -1128,6 +1136,28 @@ class EngagementsService:
 
     async def get_engagement_by_code_public(self, db: AsyncSession, *, engagement_code: str):
         return await self._repository.get_engagement_with_org_by_code(db, engagement_code)
+
+    async def get_public_camp_onboarding(self, db: AsyncSession, *, camp_no: int) -> dict[str, Any]:
+        engagements = await self._repository.list_engagement_codes_and_cities_by_camp_no(
+            db,
+            camp_no=camp_no,
+        )
+        if not engagements:
+            raise AppError(
+                status_code=404,
+                error_code="CAMP_NOT_FOUND",
+                message="Camp does not exist",
+            )
+        if self._camp_onboarding_payload_service is None:
+            return {
+                "engagements": [{"code": code, "city": city} for code, city in engagements],
+                "onboarding_payload": {},
+            }
+        return await self._camp_onboarding_payload_service.public_onboarding_for_camp(
+            db,
+            camp_no=camp_no,
+            engagements=engagements,
+        )
 
     async def public_slot_detail_for_engagement(self, db: AsyncSession, engagement: Engagement):
         slot_detail = await self.resolve_slot_detail(db, engagement)
@@ -1574,6 +1604,12 @@ class EngagementsService:
             user_id=None,
             session_id=None,
         )
+
+        if self._camp_onboarding_payload_service is not None and engagement.camp_no is not None:
+            await self._camp_onboarding_payload_service.ensure_row_for_camp_no(
+                db,
+                camp_no=int(engagement.camp_no),
+            )
 
         return engagement
 
