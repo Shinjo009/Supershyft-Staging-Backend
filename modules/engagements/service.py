@@ -988,6 +988,9 @@ class EngagementsService:
             for organization, _industry in org_rows
         ]
         diagnostic_by_id = {p.diagnostic_package_id: p for p in camp_packages + public_packages}
+        bootstrap_packages = await diagnostics_service.diagnostic_packages_for_form_bootstrap(
+            db, list(diagnostic_by_id.values())
+        )
         return {
             "engagement_types": [item.model_dump(mode="json") for item in engagement_types],
             "organizations": organizations,
@@ -1002,7 +1005,7 @@ class EngagementsService:
                 }
                 for p in assessment_rows
             ],
-            "diagnostic_packages": [p.model_dump(mode="json") for p in diagnostic_by_id.values()],
+            "diagnostic_packages": bootstrap_packages,
             "notification_services": [
                 {
                     "service_key": svc.service_key,

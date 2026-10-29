@@ -22,3 +22,9 @@ async def test_engagements_form_bootstrap(async_client, test_db_session):
     assert "diagnostic_packages" in data
     assert "notification_services" in data
     assert "expert_types" in data
+    if data["diagnostic_packages"]:
+        sample = data["diagnostic_packages"][0]
+        assert "diagnostic_package_id" in sample
+        assert "package_name" in sample
+        assert "external_package_code" in sample
+        assert "same_packages" not in sample

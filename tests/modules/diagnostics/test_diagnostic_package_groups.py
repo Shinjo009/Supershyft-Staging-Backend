@@ -62,6 +62,9 @@ async def test_public_list_diagnostic_package_groups(async_client, test_db_sessi
     assert match["package_group"]["healthians"] == healthians.diagnostic_package_id
     assert match["package_group"]["orange_health"] == orange.diagnostic_package_id
     assert match["price"] == 1999.0
+    assert "same_packages" not in match
+    assert "unmapped_test_count" not in match
+    assert "has_unmapped_tests" in match
 
 
 @pytest.mark.asyncio

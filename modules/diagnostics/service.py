@@ -544,16 +544,11 @@ class DiagnosticsService:
     ) -> list[DiagnosticPackageListItem]:
         pkg_ids = [r.diagnostic_package_id for r in rows]
         counts = await self._repository.count_distinct_tests_for_packages(db, package_ids=pkg_ids)
-        unmapped_counts = await self._repository.count_unmapped_tests_for_packages(
-            db, package_ids=pkg_ids
-        )
         screening_by_pkg = await self._repository.screening_flags_for_packages(db, package_ids=pkg_ids)
         tags_by_pkg = await self._repository.list_tags_for_package_ids(db, package_ids=pkg_ids)
         chip_links_by_pkg = await self._repository.list_filter_chip_links_for_package_ids(
             db, package_ids=pkg_ids
         )
-        group_ids = [int(r.package_group_id) for r in rows if r.package_group_id is not None]
-        members_by_group = await self._repository.list_packages_by_group_ids(db, group_ids=group_ids)
         items: list[DiagnosticPackageListItem] = []
         for row in rows:
             price = float(row.price) if row.price is not None else None
@@ -561,11 +556,6 @@ class DiagnosticsService:
             min_price = float(row.min_price) if row.min_price is not None else None
             tags = tags_by_pkg.get(int(row.diagnostic_package_id), [])
             n_tests = counts.get(row.diagnostic_package_id, 0)
-            group_members = (
-                members_by_group.get(int(row.package_group_id), [])
-                if row.package_group_id is not None
-                else []
-            )
             allergy, cancer = screening_by_pkg.get(row.diagnostic_package_id, (False, False))
             items.append(
                 DiagnosticPackageListItem(
@@ -574,9 +564,7 @@ class DiagnosticsService:
                     package_image=row.package_image,
                     diagnostic_provider=row.diagnostic_provider,
                     display_order=row.display_order,
-                    external_package_code=row.external_package_code,
                     no_of_tests=n_tests,
-                    unmapped_test_count=unmapped_counts.get(row.diagnostic_package_id, 0),
                     report_duration_hours=row.report_duration_hours,
                     collection_type=row.collection_type,
                     price=price,
@@ -584,19 +572,15 @@ class DiagnosticsService:
                     min_price=min_price,
                     discount_percent=_discount_percent(price, original_price),
                     is_most_popular=row.is_most_popular,
-                    is_default_for_group=bool(row.is_default_for_group),
                     has_allergy_screening=allergy,
                     has_cancer_screening=cancer,
                     complementary_consultation=row.complementary_consultation,
                     gender_suitability=row.gender_suitability,
-                    package_for=row.package_for,
-                    status=row.status,
                     tags=[self._to_tag_response(tag_row) for tag_row in tags],
                     filter_chips=self._filter_chip_responses_from_links(
                         chip_links_by_pkg.get(int(row.diagnostic_package_id), [])
                     ),
                     package_group_id=row.package_group_id,
-                    same_packages=self._peer_responses(row, group_members),
                 )
             )
         return items
@@ -607,6 +591,8 @@ class DiagnosticsService:
         rows: list[DiagnosticPackage],
     ) -> list[DiagnosticPackageGroupListItem]:
         base_items = await self._package_rows_to_list_items(db, rows)
+        pkg_ids = [r.diagnostic_package_id for r in rows]
+        unmapped_ids = await self._repository.packages_with_unmapped_tests(db, package_ids=pkg_ids)
         group_ids = [int(r.package_group_id) for r in rows if r.package_group_id is not None]
         members_by_group = await self._repository.list_packages_by_group_ids(db, group_ids=group_ids)
         group_items: list[DiagnosticPackageGroupListItem] = []
@@ -620,6 +606,7 @@ class DiagnosticsService:
                 DiagnosticPackageGroupListItem(
                     **item.model_dump(),
                     package_group=self._package_group_map(members),
+                    has_unmapped_tests=int(row.diagnostic_package_id) in unmapped_ids,
                 )
             )
         return group_items
@@ -760,6 +747,28 @@ class DiagnosticsService:
         if paginate:
             return items, total, extra_meta
         return items, None, None
+
+    async def diagnostic_packages_for_form_bootstrap(
+        self,
+        db,
+        items: list[DiagnosticPackageListItem],
+    ) -> list[dict]:
+        """Minimal picker shape for engagement form bootstrap (includes lab code)."""
+        if not items:
+            return []
+        ids = [int(item.diagnostic_package_id) for item in items]
+        codes = await self._repository.external_package_codes_for_ids(db, package_ids=ids)
+        return [
+            {
+                "diagnostic_package_id": item.diagnostic_package_id,
+                "package_name": item.package_name,
+                "gender_suitability": item.gender_suitability,
+                "diagnostic_provider": item.diagnostic_provider,
+                "external_package_code": codes.get(int(item.diagnostic_package_id)),
+                "complementary_consultation": item.complementary_consultation,
+            }
+            for item in items
+        ]
 
     async def get_package_detail(self, db, *, package_id: int) -> DiagnosticPackageDetailResponse:
         row = await self._repository.get_package_by_id(db, package_id=package_id)

@@ -92,6 +92,20 @@ async def test_link_packages_same_group_and_list_peers(async_client, test_db_ses
     assert create_resp.status_code in (200, 201)
     orange_id = create_resp.json()["data"]["diagnostic_package_id"]
 
+    orange_detail = await async_client.get(f"/diagnostic-packages/{orange_id}")
+    assert orange_detail.status_code == 200
+    peers = orange_detail.json()["data"]["same_packages"]
+    assert len(peers) == 1
+    assert peers[0]["diagnostic_package_id"] == healthians.diagnostic_package_id
+
+    healthians_detail = await async_client.get(
+        f"/diagnostic-packages/{healthians.diagnostic_package_id}"
+    )
+    assert healthians_detail.status_code == 200
+    healthians_peers = healthians_detail.json()["data"]["same_packages"]
+    assert len(healthians_peers) == 1
+    assert healthians_peers[0]["diagnostic_package_id"] == orange_id
+
     list_resp = await async_client.get(
         "/diagnostic-packages",
         headers=employee_auth_header(902),
@@ -99,12 +113,9 @@ async def test_link_packages_same_group_and_list_peers(async_client, test_db_ses
     )
     assert list_resp.status_code == 200
     rows = {row["diagnostic_package_id"]: row for row in list_resp.json()["data"]}
-    orange_row = rows[orange_id]
-    healthians_row = rows[healthians.diagnostic_package_id]
-    assert len(orange_row["same_packages"]) == 1
-    assert orange_row["same_packages"][0]["diagnostic_package_id"] == healthians.diagnostic_package_id
-    assert len(healthians_row["same_packages"]) == 1
-    assert healthians_row["same_packages"][0]["diagnostic_package_id"] == orange_id
+    assert orange_id in rows
+    assert healthians.diagnostic_package_id in rows
+    assert "same_packages" not in rows[orange_id]
 
 
 @pytest.mark.asyncio
@@ -201,6 +212,7 @@ async def test_list_packages_reports_unmapped_provider_test_ids(async_client, te
         diagnostic_provider="healthians",
         status="active",
         package_for="public",
+        is_default_for_group=True,
     )
     await _assign_tests(
         test_db_session,
@@ -227,6 +239,7 @@ async def test_list_packages_reports_unmapped_provider_test_ids(async_client, te
         diagnostic_provider="orange_health",
         status="active",
         package_for="public",
+        is_default_for_group=True,
     )
     await _assign_tests(
         test_db_session,
@@ -252,6 +265,7 @@ async def test_list_packages_reports_unmapped_provider_test_ids(async_client, te
         diagnostic_provider="healthians",
         status="active",
         package_for="public",
+        is_default_for_group=True,
     )
 
     list_resp = await async_client.get(
@@ -264,15 +278,26 @@ async def test_list_packages_reports_unmapped_provider_test_ids(async_client, te
 
     healthians_row = rows[healthians.diagnostic_package_id]
     assert healthians_row["no_of_tests"] == 2
-    assert healthians_row["unmapped_test_count"] == 1
+    assert "unmapped_test_count" not in healthians_row
 
     orange_row = rows[orange.diagnostic_package_id]
     assert orange_row["no_of_tests"] == 2
-    assert orange_row["unmapped_test_count"] == 1
+    assert "unmapped_test_count" not in orange_row
 
     empty_row = rows[empty.diagnostic_package_id]
     assert empty_row["no_of_tests"] == 0
-    assert empty_row["unmapped_test_count"] == 0
+    assert "unmapped_test_count" not in empty_row
+
+    groups_resp = await async_client.get(
+        "/diagnostic-packages/groups",
+        headers=employee_auth_header(905),
+        params={"include_inactive": True, "type": "public_package"},
+    )
+    assert groups_resp.status_code == 200
+    group_rows = {row["diagnostic_package_id"]: row for row in groups_resp.json()["data"]}
+    assert group_rows[healthians.diagnostic_package_id]["has_unmapped_tests"] is True
+    assert group_rows[orange.diagnostic_package_id]["has_unmapped_tests"] is True
+    assert group_rows[empty.diagnostic_package_id]["has_unmapped_tests"] is False
 
 
 @pytest.mark.asyncio

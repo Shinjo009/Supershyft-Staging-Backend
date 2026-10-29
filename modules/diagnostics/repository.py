@@ -372,6 +372,44 @@ class DiagnosticsRepository:
             out[int(row.diagnostic_package_id)] = int(row.cnt or 0)
         return out
 
+    async def packages_with_unmapped_tests(
+        self,
+        db: AsyncSession,
+        *,
+        package_ids: list[int],
+    ) -> set[int]:
+        """Package ids that have at least one distinct test with a missing provider key."""
+        if not package_ids:
+            return set()
+        pkg_col = DiagnosticPackageTestGroup.diagnostic_package_id
+        provider_text = func.lower(func.trim(cast(DiagnosticPackage.diagnostic_provider, String)))
+        is_orange = provider_text == "orange_health"
+        relevant_key = case(
+            (is_orange, HealthParameter.orangehealth_parameter_key),
+            else_=HealthParameter.healthians_parameter_key,
+        )
+        unmapped = or_(relevant_key.is_(None), func.trim(relevant_key) == "")
+        query = (
+            select(pkg_col.label("diagnostic_package_id"))
+            .select_from(DiagnosticPackageTestGroup)
+            .join(
+                DiagnosticPackage,
+                DiagnosticPackage.diagnostic_package_id == pkg_col,
+            )
+            .join(
+                DiagnosticTestGroupTest,
+                DiagnosticTestGroupTest.group_id == DiagnosticPackageTestGroup.group_id,
+            )
+            .join(
+                HealthParameter,
+                HealthParameter.test_id == DiagnosticTestGroupTest.test_id,
+            )
+            .where(pkg_col.in_(package_ids), unmapped)
+            .distinct()
+        )
+        result = await db.execute(query)
+        return {int(row.diagnostic_package_id) for row in result.all()}
+
     async def get_package_by_id(self, db: AsyncSession, *, package_id: int) -> DiagnosticPackage | None:
         result = await db.execute(
             select(DiagnosticPackage)
@@ -422,6 +460,22 @@ class DiagnosticsRepository:
                 continue
             grouped.setdefault(int(row.package_group_id), []).append(row)
         return grouped
+
+    async def external_package_codes_for_ids(
+        self,
+        db: AsyncSession,
+        *,
+        package_ids: list[int],
+    ) -> dict[int, str | None]:
+        if not package_ids:
+            return {}
+        result = await db.execute(
+            select(
+                DiagnosticPackage.diagnostic_package_id,
+                DiagnosticPackage.external_package_code,
+            ).where(DiagnosticPackage.diagnostic_package_id.in_(package_ids))
+        )
+        return {int(row.diagnostic_package_id): row.external_package_code for row in result.all()}
 
     async def list_packages_in_group(self, db: AsyncSession, *, group_id: int) -> list[DiagnosticPackage]:
         result = await db.execute(

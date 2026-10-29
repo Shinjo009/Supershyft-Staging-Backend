@@ -511,9 +511,7 @@ class DiagnosticPackageListItem(BaseModel):
     package_image: Optional[str] = None
     diagnostic_provider: Optional[str] = None
     display_order: Optional[int] = None
-    external_package_code: Optional[str] = None
     no_of_tests: Optional[int] = None
-    unmapped_test_count: int = 0
     report_duration_hours: Optional[int] = None
     collection_type: Optional[str] = None
     price: Optional[float] = None
@@ -521,18 +519,15 @@ class DiagnosticPackageListItem(BaseModel):
     min_price: Optional[float] = None
     discount_percent: Optional[int] = None
     is_most_popular: Optional[bool] = None
-    is_default_for_group: Optional[bool] = None
     has_allergy_screening: Optional[bool] = None
     has_cancer_screening: Optional[bool] = None
     complementary_consultation: Optional[dict[str, bool]] = None
     gender_suitability: Optional[str] = None
-    package_for: Optional[str] = None
-    status: Optional[str] = None
     tags: list[TagResponse] = Field(default_factory=list)
     filter_chips: list[PackageFilterChipResponse] = Field(default_factory=list)
     package_group_id: Optional[int] = None
-    same_packages: list[DiagnosticPackagePeerResponse] = Field(default_factory=list)
 
 
 class DiagnosticPackageGroupListItem(DiagnosticPackageListItem):
     package_group: dict[str, int] = Field(default_factory=dict)
+    has_unmapped_tests: bool = False
