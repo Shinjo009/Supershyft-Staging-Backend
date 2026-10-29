@@ -1137,7 +1137,29 @@ class EngagementsService:
     async def get_engagement_by_code_public(self, db: AsyncSession, *, engagement_code: str):
         return await self._repository.get_engagement_with_org_by_code(db, engagement_code)
 
-    async def get_public_camp_onboarding(self, db: AsyncSession, *, camp_no: int) -> dict[str, Any]:
+    async def get_public_camp_onboarding_by_code(
+        self,
+        db: AsyncSession,
+        *,
+        camp_code: str,
+    ) -> dict[str, Any]:
+        if self._camp_onboarding_payload_service is None:
+            raise AppError(
+                status_code=404,
+                error_code="CAMP_NOT_FOUND",
+                message="Camp does not exist",
+            )
+        row = await self._camp_onboarding_payload_service.get_row_by_camp_code(
+            db,
+            camp_code=camp_code,
+        )
+        if row is None:
+            raise AppError(
+                status_code=404,
+                error_code="CAMP_NOT_FOUND",
+                message="Camp does not exist",
+            )
+        camp_no = int(row.camp_no)
         engagements = await self._repository.list_engagement_codes_and_cities_by_camp_no(
             db,
             camp_no=camp_no,
@@ -1148,11 +1170,6 @@ class EngagementsService:
                 error_code="CAMP_NOT_FOUND",
                 message="Camp does not exist",
             )
-        if self._camp_onboarding_payload_service is None:
-            return {
-                "engagements": [{"code": code, "city": city} for code, city in engagements],
-                "onboarding_payload": {},
-            }
         return await self._camp_onboarding_payload_service.public_onboarding_for_camp(
             db,
             camp_no=camp_no,

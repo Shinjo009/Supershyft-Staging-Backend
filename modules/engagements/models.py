@@ -400,4 +400,5 @@ class CampUserOnboardingPayloadField(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     camp_no = Column(BigInteger, nullable=False, unique=True, index=True)
+    camp_code = Column(String(12), nullable=False, unique=True, index=True)
     onboarding_payload = Column(JSON, nullable=False, server_default=text("'{}'"))

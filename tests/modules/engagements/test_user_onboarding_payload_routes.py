@@ -20,6 +20,12 @@ def _auth_header(employee_id: int) -> dict[str, str]:
     return employee_auth_header(employee_id)
 
 
+def _assert_valid_camp_code(camp_code: str | None) -> None:
+    assert camp_code is not None
+    assert len(camp_code) == 12
+    assert camp_code.isalnum()
+
+
 async def _seed_platform_settings(test_db_session, *, employee_id: int) -> None:
     await test_db_session.execute(text("DELETE FROM platform_settings"))
     await test_db_session.execute(
@@ -140,6 +146,7 @@ async def test_b2b_create_inserts_camp_onboarding_row(async_client, test_db_sess
     row = result.scalar_one_or_none()
     assert row is not None
     assert row.onboarding_payload == {}
+    _assert_valid_camp_code(row.camp_code)
 
 
 @pytest.mark.asyncio
@@ -176,6 +183,7 @@ async def test_existing_camp_init_and_update_payload(async_client, test_db_sessi
     )
     assert init_res.status_code == 201
     assert init_res.json()["data"]["initialized"] is True
+    _assert_valid_camp_code(init_res.json()["data"]["camp_code"])
 
     second_init = await async_client.post(
         f"/organizations/camps/{camp_no}/onboarding-payload",
@@ -196,6 +204,7 @@ async def test_existing_camp_init_and_update_payload(async_client, test_db_sessi
     )
     assert update_res.status_code == 200
     assert update_res.json()["data"]["onboarding_payload"]["weight"]["required"] is True
+    _assert_valid_camp_code(update_res.json()["data"]["camp_code"])
 
 
 @pytest.mark.asyncio
@@ -207,7 +216,14 @@ async def test_public_camp_onboarding(async_client, test_db_session):
 
     engagement_id, camp_no = await _create_b2b_engagement(async_client, test_db_session, employee_id=14)
 
-    public_res = await async_client.get(f"/engagements/public/camps/{camp_no}/onboarding")
+    camp_row_result = await test_db_session.execute(
+        select(CampUserOnboardingPayloadField).where(CampUserOnboardingPayloadField.camp_no == camp_no)
+    )
+    camp_row = camp_row_result.scalar_one()
+    _assert_valid_camp_code(camp_row.camp_code)
+    camp_code = camp_row.camp_code
+
+    public_res = await async_client.get(f"/engagements/camps/code/{camp_code}/onboarding")
     assert public_res.status_code == 200
     body = public_res.json()["data"]
     assert isinstance(body["onboarding_payload"], dict)
@@ -215,7 +231,7 @@ async def test_public_camp_onboarding(async_client, test_db_session):
     assert body["engagements"][0]["city"] == "BLR"
     assert isinstance(body["engagements"][0]["code"], str)
 
-    missing = await async_client.get("/engagements/public/camps/99999999/onboarding")
+    missing = await async_client.get("/engagements/camps/code/invalidCode12/onboarding")
     assert missing.status_code == 404
 
     await test_db_session.execute(
@@ -223,9 +239,8 @@ async def test_public_camp_onboarding(async_client, test_db_session):
     )
     await test_db_session.commit()
 
-    public_uninitialized = await async_client.get(f"/engagements/public/camps/{camp_no}/onboarding")
-    assert public_uninitialized.status_code == 200
-    assert public_uninitialized.json()["data"]["onboarding_payload"] == {}
+    public_after_delete = await async_client.get(f"/engagements/camps/code/{camp_code}/onboarding")
+    assert public_after_delete.status_code == 404
 
     # Sanity: engagement still exists
     row = await test_db_session.get(Engagement, engagement_id)

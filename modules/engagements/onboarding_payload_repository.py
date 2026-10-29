@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
+import secrets
+import string
+
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.engagements.models import CampUserOnboardingPayloadField, UserOnboardingPayloadField
+
+_CAMP_CODE_LENGTH = 12
+_CAMP_CODE_ALPHABET = string.ascii_letters + string.digits
+_MAX_CAMP_CODE_ATTEMPTS = 32
+
+
+def generate_camp_code(length: int = _CAMP_CODE_LENGTH) -> str:
+    return "".join(secrets.choice(_CAMP_CODE_ALPHABET) for _ in range(length))
 
 
 class UserOnboardingPayloadFieldsRepository:
@@ -83,10 +94,32 @@ class CampOnboardingPayloadRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_camp_code(
+        self,
+        db: AsyncSession,
+        *,
+        camp_code: str,
+    ) -> CampUserOnboardingPayloadField | None:
+        result = await db.execute(
+            select(CampUserOnboardingPayloadField).where(
+                CampUserOnboardingPayloadField.camp_code == camp_code
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def _unique_camp_code(self, db: AsyncSession) -> str:
+        for _ in range(_MAX_CAMP_CODE_ATTEMPTS):
+            code = generate_camp_code()
+            existing = await self.get_by_camp_code(db, camp_code=code)
+            if existing is None:
+                return code
+        raise RuntimeError("Failed to generate unique camp_code")
+
     async def ensure_row(self, db: AsyncSession, *, camp_no: int) -> None:
+        camp_code = await self._unique_camp_code(db)
         stmt = (
             insert(CampUserOnboardingPayloadField)
-            .values(camp_no=camp_no, onboarding_payload={})
+            .values(camp_no=camp_no, camp_code=camp_code, onboarding_payload={})
             .on_conflict_do_nothing(index_elements=["camp_no"])
         )
         await db.execute(stmt)
@@ -97,7 +130,12 @@ class CampOnboardingPayloadRepository:
         *,
         camp_no: int,
     ) -> CampUserOnboardingPayloadField:
-        row = CampUserOnboardingPayloadField(camp_no=camp_no, onboarding_payload={})
+        camp_code = await self._unique_camp_code(db)
+        row = CampUserOnboardingPayloadField(
+            camp_no=camp_no,
+            camp_code=camp_code,
+            onboarding_payload={},
+        )
         db.add(row)
         await db.flush()
         return row

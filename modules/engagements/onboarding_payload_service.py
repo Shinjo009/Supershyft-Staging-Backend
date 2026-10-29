@@ -12,7 +12,7 @@ from modules.audit.service import AuditService
 from modules.employee.access_control import ensure_internal_employee
 from modules.employee.service import EmployeeContext
 from modules.engagements.enums import UserOnboardingPayloadInputType
-from modules.engagements.models import UserOnboardingPayloadField
+from modules.engagements.models import CampUserOnboardingPayloadField, UserOnboardingPayloadField
 from modules.engagements.onboarding_payload_repository import (
     CampOnboardingPayloadRepository,
     UserOnboardingPayloadFieldsRepository,
@@ -237,6 +237,14 @@ class CampOnboardingPayloadService:
             return
         await self._camp_repository.ensure_row(db, camp_no=int(camp_no))
 
+    async def get_row_by_camp_code(
+        self,
+        db: AsyncSession,
+        *,
+        camp_code: str,
+    ) -> CampUserOnboardingPayloadField | None:
+        return await self._camp_repository.get_by_camp_code(db, camp_code=camp_code)
+
     async def remap_camp_no(
         self,
         db: AsyncSession,
@@ -260,11 +268,13 @@ class CampOnboardingPayloadService:
         if row is None:
             return {
                 "camp_no": camp_no,
+                "camp_code": None,
                 "initialized": False,
                 "onboarding_payload": None,
             }
         return {
             "camp_no": camp_no,
+            "camp_code": row.camp_code,
             "initialized": True,
             "onboarding_payload": row.onboarding_payload or {},
         }
@@ -296,7 +306,7 @@ class CampOnboardingPayloadService:
                 message="Camp onboarding requirements are already initialized",
             )
 
-        await self._camp_repository.create_initial_row(db, camp_no=camp_no)
+        row = await self._camp_repository.create_initial_row(db, camp_no=camp_no)
         await self._audit_service.log_event(
             db,
             action="EMPLOYEE_INIT_CAMP_ONBOARDING_PAYLOAD",
@@ -308,6 +318,7 @@ class CampOnboardingPayloadService:
         )
         return {
             "camp_no": camp_no,
+            "camp_code": row.camp_code,
             "initialized": True,
             "onboarding_payload": {},
         }
@@ -408,6 +419,7 @@ class CampOnboardingPayloadService:
         )
         return {
             "camp_no": camp_no,
+            "camp_code": row.camp_code,
             "initialized": True,
             "onboarding_payload": normalized,
         }

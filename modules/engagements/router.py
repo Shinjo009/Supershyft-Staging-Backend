@@ -584,13 +584,13 @@ async def get_public_occupied_slots(
     return success_response({"occupied_slots": occupied})
 
 
-@router.get("/public/camps/{camp_no}/onboarding")
-async def get_public_camp_onboarding(
-    camp_no: int,
+@router.get("/camps/code/{camp_code}/onboarding")
+async def get_public_camp_onboarding_by_code(
+    camp_code: str,
     db: AsyncSession = Depends(get_db),
     engagements_service: EngagementsService = Depends(get_engagements_service),
 ):
-    data = await engagements_service.get_public_camp_onboarding(db, camp_no=camp_no)
+    data = await engagements_service.get_public_camp_onboarding_by_code(db, camp_code=camp_code)
     return success_response(data)
 
 
