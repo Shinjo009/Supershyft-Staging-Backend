@@ -499,3 +499,165 @@ async def test_full_article_stores_text_video_and_hr(async_client, test_db_sessi
     assert blocks[6] == {"tag": "hr"}
     assert blocks[7]["text"] == "welcome to Supershyft"
     assert blocks[7]["attributes"]["style"]["textAlign"] == "center"
+
+
+@pytest.mark.asyncio
+async def test_posts_accept_new_fonts_hex_and_gradients(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=8130, role="admin", name="Paint Admin")
+    headers = employee_auth_header(8130)
+    category = await async_client.post(
+        "/blog/categories",
+        headers=headers,
+        json={"name": "Paint"},
+    )
+    assert category.status_code == 201, category.text
+    category_id = category.json()["data"]["category"]["id"]
+    gradient = "linear-gradient(90deg, #cc203b, #8fd4c8)"
+
+    created = await async_client.post(
+        "/blog/posts",
+        headers=headers,
+        json={
+            "title": "Paint story",
+            "content": [
+                {
+                    "tag": "p",
+                    "text": "Poppins red",
+                    "marks": [
+                        {"type": "fontFamily", "start": 0, "end": 7, "value": "Poppins"},
+                        {"type": "color", "start": 8, "end": 11, "value": "#123456"},
+                    ],
+                },
+                {
+                    "tag": "p",
+                    "text": "Gradient text",
+                    "marks": [{"type": "color", "start": 0, "end": 13, "value": gradient}],
+                },
+                {
+                    "tag": "section",
+                    "attributes": {"style": {"backgroundColor": gradient}},
+                    "content": [
+                        {
+                            "tag": "p",
+                            "text": "Inside section",
+                            "marks": [{"type": "fontFamily", "start": 0, "end": 6, "value": "Sora"}],
+                        }
+                    ],
+                },
+            ],
+            "category_id": category_id,
+            "background_color": "#123456",
+            "status": "draft",
+        },
+    )
+    assert created.status_code == 201, created.text
+    post_id = created.json()["data"]["id"]
+
+    detail = await async_client.get(f"/blog/posts/{post_id}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    post = detail.json()["data"]["post"]
+    assert post["background_color"] == "#123456"
+    assert post["content"][0]["marks"][0]["value"] == "Poppins"
+    assert post["content"][0]["marks"][1]["value"] == "#123456"
+    assert post["content"][1]["marks"][0]["value"] == gradient
+    assert post["content"][2]["attributes"]["style"]["backgroundColor"] == gradient
+    assert post["content"][2]["content"][0]["marks"][0]["value"] == "Sora"
+
+    rejected = await async_client.put(
+        f"/blog/posts/{post_id}",
+        headers=headers,
+        json={
+            "title": "Paint story",
+            "content": [
+                {
+                    "tag": "p",
+                    "text": "Bad paint",
+                    "marks": [
+                        {
+                            "type": "color",
+                            "start": 0,
+                            "end": 9,
+                            "value": "url(javascript:alert(1))",
+                        }
+                    ],
+                }
+            ],
+            "category_id": category_id,
+            "status": "draft",
+        },
+    )
+    assert rejected.status_code == 400, rejected.text
+
+    bad_bg = await async_client.put(
+        f"/blog/posts/{post_id}",
+        headers=headers,
+        json={
+            "title": "Paint story",
+            "content": [{"tag": "p", "text": "Ok", "marks": []}],
+            "category_id": category_id,
+            "background_color": "linear-gradient(90deg, url(https://evil.example), #fff)",
+            "status": "draft",
+        },
+    )
+    assert bad_bg.status_code == 400, bad_bg.text
+
+
+@pytest.mark.asyncio
+async def test_posts_accept_font_weight_and_reject_unknown(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=8140, role="admin", name="Weight Admin")
+    headers = employee_auth_header(8140)
+    category = await async_client.post(
+        "/blog/categories",
+        headers=headers,
+        json={"name": "Weights"},
+    )
+    assert category.status_code == 201, category.text
+    category_id = category.json()["data"]["category"]["id"]
+
+    created = await async_client.post(
+        "/blog/posts",
+        headers=headers,
+        json={
+            "title": "Weight story",
+            "content": [
+                {
+                    "tag": "p",
+                    "text": "Light regular",
+                    "marks": [
+                        {"type": "fontWeight", "start": 0, "end": 5, "value": "light"},
+                        {"type": "fontWeight", "start": 6, "end": 13, "value": "semibold"},
+                    ],
+                }
+            ],
+            "category_id": category_id,
+            "status": "draft",
+        },
+    )
+    assert created.status_code == 201, created.text
+    post_id = created.json()["data"]["id"]
+
+    detail = await async_client.get(f"/blog/posts/{post_id}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    marks = detail.json()["data"]["post"]["content"][0]["marks"]
+    assert marks[0]["type"] == "fontWeight"
+    assert marks[0]["value"] == "light"
+    assert marks[1]["type"] == "fontWeight"
+    assert marks[1]["value"] == "semibold"
+
+    rejected = await async_client.put(
+        f"/blog/posts/{post_id}",
+        headers=headers,
+        json={
+            "title": "Weight story",
+            "content": [
+                {
+                    "tag": "p",
+                    "text": "Heavy",
+                    "marks": [{"type": "fontWeight", "start": 0, "end": 5, "value": "black"}],
+                }
+            ],
+            "category_id": category_id,
+            "status": "draft",
+        },
+    )
+    assert rejected.status_code == 400, rejected.text

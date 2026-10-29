@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import secrets
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +14,7 @@ from core.exceptions import AppError
 from modules.blog.content import (
     blocks_are_empty,
     normalize_blocks,
+    normalize_hex,
     parse_keyword_value,
     present_blocks,
     read_minutes,
@@ -32,7 +32,6 @@ MAX_TITLE_CHARS = 200
 MAX_DESCRIPTION_CHARS = 500
 MAX_STORY_CHARS = 100_000
 IMAGE_MAX_BYTES = 5 * 1024 * 1024
-_HEX_COLOR = re.compile(r"^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
 _IMAGE_TYPES = {
     "image/jpeg": ".jpg",
@@ -307,12 +306,10 @@ class BlogService:
         text = (value or "").strip()
         if not text:
             return None
-        if not _HEX_COLOR.match(text):
+        color = normalize_hex(text)
+        if not color:
             raise ApiError("Background color must be a hex color like #rgb or #rrggbb")
-        if len(text) == 4:
-            _, r, g, b = text
-            text = f"#{r}{r}{g}{g}{b}{b}"
-        return text.lower()
+        return color
 
     def _background_image(self, value: str | None) -> str | None:
         """Validate a page wallpaper URL."""
