@@ -14,6 +14,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from modules.diagnostics.models import (
     DiagnosticPackage,
     DiagnosticPackageGroup,
+    DiagnosticProfileGroup,
     DiagnosticPackageFilterChip,
     DiagnosticPackageFilterChipLink,
     DiagnosticPackagePreparation,
@@ -409,6 +410,168 @@ class DiagnosticsRepository:
         )
         result = await db.execute(query)
         return {int(row.diagnostic_package_id) for row in result.all()}
+
+    async def packages_with_null_provider_test_groups(
+        self,
+        db: AsyncSession,
+        *,
+        package_ids: list[int],
+    ) -> set[int]:
+        """Package ids with at least one assigned test group whose diagnostic_provider is null."""
+        if not package_ids:
+            return set()
+        pkg_col = DiagnosticPackageTestGroup.diagnostic_package_id
+        query = (
+            select(pkg_col.label("diagnostic_package_id"))
+            .select_from(DiagnosticPackageTestGroup)
+            .join(DiagnosticTestGroup, DiagnosticTestGroup.group_id == DiagnosticPackageTestGroup.group_id)
+            .where(
+                pkg_col.in_(package_ids),
+                DiagnosticTestGroup.diagnostic_provider.is_(None),
+            )
+            .distinct()
+        )
+        result = await db.execute(query)
+        return {int(row.diagnostic_package_id) for row in result.all()}
+
+    async def create_profile_group(self, db: AsyncSession) -> DiagnosticProfileGroup:
+        group = DiagnosticProfileGroup()
+        db.add(group)
+        await db.flush()
+        return group
+
+    async def list_test_groups_by_profile_group_ids(
+        self,
+        db: AsyncSession,
+        *,
+        profile_group_ids: list[int],
+    ) -> dict[int, list[DiagnosticTestGroup]]:
+        if not profile_group_ids:
+            return {}
+        result = await db.execute(
+            select(DiagnosticTestGroup).where(DiagnosticTestGroup.profile_group_id.in_(profile_group_ids))
+        )
+        grouped: dict[int, list[DiagnosticTestGroup]] = {}
+        for row in result.scalars().all():
+            if row.profile_group_id is None:
+                continue
+            grouped.setdefault(int(row.profile_group_id), []).append(row)
+        return grouped
+
+    async def list_test_groups_in_profile_group(
+        self,
+        db: AsyncSession,
+        *,
+        profile_group_id: int,
+    ) -> list[DiagnosticTestGroup]:
+        result = await db.execute(
+            select(DiagnosticTestGroup).where(DiagnosticTestGroup.profile_group_id == profile_group_id)
+        )
+        return list(result.scalars().all())
+
+    async def profile_group_has_default(self, db: AsyncSession, *, profile_group_id: int) -> bool:
+        result = await db.execute(
+            select(func.count())
+            .select_from(DiagnosticTestGroup)
+            .where(
+                DiagnosticTestGroup.profile_group_id == profile_group_id,
+                DiagnosticTestGroup.is_default_for_group.is_(True),
+            )
+        )
+        return int(result.scalar_one()) > 0
+
+    async def set_test_group_as_profile_default(
+        self,
+        db: AsyncSession,
+        *,
+        group_id: int,
+        profile_group_id: int,
+    ) -> None:
+        await db.execute(
+            sql_update(DiagnosticTestGroup)
+            .where(DiagnosticTestGroup.profile_group_id == profile_group_id)
+            .values(is_default_for_group=False)
+        )
+        row = await self.get_group_by_id(db, group_id=group_id)
+        if row is not None:
+            row.is_default_for_group = True
+            db.add(row)
+            await db.flush()
+
+    async def promote_min_price_default_in_profile_group(
+        self,
+        db: AsyncSession,
+        *,
+        profile_group_id: int,
+        exclude_group_id: int | None = None,
+    ) -> None:
+        members = await self.list_test_groups_in_profile_group(db, profile_group_id=profile_group_id)
+        candidates = [
+            member
+            for member in members
+            if exclude_group_id is None or member.group_id != exclude_group_id
+        ]
+        if not candidates:
+            return
+        await db.execute(
+            sql_update(DiagnosticTestGroup)
+            .where(DiagnosticTestGroup.profile_group_id == profile_group_id)
+            .values(is_default_for_group=False)
+        )
+        chosen = min(
+            candidates,
+            key=lambda row: (
+                row.price is None,
+                float(row.price) if row.price is not None else 0,
+                row.group_id,
+            ),
+        )
+        chosen.is_default_for_group = True
+        db.add(chosen)
+        await db.flush()
+
+    async def copy_tests_and_chips_between_groups(
+        self,
+        db: AsyncSession,
+        *,
+        source_group_id: int,
+        target_group_id: int,
+    ) -> None:
+        source = await db.execute(
+            select(DiagnosticTestGroup)
+            .where(DiagnosticTestGroup.group_id == source_group_id)
+            .options(
+                selectinload(DiagnosticTestGroup.tests),
+                selectinload(DiagnosticTestGroup.filter_chip_links),
+            )
+        )
+        source_row = source.unique().scalar_one_or_none()
+        if source_row is None:
+            return
+        ordered_tests = sorted(
+            source_row.tests,
+            key=lambda row: (row.display_order is None, row.display_order or 0, row.id),
+        )
+        for link in ordered_tests:
+            db.add(
+                DiagnosticTestGroupTest(
+                    group_id=target_group_id,
+                    test_id=link.test_id,
+                    display_order=link.display_order,
+                )
+            )
+        for chip_link in source_row.filter_chip_links:
+            if chip_link.diagnostic_package_id is not None:
+                continue
+            db.add(
+                DiagnosticPackageFilterChipLink(
+                    group_id=target_group_id,
+                    filter_chip_id=chip_link.filter_chip_id,
+                    display_order=chip_link.display_order,
+                    diagnostic_package_id=None,
+                )
+            )
+        await db.flush()
 
     async def get_package_by_id(self, db: AsyncSession, *, package_id: int) -> DiagnosticPackage | None:
         result = await db.execute(
@@ -1124,7 +1287,13 @@ class DiagnosticsRepository:
         filter_chip_key: str | None = None,
         package_for: str | None = None,
         search: str | None = None,
+        catalog_defaults_only: bool = False,
+        exclude_forked: bool = False,
     ):
+        if catalog_defaults_only:
+            query = query.where(DiagnosticTestGroup.is_default_for_group.is_(True))
+        if exclude_forked:
+            query = query.where(DiagnosticTestGroup.forked_from_group_id.is_(None))
         if package_for is not None:
             query = query.where(DiagnosticTestGroup.package_for == package_for)
         if filter_chip_key is not None:
@@ -1179,6 +1348,61 @@ class DiagnosticsRepository:
             query = query.offset(offset).limit(limit)
         result = await db.execute(query)
         return [(row[0], int(row[1] or 0)) for row in result.all()]
+
+    async def get_catalog_test_groups(
+        self,
+        db: AsyncSession,
+        *,
+        filter_chip_key: str | None = None,
+        package_for: str | None = None,
+        search: str | None = None,
+        page: int | None = None,
+        limit: int | None = None,
+    ) -> list[tuple[DiagnosticTestGroup, int]]:
+        query = (
+            select(DiagnosticTestGroup, func.count(DiagnosticTestGroupTest.id))
+            .outerjoin(DiagnosticTestGroupTest, DiagnosticTestGroupTest.group_id == DiagnosticTestGroup.group_id)
+        )
+        query = self._apply_group_list_filters(
+            query,
+            filter_chip_key=filter_chip_key,
+            package_for=package_for,
+            search=search,
+            catalog_defaults_only=True,
+            exclude_forked=True,
+        )
+        query = query.group_by(DiagnosticTestGroup.group_id).order_by(
+            DiagnosticTestGroup.display_order.asc().nulls_last(),
+            DiagnosticTestGroup.group_id.asc(),
+        )
+        if page is not None and limit is not None:
+            offset = (page - 1) * limit
+            query = query.offset(offset).limit(limit)
+        result = await db.execute(query)
+        return [(row[0], int(row[1] or 0)) for row in result.all()]
+
+    async def count_catalog_test_groups(
+        self,
+        db: AsyncSession,
+        *,
+        filter_chip_key: str | None = None,
+        package_for: str | None = None,
+        search: str | None = None,
+    ) -> int:
+        query = select(func.count(distinct(DiagnosticTestGroup.group_id))).select_from(DiagnosticTestGroup)
+        query = query.outerjoin(
+            DiagnosticTestGroupTest, DiagnosticTestGroupTest.group_id == DiagnosticTestGroup.group_id
+        )
+        query = self._apply_group_list_filters(
+            query,
+            filter_chip_key=filter_chip_key,
+            package_for=package_for,
+            search=search,
+            catalog_defaults_only=True,
+            exclude_forked=True,
+        )
+        result = await db.execute(query)
+        return int(result.scalar_one())
 
     async def count_groups(
         self,
@@ -1282,11 +1506,19 @@ class DiagnosticsRepository:
         if source is None:
             return None
 
+        package = await self.get_package_by_id_basic(db, package_id=package_id)
+        fork_provider = package.diagnostic_provider if package is not None else None
+
         new_key = await self.allocate_unique_group_key(db, base_key=source.group_key, package_id=package_id)
+        new_profile = await self.create_profile_group(db)
         copy = DiagnosticTestGroup(
             group_name=source.group_name,
             group_key=new_key,
-            healthians_group_code=source.healthians_group_code,
+            profile_group_id=new_profile.profile_group_id,
+            test_group_image=source.test_group_image,
+            diagnostic_provider=fork_provider,
+            external_test_group_code=source.external_test_group_code,
+            is_default_for_group=True,
             display_order=source.display_order,
             price=source.price,
             original_price=source.original_price,
@@ -1385,7 +1617,7 @@ class DiagnosticsRepository:
         if row is None:
             return None
         for key, value in data.items():
-            if value is not None or key == "healthians_group_code":
+            if value is not None or key in ("external_test_group_code",):
                 setattr(row, key, value)
         db.add(row)
         await db.flush()

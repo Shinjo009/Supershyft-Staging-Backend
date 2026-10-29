@@ -395,6 +395,9 @@ async def upsert_diagnostic_groups_from_csv(session: AsyncSession, csv_path: Pat
                 _bool_cell(cancer) if cancer is not None and str(cancer).strip() != "" else False
             )
             row.gender_suitability = _str_or_none(raw.get("gender_suitability"))
+            ext_code = raw.get("external_test_group_code") or raw.get("healthians_group_code")
+            if ext_code is not None and str(ext_code).strip() != "":
+                row.external_test_group_code = str(ext_code).strip()
 
 
 async def upsert_diagnostic_group_tests_from_csv(session: AsyncSession, csv_path: Path) -> None:

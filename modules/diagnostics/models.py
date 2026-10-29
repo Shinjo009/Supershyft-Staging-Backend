@@ -37,6 +37,17 @@ class DiagnosticPackageGroup(Base):
     packages = relationship("DiagnosticPackage", back_populates="package_group")
 
 
+class DiagnosticProfileGroup(Base):
+    """Groups diagnostic test groups that are the same profile from different labs."""
+
+    __tablename__ = "diagnostic_profile_group"
+
+    profile_group_id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    test_groups = relationship("DiagnosticTestGroup", back_populates="profile_group")
+
+
 class DiagnosticPackage(Base):
     """SQLAlchemy model for `diagnostic_package` table."""
 
@@ -225,9 +236,17 @@ class DiagnosticTestGroup(Base):
     __tablename__ = "diagnostic_test_groups"
 
     group_id = Column(Integer, primary_key=True)
+    profile_group_id = Column(
+        Integer,
+        ForeignKey("diagnostic_profile_group.profile_group_id", ondelete="SET NULL"),
+        nullable=True,
+    )
     group_name = Column(String, nullable=False)
     group_key = Column(String, nullable=False, unique=True)
-    healthians_group_code = Column(String, nullable=True)
+    test_group_image = Column(String, nullable=True)
+    diagnostic_provider = Column(diagnostic_provider_enum, nullable=True)
+    external_test_group_code = Column(String, nullable=True)
+    is_default_for_group = Column(Boolean, nullable=False, default=False, server_default="false")
     display_order = Column(Integer)
     price = Column(Numeric(10, 2))
     original_price = Column(Numeric(10, 2))
@@ -246,6 +265,8 @@ class DiagnosticTestGroup(Base):
         ForeignKey("diagnostic_test_groups.group_id", ondelete="SET NULL"),
         nullable=True,
     )
+
+    profile_group = relationship("DiagnosticProfileGroup", back_populates="test_groups")
 
     tests = relationship(
         "DiagnosticTestGroupTest",

@@ -49,6 +49,7 @@ from modules.diagnostics.schemas import (
     DiagnosticPackageResponse,
     DiagnosticPackageStatusUpdate,
     DiagnosticPackageUpdate,
+    DiagnosticWarning,
     FilterChipCreate,
     FilterChipForSchema,
     FilterChipResponse,
@@ -77,6 +78,8 @@ from modules.diagnostics.schemas import (
     TagCreate,
     TagResponse,
     TestGroupCreate,
+    TestGroupPeerResponse,
+    TestGroupProfileGroupListItem,
     TestGroupResponse,
     TestGroupUpdate,
     PackageFilterChipAssign,
@@ -247,6 +250,122 @@ class DiagnosticsService:
                 continue
             mapping[key] = int(member.diagnostic_package_id)
         return mapping
+
+    def _test_group_profile_map(self, members: list[DiagnosticTestGroup]) -> dict[str, int]:
+        mapping: dict[str, int] = {}
+        for member in members:
+            key = self._provider_enum_key(member.diagnostic_provider)
+            if key is None:
+                continue
+            mapping[key] = int(member.group_id)
+        return mapping
+
+    def _test_group_peer_responses(
+        self,
+        group: DiagnosticTestGroup,
+        members: list[DiagnosticTestGroup],
+    ) -> list[TestGroupPeerResponse]:
+        return [
+            TestGroupPeerResponse(
+                group_id=member.group_id,
+                group_name=member.group_name,
+                diagnostic_provider=member.diagnostic_provider,
+                price=float(member.price) if member.price is not None else None,
+                is_default_for_group=bool(member.is_default_for_group),
+            )
+            for member in members
+            if member.group_id != group.group_id
+        ]
+
+    def _build_package_warnings(
+        self,
+        *,
+        has_unmapped: bool,
+        has_null_provider_test_groups: bool,
+    ) -> list[DiagnosticWarning]:
+        warnings: list[DiagnosticWarning] = []
+        if has_unmapped:
+            warnings.append(
+                DiagnosticWarning(code="unmapped_tests", message="Some tests are unmapped")
+            )
+        if has_null_provider_test_groups:
+            warnings.append(
+                DiagnosticWarning(
+                    code="test_group_provider_missing",
+                    message="Some assigned test groups have no lab provider set",
+                )
+            )
+        return warnings
+
+    async def _resolve_same_as_test_group_profile(
+        self,
+        db,
+        *,
+        group_id: int,
+        provider: str | None,
+        same_as_group_id: int,
+    ) -> int:
+        if same_as_group_id == group_id:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message="A test group cannot be linked to itself",
+            )
+        target = await self._repository.get_group_by_id(db, group_id=same_as_group_id)
+        if target is None:
+            raise AppError(
+                status_code=404,
+                error_code="DIAGNOSTIC_TEST_GROUP_NOT_FOUND",
+                message="Linked test group does not exist",
+            )
+
+        provider_key = self._provider_key(provider)
+        profile_group_id = target.profile_group_id
+        if profile_group_id is None:
+            profile_group = await self._repository.create_profile_group(db)
+            target.profile_group_id = profile_group.profile_group_id
+            profile_group_id = profile_group.profile_group_id
+            if not target.is_default_for_group:
+                target.is_default_for_group = True
+            db.add(target)
+            await db.flush()
+
+        members = await self._repository.list_test_groups_in_profile_group(
+            db, profile_group_id=int(profile_group_id)
+        )
+        for member in members:
+            if member.group_id == group_id:
+                continue
+            member_key = self._provider_key(member.diagnostic_provider)
+            if provider_key is not None and member_key == provider_key:
+                label = self._provider_display_label(member.diagnostic_provider)
+                raise AppError(
+                    status_code=400,
+                    error_code="DIAGNOSTIC_TEST_GROUP_PROVIDER_CONFLICT",
+                    message=(
+                        f"{label} is already linked to {member.group_name}. "
+                        "Edit that test group, or pick a different one."
+                    ),
+                )
+
+        return int(profile_group_id)
+
+    async def _promote_test_group_default_if_needed(
+        self,
+        db,
+        *,
+        profile_group_id: int | None,
+        exclude_group_id: int | None = None,
+    ) -> None:
+        if profile_group_id is None:
+            return
+        if await self._repository.profile_group_has_default(db, profile_group_id=int(profile_group_id)):
+            return
+        await self._repository.promote_min_price_default_in_profile_group(
+            db,
+            profile_group_id=int(profile_group_id),
+            exclude_group_id=exclude_group_id,
+        )
 
     async def _promote_default_if_needed(
         self,
@@ -446,6 +565,7 @@ class DiagnosticsService:
         tests: list[HealthParameter] | None = None,
         test_count: int | None = None,
         filter_chip_links: list | None = None,
+        same_test_groups: list[TestGroupPeerResponse] | None = None,
     ) -> TestGroupResponse:
         tests_value = tests or []
         resolved_count = test_count if test_count is not None else len(tests_value)
@@ -456,17 +576,24 @@ class DiagnosticsService:
             group_id=row.group_id,
             group_name=row.group_name,
             group_key=row.group_key,
-            healthians_group_code=row.healthians_group_code,
+            profile_group_id=row.profile_group_id,
+            test_group_image=row.test_group_image,
+            diagnostic_provider=row.diagnostic_provider,
+            external_test_group_code=row.external_test_group_code,
+            is_default_for_group=bool(row.is_default_for_group),
             display_order=row.display_order,
             test_count=resolved_count,
             price=price,
             discount=_discount_percent_label(price, original_price),
+            discount_percent=_discount_percent(price, original_price),
             original_price=original_price,
             is_most_popular=bool(row.is_most_popular),
             has_allergy_screening=bool(row.has_allergy_screening),
             has_cancer_screening=bool(row.has_cancer_screening),
             gender_suitability=row.gender_suitability,
             package_for=row.package_for,
+            forked_from_group_id=row.forked_from_group_id,
+            same_test_groups=same_test_groups or [],
             tests=[self._to_health_parameter_response(test_row) for test_row in tests_value],
             filter_chips=self._group_filter_chip_link_responses(chip_links),
         )
@@ -593,6 +720,9 @@ class DiagnosticsService:
         base_items = await self._package_rows_to_list_items(db, rows)
         pkg_ids = [r.diagnostic_package_id for r in rows]
         unmapped_ids = await self._repository.packages_with_unmapped_tests(db, package_ids=pkg_ids)
+        null_provider_ids = await self._repository.packages_with_null_provider_test_groups(
+            db, package_ids=pkg_ids
+        )
         group_ids = [int(r.package_group_id) for r in rows if r.package_group_id is not None]
         members_by_group = await self._repository.list_packages_by_group_ids(db, group_ids=group_ids)
         group_items: list[DiagnosticPackageGroupListItem] = []
@@ -602,11 +732,18 @@ class DiagnosticsService:
                 if row.package_group_id is not None
                 else [row]
             )
+            pkg_id = int(row.diagnostic_package_id)
+            has_unmapped = pkg_id in unmapped_ids
+            has_null_tg = pkg_id in null_provider_ids
             group_items.append(
                 DiagnosticPackageGroupListItem(
                     **item.model_dump(),
                     package_group=self._package_group_map(members),
-                    has_unmapped_tests=int(row.diagnostic_package_id) in unmapped_ids,
+                    has_unmapped_tests=has_unmapped,
+                    warnings=self._build_package_warnings(
+                        has_unmapped=has_unmapped,
+                        has_null_provider_test_groups=has_null_tg,
+                    ),
                 )
             )
         return group_items
@@ -1526,13 +1663,84 @@ class DiagnosticsService:
         items = [self._to_group_response(group, tests=[], test_count=test_count) for group, test_count in rows]
         return items, total
 
+    async def get_test_group_profiles(
+        self,
+        db,
+        *,
+        filter_chip: str | None = None,
+        package_for: str | None = None,
+        page: int | None = None,
+        limit: int | None = None,
+        search: str | None = None,
+    ) -> tuple[list[TestGroupProfileGroupListItem], int | None]:
+        chip_key_value = self._normalize(filter_chip)
+        search_value = sanitize_list_search(search)
+        paginate = page is not None and limit is not None
+        total: int | None = None
+        if paginate:
+            total = await self._repository.count_catalog_test_groups(
+                db,
+                filter_chip_key=chip_key_value,
+                package_for=package_for,
+                search=search_value,
+            )
+        rows = await self._repository.get_catalog_test_groups(
+            db,
+            filter_chip_key=chip_key_value,
+            package_for=package_for,
+            search=search_value,
+            page=page if paginate else None,
+            limit=limit if paginate else None,
+        )
+        profile_ids = [
+            int(group.profile_group_id) for group, _count in rows if group.profile_group_id is not None
+        ]
+        members_by_profile = await self._repository.list_test_groups_by_profile_group_ids(
+            db, profile_group_ids=profile_ids
+        )
+        items: list[TestGroupProfileGroupListItem] = []
+        for group, test_count in rows:
+            price = float(group.price) if group.price is not None else None
+            original_price = float(group.original_price) if group.original_price is not None else None
+            members = (
+                members_by_profile.get(int(group.profile_group_id), [group])
+                if group.profile_group_id is not None
+                else [group]
+            )
+            items.append(
+                TestGroupProfileGroupListItem(
+                    group_id=group.group_id,
+                    group_name=group.group_name,
+                    test_count=test_count,
+                    price=price,
+                    discount=_discount_percent_label(price, original_price),
+                    discount_percent=_discount_percent(price, original_price),
+                    gender_suitability=group.gender_suitability,
+                    profile_group_id=group.profile_group_id,
+                    diagnostic_provider=group.diagnostic_provider,
+                    profile_group=self._test_group_profile_map(members),
+                )
+            )
+        return items, total
+
     async def get_group_detail(self, db, *, group_id: int) -> TestGroupResponse:
         group = await self._repository.get_group_by_id(db, group_id=group_id)
         if group is None:
             raise AppError(status_code=404, error_code="DIAGNOSTIC_TEST_GROUP_NOT_FOUND", message="Group does not exist")
         tests = await self._repository.get_parameters_for_group(db, group_id=group_id)
         chip_links = await self._repository.get_group_filter_chip_links(db, group_id=group_id)
-        return self._to_group_response(group, tests=tests, filter_chip_links=chip_links)
+        same_test_groups: list[TestGroupPeerResponse] = []
+        if group.profile_group_id is not None:
+            members = await self._repository.list_test_groups_in_profile_group(
+                db, profile_group_id=int(group.profile_group_id)
+            )
+            same_test_groups = self._test_group_peer_responses(group, members)
+        return self._to_group_response(
+            group,
+            tests=tests,
+            filter_chip_links=chip_links,
+            same_test_groups=same_test_groups,
+        )
 
     async def create_group(
         self,
@@ -1546,6 +1754,9 @@ class DiagnosticsService:
     ) -> TestGroupResponse:
         self._ensure_employee_access(employee)
         payload = data.model_dump(exclude_none=True)
+        same_as_group_id = payload.pop("same_as_group_id", None)
+        copy_tests_from_group_id = payload.pop("copy_tests_from_group_id", None)
+        payload.pop("is_default_for_group", None)
         group_name = self._normalize(payload.get("group_name"))
         if group_name is None:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
@@ -1560,13 +1771,65 @@ class DiagnosticsService:
         self._validate_optional_gender_field(payload)
         self._validate_package_for_field(payload)
         payload.setdefault("package_for", "public")
-        if "healthians_group_code" in payload:
-            payload["healthians_group_code"] = self._normalize(payload.get("healthians_group_code"))
+        if "external_test_group_code" in payload:
+            payload["external_test_group_code"] = self._normalize(payload.get("external_test_group_code"))
 
         try:
             created = await self._repository.create_group(db, DiagnosticTestGroup(**payload))
         except IntegrityError:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request") from None
+
+        if same_as_group_id is not None:
+            created.profile_group_id = await self._resolve_same_as_test_group_profile(
+                db,
+                group_id=created.group_id,
+                provider=created.diagnostic_provider,
+                same_as_group_id=int(same_as_group_id),
+            )
+            if await self._repository.profile_group_has_default(
+                db, profile_group_id=int(created.profile_group_id)
+            ):
+                created.is_default_for_group = False
+            else:
+                created.is_default_for_group = True
+        else:
+            profile_group = await self._repository.create_profile_group(db)
+            created.profile_group_id = profile_group.profile_group_id
+            created.is_default_for_group = True
+        db.add(created)
+        await db.flush()
+
+        if copy_tests_from_group_id is not None:
+            if same_as_group_id is None:
+                raise AppError(
+                    status_code=400,
+                    error_code="INVALID_INPUT",
+                    message="copy_tests_from_group_id requires same_as_group_id",
+                )
+            source_id = int(copy_tests_from_group_id)
+            source = await self._repository.get_group_by_id(db, group_id=source_id)
+            if source is None:
+                raise AppError(
+                    status_code=404,
+                    error_code="DIAGNOSTIC_TEST_GROUP_NOT_FOUND",
+                    message="Source test group for copy does not exist",
+                )
+            if (
+                created.profile_group_id is None
+                or source.profile_group_id is None
+                or int(source.profile_group_id) != int(created.profile_group_id)
+            ):
+                raise AppError(
+                    status_code=400,
+                    error_code="INVALID_INPUT",
+                    message="Tests can only be copied from a test group in the same profile group",
+                )
+            await self._repository.copy_tests_and_chips_between_groups(
+                db,
+                source_group_id=source_id,
+                target_group_id=int(created.group_id),
+            )
+
         await self._require_audit_service().log_event(
             db,
             action="EMPLOYEE_CREATE_DIAGNOSTIC_TEST_GROUP",
@@ -1594,7 +1857,54 @@ class DiagnosticsService:
         if existing is None:
             raise AppError(status_code=404, error_code="DIAGNOSTIC_TEST_GROUP_NOT_FOUND", message="Group does not exist")
 
+        old_profile_group_id = existing.profile_group_id
+        was_default = bool(existing.is_default_for_group)
+        fields_set = data.model_fields_set
         payload = data.model_dump(exclude_none=True)
+
+        want_set_default = False
+        if "is_default_for_group" in fields_set:
+            if data.is_default_for_group is False and was_default and old_profile_group_id is not None:
+                members = await self._repository.list_test_groups_in_profile_group(
+                    db, profile_group_id=int(old_profile_group_id)
+                )
+                if len(members) > 1 and not any(
+                    member.group_id != group_id and member.is_default_for_group for member in members
+                ):
+                    raise AppError(
+                        status_code=400,
+                        error_code="INVALID_INPUT",
+                        message="Cannot unset the only catalog default for this profile group",
+                    )
+            if data.is_default_for_group is True:
+                want_set_default = True
+            elif data.is_default_for_group is False:
+                payload["is_default_for_group"] = False
+            payload.pop("is_default_for_group", None)
+
+        new_profile_group_id: int | None = old_profile_group_id
+        profile_membership_changed = False
+        if "same_as_group_id" in fields_set:
+            payload.pop("same_as_group_id", None)
+            profile_membership_changed = True
+            if data.same_as_group_id is None:
+                profile_group = await self._repository.create_profile_group(db)
+                new_profile_group_id = int(profile_group.profile_group_id)
+                payload["profile_group_id"] = new_profile_group_id
+                payload["is_default_for_group"] = True
+            else:
+                merged_provider = payload.get("diagnostic_provider", existing.diagnostic_provider)
+                new_profile_group_id = await self._resolve_same_as_test_group_profile(
+                    db,
+                    group_id=group_id,
+                    provider=merged_provider,
+                    same_as_group_id=int(data.same_as_group_id),
+                )
+                payload["profile_group_id"] = new_profile_group_id
+                payload["is_default_for_group"] = not await self._repository.profile_group_has_default(
+                    db, profile_group_id=int(new_profile_group_id)
+                )
+
         if "group_name" in payload:
             group_name = self._normalize(payload.get("group_name"))
             if group_name is None:
@@ -1610,8 +1920,28 @@ class DiagnosticsService:
                 raise AppError(status_code=400, error_code="INVALID_INPUT", message="Group key already exists")
         self._validate_optional_gender_field(payload)
         self._validate_package_for_field(payload)
-        if "healthians_group_code" in data.model_fields_set:
-            payload["healthians_group_code"] = self._normalize(data.healthians_group_code)
+        if "external_test_group_code" in fields_set:
+            payload["external_test_group_code"] = self._normalize(data.external_test_group_code)
+
+        if "diagnostic_provider" in payload and "same_as_group_id" not in fields_set:
+            if existing.profile_group_id is not None:
+                provider_key = self._provider_key(payload.get("diagnostic_provider"))
+                members = await self._repository.list_test_groups_in_profile_group(
+                    db, profile_group_id=int(existing.profile_group_id)
+                )
+                for member in members:
+                    if member.group_id == group_id:
+                        continue
+                    if provider_key is not None and self._provider_key(member.diagnostic_provider) == provider_key:
+                        label = self._provider_display_label(member.diagnostic_provider)
+                        raise AppError(
+                            status_code=400,
+                            error_code="DIAGNOSTIC_TEST_GROUP_PROVIDER_CONFLICT",
+                            message=(
+                                f"{label} is already linked to {member.group_name}. "
+                                "Edit that test group, or pick a different one."
+                            ),
+                        )
 
         try:
             updated = await self._repository.update_group(db, group_id=group_id, data=payload)
@@ -1619,6 +1949,29 @@ class DiagnosticsService:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request") from None
         if updated is None:
             raise AppError(status_code=404, error_code="DIAGNOSTIC_TEST_GROUP_NOT_FOUND", message="Group does not exist")
+
+        if (
+            profile_membership_changed
+            and old_profile_group_id is not None
+            and int(old_profile_group_id) != int(updated.profile_group_id or 0)
+            and was_default
+        ):
+            await self._promote_test_group_default_if_needed(
+                db,
+                profile_group_id=int(old_profile_group_id),
+                exclude_group_id=group_id,
+            )
+
+        if want_set_default and updated.profile_group_id is not None:
+            await self._repository.set_test_group_as_profile_default(
+                db,
+                group_id=group_id,
+                profile_group_id=int(updated.profile_group_id),
+            )
+            refreshed = await self._repository.get_group_by_id(db, group_id=group_id)
+            if refreshed is not None:
+                updated = refreshed
+
         tests = await self._repository.get_parameters_for_group(db, group_id=group_id)
         await self._require_audit_service().log_event(
             db,
@@ -1629,7 +1982,13 @@ class DiagnosticsService:
             user_id=None,
             session_id=None,
         )
-        return self._to_group_response(updated, tests=tests)
+        same_test_groups: list[TestGroupPeerResponse] = []
+        if updated.profile_group_id is not None:
+            members = await self._repository.list_test_groups_in_profile_group(
+                db, profile_group_id=int(updated.profile_group_id)
+            )
+            same_test_groups = self._test_group_peer_responses(updated, members)
+        return self._to_group_response(updated, tests=tests, same_test_groups=same_test_groups)
 
     async def delete_group(
         self,
@@ -1645,6 +2004,12 @@ class DiagnosticsService:
         existing = await self._repository.get_group_by_id(db, group_id=group_id)
         if existing is None:
             raise AppError(status_code=404, error_code="DIAGNOSTIC_TEST_GROUP_NOT_FOUND", message="Group does not exist")
+        if existing.is_default_for_group and existing.profile_group_id is not None:
+            await self._repository.promote_min_price_default_in_profile_group(
+                db,
+                profile_group_id=int(existing.profile_group_id),
+                exclude_group_id=group_id,
+            )
         await self._repository.delete_group(db, group_id=group_id)
         await self._require_audit_service().log_event(
             db,
@@ -1804,15 +2169,31 @@ class DiagnosticsService:
                 )
 
         invalid_ids: list[int] = []
+        mismatch_ids: list[int] = []
+        package_provider_key = self._provider_key(package.diagnostic_provider)
         for group_id in data.group_ids:
             row = await self._repository.get_group_by_id(db, group_id=group_id)
             if row is None:
                 invalid_ids.append(group_id)
+                continue
+            group_provider_key = self._provider_key(row.diagnostic_provider)
+            if (
+                package_provider_key is not None
+                and group_provider_key is not None
+                and package_provider_key != group_provider_key
+            ):
+                mismatch_ids.append(group_id)
         if invalid_ids:
             raise AppError(
                 status_code=400,
                 error_code="INVALID_INPUT",
                 message=f"The following group_ids do not exist: {invalid_ids}",
+            )
+        if mismatch_ids:
+            raise AppError(
+                status_code=400,
+                error_code="DIAGNOSTIC_TEST_GROUP_PROVIDER_MISMATCH",
+                message=f"Test group provider does not match package provider for group_ids: {mismatch_ids}",
             )
 
         added_ids, skipped_ids = await self._repository.assign_groups_to_package(

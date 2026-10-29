@@ -52,6 +52,19 @@ class DiagnosticPackagePeerResponse(BaseModel):
     is_default_for_group: Optional[bool] = None
 
 
+class DiagnosticWarning(BaseModel):
+    code: str
+    message: str
+
+
+class TestGroupPeerResponse(BaseModel):
+    group_id: int
+    group_name: str
+    diagnostic_provider: Optional[str] = None
+    price: Optional[float] = None
+    is_default_for_group: Optional[bool] = None
+
+
 class DiagnosticPackageCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -316,7 +329,11 @@ class HealthParameterResponse(BaseModel):
 class TestGroupCreate(BaseModel):
     group_name: SafeDisplayName
     group_key: SlugKey
-    healthians_group_code: Optional[str] = None
+    test_group_image: Optional[str] = None
+    diagnostic_provider: Optional[str] = None
+    external_test_group_code: Optional[str] = None
+    same_as_group_id: PositiveIntId | None = None
+    copy_tests_from_group_id: PositiveIntId | None = None
     display_order: Optional[int] = None
     price: Optional[float] = None
     original_price: Optional[float] = None
@@ -325,12 +342,16 @@ class TestGroupCreate(BaseModel):
     has_cancer_screening: Optional[bool] = None
     gender_suitability: Optional[str] = None
     package_for: Optional[PackageForType] = None
+    is_default_for_group: Optional[bool] = None
 
 
 class TestGroupUpdate(BaseModel):
     group_name: OptionalSafeDisplayName = None
     group_key: OptionalSlugKey = None
-    healthians_group_code: Optional[str] = None
+    test_group_image: Optional[str] = None
+    diagnostic_provider: Optional[str] = None
+    external_test_group_code: Optional[str] = None
+    same_as_group_id: int | None = None
     display_order: Optional[int] = None
     price: Optional[float] = None
     original_price: Optional[float] = None
@@ -339,25 +360,46 @@ class TestGroupUpdate(BaseModel):
     has_cancer_screening: Optional[bool] = None
     gender_suitability: Optional[str] = None
     package_for: Optional[PackageForType] = None
+    is_default_for_group: Optional[bool] = None
 
 
 class TestGroupResponse(BaseModel):
     group_id: int
     group_name: str
     group_key: str
-    healthians_group_code: Optional[str] = None
+    profile_group_id: Optional[int] = None
+    test_group_image: Optional[str] = None
+    diagnostic_provider: Optional[str] = None
+    external_test_group_code: Optional[str] = None
+    is_default_for_group: Optional[bool] = None
     test_count: int
     display_order: Optional[int] = None
     price: Optional[float] = None
     discount: Optional[str] = None
+    discount_percent: Optional[int] = None
     original_price: Optional[float] = None
     is_most_popular: Optional[bool] = None
     has_allergy_screening: Optional[bool] = None
     has_cancer_screening: Optional[bool] = None
     gender_suitability: Optional[str] = None
     package_for: Optional[str] = None
+    forked_from_group_id: Optional[int] = None
+    same_test_groups: list[TestGroupPeerResponse] = Field(default_factory=list)
     tests: list[HealthParameterResponse] = Field(default_factory=list)
     filter_chips: list[PackageFilterChipResponse] = Field(default_factory=list)
+
+
+class TestGroupProfileGroupListItem(BaseModel):
+    group_id: int
+    group_name: str
+    test_count: int
+    price: Optional[float] = None
+    discount: Optional[str] = None
+    discount_percent: Optional[int] = None
+    gender_suitability: Optional[str] = None
+    profile_group_id: Optional[int] = None
+    diagnostic_provider: Optional[str] = None
+    profile_group: dict[str, int] = Field(default_factory=dict)
 
 
 class AssignTestsToGroupRequest(BaseModel):
@@ -531,3 +573,4 @@ class DiagnosticPackageListItem(BaseModel):
 class DiagnosticPackageGroupListItem(DiagnosticPackageListItem):
     package_group: dict[str, int] = Field(default_factory=dict)
     has_unmapped_tests: bool = False
+    warnings: list[DiagnosticWarning] = Field(default_factory=list)

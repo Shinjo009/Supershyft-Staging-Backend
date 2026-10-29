@@ -891,6 +891,35 @@ async def list_diagnostic_test_groups(
     return success_response([item.model_dump() for item in data])
 
 
+@router.get("/diagnostic-test-groups/groups")
+async def list_diagnostic_test_group_profiles(
+    filter_chip: str | None = Query(default=None),
+    package_for: str | None = Query(default=None),
+    page: int | None = Query(default=None, ge=1),
+    limit: int | None = Query(default=None, ge=1, le=100),
+    search: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    _actor: DiagnosticsPackageActor = Depends(get_diagnostics_package_actor),
+    diagnostics_service: DiagnosticsService = Depends(get_diagnostics_service),
+):
+    pagination = optional_page_params(page=page, limit=limit)
+    search_value = sanitize_list_search(search)
+    data, total = await diagnostics_service.get_test_group_profiles(
+        db,
+        filter_chip=filter_chip,
+        package_for=package_for,
+        page=pagination.page if pagination else None,
+        limit=pagination.limit if pagination else None,
+        search=search_value,
+    )
+    if pagination:
+        return success_response(
+            [item.model_dump() for item in data],
+            meta={"page": pagination.page, "limit": pagination.limit, "total": total},
+        )
+    return success_response([item.model_dump() for item in data])
+
+
 @router.post("/diagnostic-test-groups", status_code=201)
 async def create_diagnostic_test_group(
     payload: TestGroupCreate,
