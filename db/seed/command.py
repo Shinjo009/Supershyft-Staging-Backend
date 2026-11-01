@@ -86,6 +86,10 @@ async def seed_reference_data(*, yes: bool) -> None:
             await upsert_options(session, DEFAULT_OPTIONS)
             await upsert_package_categories(session, DEFAULT_PACKAGE_CATEGORIES)
             await upsert_notification_services(session, DEFAULT_NOTIFICATION_SERVICES)
+            await session.flush()
+            from modules.notifications.notification_content_backfill import apply_notification_content_backfill
+
+            await apply_notification_content_backfill(session)
 
             csv_dir = resolve_diagnostics_csv_dir()
             await seed_diagnostics_reference_from_csv_dir(session, csv_dir)

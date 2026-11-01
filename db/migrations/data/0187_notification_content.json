@@ -1,0 +1,1591 @@
+[
+  {
+    "service_key": "assessment-reminder-whatsapp-metsights-v2",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Your Health Assessment is Incomplete",
+            "type": "text"
+          },
+          {
+            "literal": "Please complete for SuperShyft Bio-AI Health Report",
+            "type": "text"
+          },
+          {
+            "literal": "By answering a few quick questions about your nutrition",
+            "type": "text"
+          },
+          {
+            "literal": "sleep and physical activity.Your responses directly shape your Bio-AI Health Report the more accurate your inputs the more useful your report",
+            "type": "text"
+          },
+          {
+            "literal": "If you have any query feel free to reach out on 8209512559",
+            "type": "text"
+          },
+          {
+            "literal": "Please visit: www.metsights.com",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/assessment-reminder-whatsapp-metsights-v3"
+  },
+  {
+    "email_body": "Hi {{member.first_name}},\\n\\nYour health assessment has been completed and you are now eligible for a consultation with one of our doctors.\\n\\nThe consultation will help you better understand your report findings and develop a personalized action plan.\\n\\nPlease book a convenient slot below:\\n{{member.external_link}}\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_subject": "Book Your doctor Consultation",
+    "service_key": "book-doctor-consultation-email",
+    "webhook_path": "/book-doctor-consultation-email-v1"
+  },
+  {
+    "service_key": "book-doctor-consultation-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Your Bio-AI Health Assessment has been completed and your consultation is now available for booking.",
+            "type": "text"
+          },
+          {
+            "literal": "Choose a convenient time slot that works best for your schedule through the booking link below.",
+            "type": "text"
+          },
+          {
+            "literal": "This consultation will help you understand your health risks and create an actionable plan.",
+            "type": "text"
+          },
+          {
+            "literal": "You can check the details below for your convenience",
+            "type": "text"
+          },
+          {
+            "ref": "member.external_link",
+            "type": "text"
+          },
+          {
+            "literal": "Thanks for taking a moment to read this message",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/book-doctor-consultation-whatsapp-v1"
+  },
+  {
+    "email_body": "Hello {{member.first_name}},\\n\\nYour Bio-AI Health Assessment is complete and your nutrition consultation is now available for booking.\\n\\nChoose a convenient time with our nutritionist using the link below:\\nBook your consultation:\\n{{member.external_link}}\\n\\nWe look forward to helping you turn your health insights into actionable nutrition goals.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_subject": "Book Your Nutrition Consultation",
+    "service_key": "book-nutrition-consultation-email-1+1",
+    "webhook_path": "/book-nutrition-consultation-email-1+1-v1"
+  },
+  {
+    "service_key": "book-nutrition-consultation-whatsapp-1+1",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Your Bio-AI Health Assessment is complete and your nutrition consultation is now available for booking.",
+            "type": "text"
+          },
+          {
+            "literal": "Choose a convenient time with our nutritionist using the link below.",
+            "type": "text"
+          },
+          {
+            "source": "Book your consultation: {{member.external_link}}",
+            "type": "text"
+          },
+          {
+            "literal": "We look forward to helping you turn your health insights into actionable nutrition goals.",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/book-nutrition-consultation-whatsapp-1+1-v1"
+  },
+  {
+    "email_body": "Hi {{member.first_name}},\\n\\nYour health assessment has been completed and you are now eligible for your doctor consultation.\\n\\nThe consultation will help you better understand your report findings and develop a personalized action plan.\\n\\nPlease book a convenient slot below:\\n{{member.external_link}}\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_subject": "Book Your doctor Consultation",
+    "service_key": "book-nvidia-consultation-email",
+    "webhook_path": "/book-nvidia-consultation-email-v1"
+  },
+  {
+    "service_key": "book-nvidia-consultation-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Your Bio-AI Health Assessment has been completed and your doctor consultation is now available for booking.",
+            "type": "text"
+          },
+          {
+            "literal": "Choose a convenient time slot that works best for your schedule through the booking link below.",
+            "type": "text"
+          },
+          {
+            "literal": "This consultation will help you understand your health risks and create an actionable plan.",
+            "type": "text"
+          },
+          {
+            "literal": "You can check the details below for your convenience",
+            "type": "text"
+          },
+          {
+            "ref": "member.external_link",
+            "type": "text"
+          },
+          {
+            "literal": "Thanks for taking a moment to read this message",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/book-nvidia-consultation-whatsapp-v1"
+  },
+  {
+    "service_key": "booking-alert-email+whatsapp+participant-welcome-metsights",
+    "template_name": "camp16",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "literal": "${agentName}",
+            "type": "text"
+          },
+          {
+            "literal": "Please initiate the process and proceed with the booking",
+            "type": "text"
+          },
+          {
+            "literal": "` +\n  `Details Name: ${detailsName} Phone: ${detailsPhone} Email: ${detailsEmail}",
+            "type": "text"
+          },
+          {
+            "literal": "` +\n  `Date: ${bookingDate} Time: ${bookingTime}",
+            "type": "text"
+          },
+          {
+            "literal": "` +\n  `Address in Admin You can check the details below for your convenience. Please visit:https://admin.supershyft.com/",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/booking-alert-email+whatsapp+participant-welcome-metsights-v2"
+  },
+  {
+    "service_key": "booking-alert-whatsapp-1+1",
+    "template_name": "camp16",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "literal": "${agentName}",
+            "type": "text"
+          },
+          {
+            "literal": "Please initiate the process and proceed with the booking",
+            "type": "text"
+          },
+          {
+            "literal": "` +\n  `Details Name: ${detailsName} Phone: ${detailsPhone} Email: ${detailsEmail}",
+            "type": "text"
+          },
+          {
+            "source": "` +\n  `Date: ${bookingDate} Time: ${bookingTime} Cabin: {{member.session_details.cabin}}",
+            "type": "text"
+          },
+          {
+            "literal": "` +\n  `Address in Admin You can check the details below for your convenience. Please visit:https://admin.supershyft.com/",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/booking-alert-email+whatsapp+welcome-booking-1+1-v1"
+  },
+  {
+    "service_key": "booking-alert-whatsapp",
+    "template_name": "camp16",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "literal": "${agentName}",
+            "type": "text"
+          },
+          {
+            "literal": "Please initiate the process and proceed with the booking",
+            "type": "text"
+          },
+          {
+            "literal": "` +\n  `Details Name: ${detailsName} Phone: ${detailsPhone} Email: ${detailsEmail}",
+            "type": "text"
+          },
+          {
+            "literal": "` +\n  `Date: ${bookingDate} Time: ${bookingTime}",
+            "type": "text"
+          },
+          {
+            "literal": "` +\n  `Address in Admin You can check the details below for your convenience. Please visit:https://admin.supershyft.com/",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/booking-alert-email+whatsapp+participant-welcome-supershyft-v2"
+  },
+  {
+    "email_body": "Hello {{member.first_name}},\\n\\nYour blood collection booking has been successfully confirmed.\\n\\nDate: {{member.session_details.date}}\\nTime: {{member.session_details.slot}}${cabinLine}\\n\\nWe look forward to supporting you on your preventive health journey.\\n\\nYou can check your details anytime at: app.supershyft.com\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_subject": "Your SuperShyft booking is confirmed",
+    "service_key": "booking-confirmation-email",
+    "webhook_path": "/booking-confirmation-email-v1"
+  },
+  {
+    "service_key": "booking-confirmation-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Your blood collection booking has been successfully confirmed.",
+            "type": "text"
+          },
+          {
+            "source": "Date: {{member.session_details.date}}",
+            "type": "text"
+          },
+          {
+            "source": "Time: {{member.session_details.slot}}",
+            "type": "text"
+          },
+          {
+            "literal": "We look forward to supporting you on your preventive health journey.",
+            "type": "text"
+          },
+          {
+            "literal": "Please visit: app.supershyft.com",
+            "type": "text"
+          },
+          {
+            "ref": "member.session_details.cabin",
+            "type": "text"
+          },
+          {
+            "literal": "Thanks for taking a moment to read this message.",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/booking-confirmation-whatsapp-v1"
+  },
+  {
+    "service_key": "consultation-booking-alert-whatsapp",
+    "template_name": "camp16",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "literal": "${agentName}",
+            "type": "text"
+          },
+          {
+            "literal": "Please initiate the process and proceed with the consultation booking",
+            "type": "text"
+          },
+          {
+            "literal": "` +\n  `Details Name: ${detailsName} Phone: ${detailsPhone} Email: ${detailsEmail}",
+            "type": "text"
+          },
+          {
+            "literal": "` +\n  `Date: ${bookingDate} Time: ${bookingTime} Expert: ${expertType}",
+            "type": "text"
+          },
+          {
+            "literal": "` +\n  `Address in Admin You can check the details below for your convenience. Please visit:https://admin.supershyft.com/",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/consultation-booking-alert-whatsapp-v1"
+  },
+  {
+    "email_body": "Hi {{member.first_name}},\\n\\nYour doctor consultation has been successfully scheduled.\\n\\nDate: {{member.session_details.date}}\\nTime: {{member.session_details.slot}}\\n\\nPlease keep your Bio-AI Health Report accessible during the session so your doctor can walk you through the findings in detail.\\n\\nIf you need to reschedule, please inform us in advance.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_subject": "Your Doctor Consultation is Confirmed",
+    "service_key": "consultation-confirmed-email",
+    "webhook_path": "/consultation-confirmed-email-v1"
+  },
+  {
+    "service_key": "consultation-confirmed-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Your doctor consultation has been successfully confirmed.",
+            "type": "text"
+          },
+          {
+            "source": "Date: {{member.session_details.date}}",
+            "type": "text"
+          },
+          {
+            "source": "Time: {{member.session_details.slot}}",
+            "type": "text"
+          },
+          {
+            "literal": "Let us know in advance if you need to reschedule the session.",
+            "type": "text"
+          },
+          {
+            "literal": "You can check the details below for your convenience",
+            "type": "text"
+          },
+          {
+            "literal": "app.supershyft.com",
+            "type": "text"
+          },
+          {
+            "literal": "Thanks for taking a moment to read this message",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/consultation-confirmed-whatsapp-v1"
+  },
+  {
+    "email_body": "Hi {{member.first_name}},\\n\\nThis is a reminder that your doctor consultation is scheduled for today.\\n\\nPlease keep your phone available during the scheduled time and have your Bio-AI Health Report accessible so the discussion can be as productive as possible.\\n\\nYou can check the details below at your convenience\\napp.supershyft.com\\n\\nWe look forward to helping you take the next step toward better health.\\n\\nWarm regards,\\nSupport Team\\nSupershyft",
+    "email_subject": "Reminder - Your Consultation is Today",
+    "service_key": "consultation-remainder-email",
+    "webhook_path": "/consultation-remainder-email-v3"
+  },
+  {
+    "service_key": "consultation-remainder-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "This is a reminder that your doctor consultation is scheduled for today.",
+            "type": "text"
+          },
+          {
+            "literal": "Please attend the session with them at your scheduled time.",
+            "type": "text"
+          },
+          {
+            "literal": "We look forward to supporting you on your health journey.",
+            "type": "text"
+          },
+          {
+            "literal": "You can check the details below at your convenience",
+            "type": "text"
+          },
+          {
+            "literal": "app.supershyft.com",
+            "type": "text"
+          },
+          {
+            "literal": "Thanks for taking a moment to read this message",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/consultation-remainder-whatsapp-v1"
+  },
+  {
+    "email_body": "CPU Overload",
+    "email_subject": "CPU Overload",
+    "service_key": "cpu_above_threshold",
+    "webhook_path": "/cpu_above_threshold"
+  },
+  {
+    "email_body": "Dear {{member.first_name}},\n\nYou will receive access to book your doctor consultation through the Supershyft app. The entire consultation process will be managed through the app, where you can select your preferred cabin, date, and time slot.\n\nYour HR team will reach out to you once the booking option is released on the app.\n\nRegards,\nTeam Supershyft",
+    "email_subject": "Doctor Consultation Booking on Supershyft App",
+    "service_key": "doctor-consultation-booking-notice-email",
+    "webhook_path": "/doctor-consultation-booking-notice-email-v1"
+  },
+  {
+    "email_html": "<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <style>\n    * { margin: 0; padding: 0; box-sizing: border-box; }\n    body { font-family: Arial, sans-serif; background-color: #f0f2f5; color: #333; -webkit-text-size-adjust: 100%; }\n    .wrapper { background-color: #f0f2f5; padding: 24px 12px; }\n    .container { max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.10); width: 100%; }\n\n    .header { background: linear-gradient(135deg, #0a2e2a 0%, #0d4a42 60%, #0f5c52 100%); padding: 32px 24px 26px; text-align: center; }\n    .header-title { color: #ffffff; font-size: 22px; font-weight: 700; letter-spacing: 1px; }\n    .header-subtitle { color: #7ecfc4; font-size: 11px; margin-top: 6px; letter-spacing: 2.5px; text-transform: uppercase; }\n\n    .body { padding: 28px 24px; }\n    .greeting { font-size: 17px; font-weight: 700; color: #111; margin-bottom: 12px; }\n    .message { font-size: 14px; color: #555; line-height: 1.75; margin-bottom: 28px; }\n\n    .otp-label { font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 2px; text-align: center; margin-bottom: 14px; }\n    .otp-box { background: linear-gradient(135deg, #0a2e2a, #0f5c52); border-radius: 14px; padding: 28px 16px; text-align: center; margin-bottom: 28px; }\n    .otp-table { border-collapse: separate; border-spacing: 0; margin: 0 auto; }\n    .otp-validity { font-size: 12px; color: #7ecfc4; margin-top: 16px; letter-spacing: 0.3px; }\n\n    .divider { border: none; border-top: 1px solid #f0f0f0; margin: 0 0 22px; }\n\n    .warning { background-color: #fffbef; border-left: 3px solid #f0a500; padding: 12px 14px; border-radius: 6px; margin-bottom: 24px; }\n    .warning p { font-size: 13px; color: #7a5c00; line-height: 1.65; }\n\n    .help { font-size: 13px; color: #666; line-height: 1.7; }\n    .help a { color: #0d4a42; font-weight: 600; text-decoration: none; }\n\n    .footer { background-color: #f7f8f9; border-top: 1px solid #ececec; padding: 20px 24px; text-align: center; }\n    .footer p { font-size: 11px; color: #bbb; line-height: 1.9; }\n    .footer a { color: #0d4a42; font-weight: 600; text-decoration: none; }\n  </style>\n</head>\n<body>\n  <div class=\"wrapper\">\n    <div class=\"container\">\n\n      <div class=\"header\">\n        <div class=\"header-title\">Supershyft</div>\n        <div class=\"header-subtitle\">Precision Health Solutions</div>\n      </div>\n\n      <div class=\"body\">\n        <p class=\"greeting\">Hi {{member.first_name}},</p>\n        <p class=\"message\">\n          You requested a one-time password to access your Supershyft account.\n          Use the code below to complete your verification.\n          This code is valid for <strong>10 minutes</strong>.\n        </p>\n\n        <p class=\"otp-label\">Your One-Time Password</p>\n        <div class=\"otp-box\">\n          <table class=\"otp-table\" cellpadding=\"0\" cellspacing=\"0\" role=\"presentation\">\n            <tr>${digitSpans}</tr>\n          </table>\n          <div class=\"otp-validity\">Valid for 10 minutes &bull; Do not share this code</div>\n        </div>\n\n        <hr class=\"divider\">\n\n        <div class=\"warning\">\n          <p>&#x26a0;&#xfe0f;&nbsp; <strong>Security notice:</strong> Supershyft will never ask for your OTP over call or message. If you did not request this code, please ignore this email or contact our support team immediately.</p>\n        </div>\n\n        <p class=\"help\">Need help? Reach us at <a href=\"mailto:support@supershyft.com\">support@supershyft.com</a></p>\n      </div>\n\n      <div class=\"footer\">\n        <p>Warm regards,<br><strong style=\"color:#444;\">Support Team - Supershyft</strong></p>\n        <p style=\"margin-top:10px;\"><a href=\"https://www.supershyft.com\">www.supershyft.com</a></p>\n        <p style=\"margin-top:10px;\">This is an automated email. Please do not reply directly to this message.</p>\n      </div>\n\n    </div>\n  </div>\n</body>\n</html>",
+    "email_subject": "Your Supershyft verification code",
+    "service_key": "email-otp",
+    "webhook_path": "/send-otp-email-v3"
+  },
+  {
+    "email_body": "Hello ${recipientName},\n\nThis Diwali we have a little surprise for you from someone who cares about you deeply.\n\n${bookerName} has chosen to gift you a personalised BIO AI Wellness Assessment because they want you to prioritise your health and take a little time for yourself.\n\nLife gets busy with work family and everything in between and sometimes we forget to look after ourselves.\n\nThis gift is a gentle reminder that your health matters and that the people who love you want to see you happy healthy and around for many more Diwalis together.\n\nThrough personalised BIO AI insights you can learn more about your health and discover recommendations to help you make informed choices for your well being.\n\nYour special gift is waiting for you here.\n\n${giftUrl}\n\nWe hope this little gesture brings a smile to your face and reminds you how deeply you are loved.\n\nWishing you and your family a Diwali filled with good health happiness and beautiful moments together.\n\nWith warmth and love\n\nTeam Supershyft",
+    "email_subject": "A special Diwali gift for you from Supershyft",
+    "service_key": "family-onboard-receiver-email",
+    "webhook_path": "/family-onboard-receiver-email-v1"
+  },
+  {
+    "service_key": "family-onboard-receiver-whatsapp",
+    "template_name": "camp15",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "literal": "${recipientName}",
+            "type": "text"
+          },
+          {
+            "literal": "${v1}",
+            "type": "text"
+          },
+          {
+            "literal": "${v2}",
+            "type": "text"
+          },
+          {
+            "literal": "${v3}",
+            "type": "text"
+          },
+          {
+            "literal": "${v4}",
+            "type": "text"
+          },
+          {
+            "literal": "Gift Card",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/family-onboard-receiver-whatsapp-v1"
+  },
+  {
+    "email_body": "Hello ${bookerName},\n\nThis Diwali you are giving someone you love something truly special through the gift of health and well being.\n\nYour personalised BIO AI Wellness Assessment for ${recipientName} is being created with love.\n\nRecipient Name: ${recipientName}\nRelationship: ${relationship}\n\nBecause the people we love deserve a healthier and happier life with many more beautiful moments together.\n\nYou can check the details below for your convenience.\n\n${giftUrl}\n\nThank you for choosing to make someone's well being a little more special this Diwali.\n\nWishing you and your family a beautiful Diwali filled with love happiness and good health.\n\nWarm regards\nTeam Supershyft",
+    "email_subject": "Your Diwali gift of health from Supershyft",
+    "service_key": "family-onboard-sender-email",
+    "webhook_path": "/family-onboard-sender-email-v1"
+  },
+  {
+    "service_key": "family-onboard-sender-whatsapp",
+    "template_name": "camp13",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "literal": "${v1}",
+            "type": "text"
+          },
+          {
+            "literal": "${v2}",
+            "type": "text"
+          },
+          {
+            "literal": "${v3}",
+            "type": "text"
+          },
+          {
+            "literal": "${v4}",
+            "type": "text"
+          },
+          {
+            "literal": "${v5}",
+            "type": "text"
+          },
+          {
+            "literal": "${v6}",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/family-onboard-sender-whatsapp-v1"
+  },
+  {
+    "email_html": "<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <style>\n    * { margin: 0; padding: 0; box-sizing: border-box; }\n    body { font-family: Arial, sans-serif; background-color: #f0f2f5; color: #333; -webkit-text-size-adjust: 100%; }\n    .wrapper { background-color: #f0f2f5; padding: 24px 12px; }\n    .container { max-width: 520px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.10); width: 100%; }\n    .header { background: linear-gradient(135deg, #0a2e2a 0%, #0d4a42 60%, #0f5c52 100%); padding: 32px 24px 26px; text-align: center; }\n    .header-title { color: #ffffff; font-size: 22px; font-weight: 700; letter-spacing: 1px; }\n    .header-subtitle { color: #7ecfc4; font-size: 11px; margin-top: 6px; letter-spacing: 2.5px; text-transform: uppercase; }\n    .body { padding: 28px 24px; }\n    .greeting { font-size: 17px; font-weight: 700; color: #111; margin-bottom: 12px; }\n    .message { font-size: 14px; color: #555; line-height: 1.75; margin-bottom: 24px; }\n    .detail-box { background-color: #f7faf9; border: 1px solid #e3ece9; border-radius: 12px; padding: 4px 20px; margin-bottom: 24px; }\n    .detail-row { display: table; width: 100%; padding: 12px 0; border-bottom: 1px solid #eef2f1; }\n    .detail-row:last-child { border-bottom: none; }\n    .detail-label { display: table-cell; font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 1px; width: 90px; vertical-align: top; padding-top: 2px; }\n    .detail-value { display: table-cell; font-size: 14px; color: #222; font-weight: 600; white-space: pre-wrap; }\n    .cta-wrap { text-align: center; margin-bottom: 28px; }\n    .cta-button { display: inline-block; background: linear-gradient(135deg, #0a2e2a, #0f5c52); color: #ffffff !important; text-decoration: none; font-size: 14px; font-weight: 700; padding: 13px 32px; border-radius: 8px; letter-spacing: 0.3px; }\n    .divider { border: none; border-top: 1px solid #f0f0f0; margin: 0 0 22px; }\n    .note { background-color: #fffbef; border-left: 3px solid #f0a500; padding: 12px 14px; border-radius: 6px; margin-bottom: 8px; }\n    .note p { font-size: 13px; color: #7a5c00; line-height: 1.65; }\n    .footer { background-color: #f7f8f9; border-top: 1px solid #ececec; padding: 20px 24px; text-align: center; }\n    .footer p { font-size: 11px; color: #bbb; line-height: 1.9; }\n    .footer a { color: #0d4a42; font-weight: 600; text-decoration: none; }\n  </style>\n</head>\n<body>\n  <div class=\"wrapper\">\n    <div class=\"container\">\n      <div class=\"header\">\n        <div class=\"header-title\">Supershyft</div>\n        <div class=\"header-subtitle\">Support Notification</div>\n      </div>\n      <div class=\"body\">\n        <p class=\"greeting\">Hi ${escapeHtml(adminName)},</p>\n        <p class=\"message\">A user has submitted a support query. Details are below &mdash; please follow up as soon as possible.</p>\n        <div class=\"detail-box\">\n          <div class=\"detail-row\"><div class=\"detail-label\">Ticket</div><div class=\"detail-value\">#${escapeHtml(ticketId)}</div></div>\n          <div class=\"detail-row\"><div class=\"detail-label\">Name</div><div class=\"detail-value\">${escapeHtml(userName)}</div></div>\n          <div class=\"detail-row\"><div class=\"detail-label\">Phone</div><div class=\"detail-value\">${escapeHtml(userPhone)}</div></div>\n          <div class=\"detail-row\"><div class=\"detail-label\">Email</div><div class=\"detail-value\">${escapeHtml(userEmail)}</div></div>\n          <div class=\"detail-row\"><div class=\"detail-label\">Query</div><div class=\"detail-value\">${escapeHtml(queryText)}</div></div>\n        </div>\n        <div class=\"cta-wrap\"><a href=\"${adminPanelUrl}\" class=\"cta-button\">View Support Tickets</a></div>\n        <hr class=\"divider\">\n        <div class=\"note\"><p><strong>Action needed:</strong> This user is waiting on a response. Please reach out via phone or email at your earliest convenience.</p></div>\n      </div>\n      <div class=\"footer\">\n        <p>Automated alert from <strong style=\"color:#444;\">Supershyft</strong></p>\n        <p style=\"margin-top:10px;\"><a href=\"https://www.supershyft.com\">www.supershyft.com</a></p>\n        <p style=\"margin-top:10px;\">This is an automated email. Please do not reply directly to this message.</p>\n      </div>\n    </div>\n  </div>\n</body>\n</html>",
+    "email_subject": "New support query #${ticketId} from ${userName}",
+    "service_key": "notify-admin-contact-query",
+    "webhook_path": "/notify-admin-contact-query"
+  },
+  {
+    "email_body": "Hello {{member.first_name}},\\n\\nYour nutrition consultation has been successfully confirmed.\\n\\nDate: {{member.session_details.date}}\\nTime: {{member.session_details.slot}}\\n\\nPlease be available at your scheduled time.\\n\\nWe look forward to supporting you on your health journey.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_subject": "Your Nutrition Consultation is Confirmed",
+    "service_key": "nutrition-consultation-confirmed-email-1+1",
+    "webhook_path": "/nutrition-consultation-confirmed-email-1+1-v1"
+  },
+  {
+    "service_key": "nutrition-consultation-confirmed-whatsapp-1+1",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Your nutrition consultation has been successfully confirmed.",
+            "type": "text"
+          },
+          {
+            "source": "Date: {{member.session_details.date}}",
+            "type": "text"
+          },
+          {
+            "source": "Time: {{member.session_details.slot}}",
+            "type": "text"
+          },
+          {
+            "literal": "Please be available at your scheduled time. We look forward to supporting you on your health journey.",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/nutrition-consultation-confirmed-whatsapp-1+1-v1"
+  },
+  {
+    "email_body": "Hello {{member.first_name}},\\n\\nJust a reminder that your Supershyft nutrition consultation is scheduled for tomorrow.\\n\\nTime: {{member.session_details.slot}}\\n\\nPlease be available at the scheduled time.\\n\\nWe look forward to speaking with you.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_subject": "Reminder: Your Nutrition Consultation is Tomorrow",
+    "service_key": "nutrition-consultation-reminder-email-1+1",
+    "webhook_path": "/nutrition-consultation-reminder-email-1+1-v1"
+  },
+  {
+    "service_key": "nutrition-consultation-reminder-whatsapp-1+1",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Just a reminder that your Supershyft nutrition consultation is scheduled for tomorrow.",
+            "type": "text"
+          },
+          {
+            "source": "Time: {{member.session_details.slot}}",
+            "type": "text"
+          },
+          {
+            "literal": "Please be available at the scheduled time. We look forward to speaking with you.",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/nutrition-consultation-reminder-whatsapp-1+1-v1"
+  },
+  {
+    "email_body": "Hi {{member.first_name}},\\n\\nThank you for attending your consultation with our doctor. We hope the session provided you with a clearer understanding of your Bio-AI Health Report, your current health status, and the recommendations discussed during the consultation.\\n\\nWe would love to hear your thoughts on your overall experience with Supershyft so far.\\nYour feedback helps us continue shaping a better preventive health journey for you and every member of our community.\\nYou can share your feedback using the link below.\\n{{member.external_link}}\\n\\nShould you have any additional questions or require further assistance, please don't hesitate to reach out to us.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_subject": "Thank You for Attending Your Nutrition Consultation",
+    "service_key": "nutrition-consultation-thank-you-email",
+    "webhook_path": "/nutrition-consultation-thank-you-email-v1"
+  },
+  {
+    "service_key": "nutrition-consultation-thank-you-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Thank you for attending your consultation with our doctor.",
+            "type": "text"
+          },
+          {
+            "literal": "We hope the session helped you better understand your Bio-AI Health Report and your overall health status.",
+            "type": "text"
+          },
+          {
+            "literal": "We would love to hear your thoughts on your overall experience with Supershyft so far.",
+            "type": "text"
+          },
+          {
+            "literal": "Your feedback helps us continue shaping a better preventive health journey for you.",
+            "type": "text"
+          },
+          {
+            "literal": "You can check the details below for your convenience.",
+            "type": "text"
+          },
+          {
+            "ref": "member.external_link",
+            "type": "text"
+          },
+          {
+            "literal": "Thanks for taking a moment to read this message.",
+            "type": "text"
+          },
+          {
+            "literal": "Regards",
+            "type": "text"
+          },
+          {
+            "literal": "Team Supershyft",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/nutrition-consultation-thank-you-whatsapp-v1"
+  },
+  {
+    "email_body": "Hello {{member.first_name}},\\n\\nThank you so much for trusting Supershyft and taking the first step towards preventive healthcare.\\n\\nYour Supershyft health profile is ready, and your health sample collection has been successfully confirmed.\\n\\nCollection Details:\\nDate: {{member.session_details.date}}\\nTime: {{member.session_details.slot}}\\nCabin: {{member.session_details.cabin}}\\n\\nBefore your collection, please take a few minutes to complete your Health Assessment questionnaire, covering your lifestyle and daily activity. Your responses help us build your personalized Bio-AI Health Report.\\n\\nYou can access your Supershyft health profile and complete the assessment here:\\napp.supershyft.com\\n\\nThank you for taking a moment to complete this important step towards understanding and improving your health.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_subject": "Your Supershyft Health Assessment Collection is Confirmed",
+    "service_key": "nvidia-collection-confirmed-email",
+    "webhook_path": "/nvidia-collection-confirmed-email-v1"
+  },
+  {
+    "service_key": "nvidia-collection-confirmed-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Thank you so much for trusting us and taking the first step towards prevention.",
+            "type": "text"
+          },
+          {
+            "literal": "Your SuperShyft health profile is ready and your collection has been successfully confirmed.",
+            "type": "text"
+          },
+          {
+            "source": "Date: {{member.session_details.date}}",
+            "type": "text"
+          },
+          {
+            "source": "Time: {{member.session_details.slot}}",
+            "type": "text"
+          },
+          {
+            "source": "Cabin: {{member.session_details.cabin}}",
+            "type": "text"
+          },
+          {
+            "literal": "Please take a few minutes to complete your Health Assessment covering lifestyle and daily activity as your inputs help build your Bio AI Health Report.",
+            "type": "text"
+          },
+          {
+            "literal": "You can check the details below for your convenience.",
+            "type": "text"
+          },
+          {
+            "literal": "Please visit: app.supershyft.com",
+            "type": "text"
+          },
+          {
+            "literal": "Thanks for taking a moment to read this message.",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/nvidia-collection-confirmed-whatsapp-v1"
+  },
+  {
+    "email_body": "Hi {{member.first_name}},\\n\\nYour doctor consultation has been successfully scheduled.\\n\\nDate: {{member.session_details.date}}\\nTime: {{member.session_details.slot}}\\nCabin: {{member.session_details.cabin}}\\n\\nPlease keep your Bio-AI Health Report accessible during the session so your doctor can walk you through the findings in detail.\\n\\nIf you need to reschedule, please inform us in advance.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_subject": "Your Doctor Consultation is Confirmed",
+    "service_key": "nvidia-consultation-confirmed-email",
+    "webhook_path": "/nvidia-consultation-confirmed-email-v1"
+  },
+  {
+    "service_key": "nvidia-consultation-confirmed-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Your doctor consultation has been successfully confirmed.",
+            "type": "text"
+          },
+          {
+            "source": "Date: {{member.session_details.date}}",
+            "type": "text"
+          },
+          {
+            "source": "Time: {{member.session_details.slot}}",
+            "type": "text"
+          },
+          {
+            "source": "Cabin: {{member.session_details.cabin}}",
+            "type": "text"
+          },
+          {
+            "literal": "You can check the details below for your convenience",
+            "type": "text"
+          },
+          {
+            "literal": "app.supershyft.com",
+            "type": "text"
+          },
+          {
+            "literal": "Thanks for taking a moment to read this message",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/nvidia-consultation-confirmed-whatsapp-v1"
+  },
+  {
+    "email_body": "Hi {{member.first_name}},\\n\\nThis is a reminder that your doctor consultation is scheduled for today.\\n\\nTime: {{member.session_details.slot}}\\nCabin: {{member.session_details.cabin}}\\n\\nPlease attend your consultation at the scheduled time and have your Bio-AI Health Report accessible so the discussion can be as productive as possible.\\n\\nYou can check the details below at your convenience\\napp.supershyft.com\\n\\nWe look forward to helping you take the next step toward better health.\\n\\nWarm regards,\\nSupport Team\\nSupershyft",
+    "email_subject": "Reminder Your Doctor consultation is Today",
+    "service_key": "nvidia-consultation-remainder-email",
+    "webhook_path": "/nvidia-consultation-remainder-email-v1"
+  },
+  {
+    "service_key": "nvidia-consultation-remainder-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "This is a reminder that your doctor consultation is scheduled for today.",
+            "type": "text"
+          },
+          {
+            "source": "Time: {{member.session_details.slot}}",
+            "type": "text"
+          },
+          {
+            "source": "Cabin: {{member.session_details.cabin}}",
+            "type": "text"
+          },
+          {
+            "literal": "We look forward to supporting you on your health journey.",
+            "type": "text"
+          },
+          {
+            "literal": "You can check the details below at your convenience",
+            "type": "text"
+          },
+          {
+            "literal": "app.supershyft.com",
+            "type": "text"
+          },
+          {
+            "literal": "Thanks for taking a moment to read this message",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/nvidia-consultation-remainder-whatsapp-v1"
+  },
+  {
+    "email_body": "Hi {{member.first_name}},\\n\\nThank you for attending your consultation with our doctor. We hope the session provided you with a clearer understanding of your Bio-AI Health Report, your current health status, and the recommendations discussed during the consultation.\\n\\nWe would love to hear your thoughts on your overall experience with Supershyft so far.\\nYour feedback helps us continue shaping a better preventive health journey for you and every member of our community.\\nYou can share your feedback using the link below.\\n{{member.external_link}}\\n\\nShould you have any additional questions or require further assistance, please don't hesitate to reach out to us.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_subject": "Thank You for Attending Your Doctor Consultation",
+    "service_key": "nvidia-consultation-thank-you-email",
+    "webhook_path": "/nvidia-consultation-thank-you-email-v1"
+  },
+  {
+    "service_key": "nvidia-consultation-thank-you-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Thank you for attending your checkup and consultation with our doctor.",
+            "type": "text"
+          },
+          {
+            "literal": "We hope the session helped you better understand your Bio-AI Health Report and your overall health status.",
+            "type": "text"
+          },
+          {
+            "literal": "We would love to hear your thoughts on your overall experience with Supershyft so far.",
+            "type": "text"
+          },
+          {
+            "literal": "Your feedback helps us continue shaping a better preventive health journey for you.",
+            "type": "text"
+          },
+          {
+            "literal": "You can check the details below for your convenience.",
+            "type": "text"
+          },
+          {
+            "ref": "member.external_link",
+            "type": "text"
+          },
+          {
+            "literal": "Thanks for taking a moment to read this message.",
+            "type": "text"
+          },
+          {
+            "literal": "Regards",
+            "type": "text"
+          },
+          {
+            "literal": "Team Supershyft",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/nvidia-consultation-thank-you-whatsapp-v1"
+  },
+  {
+    "email_body": "Hello {{member.first_name}},\\n\\nYour phlebotomist {{participant_details.phlebo_name}} has been assigned for your blood collection.\\n\\nDate: {{member.session_details.date}}\\nTime: {{member.session_details.slot}}${maskedLine}${trackingLine}\\n\\nYou can check your details anytime at: app.supershyft.com\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_subject": "Your phlebotomist has been assigned",
+    "service_key": "phlebo-assigned-email",
+    "webhook_path": "/phlebo-assigned-email-v1"
+  },
+  {
+    "service_key": "phlebo-assigned-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "source": "Your phlebotomist {{participant_details.phlebo_name}} has been assigned for your blood collection.",
+            "type": "text"
+          },
+          {
+            "source": "Date: {{member.session_details.date}}",
+            "type": "text"
+          },
+          {
+            "source": "Time: {{member.session_details.slot}}",
+            "type": "text"
+          },
+          {
+            "literal": "${maskedPart}",
+            "type": "text"
+          },
+          {
+            "literal": "${trackingPart}",
+            "type": "text"
+          },
+          {
+            "literal": "Please visit: app.supershyft.com",
+            "type": "text"
+          },
+          {
+            "literal": "Thanks for taking a moment to read this message.",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/phlebo-assigned-whatsapp-v1"
+  },
+  {
+    "email_body": "Hello {{member.first_name}},\\n\\nYour phlebotomist {{participant_details.phlebo_name}} is delayed and will arrive in about {{participant_details.eta_in_minutes}} minutes.\\n\\nContact: {{participant_details.masked_number}}\\n\\nYou can check your details anytime at: app.supershyft.com\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_subject": "Your phlebotomist is delayed",
+    "service_key": "phlebo-delay-email",
+    "webhook_path": "/phlebo-delay-email-v1"
+  },
+  {
+    "service_key": "phlebo-delay-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "source": "Your phlebotomist {{participant_details.phlebo_name}} is delayed and will arrive in about {{participant_details.eta_in_minutes}} minutes.",
+            "type": "text"
+          },
+          {
+            "source": "Contact: {{participant_details.masked_number}}",
+            "type": "text"
+          },
+          {
+            "literal": "Please visit: app.supershyft.com",
+            "type": "text"
+          },
+          {
+            "literal": "Thanks for taking a moment to read this message.",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/phlebo-delay-whatsapp-v1"
+  },
+  {
+    "email_body": "Hello {{member.first_name}},\\n\\nYour phlebotomist {{participant_details.phlebo_name}} is on the way for your blood collection.\\n\\nContact: {{participant_details.masked_number}}\\nTrack: {{participant_details.tracking_url}}\\n\\nYou can check your details anytime at: app.supershyft.com\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_subject": "Your phlebotomist is on the way",
+    "service_key": "phlebo-enroute-email",
+    "webhook_path": "/phlebo-enroute-email-v1"
+  },
+  {
+    "service_key": "phlebo-enroute-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "source": "Your phlebotomist {{participant_details.phlebo_name}} is on the way for your blood collection.",
+            "type": "text"
+          },
+          {
+            "source": "Contact: {{participant_details.masked_number}}",
+            "type": "text"
+          },
+          {
+            "source": "Track your phlebotomist: {{participant_details.tracking_url}}",
+            "type": "text"
+          },
+          {
+            "literal": "Please visit: app.supershyft.com",
+            "type": "text"
+          },
+          {
+            "literal": "Thanks for taking a moment to read this message.",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/phlebo-enroute-whatsapp-v1"
+  },
+  {
+    "email_body": "Hello {{member.first_name}},\\n\\nYour phlebotomist {{participant_details.phlebo_name}} has been reassigned for your blood collection.\\n\\nDate: {{member.session_details.date}}\\nTime: {{member.session_details.slot}}${maskedLine}${trackingLine}\\n\\nYou can check your details anytime at: app.supershyft.com\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_subject": "Your phlebotomist has been reassigned",
+    "service_key": "phlebo-reassigned-email",
+    "webhook_path": "/phlebo-reassigned-email-v1"
+  },
+  {
+    "service_key": "phlebo-reassigned-whatsapp",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "source": "Your phlebotomist {{participant_details.phlebo_name}} has been reassigned for your blood collection.",
+            "type": "text"
+          },
+          {
+            "source": "Date: {{member.session_details.date}}",
+            "type": "text"
+          },
+          {
+            "source": "Time: {{member.session_details.slot}}",
+            "type": "text"
+          },
+          {
+            "literal": "${maskedPart}",
+            "type": "text"
+          },
+          {
+            "literal": "${trackingPart}",
+            "type": "text"
+          },
+          {
+            "literal": "Please visit: app.supershyft.com",
+            "type": "text"
+          },
+          {
+            "literal": "Thanks for taking a moment to read this message.",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/phlebo-reassigned-whatsapp-v1"
+  },
+  {
+    "email_body": "Hello {{member.first_name}},\\n\\nThis is a reminder that your Supershyft Preventive Health blood test is scheduled for tomorrow.\\n\\nTime: {{member.session_details.slot}}\\n\\nWe recommend 10-12 hours of fasting before the test. Please refer to the attached pre-test guidelines for complete preparation instructions:\\n${preTestPdf}\\n\\nAlso, please ensure that your Health Assessment is completed before your test.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_subject": "Pre-Test Guidelines \u2014 Your blood test is tomorrow",
+    "service_key": "pretest-email-1+1",
+    "webhook_path": "/pretest-email-1+1-v1"
+  },
+  {
+    "email_body": "Hi {{member.first_name}},\n\nTo ensure accurate and reliable results for your Bio-AI Health Report, please follow the pre-test guidelines below:\n\nFasting:\nA 10 - 12 hour fasting period is recommended before the test.\n\nIf fasting is not possible, you may have a very light, non-greasy breakfast such as:\n*   Plain idli, plain dosa, upma, or poha\n*   Black tea or black coffee\n*   Tender coconut water\n*   A small fruit such as apple or guava\n*   4 - 5 plain almonds or walnuts\n*   Plenty of water\n\nPlease avoid before the test:\n*   Fried items such as medu vada, parathas, or buttered toast\n*   Sugary beverages or juices\n*   Milk or dairy-based drinks\n*   Bananas, mangoes, or other high-sugar fruits\n\nConsuming high-fat or high-sugar foods before the test can significantly alter lipid profile, blood sugar levels, and other metabolic markers, which may impact the accuracy of your Bio-AI Health Report. Also please complete your Health Assessment before your test, as it is essential for generating your Bio-AI report.\n\nThank you for your cooperation, and we look forward to supporting you on your preventive health journey.\n\nWarm regards,\nTeam SuperShyft",
+    "email_subject": "Bio-AI Health Report \\u2013 Pre-test guidelines",
+    "service_key": "pretest-email",
+    "webhook_path": "/pretest-email-v3"
+  },
+  {
+    "service_key": "pretest-whatsapp-1+1",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Your Supershyft Preventive Health blood test is scheduled for tomorrow.",
+            "type": "text"
+          },
+          {
+            "source": "Time: {{member.session_details.slot}}",
+            "type": "text"
+          },
+          {
+            "literal": "Please follow the pre-test guidelines before your blood test. We recommend 10-12 hours of fasting and plenty of water.",
+            "type": "text"
+          },
+          {
+            "literal": "Please refer to the attached guidelines for complete preparation details: ${preTestPdf}",
+            "type": "text"
+          },
+          {
+            "literal": "Also make sure your Health Assessment is completed before the test.",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/pretest-whatsapp-1+1-v1"
+  },
+  {
+    "service_key": "pretest-whatsapp-session",
+    "template_name": "camp15",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "This is a reminder that your Supershyft Preventive Health blood test is scheduled for tomorrow. Before your upcoming test to understand how to prepare you can refer to the document attached.",
+            "type": "text"
+          },
+          {
+            "source": "Time: {{member.session_details.slot}}",
+            "type": "text"
+          },
+          {
+            "source": "Cabin: {{member.session_details.cabin}}",
+            "type": "text"
+          },
+          {
+            "literal": "Also please complete your Health Assessment on the Supershyft app before your test. Thanks for your cooperation!",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/pretest-whatsapp-session-v1"
+  },
+  {
+    "service_key": "pretest-whatsapp",
+    "template_name": "camp14",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/pretest-whatsapp-v3"
+  },
+  {
+    "email_html": "<!DOCTYPE html>\n<html>\n<body>\n  <div class=\"container\">\n    <p>Hi {{member.first_name}},</p>\n    <p>Thank you for completing your Bio-AI health assessment with Supershyft.</p>\n    <p>Please find your personalized Bio-AI Health Report attached to this email. The report combines your blood biomarkers and lifestyle inputs to provide deeper insights into your metabolic health, potential future risk areas, and preventive health recommendations.</p>\n    <p>You can also access and review your reports and insights through:<br>\n    <a href=\"${fileUrl}\">BioAI Report</a></p>\n    <p>Please log in using your registered mobile number and OTP.</p>\n    <p>If you need any assistance accessing your reports or understanding the findings, please feel free to reach out to our support team.</p>\n    <p>Warm regards,<br>\n    Support Team<br>\n    Supershyft<br>\n    <a href=\"https://www.supershyft.com\">www.supershyft.com</a></p>\n  </div>\n</body>\n</html>",
+    "email_subject": "Your Personalized Bio-AI Health Report",
+    "service_key": "send-bioai-report-email-v2",
+    "webhook_path": "/send-bioai-report-email-v4"
+  },
+  {
+    "service_key": "send-bioai-whatsapp",
+    "template_name": "camp15",
+    "template_variables": [
+      {
+        "component": "header",
+        "parameters": [
+          {
+            "link": {
+              "ref": "member.bio_ai_report_url"
+            },
+            "type": "document"
+          }
+        ]
+      },
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Your personalized Bio-AI Health Report is attached below.",
+            "type": "text"
+          },
+          {
+            "literal": "Your report includes personalized metabolic health insights and recommendations.",
+            "type": "text"
+          },
+          {
+            "literal": "You can find everything you need below for easy access",
+            "type": "text"
+          },
+          {
+            "literal": "Please visit: app.supershyft.com",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/send-bioai-whatsapp-v4"
+  },
+  {
+    "email_body": "Hello {{member.first_name}},\\n\\nYour Supershyft Blood Test Report is now ready.\\n\\nThe report provides a detailed view of your blood biomarkers and key clinical parameters.\\n\\nView your report:\\n{{member.blood_report_url}}\\n\\nYour Bio-AI Health Report will help you understand these results in greater detail.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_subject": "Your Supershyft Blood Test Report is Ready",
+    "service_key": "send-blood-report-email-1+1",
+    "webhook_path": "/send-blood-report-email-1+1-v1"
+  },
+  {
+    "email_html": "<!DOCTYPE html>\n<html>\n<body>\n  <div class=\"container\">\n    <p>Hi {{member.first_name}},</p>\n    <p>Thank you for completing your blood collection with Supershyft.</p>\n    <p>Please find your blood test report attached to this email for your reference. Please review the report carefully.</p>\n    <p>Your personalized Bio-AI Health Report, which offers a more comprehensive understanding of your health insights and preventive risk analysis, will be shared separately once you complete the health assessment on the Supershyft app.</p>\n    <p>You can also access your reports and health insights through:<br>\n    <a href=\"${fileUrl}\">Blood Report</a></p>\n    <p>Please log in using your registered mobile number and OTP.</p>\n    <p>If you need any assistance or have questions regarding your reports, feel free to reach out to our support team.</p>\n    <p>Warm regards,<br>\n    Support Team<br>\n    Supershyft<br>\n    <a href=\"https://www.supershyft.com\">www.supershyft.com</a></p>\n  </div>\n</body>\n</html>",
+    "email_subject": "Supershyft Blood Report",
+    "service_key": "send-blood-report-email-v2",
+    "webhook_path": "/send-blood-report-email-v4"
+  },
+  {
+    "service_key": "send-blood-report-whatsapp-1+1",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "header",
+        "parameters": [
+          {
+            "link": {
+              "ref": "member.blood_report_url"
+            },
+            "type": "document"
+          }
+        ]
+      },
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Your Supershyft Blood Test Report is now ready.",
+            "type": "text"
+          },
+          {
+            "literal": "The report provides a detailed view of your blood biomarkers and key clinical parameters.",
+            "type": "text"
+          },
+          {
+            "source": "You can check your report here: {{member.blood_report_url}}",
+            "type": "text"
+          },
+          {
+            "literal": "Your Bio-AI Health Report will help you understand these results in greater detail.",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/send-blood-report-whatsapp-1+1-v1"
+  },
+  {
+    "service_key": "send-blood-report-whatsapp",
+    "template_name": "camp15",
+    "template_variables": [
+      {
+        "component": "header",
+        "parameters": [
+          {
+            "link": {
+              "ref": "member.blood_report_url"
+            },
+            "type": "document"
+          }
+        ]
+      },
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Thank you for completing your blood sample collection and the Lifestyle Questionnaire.",
+            "type": "text"
+          },
+          {
+            "literal": "Your Blood Test Reports are attached below.",
+            "type": "text"
+          },
+          {
+            "literal": "The report includes 88+ biomarker profiles.",
+            "type": "text"
+          },
+          {
+            "literal": "Please visit: app.supershyft.com",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/send-blood-report-whatsapp-v4"
+  },
+  {
+    "service_key": "send-expert-consultation-guide-whatsapp",
+    "template_name": "camp13",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Welcome to SuperShyft Expert Portal.",
+            "type": "text"
+          },
+          {
+            "literal": "Use the portal to review camp consultations and manage participant sessions.",
+            "type": "text"
+          },
+          {
+            "literal": "Open your camp consultations using the link below.",
+            "type": "text"
+          },
+          {
+            "literal": "${campConsultationsUrl}",
+            "type": "text"
+          },
+          {
+            "literal": "Please review your consultations and let us know if you need any assistance. Thanks!",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/send-expert-consultation-guide-whatsapp-v1"
+  },
+  {
+    "service_key": "send-phlebo-booking-guide-whatsapp",
+    "template_name": "camp15",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Welcome! \ud83d\udc4b",
+            "type": "text"
+          },
+          {
+            "literal": "We have shared a quick step-by-step guide to help you create bookings using the SuperShyft Engagement Console. Please refer to the attached guide before creating your first booking.",
+            "type": "text"
+          },
+          {
+            "literal": "You can access your Engagement Console using the link below:",
+            "type": "text"
+          },
+          {
+            "literal": "${consoleUrl}",
+            "type": "text"
+          },
+          {
+            "literal": "Please go through the guide and let us know if you have any questions or need any assistance.",
+            "type": "text"
+          },
+          {
+            "literal": "Thanks!",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/send-phlebo-booking-guide-whatsapp-v1"
+  },
+  {
+    "email_body": "Hi ${member.first_name},\n\nThank you for completing your blood sample collection and Lifestyle Questionnaire.\n\nYour reports are now ready:\n\n- Blood Test Report: ${bloodLink}\n- Personalized Bio-AI Health Report: ${bioLink}\n\nWarm regards,\nTeam SuperShyft",
+    "email_subject": "Your Blood and Bio-AI Reports are Ready",
+    "service_key": "send-reports-email",
+    "webhook_path": "/send-reports-email-v4"
+  },
+  {
+    "email_body": "Hello {{member.first_name}},\\n\\nThank you for completing your Supershyft health journey with us.\\n\\nWe hope the experience helped you better understand your health and take meaningful steps towards prevention.\\n\\nWe would love to hear your feedback. Your experience helps us improve and serve our community better.\\n\\nShare your feedback:\\n{{member.external_link}}\\n\\nThank you for choosing Supershyft.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_subject": "Thank You for Choosing Supershyft",
+    "service_key": "thank-you-feedback-email-1+1",
+    "webhook_path": "/thank-you-feedback-email-1+1-v1"
+  },
+  {
+    "service_key": "thank-you-feedback-whatsapp-1+1",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Thank you for completing your Supershyft health journey with us.",
+            "type": "text"
+          },
+          {
+            "literal": "We hope the experience helped you better understand your health and take meaningful steps towards prevention.",
+            "type": "text"
+          },
+          {
+            "literal": "We would love to hear your feedback. Your experience helps us improve and serve our community better.",
+            "type": "text"
+          },
+          {
+            "source": "Share your feedback here: {{member.external_link}}",
+            "type": "text"
+          },
+          {
+            "literal": "Thank you for choosing Supershyft.",
+            "type": "text"
+          },
+          {
+            "literal": "Regards",
+            "type": "text"
+          },
+          {
+            "literal": "Team Supershyft",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/thank-you-feedback-whatsapp-1+1-v1"
+  },
+  {
+    "email_body": "Hello {{member.first_name}},\\n\\nWelcome to Supershyft! Your preventive health assessment has been successfully booked.\\n\\nDate: {{member.session_details.date}}\\nTime: {{member.session_details.slot}}\\nCabin: {{member.session_details.cabin}}\\n\\nWe look forward to supporting you on your preventive health journey.\\n\\nWarm regards,\\nTeam Supershyft",
+    "email_subject": "Welcome to Supershyft \u2014 Assessment Booked",
+    "service_key": "welcome-booking-email-1+1",
+    "webhook_path": "/welcome-booking-email-1+1-v1"
+  },
+  {
+    "service_key": "welcome-booking-whatsapp-1+1",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Welcome to Supershyft! Your preventive health assessment has been successfully booked.",
+            "type": "text"
+          },
+          {
+            "source": "Date: {{member.session_details.date}}",
+            "type": "text"
+          },
+          {
+            "source": "Time: {{member.session_details.slot}}",
+            "type": "text"
+          },
+          {
+            "literal": "We look forward to supporting you on your preventive health journey.",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/welcome-booking-whatsapp-1+1-v1"
+  },
+  {
+    "email_body": "Hi {{member.first_name}},\n\nThank you for trusting us and taking the first step towards preventive health, your profile is now ready !\n\nReady to get started?\nPlease visit: https://app.supershyft.com/\nLog in using your registered mobile number and Verify via OTP for secure access\n\nTo unlock your personalized Bio-AI Health Report, please complete your Health Assessment. These inputs enable us to generate more accurate, personalized, and actionable insights for your Bio-AI report.\n\nIf you need any assistance, please feel free to reach out, we're happy to help. Looking forward to supporting you on your health journey.\n\nWarm regards,\nTeam Supershyft",
+    "email_subject": "Your Supershyft Profile is Ready",
+    "service_key": "welcome-email",
+    "webhook_path": "/welcome-email-v3"
+  },
+  {
+    "service_key": "welcome-whatsapp-metsights",
+    "template_name": "camp17",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Thank you so much for trusting us and taking the first step towards prevention",
+            "type": "text"
+          },
+          {
+            "literal": "Your SuperShyft health profile is ready!",
+            "type": "text"
+          },
+          {
+            "literal": "Complete your Health Assessment by answering a few quick questions about your nutrition",
+            "type": "text"
+          },
+          {
+            "literal": "sleep and physical activity.",
+            "type": "text"
+          },
+          {
+            "literal": "If you have any query or want to reschedule your test feel free to reach out on 8209512559",
+            "type": "text"
+          },
+          {
+            "literal": "Please visit: www.metsights.com",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/welcome-whatsapp-metsights-v3"
+  },
+  {
+    "service_key": "welcome-whatsapp",
+    "template_name": "camp13",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.first_name",
+            "type": "text"
+          },
+          {
+            "literal": "Thank you so much for trusting us and taking the first step towards prevention.",
+            "type": "text"
+          },
+          {
+            "literal": "Your SuperShyft health profile is ready!",
+            "type": "text"
+          },
+          {
+            "literal": "Please take a few minutes to complete your Health Assessment covering lifestyle and daily activity.",
+            "type": "text"
+          },
+          {
+            "literal": "Your inputs help build your Bio AI Health Report and better details will lead to more meaningful insights.",
+            "type": "text"
+          },
+          {
+            "literal": "Please visit: app.supershyft.com",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/welcome-whatsapp-v3"
+  },
+  {
+    "service_key": "whatapi-otp",
+    "template_name": "otp",
+    "template_variables": [
+      {
+        "component": "body",
+        "parameters": [
+          {
+            "ref": "member.otp",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "webhook_path": "/send-otp-whatsapp-v3"
+  }
+]

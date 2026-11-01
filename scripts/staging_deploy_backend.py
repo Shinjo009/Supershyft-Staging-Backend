@@ -49,6 +49,14 @@ def main() -> None:
             print(err, file=sys.stderr)
             raise SystemExit(code)
 
+        # Prompt 4: engine-only path on staging after 0187 backfill.
+        run(
+            "grep -q '^NOTIFICATION_ENGINE_LEGACY_FALLBACK=' /var/www/staging-api/.env "
+            "&& sed -i 's/^NOTIFICATION_ENGINE_LEGACY_FALLBACK=.*/NOTIFICATION_ENGINE_LEGACY_FALLBACK=false/' "
+            "/var/www/staging-api/.env "
+            "|| echo 'NOTIFICATION_ENGINE_LEGACY_FALLBACK=false' >> /var/www/staging-api/.env"
+        )
+
         # Orphan uvicorn on 8102 blocked systemd restarts in prior deploys.
         run("fuser -k 8102/tcp 2>/dev/null || true")
         time.sleep(2)

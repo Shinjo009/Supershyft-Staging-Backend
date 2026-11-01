@@ -19,9 +19,14 @@ from modules.notifications.whatapi_client import (
     send_template_message,
     template_language_code,
 )
-from modules.notifications.whatsapp_fallback_get import fallback_accepted, send_whatsapp_fallback_get
+from modules.notifications.whatsapp_fallback_get import (
+    fallback_accepted,
+    send_whatsapp_fallback_get,
+    send_whatsapp_fallback_get_otp,
+)
 from modules.notifications.whatsapp_template_builder import (
     build_dispatch_context,
+    build_get_fallback_message,
     build_template_components,
     build_template_message_body,
 )
@@ -227,10 +232,18 @@ async def _deliver_whatsapp_direct(
         api_url=settings.WHATAPI_FALLBACK_WEBHOOK_URL or "whatapi-fallback",
         engagement_id=engagement_id,
         user_id=sync_log_user_id,
-        request_payload={"notification_id": notification_id, "phone": phone, "otp": otp},
+        request_payload={"notification_id": notification_id, "phone": phone},
     )
     try:
-        fallback_resp = await send_whatsapp_fallback_get(phone=phone, otp=otp)
+        if template_name == "otp" or (svc.service_key or "").endswith("otp"):
+            fallback_resp = await send_whatsapp_fallback_get_otp(phone=phone, otp=otp or context.get("member", {}).get("otp", ""))
+        else:
+            fallback_message = build_get_fallback_message(
+                template_name,
+                svc.template_variables,
+                context,
+            )
+            fallback_resp = await send_whatsapp_fallback_get(phone=phone, message=fallback_message)
         if fallback_accepted(fallback_resp):
             now = datetime.now(timezone.utc)
             await finalize_integration_sync_log_isolated(

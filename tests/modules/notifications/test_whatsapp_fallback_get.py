@@ -33,7 +33,7 @@ async def test_send_whatsapp_fallback_get_builds_otp_message(monkeypatch):
     monkeypatch.setattr(whatsapp_fallback_get.settings, "WHATAPI_FALLBACK_WEBHOOK_URL", "https://fallback.test/hook")
     monkeypatch.setattr(whatsapp_fallback_get.httpx, "AsyncClient", lambda *a, **k: _Client())
 
-    resp = await whatsapp_fallback_get.send_whatsapp_fallback_get(phone="8762830757", otp="654321")
+    resp = await whatsapp_fallback_get.send_whatsapp_fallback_get_otp(phone="8762830757", otp="654321")
     assert whatsapp_fallback_get.fallback_accepted(resp) is True
     assert captured["params"]["message"] == "otp,654321"
     assert captured["params"]["number"] == "918762830757"

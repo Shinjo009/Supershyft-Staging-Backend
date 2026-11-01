@@ -13,14 +13,17 @@ from modules.notifications.whatapi_client import normalize_whatsapp_number
 logger = logging.getLogger(__name__)
 
 
-async def send_whatsapp_fallback_get(*, phone: str, otp: str, template_prefix: str = "otp") -> dict[str, Any]:
+async def send_whatsapp_fallback_get(
+    *,
+    phone: str,
+    message: str,
+) -> dict[str, Any]:
     """GET fallback webhook; returns JSON payload with accepted flag."""
     url = (settings.WHATAPI_FALLBACK_WEBHOOK_URL or "").strip()
     if not url:
         raise ValueError("WHATAPI_FALLBACK_WEBHOOK_URL is not configured")
 
     number = normalize_whatsapp_number(phone)
-    message = f"{template_prefix},{otp}"
     params = {"number": number, "message": message}
 
     async with httpx.AsyncClient(timeout=settings.WHATAPI_FALLBACK_TIMEOUT_SECONDS) as client:
@@ -33,6 +36,10 @@ async def send_whatsapp_fallback_get(*, phone: str, otp: str, template_prefix: s
     if not isinstance(data, dict):
         return {"accepted": False}
     return data
+
+
+async def send_whatsapp_fallback_get_otp(*, phone: str, otp: str, template_prefix: str = "otp") -> dict[str, Any]:
+    return await send_whatsapp_fallback_get(phone=phone, message=f"{template_prefix},{otp}")
 
 
 def fallback_accepted(payload: dict[str, Any]) -> bool:

@@ -14,10 +14,25 @@ def build_dispatch_context(
     participant_details: dict | None = None,
 ) -> dict[str, Any]:
     first = members[0] if members else {}
-    otp_value = str(first.get("otp") or "").strip()
+    member = dict(first)
+    if participant_details:
+        member.setdefault("participant_details", dict(participant_details))
+        pd = participant_details
+        for key in (
+            "phlebo_name",
+            "masked_number",
+            "tracking_url",
+            "eta_in_minutes",
+            "name",
+            "phone",
+            "email",
+        ):
+            if key in pd and key not in member:
+                member[key] = pd.get(key)
+    otp_value = str(first.get("otp") or member.get("otp") or "").strip()
     ctx: dict[str, Any] = {
         "otp": {"otp": otp_value},
-        "member": dict(first),
+        "member": member,
     }
     if participant_details:
         ctx["participant_details"] = dict(participant_details)
@@ -36,6 +51,13 @@ def _resolve_ref(path: str, context: dict[str, Any]) -> str:
     return str(node)
 
 
+def _interpolate_braces(text: str, context: dict[str, Any]) -> str:
+    def repl(match: re.Match[str]) -> str:
+        return _resolve_ref(match.group(1).strip(), context)
+
+    return re.sub(r"\{\{([^}]+)\}\}", repl, text)
+
+
 def _resolve_parameter_value(raw: object, context: dict[str, Any]) -> str:
     if isinstance(raw, dict):
         if "literal" in raw:
@@ -48,6 +70,8 @@ def _resolve_parameter_value(raw: object, context: dict[str, Any]) -> str:
             match = _SOURCE_PATTERN.match(source.strip())
             if match:
                 return _resolve_ref(match.group(1), context)
+            if "{{" in source:
+                return _interpolate_braces(source, context)
             return source
         text = raw.get("text")
         if text is not None:
@@ -93,6 +117,32 @@ def build_template_components(
             comp["index"] = block.get("index")
         components.append(comp)
     return components
+
+
+def build_get_fallback_message(
+    template_name: str,
+    template_variables: list | None,
+    context: dict[str, Any],
+) -> str:
+    """Build comma-separated GET fallback message (template, param1, param2, ...)."""
+    parts = [template_name.strip()]
+    if not template_variables:
+        return ",".join(parts)
+    for block in template_variables:
+        if not isinstance(block, dict):
+            continue
+        if str(block.get("component") or "").lower() == "header":
+            continue
+        params = block.get("parameters") or []
+        if not isinstance(params, list):
+            continue
+        for param in params:
+            if not isinstance(param, dict):
+                continue
+            if param.get("type") == "document":
+                continue
+            parts.append(_resolve_parameter_value(param, context))
+    return ",".join(parts)
 
 
 def build_template_message_body(

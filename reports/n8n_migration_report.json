@@ -1,0 +1,665 @@
+{
+  "service_count": 69,
+  "unmatched_webhook_paths": [],
+  "warnings": [
+    "b2b-booking-alert-whatsapp.json: no WhatsApp message template found",
+    "nvidia-collection-booking-alert-whatsapp.json: no WhatsApp message template found",
+    "nvidia-consultation-booking-alert-whatsapp.json: no WhatsApp message template found"
+  ],
+  "services": [
+    {
+      "service_key": "assessment-reminder-whatsapp-metsights-v2",
+      "webhook_path": "assessment-reminder-whatsapp-metsights-v3",
+      "workflow_file": "assessment-reminder-whatsapp-metsights-v2.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 7,
+      "warnings": []
+    },
+    {
+      "service_key": "b2b-booking-alert-whatsapp",
+      "webhook_path": "b2b-booking-alert-whatsapp-v1",
+      "workflow_file": "b2b-booking-alert-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": [
+        "no WhatsApp message template found"
+      ]
+    },
+    {
+      "service_key": "book-doctor-consultation-email",
+      "webhook_path": "book-doctor-consultation-email-v1",
+      "workflow_file": "book-doctor-consultation-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "book-doctor-consultation-whatsapp",
+      "webhook_path": "book-doctor-consultation-whatsapp-v1",
+      "workflow_file": "book-doctor-consultation-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 7,
+      "warnings": []
+    },
+    {
+      "service_key": "book-nutrition-consultation-email-1+1",
+      "webhook_path": "book-nutrition-consultation-email-1+1-v1",
+      "workflow_file": "book-nutrition-consultation-email-1+1.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "book-nutrition-consultation-whatsapp-1+1",
+      "webhook_path": "book-nutrition-consultation-whatsapp-1+1-v1",
+      "workflow_file": "book-nutrition-consultation-whatsapp-1+1.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 5,
+      "warnings": []
+    },
+    {
+      "service_key": "book-nvidia-consultation-email",
+      "webhook_path": "book-nvidia-consultation-email-v1",
+      "workflow_file": "book-nvidia-consultation-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "book-nvidia-consultation-whatsapp",
+      "webhook_path": "book-nvidia-consultation-whatsapp-v1",
+      "workflow_file": "book-nvidia-consultation-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 7,
+      "warnings": []
+    },
+    {
+      "service_key": "booking-alert-email+whatsapp+participant-welcome-metsights",
+      "webhook_path": "booking-alert-email+whatsapp+participant-welcome-metsights-v2",
+      "workflow_file": "booking-alert-email+whatsapp+participant-welcome-metsights.json",
+      "channel": "whatsapp",
+      "template_name": "camp16",
+      "param_count": 5,
+      "warnings": []
+    },
+    {
+      "service_key": "booking-alert-whatsapp-1+1",
+      "webhook_path": "booking-alert-email+whatsapp+welcome-booking-1+1-v1",
+      "workflow_file": "booking-alert-whatsapp-1+1.json",
+      "channel": "whatsapp",
+      "template_name": "camp16",
+      "param_count": 5,
+      "warnings": []
+    },
+    {
+      "service_key": "booking-alert-whatsapp",
+      "webhook_path": "booking-alert-email+whatsapp+participant-welcome-supershyft-v2",
+      "workflow_file": "booking-alert-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp16",
+      "param_count": 5,
+      "warnings": []
+    },
+    {
+      "service_key": "booking-confirmation-email",
+      "webhook_path": "booking-confirmation-email-v1",
+      "workflow_file": "booking-confirmation-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "booking-confirmation-whatsapp",
+      "webhook_path": "booking-confirmation-whatsapp-v1",
+      "workflow_file": "booking-confirmation-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 8,
+      "warnings": []
+    },
+    {
+      "service_key": "consultation-booking-alert-whatsapp",
+      "webhook_path": "consultation-booking-alert-whatsapp-v1",
+      "workflow_file": "consultation-booking-alert-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp16",
+      "param_count": 5,
+      "warnings": []
+    },
+    {
+      "service_key": "consultation-confirmed-email",
+      "webhook_path": "consultation-confirmed-email-v1",
+      "workflow_file": "consultation-confirmed-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "consultation-confirmed-whatsapp",
+      "webhook_path": "consultation-confirmed-whatsapp-v1",
+      "workflow_file": "consultation-confirmed-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 8,
+      "warnings": []
+    },
+    {
+      "service_key": "consultation-remainder-email",
+      "webhook_path": "consultation-remainder-email-v3",
+      "workflow_file": "consultation-remainder-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "consultation-remainder-whatsapp",
+      "webhook_path": "consultation-remainder-whatsapp-v1",
+      "workflow_file": "consultation-remainder-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 7,
+      "warnings": []
+    },
+    {
+      "service_key": "cpu_above_threshold",
+      "webhook_path": "cpu_above_threshold",
+      "workflow_file": "cpu-overload-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "doctor-consultation-booking-notice-email",
+      "webhook_path": "doctor-consultation-booking-notice-email-v1",
+      "workflow_file": "doctor-consultation-booking-notice-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "email-otp",
+      "webhook_path": "send-otp-email-v3",
+      "workflow_file": "email-otp.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "family-onboard-receiver-email",
+      "webhook_path": "family-onboard-receiver-email-v1",
+      "workflow_file": "family-onboard-receiver-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "family-onboard-receiver-whatsapp",
+      "webhook_path": "family-onboard-receiver-whatsapp-v1",
+      "workflow_file": "family-onboard-receiver-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp15",
+      "param_count": 6,
+      "warnings": []
+    },
+    {
+      "service_key": "family-onboard-sender-email",
+      "webhook_path": "family-onboard-sender-email-v1",
+      "workflow_file": "family-onboard-sender-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "family-onboard-sender-whatsapp",
+      "webhook_path": "family-onboard-sender-whatsapp-v1",
+      "workflow_file": "family-onboard-sender-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp13",
+      "param_count": 6,
+      "warnings": []
+    },
+    {
+      "service_key": "notify-admin-contact-query",
+      "webhook_path": "notify-admin-contact-query",
+      "workflow_file": "notify-admin-contact-query.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "nutrition-consultation-confirmed-email-1+1",
+      "webhook_path": "nutrition-consultation-confirmed-email-1+1-v1",
+      "workflow_file": "nutrition-consultation-confirmed-email-1+1.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "nutrition-consultation-confirmed-whatsapp-1+1",
+      "webhook_path": "nutrition-consultation-confirmed-whatsapp-1+1-v1",
+      "workflow_file": "nutrition-consultation-confirmed-whatsapp-1+1.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 5,
+      "warnings": []
+    },
+    {
+      "service_key": "nutrition-consultation-reminder-email-1+1",
+      "webhook_path": "nutrition-consultation-reminder-email-1+1-v1",
+      "workflow_file": "nutrition-consultation-reminder-email-1+1.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "nutrition-consultation-reminder-whatsapp-1+1",
+      "webhook_path": "nutrition-consultation-reminder-whatsapp-1+1-v1",
+      "workflow_file": "nutrition-consultation-reminder-whatsapp-1+1.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 4,
+      "warnings": []
+    },
+    {
+      "service_key": "nutrition-consultation-thank-you-email",
+      "webhook_path": "nutrition-consultation-thank-you-email-v1",
+      "workflow_file": "nutrition-consultation-thank-you-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "nutrition-consultation-thank-you-whatsapp",
+      "webhook_path": "nutrition-consultation-thank-you-whatsapp-v1",
+      "workflow_file": "nutrition-consultation-thank-you-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 10,
+      "warnings": []
+    },
+    {
+      "service_key": "nvidia-collection-booking-alert-whatsapp",
+      "webhook_path": "nvidia-collection-booking-alert-whatsapp-v1",
+      "workflow_file": "nvidia-collection-booking-alert-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": [
+        "no WhatsApp message template found"
+      ]
+    },
+    {
+      "service_key": "nvidia-collection-confirmed-email",
+      "webhook_path": "nvidia-collection-confirmed-email-v1",
+      "workflow_file": "nvidia-collection-confirmed-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "nvidia-collection-confirmed-whatsapp",
+      "webhook_path": "nvidia-collection-confirmed-whatsapp-v1",
+      "workflow_file": "nvidia-collection-confirmed-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 10,
+      "warnings": []
+    },
+    {
+      "service_key": "nvidia-consultation-booking-alert-whatsapp",
+      "webhook_path": "nvidia-consultation-booking-alert-whatsapp-v1",
+      "workflow_file": "nvidia-consultation-booking-alert-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": [
+        "no WhatsApp message template found"
+      ]
+    },
+    {
+      "service_key": "nvidia-consultation-confirmed-email",
+      "webhook_path": "nvidia-consultation-confirmed-email-v1",
+      "workflow_file": "nvidia-consultation-confirmed-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "nvidia-consultation-confirmed-whatsapp",
+      "webhook_path": "nvidia-consultation-confirmed-whatsapp-v1",
+      "workflow_file": "nvidia-consultation-confirmed-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 8,
+      "warnings": []
+    },
+    {
+      "service_key": "nvidia-consultation-remainder-email",
+      "webhook_path": "nvidia-consultation-remainder-email-v1",
+      "workflow_file": "nvidia-consultation-remainder-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "nvidia-consultation-remainder-whatsapp",
+      "webhook_path": "nvidia-consultation-remainder-whatsapp-v1",
+      "workflow_file": "nvidia-consultation-remainder-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 8,
+      "warnings": []
+    },
+    {
+      "service_key": "nvidia-consultation-thank-you-email",
+      "webhook_path": "nvidia-consultation-thank-you-email-v1",
+      "workflow_file": "nvidia-consultation-thank-you-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "nvidia-consultation-thank-you-whatsapp",
+      "webhook_path": "nvidia-consultation-thank-you-whatsapp-v1",
+      "workflow_file": "nvidia-consultation-thank-you-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 10,
+      "warnings": []
+    },
+    {
+      "service_key": "phlebo-assigned-email",
+      "webhook_path": "phlebo-assigned-email-v1",
+      "workflow_file": "phlebo-assigned-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "phlebo-assigned-whatsapp",
+      "webhook_path": "phlebo-assigned-whatsapp-v1",
+      "workflow_file": "phlebo-assigned-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 8,
+      "warnings": []
+    },
+    {
+      "service_key": "phlebo-delay-email",
+      "webhook_path": "phlebo-delay-email-v1",
+      "workflow_file": "phlebo-delay-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "phlebo-delay-whatsapp",
+      "webhook_path": "phlebo-delay-whatsapp-v1",
+      "workflow_file": "phlebo-delay-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 5,
+      "warnings": []
+    },
+    {
+      "service_key": "phlebo-enroute-email",
+      "webhook_path": "phlebo-enroute-email-v1",
+      "workflow_file": "phlebo-enroute-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "phlebo-enroute-whatsapp",
+      "webhook_path": "phlebo-enroute-whatsapp-v1",
+      "workflow_file": "phlebo-enroute-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 6,
+      "warnings": []
+    },
+    {
+      "service_key": "phlebo-reassigned-email",
+      "webhook_path": "phlebo-reassigned-email-v1",
+      "workflow_file": "phlebo-reassigned-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "phlebo-reassigned-whatsapp",
+      "webhook_path": "phlebo-reassigned-whatsapp-v1",
+      "workflow_file": "phlebo-reassigned-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 8,
+      "warnings": []
+    },
+    {
+      "service_key": "pretest-email-1+1",
+      "webhook_path": "pretest-email-1+1-v1",
+      "workflow_file": "pretest-email-1+1.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "pretest-email",
+      "webhook_path": "pretest-email-v3",
+      "workflow_file": "pretest-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "pretest-whatsapp-1+1",
+      "webhook_path": "pretest-whatsapp-1+1-v1",
+      "workflow_file": "pretest-whatsapp-1+1.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 6,
+      "warnings": []
+    },
+    {
+      "service_key": "pretest-whatsapp-session",
+      "webhook_path": "pretest-whatsapp-session-v1",
+      "workflow_file": "pretest-whatsapp-session.json",
+      "channel": "whatsapp",
+      "template_name": "camp15",
+      "param_count": 5,
+      "warnings": []
+    },
+    {
+      "service_key": "pretest-whatsapp",
+      "webhook_path": "pretest-whatsapp-v3",
+      "workflow_file": "pretest-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp14",
+      "param_count": 1,
+      "warnings": []
+    },
+    {
+      "service_key": "send-bioai-report-email-v2",
+      "webhook_path": "send-bioai-report-email-v4",
+      "workflow_file": "send-bioai-report-email-v2.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "send-bioai-whatsapp",
+      "webhook_path": "send-bioai-whatsapp-v4",
+      "workflow_file": "send-bioai-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp15",
+      "param_count": 1,
+      "warnings": []
+    },
+    {
+      "service_key": "send-blood-report-email-1+1",
+      "webhook_path": "send-blood-report-email-1+1-v1",
+      "workflow_file": "send-blood-report-email-1+1.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "send-blood-report-email-v2",
+      "webhook_path": "send-blood-report-email-v4",
+      "workflow_file": "send-blood-report-email-v2.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "send-blood-report-whatsapp-1+1",
+      "webhook_path": "send-blood-report-whatsapp-1+1-v1",
+      "workflow_file": "send-blood-report-whatsapp-1+1.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 1,
+      "warnings": []
+    },
+    {
+      "service_key": "send-blood-report-whatsapp",
+      "webhook_path": "send-blood-report-whatsapp-v4",
+      "workflow_file": "send-blood-report-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp15",
+      "param_count": 1,
+      "warnings": []
+    },
+    {
+      "service_key": "send-expert-consultation-guide-whatsapp",
+      "webhook_path": "send-expert-consultation-guide-whatsapp-v1",
+      "workflow_file": "send-expert-consultation-guide-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp13",
+      "param_count": 6,
+      "warnings": []
+    },
+    {
+      "service_key": "send-phlebo-booking-guide-whatsapp",
+      "webhook_path": "send-phlebo-booking-guide-whatsapp-v1",
+      "workflow_file": "send-phlebo-booking-guide-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp15",
+      "param_count": 7,
+      "warnings": []
+    },
+    {
+      "service_key": "send-reports-email",
+      "webhook_path": "send-reports-email-v4",
+      "workflow_file": "send-reports-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "thank-you-feedback-email-1+1",
+      "webhook_path": "thank-you-feedback-email-1+1-v1",
+      "workflow_file": "thank-you-feedback-email-1+1.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "thank-you-feedback-whatsapp-1+1",
+      "webhook_path": "thank-you-feedback-whatsapp-1+1-v1",
+      "workflow_file": "thank-you-feedback-whatsapp-1+1.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 8,
+      "warnings": []
+    },
+    {
+      "service_key": "welcome-booking-email-1+1",
+      "webhook_path": "welcome-booking-email-1+1-v1",
+      "workflow_file": "welcome-booking-email-1+1.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "welcome-booking-whatsapp-1+1",
+      "webhook_path": "welcome-booking-whatsapp-1+1-v1",
+      "workflow_file": "welcome-booking-whatsapp-1+1.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 5,
+      "warnings": []
+    },
+    {
+      "service_key": "welcome-email",
+      "webhook_path": "welcome-email-v3",
+      "workflow_file": "welcome-email.json",
+      "channel": "email",
+      "template_name": null,
+      "param_count": 0,
+      "warnings": []
+    },
+    {
+      "service_key": "welcome-whatsapp-metsights",
+      "webhook_path": "welcome-whatsapp-metsights-v3",
+      "workflow_file": "welcome-whatsapp-metsights.json",
+      "channel": "whatsapp",
+      "template_name": "camp17",
+      "param_count": 7,
+      "warnings": []
+    },
+    {
+      "service_key": "welcome-whatsapp",
+      "webhook_path": "welcome-whatsapp-v3",
+      "workflow_file": "welcome-whatsapp.json",
+      "channel": "whatsapp",
+      "template_name": "camp13",
+      "param_count": 6,
+      "warnings": []
+    },
+    {
+      "service_key": "whatapi-otp",
+      "webhook_path": "send-otp-whatsapp-v3",
+      "workflow_file": "whatapi-otp.json",
+      "channel": "whatsapp",
+      "template_name": "otp",
+      "param_count": 1,
+      "warnings": []
+    }
+  ]
+}
