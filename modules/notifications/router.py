@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.responses import success_response
@@ -29,6 +29,7 @@ from modules.notifications.schemas import (
     PrepareReportsRequest,
 )
 from modules.notifications.service import NotificationsService
+from modules.notifications.whatsapp_template_proxy import fetch_whatsapp_template_for_admin
 from modules.users.dependencies import get_participant_journey_service
 from modules.users.participant_journey_service import ParticipantJourneyService
 from modules.employee.access_control import ensure_internal_employee
@@ -51,6 +52,11 @@ def _service_dict(s) -> dict:
         "require_otp": s.require_otp,
         "require_session_details": s.require_session_details,
         "require_external_link": s.require_external_link,
+        "template_name": s.template_name,
+        "template_variables": s.template_variables,
+        "email_subject": s.email_subject,
+        "email_body": s.email_body,
+        "email_html": s.email_html,
         "created_at": s.created_at.isoformat() if s.created_at else None,
     }
 
@@ -178,8 +184,6 @@ async def list_notifications(
     )
 
 
-# ── Admin: notification services CRUD ───────────────────────────────────
-
 @router.get("/services")
 async def list_services(
     db: AsyncSession = Depends(get_db),
@@ -200,6 +204,29 @@ async def create_service(
     service = await svc.create_service(db, payload=payload)
     await db.commit()
     return success_response(_service_dict(service))
+
+
+@router.get("/whatsapp/templates")
+async def get_whatsapp_template(
+    name: str = Query(..., min_length=1, max_length=128),
+    employee: EmployeeContext = Depends(get_current_employee),
+):
+    _ = employee
+    try:
+        data = await fetch_whatsapp_template_for_admin(name)
+    except Exception as exc:
+        raise AppError(
+            status_code=502,
+            error_code="UPSTREAM_ERROR",
+            message=f"Failed to fetch WhatsApp template: {exc}",
+        ) from exc
+    if data is None:
+        raise AppError(
+            status_code=404,
+            error_code="NOT_FOUND",
+            message=f"Template '{name}' not found",
+        )
+    return success_response(data)
 
 
 @router.put("/services/{notification_service_id}")

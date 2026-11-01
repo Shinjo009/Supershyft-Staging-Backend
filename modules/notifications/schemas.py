@@ -83,7 +83,7 @@ class NotificationServiceCreate(BaseModel):
     service_key: ServiceKey
     display_name: SafeDisplayName
     channel: str = Field(..., pattern=r"^(email|whatsapp)$")
-    webhook_path: SafeText
+    webhook_path: OptionalSafeText = None
     is_active: bool = True
     require_blood_report_url: bool = False
     require_bio_ai_report_url: bool = False
@@ -91,6 +91,11 @@ class NotificationServiceCreate(BaseModel):
     require_otp: bool = False
     require_session_details: bool = False
     require_external_link: bool = False
+    template_name: OptionalSafeDisplayName = None
+    template_variables: list | dict | None = None
+    email_subject: OptionalSafeText = None
+    email_body: OptionalSafeText = None
+    email_html: OptionalSafeText = None
 
 
 class BulkDeleteNotificationsRequest(BaseModel):
@@ -108,3 +113,8 @@ class NotificationServiceUpdate(BaseModel):
     require_otp: bool | None = None
     require_session_details: bool | None = None
     require_external_link: bool | None = None
+    template_name: OptionalSafeDisplayName = None
+    template_variables: list | dict | None = None
+    email_subject: OptionalSafeText = None
+    email_body: OptionalSafeText = None
+    email_html: OptionalSafeText = None

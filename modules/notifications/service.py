@@ -713,6 +713,9 @@ class NotificationsService:
             "triggered_by_user_id": n.triggered_by_user_id,
             "dispatched_at": n.dispatched_at.isoformat() if n.dispatched_at else None,
             "completed_at": n.completed_at.isoformat() if n.completed_at else None,
+            "queue_id": n.queue_id,
+            "event_code": n.event_code,
+            "recipient_type": n.recipient_type,
         }
 
     async def _enrich_notification_list_items(
@@ -863,11 +866,12 @@ class NotificationsService:
                 error_code="CONFLICT",
                 message=f"Service key '{payload.service_key}' already exists",
             )
+        webhook_path = (payload.webhook_path or "").strip() or f"/{payload.service_key}"
         svc = NotificationService(
             service_key=payload.service_key,
             display_name=payload.display_name,
             channel=payload.channel,
-            webhook_path=payload.webhook_path,
+            webhook_path=webhook_path,
             is_active=payload.is_active,
             require_blood_report_url=payload.require_blood_report_url,
             require_bio_ai_report_url=payload.require_bio_ai_report_url,
@@ -875,6 +879,11 @@ class NotificationsService:
             require_otp=payload.require_otp,
             require_session_details=payload.require_session_details,
             require_external_link=payload.require_external_link,
+            template_name=(payload.template_name or "").strip() or None,
+            template_variables=payload.template_variables,
+            email_subject=(payload.email_subject or "").strip() or None,
+            email_body=(payload.email_body or "").strip() or None,
+            email_html=(payload.email_html or "").strip() or None,
         )
         return await self._repo.create_service(db, svc)
 
@@ -912,6 +921,16 @@ class NotificationsService:
             svc.require_session_details = payload.require_session_details
         if payload.require_external_link is not None:
             svc.require_external_link = payload.require_external_link
+        if payload.template_name is not None:
+            svc.template_name = payload.template_name.strip() or None
+        if payload.template_variables is not None:
+            svc.template_variables = payload.template_variables
+        if payload.email_subject is not None:
+            svc.email_subject = payload.email_subject.strip() or None
+        if payload.email_body is not None:
+            svc.email_body = payload.email_body.strip() or None
+        if payload.email_html is not None:
+            svc.email_html = payload.email_html.strip() or None
         return await self._repo.update_service(db, svc)
 
     async def delete_notification(
