@@ -6,6 +6,14 @@ Revises: 0186_engine_staging_bindings
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Alembic loads revision files without package root on sys.path (staging deploy).
+_ROOT = Path(__file__).resolve().parents[3]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 import sqlalchemy as sa
 from alembic import op
 
