@@ -6,6 +6,7 @@ Run on staging before `alembic upgrade` to revision 0188.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -14,27 +15,21 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-import sqlalchemy as sa
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from core.config import settings
 
 
-def _sync_database_url(url: str) -> str:
-    """Use a synchronous driver for one-off readiness checks."""
-    if "+asyncpg" in url:
-        return url.replace("postgresql+asyncpg", "postgresql+psycopg2", 1)
+def _async_database_url(url: str) -> str:
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+asyncpg://", 1)
     return url
 
 
-def _engine():
-    url = os.getenv("DATABASE_URL") or settings.DATABASE_URL
-    if not url:
-        raise SystemExit("DATABASE_URL is not set")
-    return create_engine(_sync_database_url(url), pool_pre_ping=True)
-
-
-def main() -> None:
+async def _run_checks() -> tuple[list[str], list[str]]:
     warnings: list[str] = []
     errors: list[str] = []
 
@@ -45,11 +40,17 @@ def main() -> None:
     if legacy_fb in ("1", "true", "yes"):
         errors.append("NOTIFICATION_ENGINE_LEGACY_FALLBACK must be false before cutover")
 
-    engine = _engine()
-    with engine.connect() as conn:
-        missing_content = conn.execute(
-            text(
-                """
+    url = os.getenv("DATABASE_URL") or settings.DATABASE_URL
+    if not url:
+        raise SystemExit("DATABASE_URL is not set")
+
+    engine = create_async_engine(_async_database_url(url), pool_pre_ping=True)
+    try:
+        async with engine.connect() as conn:
+            missing_content = (
+                await conn.execute(
+                    text(
+                        """
                 SELECT service_key, channel
                 FROM notification_services
                 WHERE is_active = true
@@ -66,32 +67,36 @@ def main() -> None:
                   )
                 ORDER BY service_key
                 """
-            )
-        ).fetchall()
-        if missing_content:
-            for row in missing_content:
-                errors.append(
-                    f"Active service '{row.service_key}' ({row.channel}) lacks direct delivery content"
+                    )
                 )
+            ).fetchall()
+            if missing_content:
+                for row in missing_content:
+                    errors.append(
+                        f"Active service '{row.service_key}' ({row.channel}) lacks direct delivery content"
+                    )
 
-        null_codes = conn.execute(
-            text(
-                """
+            null_codes = (
+                await conn.execute(
+                    text(
+                        """
                 SELECT COUNT(*) AS n
                 FROM engagement_notifications
                 WHERE event_code IS NULL OR btrim(event_code) = ''
                    OR recipient_type IS NULL OR btrim(recipient_type) = ''
                 """
-            )
-        ).scalar_one()
-        if null_codes and int(null_codes) > 0:
-            errors.append(
-                f"engagement_notifications has {null_codes} row(s) missing event_code or recipient_type"
-            )
+                    )
+                )
+            ).scalar_one()
+            if null_codes and int(null_codes) > 0:
+                errors.append(
+                    f"engagement_notifications has {null_codes} row(s) missing event_code or recipient_type"
+                )
 
-        recent_missing = conn.execute(
-            text(
-                """
+            recent_missing = (
+                await conn.execute(
+                    text(
+                        """
                 SELECT DISTINCT n.service_key
                 FROM notifications n
                 JOIN notification_services s ON s.service_key = n.service_key
@@ -111,12 +116,21 @@ def main() -> None:
                 ORDER BY 1
                 LIMIT 20
                 """
-            )
-        ).fetchall()
-        for row in recent_missing:
-            warnings.append(
-                f"WARN: service '{row.service_key}' used in last 30 days but lacks direct content"
-            )
+                    )
+                )
+            ).fetchall()
+            for row in recent_missing:
+                warnings.append(
+                    f"WARN: service '{row.service_key}' used in last 30 days but lacks direct content"
+                )
+    finally:
+        await engine.dispose()
+
+    return warnings, errors
+
+
+def main() -> None:
+    warnings, errors = asyncio.run(_run_checks())
 
     for w in warnings:
         print(w, file=sys.stderr)
