@@ -69,11 +69,17 @@ def upgrade() -> None:
     conn.execute(
         sa.text(
             """
-            UPDATE engagement_notifications AS en
-            SET event_code = ane.event_code
-            FROM auto_notification_events AS ane
-            WHERE en.notification_event_id = ane.id
-              AND en.event_code IS NULL
+            DO $$
+            BEGIN
+              IF to_regclass('public.auto_notification_events') IS NOT NULL
+                 AND to_regclass('public.engagement_notifications') IS NOT NULL THEN
+                UPDATE engagement_notifications AS en
+                SET event_code = ane.event_code
+                FROM auto_notification_events AS ane
+                WHERE en.notification_event_id = ane.id
+                  AND en.event_code IS NULL;
+              END IF;
+            END $$
             """
         )
     )
