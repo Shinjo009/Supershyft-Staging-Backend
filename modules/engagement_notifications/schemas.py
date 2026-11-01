@@ -43,10 +43,26 @@ class EngagementNotificationsUpsertRequest(BaseModel):
     notifications: list[EngagementNotificationItem] = Field(default_factory=list)
 
 
+class EffectiveEngagementNotificationResponse(BaseModel):
+    engagement_id: int
+    event_code: str
+    recipient_type: str
+    notification_services: list[NotificationServiceConfigItem]
+    source: str
+    event_display_name: str | None = None
+    engagement_notification_id: int | None = None
+
+    @field_validator("notification_services", mode="before")
+    @classmethod
+    def normalize_services(cls, value: object) -> list[NotificationServiceConfigItem]:
+        return normalize_notification_services(value if isinstance(value, list) else [])
+
+
 __all__ = [
     "EngagementNotificationItem",
     "EngagementNotificationResponse",
     "EngagementNotificationsUpsertRequest",
+    "EffectiveEngagementNotificationResponse",
     "NotificationServiceConfigItem",
     "configs_to_api",
     "normalize_notification_services",

@@ -61,6 +61,12 @@ async def resolve_recipients(
 
 async def _resolve_participant(db: AsyncSession, payload: dict[str, Any]) -> ResolvedRecipients:
     user_id = payload.get("user_id")
+    if not isinstance(user_id, int):
+        puid = payload.get("participant_user_id")
+        if isinstance(puid, int):
+            user_id = puid
+        elif isinstance(puid, str) and puid.isdigit():
+            user_id = int(puid)
     if isinstance(user_id, int):
         return ResolvedRecipients(user_ids=[user_id])
     user = payload.get("user")

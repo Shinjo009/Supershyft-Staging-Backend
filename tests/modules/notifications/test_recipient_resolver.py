@@ -29,6 +29,25 @@ async def test_resolve_custom_contacts(test_db_session):
 
 
 @pytest.mark.asyncio
+async def test_resolve_participant_from_participant_user_id(test_db_session):
+    binding = ResolvedBinding(
+        recipient_type="participant",
+        notification_services=[],
+        custom_contacts=None,
+        filters=None,
+        source="global",
+    )
+    recipients = await resolve_recipients(
+        test_db_session,
+        recipient_type="participant",
+        payload={"participant_user_id": 14446},
+        binding=binding,
+        engagement_id=1,
+    )
+    assert recipients.user_ids == [14446]
+
+
+@pytest.mark.asyncio
 async def test_resolve_family_members_individual(test_db_session):
     binding = ResolvedBinding(
         recipient_type="family_member",

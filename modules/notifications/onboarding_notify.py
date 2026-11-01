@@ -64,6 +64,19 @@ def _with_participant_user_id(
     return {**participant_details, "participant_user_id": str(participant_user_id)}
 
 
+def _onboarding_emit_payload(
+    *,
+    participant_user_id: int,
+    participant_details: dict[str, str] | None,
+) -> dict:
+    """Payload for onboarding.completed — must not set legacy recipient_type=partner."""
+    return {
+        "user_id": participant_user_id,
+        "participant_user_id": participant_user_id,
+        "participant_details": participant_details,
+    }
+
+
 async def notify_onboarding_assistants_on_enrollment(
     db: AsyncSession,
     *,
@@ -74,15 +87,22 @@ async def notify_onboarding_assistants_on_enrollment(
     participant_user_id: int,
     participant_details: dict[str, str] | None,
 ) -> None:
-    """Dispatch each configured onboarding notification service to assigned partners."""
+    """Emit onboarding.completed for participant welcome and OA alert bindings."""
     _ = notifications_repository
     contacts = await engagements_repository.list_onboarding_assistant_notify_contacts(
         db, engagement_id=int(engagement.engagement_id), include_employees=True
     )
     if not contacts:
-        return
+        logger.warning(
+            "No onboarding assistants on engagement_id=%s; OA alert bindings may have no recipients",
+            engagement.engagement_id,
+        )
 
     details = _with_participant_user_id(participant_details, participant_user_id)
+    payload = _onboarding_emit_payload(
+        participant_user_id=participant_user_id,
+        participant_details=details or participant_details,
+    )
     engagement_id = int(engagement.engagement_id)
 
     from modules.notifications.engine import emit_event
@@ -90,12 +110,7 @@ async def notify_onboarding_assistants_on_enrollment(
     await emit_event(
         db,
         event_code="onboarding.completed",
-        payload={
-            "participant_user_id": participant_user_id,
-            "participant_details": details or participant_details,
-            "recipient_type": "partner",
-            "contacts": contacts,
-        },
+        payload=payload,
         engagement_id=engagement_id,
         notifications_service=notifications_service,
     )

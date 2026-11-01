@@ -9,7 +9,6 @@ import pytest
 from sqlalchemy import text
 
 from modules.engagements.constants import DEFAULT_ENGAGEMENT_NOTIFICATION_SERVICE_KEY
-from modules.engagements.models import Engagement
 from modules.engagements.repository import EngagementsRepository
 from modules.notifications.onboarding_notify import (
     detail_or_hyphen,
@@ -21,6 +20,7 @@ from modules.notifications.schemas import DispatchRequest
 from modules.notifications.service import NotificationsService
 from modules.users.schemas import PublicUserOnboardRequest
 from modules.users.service import UsersService
+from tests.modules.notifications.notification_test_seeds import upsert_notification_service
 
 
 async def _seed_notification_service(
@@ -30,20 +30,13 @@ async def _seed_notification_service(
     require_participant_detail: bool = False,
     is_active: bool = True,
 ) -> None:
-    await test_db_session.execute(
-        text(
-            "INSERT INTO notification_services "
-            "(service_key, display_name, channel, is_active, template_name, template_variables) "
-            "VALUES (:sk, :dn, 'whatsapp', 'test-webhook', :active, false, false, :rpd) "
-            "ON CONFLICT (service_key) DO UPDATE SET "
-            "is_active = :active, require_participant_detail = :rpd"
-        ),
-        {
-            "sk": service_key,
-            "dn": service_key,
-            "active": is_active,
-            "rpd": require_participant_detail,
-        },
+    _ = require_participant_detail
+    await upsert_notification_service(
+        test_db_session,
+        service_key=service_key,
+        channel="whatsapp",
+        hint="participant_detail" if require_participant_detail else None,
+        is_active=is_active,
     )
     await test_db_session.commit()
 
@@ -53,7 +46,7 @@ async def _seed_diagnostic_package(test_db_session, diagnostic_package_id: int =
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, bookings_count) "
-            "VALUES (:did, 'REF1', 'Diag', 'test_provider', 1, 0) ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (:did, 'REF1', 'Diag', 'healthians', 1, 0) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         ),
         {"did": diagnostic_package_id},
     )
@@ -62,41 +55,28 @@ async def _seed_diagnostic_package(test_db_session, diagnostic_package_id: int =
 
 @pytest.mark.asyncio
 async def test_notify_uses_engagement_service_key(test_db_session, monkeypatch):
-    custom_key = "custom-enroll-alert"
+    from types import SimpleNamespace
+
     default_key = DEFAULT_ENGAGEMENT_NOTIFICATION_SERVICE_KEY
     await _seed_notification_service(test_db_session, service_key=default_key)
-    await _seed_notification_service(test_db_session, service_key=custom_key)
     await _seed_diagnostic_package(test_db_session)
 
-    engagement = Engagement(
-        engagement_id=99001,
-        engagement_name="Notify Test",
-        organization_id=None,
-        engagement_code="NTFY01",
-        engagement_type="bio_ai",
-        assessment_package_id=None,
-        diagnostic_package_id=1,
-        city="BLR",
-        slot_duration=20,
-        start_date=date(2026, 3, 1),
-        end_date=date(2026, 3, 1),
-        status="active",
-        onboarding_notification=custom_key,
-    )
-    test_db_session.add(engagement)
-    await test_db_session.commit()
+    engagement = SimpleNamespace(engagement_id=99001)
 
-    dispatch_mock = AsyncMock()
-    notifications_service = NotificationsService(NotificationsRepository())
-    monkeypatch.setattr(notifications_service, "dispatch", dispatch_mock)
+    emit_mock = AsyncMock(return_value=[1])
+    monkeypatch.setattr(
+        "modules.notifications.engine.emit_event",
+        emit_mock,
+    )
 
     engagements_repo = EngagementsRepository()
     monkeypatch.setattr(
         engagements_repo,
-        "list_onboarding_assistant_user_ids",
-        AsyncMock(return_value=[101]),
+        "list_onboarding_assistant_notify_contacts",
+        AsyncMock(return_value=[{"phone": "9999999999", "first_name": "OA"}]),
     )
 
+    notifications_service = NotificationsService(NotificationsRepository())
     await notify_onboarding_assistants_on_enrollment(
         test_db_session,
         notifications_service=notifications_service,
@@ -111,51 +91,42 @@ async def test_notify_uses_engagement_service_key(test_db_session, monkeypatch):
         },
     )
 
-    dispatch_mock.assert_awaited_once()
-    payload = dispatch_mock.await_args.kwargs["payload"]
-    assert payload.service_key == custom_key
-    assert payload.user_ids == [101]
-    assert payload.engagement_id == 99001
-    assert payload.participant_details["participant_user_id"] == "5001"
+    emit_mock.assert_awaited_once()
+    kwargs = emit_mock.await_args.kwargs
+    assert kwargs["event_code"] == "onboarding.completed"
+    assert kwargs["engagement_id"] == 99001
+    assert kwargs["payload"]["participant_user_id"] == 5001
+    assert kwargs["payload"]["participant_details"]["participant_user_id"] == "5001"
+    assert "recipient_type" not in kwargs["payload"]
+    assert kwargs["payload"]["user_id"] == 5001
 
 
 @pytest.mark.asyncio
 async def test_notify_skips_when_participant_details_required_but_missing(test_db_session, monkeypatch):
+    from types import SimpleNamespace
+
     service_key = "needs-participant-detail"
     await _seed_notification_service(
         test_db_session, service_key=service_key, require_participant_detail=True
     )
     await _seed_diagnostic_package(test_db_session)
 
-    engagement = Engagement(
-        engagement_id=99002,
-        engagement_name="No Details",
-        organization_id=None,
-        engagement_code="NTFY02",
-        engagement_type="bio_ai",
-        assessment_package_id=None,
-        diagnostic_package_id=1,
-        city="BLR",
-        slot_duration=20,
-        start_date=date(2026, 3, 1),
-        end_date=date(2026, 3, 1),
-        status="active",
-        onboarding_notification=service_key,
-    )
-    test_db_session.add(engagement)
-    await test_db_session.commit()
+    engagement = SimpleNamespace(engagement_id=99002)
 
-    dispatch_mock = AsyncMock()
-    notifications_service = NotificationsService(NotificationsRepository())
-    monkeypatch.setattr(notifications_service, "dispatch", dispatch_mock)
+    emit_mock = AsyncMock(return_value=[1])
+    monkeypatch.setattr(
+        "modules.notifications.engine.emit_event",
+        emit_mock,
+    )
 
     engagements_repo = EngagementsRepository()
     monkeypatch.setattr(
         engagements_repo,
-        "list_onboarding_assistant_user_ids",
-        AsyncMock(return_value=[101]),
+        "list_onboarding_assistant_notify_contacts",
+        AsyncMock(return_value=[{"phone": "9999999999", "first_name": "OA"}]),
     )
 
+    notifications_service = NotificationsService(NotificationsRepository())
     await notify_onboarding_assistants_on_enrollment(
         test_db_session,
         notifications_service=notifications_service,
@@ -166,7 +137,8 @@ async def test_notify_skips_when_participant_details_required_but_missing(test_d
         participant_details=None,
     )
 
-    dispatch_mock.assert_not_awaited()
+    emit_mock.assert_awaited_once()
+    assert emit_mock.await_args.kwargs["payload"]["participant_details"] is None
 
 
 def test_detail_or_hyphen_uses_placeholder_for_blank_values():
