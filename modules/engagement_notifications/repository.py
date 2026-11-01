@@ -87,6 +87,8 @@ class EngagementNotificationsRepository:
                 engagement_id=engagement_id,
                 notification_event_id=item["notification_event_id"],
                 notification_services=item["notification_services"],
+                event_code=item.get("event_code"),
+                recipient_type=item.get("recipient_type"),
             )
             db.add(obj)
             result.append(obj)

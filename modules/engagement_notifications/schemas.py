@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from common.validation import PositiveIntId
 
@@ -15,8 +15,16 @@ from modules.engagement_notifications.service_config import (
 
 
 class EngagementNotificationItem(BaseModel):
-    notification_event_id: PositiveIntId
+    notification_event_id: PositiveIntId | None = None
+    event_code: str | None = None
+    recipient_type: str | None = None
     notification_services: list[NotificationServiceConfigItem] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def require_event_reference(self) -> "EngagementNotificationItem":
+        if self.notification_event_id is None and not (self.event_code and self.event_code.strip()):
+            raise ValueError("notification_event_id or event_code is required")
+        return self
 
     @field_validator("notification_services", mode="before")
     @classmethod

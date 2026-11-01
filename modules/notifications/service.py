@@ -40,7 +40,9 @@ from modules.reports.blood_report_resolver import resolve_blood_report_url
 
 logger = logging.getLogger(__name__)
 
-_VALID_NOTIFICATION_STATUSES = frozenset({"pending", "sent", "failed"})
+_VALID_NOTIFICATION_STATUSES = frozenset(
+    {"pending", "sent", "failed", "queued", "delivered", "read"}
+)
 _VALID_NOTIFICATION_CHANNELS = frozenset({"email", "whatsapp"})
 
 

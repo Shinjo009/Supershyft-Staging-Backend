@@ -341,6 +341,8 @@ class EngagementNotification(Base):
     engagement_id = Column(Integer, ForeignKey("engagements.engagement_id"), nullable=False)
     notification_event_id = Column(Integer, ForeignKey("auto_notification_events.id"), nullable=False)
     notification_services = Column(JSON, nullable=False)
+    event_code = Column(String, nullable=True)
+    recipient_type = Column(String, nullable=True)
 
 
 class EngagementFeedback(Base):

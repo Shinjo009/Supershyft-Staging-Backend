@@ -101,6 +101,7 @@ from modules.payments.routes import router as payments_router
 from modules.experts.router import router as experts_router, portal_router as experts_portal_router
 from modules.uploads.router import router as uploads_router
 from modules.notifications.router import router as notifications_router
+from modules.notifications.catalog_router import router as notification_catalog_router
 from modules.webhooks.router import router as webhooks_router
 from modules.server_health.router import router as server_health_router
 from modules.dashboard.router import router as dashboard_router
@@ -413,6 +414,7 @@ async def fastapi_app(
     app.include_router(db_health_router)
     app.include_router(discounts_router)
     app.include_router(engagement_types_router)
+    app.include_router(notification_catalog_router)
     app.include_router(notification_events_router)
     app.include_router(engagement_notifications_router)
     app.include_router(expert_types_router)

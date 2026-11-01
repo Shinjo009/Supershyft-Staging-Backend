@@ -9,6 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.exceptions import AppError
+from modules.engagements.models import AutoNotificationEvent
+from modules.notifications.events_catalog import LEGACY_EVENT_CODE_MAP, get_event
 from modules.notifications.models import NotificationService
 
 
@@ -117,13 +119,71 @@ async def validate_notification_service_configs(
     return configs
 
 
+async def _resolve_notification_event(
+    db: AsyncSession,
+    *,
+    notification_event_id: int | None,
+    event_code: str | None,
+) -> tuple[int, str]:
+    if notification_event_id is not None:
+        result = await db.execute(
+            select(AutoNotificationEvent).where(AutoNotificationEvent.id == notification_event_id)
+        )
+        ane = result.scalar_one_or_none()
+        if ane is None:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message=f"Unknown notification_event_id {notification_event_id}",
+            )
+        stored_code = LEGACY_EVENT_CODE_MAP.get(ane.event_code, ane.event_code)
+        return ane.id, stored_code
+
+    code = (event_code or "").strip()
+    if not code:
+        raise AppError(
+            status_code=400,
+            error_code="INVALID_INPUT",
+            message="notification_event_id or event_code is required",
+        )
+
+    catalog = get_event(code)
+    lookup_codes: list[str] = []
+    if catalog and catalog.legacy_event_code:
+        lookup_codes.append(catalog.legacy_event_code)
+    if code not in lookup_codes:
+        lookup_codes.append(code)
+
+    for lookup in lookup_codes:
+        result = await db.execute(
+            select(AutoNotificationEvent).where(AutoNotificationEvent.event_code == lookup)
+        )
+        ane = result.scalar_one_or_none()
+        if ane is not None:
+            stored = code if catalog is not None else LEGACY_EVENT_CODE_MAP.get(ane.event_code, ane.event_code)
+            return ane.id, stored
+
+    raise AppError(
+        status_code=400,
+        error_code="INVALID_INPUT",
+        message=f"No auto_notification_events row for event_code '{code}'",
+    )
+
+
 async def prepare_notification_items_for_storage(
     db: AsyncSession,
     notifications: list[dict],
 ) -> list[dict]:
     prepared: list[dict] = []
     for item in notifications:
-        event_id = item["notification_event_id"]
+        event_id, stored_event_code = await _resolve_notification_event(
+            db,
+            notification_event_id=item.get("notification_event_id"),
+            event_code=item.get("event_code"),
+        )
+        recipient_type = item.get("recipient_type")
+        if recipient_type is not None:
+            recipient_type = str(recipient_type).strip() or None
         event_label = f"Event {event_id}"
         configs = await validate_notification_service_configs(
             db,
@@ -135,5 +195,7 @@ async def prepare_notification_items_for_storage(
         prepared.append({
             "notification_event_id": event_id,
             "notification_services": serialize_for_db(configs),
+            "event_code": stored_event_code,
+            "recipient_type": recipient_type,
         })
     return prepared
