@@ -182,7 +182,7 @@ class Settings:
     NOTIFICATION_SERVICE_TIMEOUT_SECONDS: int = int(os.getenv("NOTIFICATION_SERVICE_TIMEOUT_SECONDS", "15"))
     NOTIFICATION_API_KEY: str = os.getenv("NOTIFICATION_API_KEY", "")
     NOTIFICATION_ENGINE_LEGACY_FALLBACK: bool = (
-        os.getenv("NOTIFICATION_ENGINE_LEGACY_FALLBACK", "true").lower() == "true"
+        os.getenv("NOTIFICATION_ENGINE_LEGACY_FALLBACK", "false").lower() == "true"
     )
 
     # Direct notification delivery (WhatAPI POST + SMTP) — empty defaults for local dev

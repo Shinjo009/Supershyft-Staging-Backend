@@ -23,22 +23,21 @@ from modules.partners.models import Partner, PartnerRole
 from modules.notifications.repository import NotificationsRepository
 from modules.notifications.service import NotificationsService
 from modules.users.models import User
+from tests.modules.notifications.notification_test_seeds import (
+    upsert_engagement_notification,
+    upsert_notification_service,
+)
 
 
 SERVICE_KEY = "consultation-booking-alert-whatsapp"
 
 
 async def _seed_notification_service(test_db_session) -> None:
-    await test_db_session.execute(
-        text(
-            "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, "
-            "require_bio_ai_report_url, require_participant_detail, require_session_details) "
-            "VALUES (:sk, :dn, 'whatsapp', 'consultation-booking-alert-whatsapp-v1', true, false, false, true, true) "
-            "ON CONFLICT (service_key) DO UPDATE SET "
-            "require_participant_detail = true, require_session_details = true, is_active = true"
-        ),
-        {"sk": SERVICE_KEY, "dn": SERVICE_KEY},
+    await upsert_notification_service(
+        test_db_session,
+        service_key=SERVICE_KEY,
+        channel="whatsapp",
+        hint="participant_detail",
     )
     await test_db_session.commit()
 
@@ -62,37 +61,12 @@ async def _seed_event_and_binding(test_db_session, engagement_id: int) -> None:
             "ON CONFLICT (code) DO UPDATE SET is_active = true"
         )
     )
-    type_row = (
-        await test_db_session.execute(
-            text("SELECT id FROM engagement_types WHERE code = 'consultation'")
-        )
-    ).one()
-    type_id = int(type_row[0])
-    await test_db_session.execute(
-        text(
-            "INSERT INTO auto_notification_events (event_code, display_name, engagement_type_ids, description) "
-            "VALUES ('consultation_booking_alert', 'Consultation Booking Alert', :type_ids, 'Test event') "
-            "ON CONFLICT (event_code) DO UPDATE SET display_name = EXCLUDED.display_name"
-        ),
-        {"type_ids": [type_id]},
-    )
-    evt_row = (
-        await test_db_session.execute(
-            text("SELECT id FROM auto_notification_events WHERE event_code = 'consultation_booking_alert'")
-        )
-    ).one()
-    evt_id = int(evt_row[0])
-    await test_db_session.execute(
-        text(
-            "INSERT INTO engagement_notifications (engagement_id, notification_event_id, notification_services) "
-            "VALUES (:eid, :evt, CAST(:services AS jsonb)) "
-            "ON CONFLICT (engagement_id, notification_event_id) DO UPDATE SET notification_services = EXCLUDED.notification_services"
-        ),
-        {
-            "eid": engagement_id,
-            "evt": evt_id,
-            "services": f'[{{"service_key": "{SERVICE_KEY}", "external_link": null}}]',
-        },
+    await upsert_engagement_notification(
+        test_db_session,
+        engagement_id=engagement_id,
+        event_code="consultation_booking_alert",
+        notification_services=SERVICE_KEY,
+        recipient_type="oa.expert",
     )
     await test_db_session.commit()
 

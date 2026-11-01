@@ -12,6 +12,11 @@ from modules.engagements.repository import EngagementsRepository
 from modules.notifications.booking_guide_reminders import dispatch_booking_guide_reminders
 from modules.notifications.repository import NotificationsRepository
 from modules.notifications.service import NotificationsService
+from tests.modules.notifications.notification_test_seeds import (
+    patch_direct_delivery_success,
+    upsert_engagement_notification,
+    upsert_notification_service,
+)
 
 BOOKING_GUIDE_WHATSAPP_KEY = "phlebo-booking-guide-whatsapp"
 BOOKING_GUIDE_EMAIL_KEY = "booking-guide-email"
@@ -31,19 +36,16 @@ async def _seed_dependencies(test_db_session) -> None:
             "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
-    for service_key, channel, webhook_path in (
-        (BOOKING_GUIDE_WHATSAPP_KEY, "whatsapp", "send-phlebo-booking-guide-whatsapp-v1"),
-        (BOOKING_GUIDE_EMAIL_KEY, "email", "booking-guide-email"),
+    for service_key, channel in (
+        (BOOKING_GUIDE_WHATSAPP_KEY, "whatsapp"),
+        (BOOKING_GUIDE_EMAIL_KEY, "email"),
     ):
-        await test_db_session.execute(
-            text(
-                "INSERT INTO notification_services "
-                "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, "
-                "require_bio_ai_report_url, require_participant_detail) "
-                "VALUES (:sk, :dn, :ch, :wp, true, false, false, false) "
-                "ON CONFLICT (service_key) DO UPDATE SET is_active = true"
-            ),
-            {"sk": service_key, "dn": service_key, "ch": channel, "wp": webhook_path},
+        await upsert_notification_service(
+            test_db_session,
+            service_key=service_key,
+            channel=channel,
+            email_subject="Guide" if channel == "email" else None,
+            email_body="Guide body" if channel == "email" else None,
         )
     await test_db_session.execute(
         text(
@@ -52,30 +54,7 @@ async def _seed_dependencies(test_db_session) -> None:
             "ON CONFLICT (code) DO UPDATE SET is_active = true"
         )
     )
-    type_row = (
-        await test_db_session.execute(
-            text("SELECT id FROM engagement_types WHERE code = 'bio_ai'")
-        )
-    ).one()
-    type_id = int(type_row[0])
-    await test_db_session.execute(
-        text(
-            "INSERT INTO auto_notification_events (event_code, display_name, engagement_type_ids, description) "
-            "VALUES ('booking_guide', 'Booking Guide', :type_ids, 'Test booking guide event') "
-            "ON CONFLICT (event_code) DO UPDATE SET display_name = EXCLUDED.display_name"
-        ),
-        {"type_ids": [type_id]},
-    )
     await test_db_session.commit()
-
-
-async def _booking_guide_event_id(test_db_session) -> int:
-    row = (
-        await test_db_session.execute(
-            text("SELECT id FROM auto_notification_events WHERE event_code = 'booking_guide'")
-        )
-    ).one()
-    return int(row[0])
 
 
 async def _bind_booking_guide_services(
@@ -84,18 +63,12 @@ async def _bind_booking_guide_services(
     engagement_id: int,
     service_keys: str = DEFAULT_BOOKING_GUIDE_KEYS,
 ) -> None:
-    evt_id = await _booking_guide_event_id(test_db_session)
-    services_json = json.dumps(
-        [{"service_key": key.strip(), "external_link": None} for key in service_keys.split(",") if key.strip()]
-    )
-    await test_db_session.execute(
-        text(
-            "INSERT INTO engagement_notifications (engagement_id, notification_event_id, notification_services) "
-            "VALUES (:eid, :evt, CAST(:services AS jsonb)) "
-            "ON CONFLICT (engagement_id, notification_event_id) DO UPDATE "
-            "SET notification_services = EXCLUDED.notification_services"
-        ),
-        {"eid": engagement_id, "evt": evt_id, "services": services_json},
+    await upsert_engagement_notification(
+        test_db_session,
+        engagement_id=engagement_id,
+        event_code="booking_guide",
+        notification_services=service_keys,
+        recipient_type="oa.phlebo",
     )
 
 
@@ -174,29 +147,10 @@ async def _insert_assistant(
     )
 
 
-def _fake_httpx_client(webhook_calls: list[dict]):
-    class _FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"message": "ok"}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    return _FakeClient
+async def _notification_count(test_db_session) -> int:
+    return int(
+        (await test_db_session.execute(text("SELECT COUNT(*) FROM notifications"))).scalar_one()
+    )
 
 
 def _services():
@@ -243,11 +197,7 @@ async def test_booking_guide_reminders_dispatch_to_admin_and_onboarding_assistan
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_booking_guide_reminders(
@@ -263,7 +213,7 @@ async def test_booking_guide_reminders_dispatch_to_admin_and_onboarding_assistan
     assert result["sent"] == 2
     assert result["skipped"] == 0
     assert result["failed"] == 0
-    assert len(webhook_calls) == 4
+    assert await _notification_count(test_db_session) == 4
 
 
 @pytest.mark.asyncio
@@ -288,11 +238,7 @@ async def test_booking_guide_reminders_falls_back_to_start_date(test_db_session,
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_booking_guide_reminders(
@@ -306,7 +252,7 @@ async def test_booking_guide_reminders_falls_back_to_start_date(test_db_session,
 
     assert result["matched"] == 1
     assert result["sent"] == 1
-    assert len(webhook_calls) == 2
+    assert await _notification_count(test_db_session) == 2
 
 
 @pytest.mark.asyncio
@@ -330,11 +276,7 @@ async def test_booking_guide_reminders_excludes_completed_engagements(test_db_se
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_booking_guide_reminders(
@@ -347,7 +289,7 @@ async def test_booking_guide_reminders_excludes_completed_engagements(test_db_se
     await test_db_session.commit()
 
     assert result["matched"] == 0
-    assert len(webhook_calls) == 0
+    assert await _notification_count(test_db_session) == 0
 
 
 @pytest.mark.asyncio
@@ -377,11 +319,7 @@ async def test_booking_guide_reminders_skips_wrong_collection_date(test_db_sessi
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_booking_guide_reminders(
@@ -394,7 +332,7 @@ async def test_booking_guide_reminders_skips_wrong_collection_date(test_db_sessi
     await test_db_session.commit()
 
     assert result["matched"] == 0
-    assert len(webhook_calls) == 0
+    assert await _notification_count(test_db_session) == 0
 
 
 @pytest.mark.asyncio
@@ -417,11 +355,7 @@ async def test_booking_guide_reminders_dry_run_does_not_dispatch(test_db_session
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_booking_guide_reminders(
@@ -435,7 +369,7 @@ async def test_booking_guide_reminders_dry_run_does_not_dispatch(test_db_session
 
     assert result["matched"] == 1
     assert result["dry_run"] is True
-    assert len(webhook_calls) == 0
+    assert await _notification_count(test_db_session) == 0
 
 
 @pytest.mark.asyncio
@@ -458,11 +392,7 @@ async def test_booking_guide_reminders_dedup_skips_already_sent(test_db_session,
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     await dispatch_booking_guide_reminders(
@@ -474,7 +404,7 @@ async def test_booking_guide_reminders_dedup_skips_already_sent(test_db_session,
     )
     await test_db_session.commit()
 
-    first_call_count = len(webhook_calls)
+    first_call_count = await _notification_count(test_db_session)
     assert first_call_count == 2
 
     await dispatch_booking_guide_reminders(
@@ -486,7 +416,7 @@ async def test_booking_guide_reminders_dedup_skips_already_sent(test_db_session,
     )
     await test_db_session.commit()
 
-    assert len(webhook_calls) == first_call_count
+    assert await _notification_count(test_db_session) == first_call_count
 
 
 @pytest.mark.asyncio
@@ -511,11 +441,7 @@ async def test_booking_guide_reminders_does_not_notify_expert_only_assignees(
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_booking_guide_reminders(
@@ -528,4 +454,4 @@ async def test_booking_guide_reminders_does_not_notify_expert_only_assignees(
     await test_db_session.commit()
 
     assert result["matched"] == 0
-    assert len(webhook_calls) == 0
+    assert await _notification_count(test_db_session) == 0

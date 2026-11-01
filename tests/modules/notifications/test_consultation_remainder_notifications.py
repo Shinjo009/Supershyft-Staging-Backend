@@ -16,6 +16,11 @@ from modules.notifications.consultation_remainder_notifications import (
 from modules.notifications.repository import NotificationsRepository
 from modules.notifications.service import NotificationsService
 from modules.users.models import User
+from tests.modules.notifications.notification_test_seeds import (
+    patch_direct_delivery_success,
+    upsert_engagement_notification,
+    upsert_notification_service,
+)
 
 REMAINDER_WHATSAPP_KEY = "consultation-remainder-whatsapp"
 REMAINDER_EMAIL_KEY = "consultation-remainder-email"
@@ -36,25 +41,17 @@ async def _seed_dependencies(test_db_session) -> None:
             "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
-    for service_key, channel, webhook_path, require_session in (
-        (REMAINDER_WHATSAPP_KEY, "whatsapp", "consultation-remainder-whatsapp", False),
-        (REMAINDER_EMAIL_KEY, "email", "consultation-remainder-email", True),
+    for service_key, channel, hint in (
+        (REMAINDER_WHATSAPP_KEY, "whatsapp", None),
+        (REMAINDER_EMAIL_KEY, "email", "session_details"),
     ):
-        await test_db_session.execute(
-            text(
-                "INSERT INTO notification_services "
-                "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, "
-                "require_bio_ai_report_url, require_participant_detail, require_session_details) "
-                "VALUES (:sk, :dn, :ch, :wp, true, false, false, false, :rsd) "
-                "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_session_details = :rsd"
-            ),
-            {
-                "sk": service_key,
-                "dn": service_key,
-                "ch": channel,
-                "wp": webhook_path,
-                "rsd": require_session,
-            },
+        await upsert_notification_service(
+            test_db_session,
+            service_key=service_key,
+            channel=channel,
+            hint=hint,
+            email_subject="Reminder" if channel == "email" else None,
+            email_body="Slot {{session_details.slot}}" if channel == "email" else None,
         )
     await test_db_session.execute(
         text(
@@ -69,25 +66,7 @@ async def _seed_dependencies(test_db_session) -> None:
         )
     ).one()
     type_id = int(type_row[0])
-    await test_db_session.execute(
-        text(
-            "INSERT INTO auto_notification_events (event_code, display_name, engagement_type_ids, description) "
-            "VALUES ('consultation_remainder', 'Consultation Remainder', :type_ids, 'Test remainder event') "
-            "ON CONFLICT (event_code) DO UPDATE SET display_name = EXCLUDED.display_name"
-        ),
-        {"type_ids": [type_id]},
-    )
     await test_db_session.commit()
-
-
-async def _event_id(test_db_session, event_code: str) -> int:
-    row = (
-        await test_db_session.execute(
-            text("SELECT id FROM auto_notification_events WHERE event_code = :code"),
-            {"code": event_code},
-        )
-    ).one()
-    return int(row[0])
 
 
 async def _insert_engagement(
@@ -115,16 +94,12 @@ async def _insert_engagement(
         )
     )
     if service_keys:
-        evt_id = await _event_id(test_db_session, "consultation_remainder")
-        services_json = json.dumps(
-            [{"service_key": k.strip(), "external_link": None} for k in service_keys.split(",") if k.strip()]
-        )
-        await test_db_session.execute(
-            text(
-                "INSERT INTO engagement_notifications (engagement_id, notification_event_id, notification_services) "
-                "VALUES (:engagement_id, :event_id, CAST(:services AS jsonb))"
-            ),
-            {"engagement_id": engagement_id, "event_id": evt_id, "services": services_json},
+        await upsert_engagement_notification(
+            test_db_session,
+            engagement_id=engagement_id,
+            event_code="consultation_remainder",
+            notification_services=service_keys,
+            recipient_type="participant",
         )
 
 
@@ -193,29 +168,11 @@ async def _insert_consultation_booking(
     )
 
 
-def _fake_httpx_client(webhook_calls: list[dict]):
-    class _FakeResponse:
-        def raise_for_status(self):
-            return None
+async def _notification_count(test_db_session) -> int:
+    return int(
+        (await test_db_session.execute(text("SELECT COUNT(*) FROM notifications"))).scalar_one()
+    )
 
-        def json(self):
-            return {"message": "ok"}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    return _FakeClient
 
 
 def _services():
@@ -247,11 +204,7 @@ async def test_consultation_remainder_sends_for_today_booking(test_db_session, m
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_consultation_remainder_notifications(
@@ -265,7 +218,7 @@ async def test_consultation_remainder_sends_for_today_booking(test_db_session, m
 
     assert result["matched"] == 1
     assert result["sent"] == 1
-    assert len(webhook_calls) == 2
+    assert await _notification_count(test_db_session) == 2
     email_call = next(
         call
         for call in webhook_calls
@@ -303,11 +256,7 @@ async def test_consultation_remainder_skips_tomorrow_booking(test_db_session, mo
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_consultation_remainder_notifications(
@@ -320,7 +269,7 @@ async def test_consultation_remainder_skips_tomorrow_booking(test_db_session, mo
     await test_db_session.commit()
 
     assert result["matched"] == 0
-    assert len(webhook_calls) == 0
+    assert await _notification_count(test_db_session) == 0
 
 
 @pytest.mark.asyncio
@@ -356,11 +305,7 @@ async def test_consultation_remainder_two_bookings_same_day_dispatches_per_booki
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_consultation_remainder_notifications(
@@ -374,7 +319,7 @@ async def test_consultation_remainder_two_bookings_same_day_dispatches_per_booki
 
     assert result["matched"] == 2
     assert result["sent"] == 2
-    assert len(webhook_calls) == 4
+    assert await _notification_count(test_db_session) == 4
     expert_types = {
         call["json"]["members"][0]["session_details"]["expert_type"]
         for call in webhook_calls
@@ -407,11 +352,7 @@ async def test_consultation_remainder_second_run_same_day_skips(test_db_session,
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     first = await dispatch_consultation_remainder_notifications(
@@ -423,7 +364,7 @@ async def test_consultation_remainder_second_run_same_day_skips(test_db_session,
     )
     await test_db_session.commit()
     assert first["sent"] == 1
-    assert len(webhook_calls) == 2
+    assert await _notification_count(test_db_session) == 2
 
     second = await dispatch_consultation_remainder_notifications(
         test_db_session,
@@ -435,7 +376,7 @@ async def test_consultation_remainder_second_run_same_day_skips(test_db_session,
     await test_db_session.commit()
     assert second["matched"] == 1
     assert second["skipped"] == 1
-    assert len(webhook_calls) == 2
+    assert await _notification_count(test_db_session) == 2
 
 
 @pytest.mark.asyncio
@@ -470,11 +411,7 @@ async def test_consultation_remainder_sends_again_on_later_consultation_day(
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
 
@@ -488,7 +425,7 @@ async def test_consultation_remainder_sends_again_on_later_consultation_day(
     )
     await test_db_session.commit()
     assert first["sent"] == 1
-    assert len(webhook_calls) == 2
+    assert await _notification_count(test_db_session) == 2
 
     # Mark first-day notifications as sent on that day so second-day dispatch is allowed.
     dispatched_at = datetime(2026, 6, 10, 9, 0, tzinfo=_IST).astimezone(timezone.utc)
@@ -512,4 +449,4 @@ async def test_consultation_remainder_sends_again_on_later_consultation_day(
     )
     await test_db_session.commit()
     assert second["sent"] == 1
-    assert len(webhook_calls) == 2
+    assert await _notification_count(test_db_session) == 2

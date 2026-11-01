@@ -26,6 +26,10 @@ from modules.reports.blood_report_archival import is_archived_blood_report_url
 from modules.reports.models import IndividualHealthReport
 from modules.users.models import User
 from modules.users.repository import UsersRepository
+from tests.modules.notifications.notification_test_seeds import (
+    upsert_engagement_notification,
+    upsert_notification_service,
+)
 
 _REPORT_URL = "https://example.com/blood-report.pdf"
 _ARCHIVED_REPORT_URL = "https://supershyft.com/reports/AbCdEfGhIjKlMnOp.pdf"
@@ -53,14 +57,11 @@ def _report_payload(
 
 
 async def _seed_notification_service(test_db_session, *, service_key: str = "booking-alert-whatsapp") -> None:
-    await test_db_session.execute(
-        text(
-            "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail) "
-            "VALUES (:sk, :dn, 'email', 'test-webhook', true, false, false, false) "
-            "ON CONFLICT (service_key) DO NOTHING"
-        ),
-        {"sk": service_key, "dn": service_key},
+    await upsert_notification_service(
+        test_db_session,
+        service_key=service_key,
+        channel="whatsapp",
+        hint="blood_report",
     )
     await test_db_session.commit()
 
@@ -130,32 +131,13 @@ async def _seed_running_participant(
     await test_db_session.flush()
 
     if blood_report_notification:
-        evt_row = (
-            await test_db_session.execute(
-                text(
-                    "SELECT id FROM auto_notification_events "
-                    "WHERE event_code = 'blood_report_ready'"
-                )
-            )
-        ).one_or_none()
-        if evt_row is not None:
-            services_json = json.dumps(
-                [{"service_key": blood_report_notification, "external_link": None}]
-            )
-            await test_db_session.execute(
-                text(
-                    "INSERT INTO engagement_notifications "
-                    "(engagement_id, notification_event_id, notification_services) "
-                    "VALUES (:eid, :evt, CAST(:services AS jsonb)) "
-                    "ON CONFLICT (engagement_id, notification_event_id) DO UPDATE "
-                    "SET notification_services = EXCLUDED.notification_services"
-                ),
-                {
-                    "eid": engagement_id,
-                    "evt": int(evt_row[0]),
-                    "services": services_json,
-                },
-            )
+        await upsert_engagement_notification(
+            test_db_session,
+            engagement_id=engagement_id,
+            event_code="blood_report_ready",
+            notification_services=blood_report_notification,
+            recipient_type="participant",
+        )
 
     test_db_session.add(
         EngagementParticipant(

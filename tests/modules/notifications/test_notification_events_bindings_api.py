@@ -40,16 +40,9 @@ async def _seed_employee(test_db_session, *, user_id: int, employee_id: int):
 
 
 async def _seed_service(test_db_session, *, service_key: str = "test-binding-svc"):
-    await test_db_session.execute(
-        text(
-            "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, "
-            "require_blood_report_url, require_bio_ai_report_url, require_participant_detail) "
-            "VALUES (:sk, 'Test', 'whatsapp', '/test', true, false, false, false) "
-            "ON CONFLICT (service_key) DO NOTHING"
-        ),
-        {"sk": service_key},
-    )
+    from tests.modules.notifications.notification_test_seeds import upsert_notification_service
+
+    await upsert_notification_service(test_db_session, service_key=service_key, channel="whatsapp")
     await test_db_session.commit()
 
 

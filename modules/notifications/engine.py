@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.config import settings
 from modules.engagement_notifications.service_config import (
     NotificationServiceConfigItem,
     get_external_link_for_service,
@@ -22,8 +20,6 @@ from modules.notifications.schemas import DispatchRequest, SessionDetails
 from modules.notifications.service import NotificationsService
 
 logger = logging.getLogger(__name__)
-
-LegacyFn = Callable[[], Awaitable[None]]
 
 
 def _session_details_from_payload(payload: dict[str, Any]) -> SessionDetails | None:
@@ -213,10 +209,13 @@ async def emit_event_or_legacy(
     payload: dict[str, Any],
     engagement_id: int | None = None,
     triggered_by_user_id: int | None = None,
-    legacy_fn: LegacyFn,
+    legacy_fn=None,
     notifications_service: NotificationsService | None = None,
+    **_: Any,
 ) -> list[int]:
-    ids = await emit_event(
+    """Legacy wrapper; n8n fallback and legacy_fn are ignored after cutover."""
+    _ = legacy_fn
+    return await emit_event(
         db,
         event_code=event_code,
         payload=payload,
@@ -224,6 +223,3 @@ async def emit_event_or_legacy(
         triggered_by_user_id=triggered_by_user_id,
         notifications_service=notifications_service,
     )
-    if not ids and settings.NOTIFICATION_ENGINE_LEGACY_FALLBACK:
-        await legacy_fn()
-    return ids

@@ -41,7 +41,7 @@ async def _seed_service(test_db_session, *, service_key: str) -> None:
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail) "
+            "(service_key, display_name, channel, is_active, template_name, template_variables) "
             "VALUES (:sk, :dn, 'email', 'test-webhook', true, false, false, false) "
             "ON CONFLICT (service_key) DO NOTHING"
         ),

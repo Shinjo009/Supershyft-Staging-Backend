@@ -51,7 +51,6 @@ async def test_create_service_defaults_webhook_and_template_fields(async_client,
     assert response.status_code in (200, 201), response.text
     data = response.json()["data"]
     assert data["service_key"] == "p5-wa-test"
-    assert data["webhook_path"] == "/p5-wa-test"
     assert data["template_name"] == "camp17"
     assert data["template_variables"] == {"components": []}
 

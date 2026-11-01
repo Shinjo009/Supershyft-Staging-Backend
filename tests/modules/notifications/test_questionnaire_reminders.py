@@ -13,6 +13,11 @@ from modules.notifications.questionnaire_reminders import dispatch_questionnaire
 from modules.notifications.repository import NotificationsRepository
 from modules.notifications.service import NotificationsService
 from modules.users.models import User
+from tests.modules.notifications.notification_test_seeds import (
+    patch_direct_delivery_success,
+    upsert_engagement_notification,
+    upsert_notification_service,
+)
 
 QR_SERVICE_KEY = "qr-reminder-whatsapp"
 ENGAGEMENT_DATE = "2026-06-10"
@@ -32,16 +37,7 @@ async def _seed_dependencies(test_db_session) -> None:
             "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
-    await test_db_session.execute(
-        text(
-            "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, "
-            "require_bio_ai_report_url, require_participant_detail) "
-            "VALUES (:sk, :dn, 'whatsapp', 'qr-reminder', true, false, false, false) "
-            "ON CONFLICT (service_key) DO UPDATE SET is_active = true"
-        ),
-        {"sk": QR_SERVICE_KEY, "dn": QR_SERVICE_KEY},
-    )
+    await upsert_notification_service(test_db_session, service_key=QR_SERVICE_KEY, channel="whatsapp")
     await test_db_session.execute(
         text(
             "INSERT INTO engagement_types (code, display_name, is_active) "
@@ -49,37 +45,7 @@ async def _seed_dependencies(test_db_session) -> None:
             "ON CONFLICT (code) DO UPDATE SET is_active = true"
         )
     )
-    type_id = int(
-        (
-            await test_db_session.execute(
-                text("SELECT id FROM engagement_types WHERE code = 'bio_ai'")
-            )
-        ).scalar_one()
-    )
-    for event_code, display_name in (
-        ("questionnaire_reminder_before", "Questionnaire Reminder Before"),
-        ("questionnaire_reminder_after", "Questionnaire Reminder After"),
-    ):
-        await test_db_session.execute(
-            text(
-                "INSERT INTO auto_notification_events (event_code, display_name, engagement_type_ids, description) "
-                "VALUES (:code, :dn, :type_ids, 'Test questionnaire reminder event') "
-                "ON CONFLICT (event_code) DO UPDATE SET display_name = EXCLUDED.display_name"
-            ),
-            {"code": event_code, "dn": display_name, "type_ids": [type_id]},
-        )
     await test_db_session.commit()
-
-
-async def _event_id(test_db_session, event_code: str) -> int:
-    return int(
-        (
-            await test_db_session.execute(
-                text("SELECT id FROM auto_notification_events WHERE event_code = :code"),
-                {"code": event_code},
-            )
-        ).scalar_one()
-    )
 
 
 async def _bind_questionnaire_services(
@@ -88,17 +54,13 @@ async def _bind_questionnaire_services(
     engagement_id: int,
     service_key: str = QR_SERVICE_KEY,
 ) -> None:
-    services_json = json.dumps([{"service_key": service_key, "external_link": None}])
     for event_code in ("questionnaire_reminder_before", "questionnaire_reminder_after"):
-        evt_id = await _event_id(test_db_session, event_code)
-        await test_db_session.execute(
-            text(
-                "INSERT INTO engagement_notifications (engagement_id, notification_event_id, notification_services) "
-                "VALUES (:eid, :evt, CAST(:services AS jsonb)) "
-                "ON CONFLICT (engagement_id, notification_event_id) DO UPDATE "
-                "SET notification_services = EXCLUDED.notification_services"
-            ),
-            {"eid": engagement_id, "evt": evt_id, "services": services_json},
+        await upsert_engagement_notification(
+            test_db_session,
+            engagement_id=engagement_id,
+            event_code=event_code,
+            notification_services=service_key,
+            recipient_type="participant",
         )
 
 
@@ -201,29 +163,10 @@ class FakeCategoriesService:
         return self._categories
 
 
-def _fake_httpx_client(webhook_calls: list[dict]):
-    class _FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"message": "ok"}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    return _FakeClient
+async def _notification_count(test_db_session) -> int:
+    return int(
+        (await test_db_session.execute(text("SELECT COUNT(*) FROM notifications"))).scalar_one()
+    )
 
 
 def _services():
@@ -293,11 +236,7 @@ async def test_questionnaire_reminders_same_service_sends_before_and_after(
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     metsights_service = _incomplete_metsights()
@@ -315,7 +254,7 @@ async def test_questionnaire_reminders_same_service_sends_before_and_after(
     await test_db_session.commit()
 
     assert before_result["sent"] == 1
-    assert len(webhook_calls) == 1
+    assert await _notification_count(test_db_session) == 1
 
     after_result = await dispatch_questionnaire_reminders(
         test_db_session,
@@ -329,7 +268,7 @@ async def test_questionnaire_reminders_same_service_sends_before_and_after(
     await test_db_session.commit()
 
     assert after_result["sent"] == 1
-    assert len(webhook_calls) == 2
+    assert await _notification_count(test_db_session) == 2
 
 
 @pytest.mark.asyncio
@@ -353,11 +292,7 @@ async def test_questionnaire_reminders_same_day_rerun_is_skipped(test_db_session
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     kwargs = {
@@ -372,13 +307,13 @@ async def test_questionnaire_reminders_same_day_rerun_is_skipped(test_db_session
     first = await dispatch_questionnaire_reminders(test_db_session, **kwargs)
     await test_db_session.commit()
     assert first["sent"] == 1
-    assert len(webhook_calls) == 1
+    assert await _notification_count(test_db_session) == 1
 
     second = await dispatch_questionnaire_reminders(test_db_session, **kwargs)
     await test_db_session.commit()
     assert second["sent"] == 0
     assert second["skipped"] == 1
-    assert len(webhook_calls) == 1
+    assert await _notification_count(test_db_session) == 1
     assert any("already sent" in d["reason"] for d in second["details"])
 
 
@@ -405,11 +340,7 @@ async def test_questionnaire_reminders_skip_when_only_metsights_vitals_would_be_
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_questionnaire_reminders(
@@ -425,7 +356,7 @@ async def test_questionnaire_reminders_skip_when_only_metsights_vitals_would_be_
 
     assert result["sent"] == 0
     assert result["skipped"] == 1
-    assert len(webhook_calls) == 0
+    assert await _notification_count(test_db_session) == 0
     assert any(
         d["reason"] == "questionnaire complete on Metsights" for d in result["details"]
     )
@@ -454,11 +385,7 @@ async def test_questionnaire_reminders_skip_when_only_health_vitals_pending(
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_questionnaire_reminders(
@@ -474,7 +401,7 @@ async def test_questionnaire_reminders_skip_when_only_health_vitals_pending(
 
     assert result["sent"] == 0
     assert result["skipped"] == 1
-    assert len(webhook_calls) == 0
+    assert await _notification_count(test_db_session) == 0
     assert any(
         d["reason"] == "questionnaire complete in internal DB" for d in result["details"]
     )
@@ -503,11 +430,7 @@ async def test_questionnaire_reminders_send_when_required_category_incomplete(
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_questionnaire_reminders(
@@ -522,5 +445,5 @@ async def test_questionnaire_reminders_send_when_required_category_incomplete(
     await test_db_session.commit()
 
     assert result["sent"] == 1
-    assert len(webhook_calls) == 1
+    assert await _notification_count(test_db_session) == 1
     assert any(d["action"] == "sent" for d in result["details"])

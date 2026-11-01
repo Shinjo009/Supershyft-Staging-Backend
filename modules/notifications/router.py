@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
@@ -36,6 +37,7 @@ from modules.employee.access_control import ensure_internal_employee
 
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
+logger = logging.getLogger(__name__)
 
 
 def _service_dict(s) -> dict:
@@ -44,14 +46,7 @@ def _service_dict(s) -> dict:
         "service_key": s.service_key,
         "display_name": s.display_name,
         "channel": s.channel,
-        "webhook_path": s.webhook_path,
         "is_active": s.is_active,
-        "require_blood_report_url": s.require_blood_report_url,
-        "require_bio_ai_report_url": s.require_bio_ai_report_url,
-        "require_participant_detail": s.require_participant_detail,
-        "require_otp": s.require_otp,
-        "require_session_details": s.require_session_details,
-        "require_external_link": s.require_external_link,
         "template_name": s.template_name,
         "template_variables": s.template_variables,
         "email_subject": s.email_subject,
@@ -61,18 +56,26 @@ def _service_dict(s) -> dict:
     }
 
 
-# ── Authenticated callback (called by n8n / external service) ───────────
+# ── Legacy n8n callback (no-op after cutover) ─────────────────────────────
 
 @router.post("/callback")
 async def notification_callback(
     payload: CallbackRequest,
-    db: AsyncSession = Depends(get_db),
-    svc: NotificationsService = Depends(get_notifications_service),
     auth=Depends(authenticate_notification_endpoint),
 ):
-    result = await svc.callback(db, payload=payload)
-    await db.commit()
-    return success_response(result)
+    _ = auth
+    logger.info(
+        "notification callback ignored post-cutover notification_id=%s status=%s",
+        payload.notification_id,
+        payload.status,
+    )
+    return success_response(
+        {
+            "notification_id": payload.notification_id,
+            "status": "ignored",
+            "message": "Notification callbacks are no longer processed; delivery is direct.",
+        }
+    )
 
 
 # ── Authenticated dispatch ────────────────────────────────────────────────

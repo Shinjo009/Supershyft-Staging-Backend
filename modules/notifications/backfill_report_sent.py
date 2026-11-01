@@ -25,7 +25,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.phone import phone_lookup_candidates
 from core.exceptions import AppError
 from modules.engagements.models import (
-    AutoNotificationEvent,
     EngagementNotification,
     EngagementParticipant,
 )
@@ -176,14 +175,10 @@ async def _resolve_service_keys_for_engagement(
 ) -> dict[str, str]:
     mapping = dict(CONCEPT_TO_FALLBACK_KEY)
     result = await db.execute(
-        select(AutoNotificationEvent.event_code, EngagementNotification.notification_services)
-        .join(
-            EngagementNotification,
-            EngagementNotification.notification_event_id == AutoNotificationEvent.id,
-        )
+        select(EngagementNotification.event_code, EngagementNotification.notification_services)
         .where(EngagementNotification.engagement_id == engagement_id)
         .where(
-            AutoNotificationEvent.event_code.in_(
+            EngagementNotification.event_code.in_(
                 ("blood_report_ready", "bioai_report_ready")
             )
         )

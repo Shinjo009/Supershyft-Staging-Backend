@@ -8,15 +8,9 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.config import settings
 from core.exceptions import AppError
-from modules.audit.cron_sync_logging import (
-    finalize_integration_sync_log_isolated,
-    persist_integration_sync_log_isolated,
-)
 from modules.metsights.client import MetsightsClient
 from modules.metsights.service import MetsightsService
 from modules.notifications.models import Notification, NotificationService
@@ -31,6 +25,14 @@ from modules.notifications.schemas import (
 from modules.notifications.direct_dispatch import (
     service_uses_direct_delivery,
     try_direct_delivery,
+)
+from modules.notifications.service_dispatch_hints import (
+    service_needs_bio_ai_report,
+    service_needs_blood_report,
+    service_needs_external_link,
+    service_needs_otp,
+    service_needs_participant_detail,
+    service_needs_session_details,
 )
 from modules.notifications.report_prepare import prepare_user_report_urls
 from modules.reports.bio_ai_report_resolver import resolve_bio_ai_report_url
@@ -156,52 +158,6 @@ class NotificationsService:
             metsights_service=self._metsights_service,
         )
 
-    async def _dispatch_via_n8n(
-        self,
-        *,
-        webhook_url: str,
-        webhook_payload: dict,
-        engagement_id: int | None,
-        sync_log_user_id: int | None,
-    ) -> tuple[str, str]:
-        """POST n8n webhook. Returns (notification_status, message)."""
-        sync_log_id = await persist_integration_sync_log_isolated(
-            provider="n8n",
-            api_url=webhook_url,
-            engagement_id=engagement_id,
-            user_id=sync_log_user_id,
-            request_payload=webhook_payload,
-        )
-
-        try:
-            async with httpx.AsyncClient(timeout=settings.NOTIFICATION_SERVICE_TIMEOUT_SECONDS) as client:
-                resp = await client.post(webhook_url, json=webhook_payload)
-                resp.raise_for_status()
-                try:
-                    resp_data = resp.json()
-                except Exception:
-                    resp_data = {"status_code": resp.status_code, "body": resp.text}
-                webhook_message = (
-                    resp_data.get("message", "Webhook called successfully")
-                    if isinstance(resp_data, dict)
-                    else "Webhook called successfully"
-                )
-                await finalize_integration_sync_log_isolated(
-                    sync_log_id=sync_log_id,
-                    status="success",
-                    response_payload=resp_data if isinstance(resp_data, dict) else {"body": resp_data},
-                )
-                return "pending", webhook_message
-        except Exception as exc:
-            logger.error("Notification webhook call failed: %s", exc)
-            webhook_message = f"Webhook call failed: {exc}"
-            await finalize_integration_sync_log_isolated(
-                sync_log_id=sync_log_id,
-                status="failed",
-                error_message=str(exc),
-            )
-            return "failed", webhook_message
-
     async def _finalize_dispatch_row(
         self,
         db: AsyncSession,
@@ -262,7 +218,7 @@ class NotificationsService:
                 message=f"Users not found: {missing_ids}",
             )
 
-        if svc.require_participant_detail and not payload.participant_details:
+        if service_needs_participant_detail(svc) and not payload.participant_details:
             raise AppError(
                 status_code=400,
                 error_code="INVALID_INPUT",
@@ -270,14 +226,14 @@ class NotificationsService:
             )
 
         otp_value = (payload.otp or "").strip()
-        if svc.require_otp and not otp_value:
+        if service_needs_otp(svc) and not otp_value:
             raise AppError(
                 status_code=400,
                 error_code="INVALID_INPUT",
                 message="This service requires otp but none was provided",
             )
 
-        if svc.require_session_details:
+        if service_needs_session_details(svc):
             missing_session_details = [
                 uid
                 for uid in payload.user_ids
@@ -294,14 +250,14 @@ class NotificationsService:
                 )
 
         external_link_value = (payload.external_link or "").strip()
-        if svc.require_external_link and not external_link_value:
+        if service_needs_external_link(svc) and not external_link_value:
             raise AppError(
                 status_code=400,
                 error_code="INVALID_INPUT",
                 message="This service requires external_link but none was provided",
             )
 
-        needs_report = svc.require_blood_report_url or svc.require_bio_ai_report_url
+        needs_report = service_needs_blood_report(svc) or service_needs_bio_ai_report(svc)
 
         if payload.assessment_instance_id is not None and len(payload.user_ids) > 1:
             raise AppError(
@@ -367,7 +323,7 @@ class NotificationsService:
                 ihr = await self._repo.get_health_report_for_instance(
                     db, assessment_instance_id=instance.assessment_instance_id
                 )
-                if svc.require_blood_report_url:
+                if service_needs_blood_report(svc):
                     blood_root = await get_current_report_root(
                         db,
                         user_id=user.user_id,
@@ -412,8 +368,8 @@ class NotificationsService:
                         )
                         if archived_urls:
                             member["blood_report_urls"] = archived_urls
-                if svc.require_bio_ai_report_url:
-                    if svc.require_blood_report_url:
+                if service_needs_bio_ai_report(svc):
+                    if service_needs_blood_report(svc):
                         ihr = await self._repo.get_health_report_for_instance(
                             db, assessment_instance_id=instance.assessment_instance_id
                         )
@@ -462,7 +418,7 @@ class NotificationsService:
             if session_details is not None:
                 member["session_details"] = session_details.model_dump(mode="json", exclude_none=True)
 
-            if svc.require_external_link:
+            if service_needs_external_link(svc):
                 member["external_link"] = external_link_value
 
             members.append(member)
@@ -481,48 +437,34 @@ class NotificationsService:
         )
         notification = await self._repo.create_notification(db, notification)
 
-        webhook_url = settings.NOTIFICATION_SERVICE_BASE_URL.rstrip("/") + "/" + svc.webhook_path.lstrip("/")
-        webhook_payload: dict = {
-            "notification_id": notification.notification_id,
-            "members": members,
-        }
-        if resolved_engagement_id is not None:
-            webhook_payload["engagement_id"] = resolved_engagement_id
-        if payload.participant_details:
-            webhook_payload["participant_details"] = payload.participant_details
-
         sync_log_user_id = payload.user_ids[0] if len(payload.user_ids) == 1 else None
 
-        if service_uses_direct_delivery(svc):
-            outcome = await try_direct_delivery(
-                svc,
-                notification_id=notification.notification_id,
-                members=members,
-                participant_details=payload.participant_details,
-                engagement_id=resolved_engagement_id,
-                sync_log_user_id=sync_log_user_id,
-            )
-            assert outcome is not None
-            return await self._finalize_dispatch_row(
-                db,
-                notification_id=notification.notification_id,
-                status=outcome.status,
-                message=outcome.message,
-                queue_id=outcome.queue_id,
-                completed_at=outcome.completed_at,
+        if not service_uses_direct_delivery(svc):
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message=(
+                    f"Service '{svc.service_key}' is not configured for direct delivery "
+                    "(missing template/email content)"
+                ),
             )
 
-        notification_status, webhook_message = await self._dispatch_via_n8n(
-            webhook_url=webhook_url,
-            webhook_payload=webhook_payload,
+        outcome = await try_direct_delivery(
+            svc,
+            notification_id=notification.notification_id,
+            members=members,
+            participant_details=payload.participant_details,
             engagement_id=resolved_engagement_id,
             sync_log_user_id=sync_log_user_id,
         )
+        assert outcome is not None
         return await self._finalize_dispatch_row(
             db,
             notification_id=notification.notification_id,
-            status=notification_status,
-            message=webhook_message,
+            status=outcome.status,
+            message=outcome.message,
+            queue_id=outcome.queue_id,
+            completed_at=outcome.completed_at,
         )
 
     async def dispatch_to_contacts(
@@ -559,19 +501,19 @@ class NotificationsService:
             )
 
         otp_value = (otp or "").strip()
-        if svc.require_otp and not otp_value:
+        if service_needs_otp(svc) and not otp_value:
             raise AppError(
                 status_code=400,
                 error_code="INVALID_INPUT",
                 message="This service requires otp but none was provided",
             )
-        if svc.require_participant_detail and not participant_details:
+        if service_needs_participant_detail(svc) and not participant_details:
             raise AppError(
                 status_code=400,
                 error_code="INVALID_INPUT",
                 message="This service requires participant_details but none were provided",
             )
-        if svc.require_session_details and session_details is None:
+        if service_needs_session_details(svc) and session_details is None:
             raise AppError(
                 status_code=400,
                 error_code="INVALID_INPUT",
@@ -624,46 +566,32 @@ class NotificationsService:
         )
         notification = await self._repo.create_notification(db, notification)
 
-        webhook_url = settings.NOTIFICATION_SERVICE_BASE_URL.rstrip("/") + "/" + svc.webhook_path.lstrip("/")
-        webhook_payload: dict = {
-            "notification_id": notification.notification_id,
-            "members": members,
-        }
-        if engagement_id is not None:
-            webhook_payload["engagement_id"] = engagement_id
-        if participant_details:
-            webhook_payload["participant_details"] = participant_details
-
-        if service_uses_direct_delivery(svc):
-            outcome = await try_direct_delivery(
-                svc,
-                notification_id=notification.notification_id,
-                members=members,
-                participant_details=participant_details,
-                engagement_id=engagement_id,
-                sync_log_user_id=None,
-            )
-            assert outcome is not None
-            return await self._finalize_dispatch_row(
-                db,
-                notification_id=notification.notification_id,
-                status=outcome.status,
-                message=outcome.message,
-                queue_id=outcome.queue_id,
-                completed_at=outcome.completed_at,
+        if not service_uses_direct_delivery(svc):
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message=(
+                    f"Service '{svc.service_key}' is not configured for direct delivery "
+                    "(missing template/email content)"
+                ),
             )
 
-        notification_status, webhook_message = await self._dispatch_via_n8n(
-            webhook_url=webhook_url,
-            webhook_payload=webhook_payload,
+        outcome = await try_direct_delivery(
+            svc,
+            notification_id=notification.notification_id,
+            members=members,
+            participant_details=participant_details,
             engagement_id=engagement_id,
             sync_log_user_id=None,
         )
+        assert outcome is not None
         return await self._finalize_dispatch_row(
             db,
             notification_id=notification.notification_id,
-            status=notification_status,
-            message=webhook_message,
+            status=outcome.status,
+            message=outcome.message,
+            queue_id=outcome.queue_id,
+            completed_at=outcome.completed_at,
         )
 
     # ── Callback ────────────────────────────────────────────────────────
@@ -866,19 +794,11 @@ class NotificationsService:
                 error_code="CONFLICT",
                 message=f"Service key '{payload.service_key}' already exists",
             )
-        webhook_path = (payload.webhook_path or "").strip() or f"/{payload.service_key}"
         svc = NotificationService(
             service_key=payload.service_key,
             display_name=payload.display_name,
             channel=payload.channel,
-            webhook_path=webhook_path,
             is_active=payload.is_active,
-            require_blood_report_url=payload.require_blood_report_url,
-            require_bio_ai_report_url=payload.require_bio_ai_report_url,
-            require_participant_detail=payload.require_participant_detail,
-            require_otp=payload.require_otp,
-            require_session_details=payload.require_session_details,
-            require_external_link=payload.require_external_link,
             template_name=(payload.template_name or "").strip() or None,
             template_variables=payload.template_variables,
             email_subject=(payload.email_subject or "").strip() or None,
@@ -905,22 +825,8 @@ class NotificationsService:
             svc.display_name = payload.display_name
         if payload.channel is not None:
             svc.channel = payload.channel
-        if payload.webhook_path is not None:
-            svc.webhook_path = payload.webhook_path
         if payload.is_active is not None:
             svc.is_active = payload.is_active
-        if payload.require_blood_report_url is not None:
-            svc.require_blood_report_url = payload.require_blood_report_url
-        if payload.require_bio_ai_report_url is not None:
-            svc.require_bio_ai_report_url = payload.require_bio_ai_report_url
-        if payload.require_participant_detail is not None:
-            svc.require_participant_detail = payload.require_participant_detail
-        if payload.require_otp is not None:
-            svc.require_otp = payload.require_otp
-        if payload.require_session_details is not None:
-            svc.require_session_details = payload.require_session_details
-        if payload.require_external_link is not None:
-            svc.require_external_link = payload.require_external_link
         if payload.template_name is not None:
             svc.template_name = payload.template_name.strip() or None
         if payload.template_variables is not None:

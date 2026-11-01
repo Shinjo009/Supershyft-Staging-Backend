@@ -413,6 +413,28 @@ async def reset_sequences(session: AsyncSession) -> None:
     )
 
 
+def _template_variables_from_seed(seed: SeedNotificationService) -> list[dict]:
+    sources: list[str] = ["{{user.first_name}}"]
+    if seed.require_otp:
+        sources.append("{{otp.otp}}")
+    if seed.require_participant_detail:
+        sources.append("{{participant_details.name}}")
+    if seed.require_session_details:
+        sources.append("{{session_details.slot}}")
+    if seed.require_external_link:
+        sources.append("{{external_link}}")
+    if seed.require_blood_report_url:
+        sources.append("{{blood_report_url}}")
+    if seed.require_bio_ai_report_url:
+        sources.append("{{bio_ai_report_url}}")
+    return [
+        {
+            "component": "body",
+            "parameters": [{"type": "text", "source": source} for source in sources],
+        }
+    ]
+
+
 async def upsert_notification_services(
     session: AsyncSession, services: Iterable[SeedNotificationService]
 ) -> None:
@@ -421,33 +443,33 @@ async def upsert_notification_services(
             select(NotificationService).where(NotificationService.service_key == seed.service_key)
         )
         existing = result.scalar_one_or_none()
+        template_variables = (
+            _template_variables_from_seed(seed) if seed.channel == "whatsapp" else None
+        )
+        template_name = seed.service_key if seed.channel == "whatsapp" else None
+        email_subject = seed.display_name if seed.channel == "email" else None
+        email_body = "Notification body" if seed.channel == "email" else None
         if existing is None:
             session.add(
                 NotificationService(
                     service_key=seed.service_key,
                     display_name=seed.display_name,
                     channel=seed.channel,
-                    webhook_path=seed.webhook_path,
                     is_active=seed.is_active,
-                    require_blood_report_url=seed.require_blood_report_url,
-                    require_bio_ai_report_url=seed.require_bio_ai_report_url,
-                    require_participant_detail=seed.require_participant_detail,
-                    require_otp=seed.require_otp,
-                    require_session_details=seed.require_session_details,
-                    require_external_link=seed.require_external_link,
+                    template_name=template_name,
+                    template_variables=template_variables,
+                    email_subject=email_subject,
+                    email_body=email_body,
                 )
             )
         else:
             existing.display_name = seed.display_name
             existing.channel = seed.channel
-            existing.webhook_path = seed.webhook_path
             existing.is_active = seed.is_active
-            existing.require_blood_report_url = seed.require_blood_report_url
-            existing.require_bio_ai_report_url = seed.require_bio_ai_report_url
-            existing.require_participant_detail = seed.require_participant_detail
-            existing.require_otp = seed.require_otp
-            existing.require_session_details = seed.require_session_details
-            existing.require_external_link = seed.require_external_link
+            existing.template_name = template_name
+            existing.template_variables = template_variables
+            existing.email_subject = email_subject
+            existing.email_body = email_body
 
 
 async def upsert_default_platform_settings(session: AsyncSession) -> None:

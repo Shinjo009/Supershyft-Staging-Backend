@@ -14,6 +14,11 @@ from modules.notifications.repository import NotificationsRepository
 from modules.notifications.service import NotificationsService
 from modules.reports.models import IndividualHealthReport
 from modules.users.models import User
+from tests.modules.notifications.notification_test_seeds import (
+    patch_direct_delivery_success,
+    upsert_engagement_notification,
+    upsert_notification_service,
+)
 
 CONSULT_WHATSAPP_KEY = "consult-whatsapp"
 CONSULT_EMAIL_KEY = "consult-email"
@@ -33,19 +38,16 @@ async def _seed_dependencies(test_db_session) -> None:
             "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         )
     )
-    for service_key, channel, webhook_path in (
-        (CONSULT_WHATSAPP_KEY, "whatsapp", "consult-whatsapp"),
-        (CONSULT_EMAIL_KEY, "email", "consult-email"),
+    for service_key, channel in (
+        (CONSULT_WHATSAPP_KEY, "whatsapp"),
+        (CONSULT_EMAIL_KEY, "email"),
     ):
-        await test_db_session.execute(
-            text(
-                "INSERT INTO notification_services "
-                "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, "
-                "require_bio_ai_report_url, require_participant_detail) "
-                "VALUES (:sk, :dn, :ch, :wp, true, false, false, false) "
-                "ON CONFLICT (service_key) DO UPDATE SET is_active = true"
-            ),
-            {"sk": service_key, "dn": service_key, "ch": channel, "wp": webhook_path},
+        await upsert_notification_service(
+            test_db_session,
+            service_key=service_key,
+            channel=channel,
+            email_subject="Consult" if channel == "email" else None,
+            email_body="Ready" if channel == "email" else None,
         )
     for code, display_name in (
         ("bio_ai_with_consultation", "BioAI with Consultation"),
@@ -61,36 +63,7 @@ async def _seed_dependencies(test_db_session) -> None:
             ),
             {"code": code, "display_name": display_name},
         )
-    type_ids = [
-        int(row[0])
-        for row in (
-            await test_db_session.execute(
-                text(
-                    "SELECT id FROM engagement_types "
-                    "WHERE code IN ('bio_ai_with_consultation', 'blood_test_with_consultation', 'consultation')"
-                )
-            )
-        ).all()
-    ]
-    await test_db_session.execute(
-        text(
-            "INSERT INTO auto_notification_events (event_code, display_name, engagement_type_ids, description) "
-            "VALUES ('consultation_ready', 'Consultation Notification', :type_ids, 'Test consultation-ready event') "
-            "ON CONFLICT (event_code) DO UPDATE SET display_name = EXCLUDED.display_name"
-        ),
-        {"type_ids": type_ids},
-    )
     await test_db_session.commit()
-
-
-async def _event_id(test_db_session, event_code: str) -> int:
-    row = (
-        await test_db_session.execute(
-            text("SELECT id FROM auto_notification_events WHERE event_code = :code"),
-            {"code": event_code},
-        )
-    ).one()
-    return int(row[0])
 
 
 async def _type_id(test_db_session, type_code: str) -> int:
@@ -135,16 +108,12 @@ async def _insert_engagement(
         },
     )
     if service_keys:
-        evt_id = await _event_id(test_db_session, "consultation_ready")
-        services_json = json.dumps(
-            [{"service_key": k.strip(), "external_link": None} for k in service_keys.split(",") if k.strip()]
-        )
-        await test_db_session.execute(
-            text(
-                "INSERT INTO engagement_notifications (engagement_id, notification_event_id, notification_services) "
-                "VALUES (:engagement_id, :event_id, CAST(:services AS jsonb))"
-            ),
-            {"engagement_id": engagement_id, "event_id": evt_id, "services": services_json},
+        await upsert_engagement_notification(
+            test_db_session,
+            engagement_id=engagement_id,
+            event_code="consultation_ready",
+            notification_services=service_keys,
+            recipient_type="participant",
         )
 
 
@@ -256,29 +225,11 @@ async def _insert_blood_ihr(
     )
 
 
-def _fake_httpx_client(webhook_calls: list[dict]):
-    class _FakeResponse:
-        def raise_for_status(self):
-            return None
+async def _notification_count(test_db_session) -> int:
+    return int(
+        (await test_db_session.execute(text("SELECT COUNT(*) FROM notifications"))).scalar_one()
+    )
 
-        def json(self):
-            return {"message": "ok"}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    return _FakeClient
 
 
 def _services():
@@ -302,11 +253,7 @@ async def test_consultation_notifications_blood_ready_with_no_bookings(test_db_s
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_consultation_notifications(
@@ -321,7 +268,7 @@ async def test_consultation_notifications_blood_ready_with_no_bookings(test_db_s
     assert result["sent"] == 1
     assert result["skipped"] == 0
     assert result["failed"] == 0
-    assert len(webhook_calls) == 2
+    assert await _notification_count(test_db_session) == 2
 
 
 @pytest.mark.asyncio
@@ -342,11 +289,7 @@ async def test_consultation_notifications_blood_ready_for_camp_collection(test_d
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_consultation_notifications(
@@ -359,7 +302,7 @@ async def test_consultation_notifications_blood_ready_for_camp_collection(test_d
 
     assert result["matched"] == 1
     assert result["sent"] == 1
-    assert len(webhook_calls) == 2
+    assert await _notification_count(test_db_session) == 2
 
 
 @pytest.mark.asyncio
@@ -398,11 +341,7 @@ async def test_consultation_notifications_skips_when_all_offered_types_are_booke
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_consultation_notifications(
@@ -414,7 +353,7 @@ async def test_consultation_notifications_skips_when_all_offered_types_are_booke
     await test_db_session.commit()
 
     assert result["matched"] == 0
-    assert len(webhook_calls) == 0
+    assert await _notification_count(test_db_session) == 0
 
 
 @pytest.mark.asyncio
@@ -449,11 +388,7 @@ async def test_consultation_notifications_sends_when_want_true_but_slot_cabin_da
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_consultation_notifications(
@@ -468,7 +403,7 @@ async def test_consultation_notifications_sends_when_want_true_but_slot_cabin_da
     assert result["sent"] == 1
     assert result["skipped"] == 0
     assert result["failed"] == 0
-    assert len(webhook_calls) == 2
+    assert await _notification_count(test_db_session) == 2
 
 
 @pytest.mark.asyncio
@@ -506,11 +441,7 @@ async def test_consultation_notifications_sends_when_one_offered_type_is_still_u
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_consultation_notifications(
@@ -523,7 +454,7 @@ async def test_consultation_notifications_sends_when_one_offered_type_is_still_u
 
     assert result["matched"] == 1
     assert result["sent"] == 1
-    assert len(webhook_calls) == 2
+    assert await _notification_count(test_db_session) == 2
 
 
 @pytest.mark.asyncio
@@ -556,11 +487,7 @@ async def test_consultation_notifications_sends_when_any_offered_type_has_want_f
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_consultation_notifications(
@@ -573,7 +500,7 @@ async def test_consultation_notifications_sends_when_any_offered_type_has_want_f
 
     assert result["matched"] == 1
     assert result["sent"] == 1
-    assert len(webhook_calls) == 2
+    assert await _notification_count(test_db_session) == 2
 
 
 @pytest.mark.asyncio
@@ -609,11 +536,7 @@ async def test_consultation_notifications_ignores_non_offered_false_booking(test
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_consultation_notifications(
@@ -625,7 +548,7 @@ async def test_consultation_notifications_ignores_non_offered_false_booking(test
     await test_db_session.commit()
 
     assert result["matched"] == 0
-    assert len(webhook_calls) == 0
+    assert await _notification_count(test_db_session) == 0
 
 
 @pytest.mark.asyncio
@@ -644,11 +567,7 @@ async def test_consultation_notifications_skips_when_report_not_ready(test_db_se
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_consultation_notifications(
@@ -660,7 +579,7 @@ async def test_consultation_notifications_skips_when_report_not_ready(test_db_se
     await test_db_session.commit()
 
     assert result["matched"] == 0
-    assert len(webhook_calls) == 0
+    assert await _notification_count(test_db_session) == 0
 
 
 @pytest.mark.asyncio
@@ -679,11 +598,7 @@ async def test_consultation_notifications_dry_run_does_not_dispatch(test_db_sess
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_consultation_notifications(
@@ -697,7 +612,7 @@ async def test_consultation_notifications_dry_run_does_not_dispatch(test_db_sess
     assert result["matched"] == 1
     assert result["sent"] == 0
     assert result["dry_run"] is True
-    assert len(webhook_calls) == 0
+    assert await _notification_count(test_db_session) == 0
 
 
 @pytest.mark.asyncio
@@ -717,11 +632,7 @@ async def test_consultation_notifications_skips_already_sent(test_db_session, mo
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     first = await dispatch_consultation_notifications(
@@ -732,14 +643,13 @@ async def test_consultation_notifications_skips_already_sent(test_db_session, mo
     )
     await test_db_session.commit()
     assert first["sent"] == 1
-    assert len(webhook_calls) == 1
+    assert await _notification_count(test_db_session) == 1
 
     await test_db_session.execute(
         text("UPDATE notifications SET status = 2 WHERE engagement_id = 9708")
     )
     await test_db_session.commit()
 
-    webhook_calls.clear()
     second = await dispatch_consultation_notifications(
         test_db_session,
         notifications_service=notifications_service,
@@ -751,7 +661,7 @@ async def test_consultation_notifications_skips_already_sent(test_db_session, mo
     assert second["matched"] == 1
     assert second["sent"] == 0
     assert second["skipped"] == 1
-    assert len(webhook_calls) == 0
+    assert await _notification_count(test_db_session) == 0
 
 
 @pytest.mark.asyncio
@@ -771,11 +681,7 @@ async def test_consultation_notifications_skips_wrong_engagement_type(test_db_se
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_consultation_notifications(
@@ -787,7 +693,7 @@ async def test_consultation_notifications_skips_wrong_engagement_type(test_db_se
     await test_db_session.commit()
 
     assert result["matched"] == 0
-    assert len(webhook_calls) == 0
+    assert await _notification_count(test_db_session) == 0
 
 
 @pytest.mark.asyncio
@@ -809,11 +715,7 @@ async def test_consultation_notifications_sends_when_blood_ready_but_bioai_not_r
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_consultation_notifications(
@@ -826,7 +728,7 @@ async def test_consultation_notifications_sends_when_blood_ready_but_bioai_not_r
 
     assert result["matched"] == 1
     assert result["sent"] == 1
-    assert len(webhook_calls) == 2
+    assert await _notification_count(test_db_session) == 2
 
 
 @pytest.mark.asyncio
@@ -848,11 +750,7 @@ async def test_consultation_notifications_skips_when_bioai_ready_but_blood_not_r
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(webhook_calls),
-    )
+    patch_direct_delivery_success(monkeypatch)
 
     notifications_service, engagements_repository = _services()
     result = await dispatch_consultation_notifications(
@@ -864,4 +762,4 @@ async def test_consultation_notifications_skips_when_bioai_ready_but_blood_not_r
     await test_db_session.commit()
 
     assert result["matched"] == 0
-    assert len(webhook_calls) == 0
+    assert await _notification_count(test_db_session) == 0

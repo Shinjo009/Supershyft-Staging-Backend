@@ -111,7 +111,6 @@ from modules.support.router import router as support_router
 from modules.audit.router import router as audit_router
 from modules.geocoding.router import router as geocode_router
 from modules.engagement_types.router import router as engagement_types_router
-from modules.notification_events.router import router as notification_events_router
 from modules.engagement_notifications.router import router as engagement_notifications_router
 from modules.experts.router import expert_types_router
 from modules.diagnostics.healthians.router import router as healthians_router
@@ -415,7 +414,6 @@ async def fastapi_app(
     app.include_router(discounts_router)
     app.include_router(engagement_types_router)
     app.include_router(notification_catalog_router)
-    app.include_router(notification_events_router)
     app.include_router(engagement_notifications_router)
     app.include_router(expert_types_router)
     app.include_router(healthians_router)

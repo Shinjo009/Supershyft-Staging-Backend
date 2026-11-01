@@ -76,14 +76,12 @@ def _apply_row(execute, row: dict) -> None:
     if row.get("email_html"):
         sets.append("email_html = :email_html")
         params["email_html"] = row["email_html"]
-    webhook_path = row.get("webhook_path")
     if not sets:
         return
-    where = "service_key = :service_key"
-    if webhook_path:
-        where = "(service_key = :service_key OR webhook_path = :webhook_path)"
-        params["webhook_path"] = webhook_path
-    execute(sa.text(f"UPDATE notification_services SET {', '.join(sets)} WHERE {where}"), params)
+    execute(
+        sa.text(f"UPDATE notification_services SET {', '.join(sets)} WHERE service_key = :service_key"),
+        params,
+    )
 
 
 async def _apply_row_async(execute, row: dict) -> None:
@@ -120,11 +118,9 @@ async def _apply_row_async(execute, row: dict) -> None:
     if row.get("email_html"):
         sets.append("email_html = :email_html")
         params["email_html"] = row["email_html"]
-    webhook_path = row.get("webhook_path")
     if not sets:
         return
-    where = "service_key = :service_key"
-    if webhook_path:
-        where = "(service_key = :service_key OR webhook_path = :webhook_path)"
-        params["webhook_path"] = webhook_path
-    await execute(sa.text(f"UPDATE notification_services SET {', '.join(sets)} WHERE {where}"), params)
+    await execute(
+        sa.text(f"UPDATE notification_services SET {', '.join(sets)} WHERE service_key = :service_key"),
+        params,
+    )

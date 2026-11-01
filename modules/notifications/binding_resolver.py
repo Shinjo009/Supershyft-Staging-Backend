@@ -12,7 +12,7 @@ from modules.engagement_notifications.service_config import (
     NotificationServiceConfigItem,
     normalize_notification_services,
 )
-from modules.engagements.models import AutoNotificationEvent, EngagementNotification
+from modules.engagements.models import EngagementNotification
 from modules.notifications.bindings_repository import NotificationEventBindingsRepository
 from modules.notifications.events_catalog import LEGACY_EVENT_CODE_MAP, get_event
 from modules.notifications.models import NotificationEventBinding
@@ -94,6 +94,12 @@ def _binding_from_global_row(row: NotificationEventBinding) -> ResolvedBinding |
     )
 
 
+def _event_code_matches(stored_code: str, event_code: str, legacy_codes: list[str]) -> bool:
+    if stored_code == event_code:
+        return True
+    return stored_code in legacy_codes
+
+
 async def resolve_bindings_for_event(
     db: AsyncSession,
     *,
@@ -108,21 +114,16 @@ async def resolve_bindings_for_event(
 
     if engagement_id is not None:
         legacy_codes = _legacy_lookup_codes(event_code)
-        query = (
-            select(EngagementNotification, AutoNotificationEvent)
-            .join(
-                AutoNotificationEvent,
-                AutoNotificationEvent.id == EngagementNotification.notification_event_id,
-            )
-            .where(EngagementNotification.engagement_id == engagement_id)
+        query = select(EngagementNotification).where(
+            EngagementNotification.engagement_id == engagement_id
         )
         result = await db.execute(query)
-        for en_row, ane_row in result.all():
-            stored_code = (en_row.event_code or "").strip() or LEGACY_EVENT_CODE_MAP.get(
-                ane_row.event_code, ane_row.event_code
-            )
-            if stored_code != event_code and ane_row.event_code not in legacy_codes:
-                continue
+        for en_row in result.scalars().all():
+            stored_code = (en_row.event_code or "").strip()
+            if not _event_code_matches(stored_code, event_code, legacy_codes):
+                mapped = LEGACY_EVENT_CODE_MAP.get(stored_code, stored_code)
+                if not _event_code_matches(mapped, event_code, legacy_codes):
+                    continue
             rt = (en_row.recipient_type or "").strip() or str(
                 payload.get("recipient_type") or "participant"
             )

@@ -25,6 +25,9 @@ if [[ -f .env ]]; then
   set +a
 fi
 
+echo "==> Cutover readiness (before Alembic)"
+python scripts/verify_notification_cutover_ready.py
+
 echo "==> Alembic upgrade"
 alembic upgrade head
 
