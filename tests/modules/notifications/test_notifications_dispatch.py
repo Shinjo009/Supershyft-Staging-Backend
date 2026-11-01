@@ -2102,3 +2102,147 @@ async def test_dispatch_omits_session_details_when_not_required(
     assert webhook_calls
     assert "session_details" not in webhook_calls[0]["json"]
     assert "session_details" not in webhook_calls[0]["json"]["members"][0]
+
+
+async def _seed_direct_whatsapp_service(
+    test_db_session,
+    *,
+    user_id: int,
+    service_key: str,
+    with_template: bool,
+):
+    import json
+
+    test_db_session.add(User(user_id=user_id, age=30, phone=f"{user_id}0000000", status="active"))
+    template_vars = json.dumps(
+        [
+            {
+                "component": "body",
+                "parameters": [{"type": "text", "source": "{{otp.otp}}"}],
+            }
+        ]
+    )
+    if with_template:
+        await test_db_session.execute(
+            text(
+                "INSERT INTO notification_services "
+                "(service_key, display_name, channel, webhook_path, is_active, require_otp, "
+                "template_name, template_variables) "
+                "VALUES (:sk, 'Direct WA', 'whatsapp', 'whatapi-otp', true, false, 'otp_new', "
+                "CAST(:tv AS jsonb)) "
+                "ON CONFLICT (service_key) DO UPDATE SET "
+                "template_name = EXCLUDED.template_name, template_variables = EXCLUDED.template_variables"
+            ),
+            {"sk": service_key, "tv": template_vars},
+        )
+    else:
+        await test_db_session.execute(
+            text(
+                "INSERT INTO notification_services "
+                "(service_key, display_name, channel, webhook_path, is_active, require_otp) "
+                "VALUES (:sk, 'N8N WA', 'whatsapp', 'whatapi-otp', true, false) "
+                "ON CONFLICT (service_key) DO UPDATE SET template_name = NULL, template_variables = NULL"
+            ),
+            {"sk": service_key},
+        )
+    await test_db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_direct_whatsapp_uses_whatapi_not_n8n(async_client, test_db_session, monkeypatch):
+    monkeypatch.setattr(settings, "NOTIFICATION_API_KEY", TEST_NOTIFICATION_API_KEY)
+    service_key = "direct_whatapi_otp_test"
+    await _seed_direct_whatsapp_service(
+        test_db_session, user_id=9701, service_key=service_key, with_template=True
+    )
+
+    n8n_calls: list = []
+
+    class _N8nClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, json=None):
+            n8n_calls.append(url)
+            raise AssertionError("n8n should not be called for direct WhatsApp dispatch")
+
+    async def _fake_send_template(*, to, body):
+        return {"message": {"queue_id": "unit-test-queue-id"}}
+
+    async def _fake_fetch(_name):
+        return {"language": "en"}
+
+    from modules.notifications import direct_dispatch as dd_mod
+    from modules.notifications import whatapi_client as wa_client
+
+    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _N8nClient)
+    monkeypatch.setattr(dd_mod, "send_template_message", _fake_send_template)
+    monkeypatch.setattr(dd_mod, "fetch_message_template", _fake_fetch)
+    monkeypatch.setattr(wa_client.settings, "WHATAPI_DOMAIN", "https://example.test")
+    monkeypatch.setattr(wa_client.settings, "WHATAPI_ACCESS_TOKEN", "token")
+    monkeypatch.setattr(wa_client.settings, "WHATAPI_PHONE_NUMBER_ID", "pid")
+    monkeypatch.setattr(wa_client.settings, "WHATAPI_VERSION", "v1")
+
+    response = await async_client.post(
+        "/notifications/dispatch",
+        headers=_api_key_header(),
+        json={"service_key": service_key, "user_ids": [9701], "otp": "654321"},
+    )
+    assert response.status_code == 201, response.text
+    data = response.json()["data"]
+    assert data["status"] == "queued"
+    assert n8n_calls == []
+
+    row = (
+        await test_db_session.execute(
+            text("SELECT status, queue_id FROM notifications WHERE notification_id = :nid"),
+            {"nid": data["notification_id"]},
+        )
+    ).mappings().one()
+    assert row["status"] == "queued"
+    assert row["queue_id"] == "unit-test-queue-id"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_without_template_still_calls_n8n(async_client, test_db_session, monkeypatch):
+    monkeypatch.setattr(settings, "NOTIFICATION_API_KEY", TEST_NOTIFICATION_API_KEY)
+    service_key = "n8n_whatapi_fallback_test"
+    await _seed_direct_whatsapp_service(
+        test_db_session, user_id=9702, service_key=service_key, with_template=False
+    )
+
+    n8n_calls: list = []
+
+    class _N8nClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, json=None):
+            n8n_calls.append({"url": url, "json": json})
+
+            class _Resp:
+                def raise_for_status(self):
+                    return None
+
+                def json(self):
+                    return {"message": "ok"}
+
+            return _Resp()
+
+    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _N8nClient)
+
+    response = await async_client.post(
+        "/notifications/dispatch",
+        headers=_api_key_header(),
+        json={"service_key": service_key, "user_ids": [9702], "otp": "654321"},
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["data"]["status"] == "pending"
+    assert len(n8n_calls) == 1
+    assert n8n_calls[0]["url"].endswith("/whatapi-otp")

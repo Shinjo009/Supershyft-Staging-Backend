@@ -182,6 +182,26 @@ class Settings:
     NOTIFICATION_SERVICE_TIMEOUT_SECONDS: int = int(os.getenv("NOTIFICATION_SERVICE_TIMEOUT_SECONDS", "15"))
     NOTIFICATION_API_KEY: str = os.getenv("NOTIFICATION_API_KEY", "")
 
+    # Direct notification delivery (WhatAPI POST + SMTP) — empty defaults for local dev
+    SMTP_FROM_EMAIL: str = os.getenv("SMTP_FROM_EMAIL", "")
+    SMTP_FROM_NAME: str = os.getenv("SMTP_FROM_NAME", "")
+    SMTP_HOST: str = os.getenv("SMTP_HOST", "")
+    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USERNAME: str = os.getenv("SMTP_USERNAME", "")
+    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+    SMTP_USE_TLS: bool = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
+    SMTP_TIMEOUT_SECONDS: int = int(os.getenv("SMTP_TIMEOUT_SECONDS", "15"))
+
+    WHATAPI_DOMAIN: str = os.getenv("WHATAPI_DOMAIN", "")
+    WHATAPI_VERSION: str = os.getenv("WHATAPI_VERSION", "v19.0")
+    WHATAPI_ACCESS_TOKEN: str = os.getenv("WHATAPI_ACCESS_TOKEN", "")
+    WHATAPI_PHONE_NUMBER_ID: str = os.getenv("WHATAPI_PHONE_NUMBER_ID", "")
+    WHATAPI_WABA_ID: str = os.getenv("WHATAPI_WABA_ID", "")
+    WHATAPI_TIMEOUT_SECONDS: int = int(os.getenv("WHATAPI_TIMEOUT_SECONDS", "15"))
+    WHATAPI_FALLBACK_WEBHOOK_URL: str = os.getenv("WHATAPI_FALLBACK_WEBHOOK_URL", "")
+    WHATAPI_FALLBACK_TIMEOUT_SECONDS: int = int(os.getenv("WHATAPI_FALLBACK_TIMEOUT_SECONDS", "10"))
+    WHATAPI_OTP_TEMPLATE_NAME: str = os.getenv("WHATAPI_OTP_TEMPLATE_NAME", "otp_new")
+
     # Razorpay (server-side secret; never expose RAZORPAY_KEY_SECRET to clients)
     RAZORPAY_KEY_ID: str = os.getenv("RAZORPAY_KEY_ID", "")
     RAZORPAY_KEY_SECRET: str = os.getenv("RAZORPAY_KEY_SECRET", "")

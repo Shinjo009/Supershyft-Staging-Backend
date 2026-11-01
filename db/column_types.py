@@ -261,6 +261,7 @@ class IntegrationProvider(str, enum.Enum):
     nominatim = "nominatim"
     orange_health = "orange_health"
     redcliffe = "redcliffe"
+    whatapi = "whatapi"
 
 
 class UserGender(str, enum.Enum):
