@@ -36,24 +36,30 @@ def _migrate_engagement_notifications(conn) -> None:
     conn.execute(
         sa.text(
             """
-            UPDATE engagement_notifications AS en
-            SET event_code = CASE
-                WHEN ane.event_code = 'onboarding' THEN 'onboarding.completed'
-                WHEN ane.event_code = 'pretest_guidelines' THEN 'collection.reminder.pretest'
-                WHEN ane.event_code = 'questionnaire_reminder_before' THEN 'assessment.reminder.before'
-                WHEN ane.event_code = 'questionnaire_reminder_after' THEN 'assessment.reminder.after'
-                WHEN ane.event_code = 'blood_report_ready' THEN 'report.blood.ready'
-                WHEN ane.event_code = 'bioai_report_ready' THEN 'report.bioai.ready'
-                WHEN ane.event_code = 'consultation_ready' THEN 'consultation.ready'
-                WHEN ane.event_code = 'consultation_remainder' THEN 'consultation.reminder'
-                WHEN ane.event_code = 'consultation_booking_alert' THEN 'consultation.booked'
-                WHEN ane.event_code = 'booking_guide' THEN 'collection.reminder.booking_guide'
-                WHEN ane.event_code = 'report_ready' THEN 'report.vifc.ready'
-                ELSE ane.event_code
-            END
-            FROM auto_notification_events AS ane
-            WHERE en.notification_event_id = ane.id
-              AND (en.event_code IS NULL OR en.event_code = ane.event_code)
+            DO $$
+            BEGIN
+              IF to_regclass('public.auto_notification_events') IS NOT NULL
+                 AND to_regclass('public.engagement_notifications') IS NOT NULL THEN
+                UPDATE engagement_notifications AS en
+                SET event_code = CASE
+                    WHEN ane.event_code = 'onboarding' THEN 'onboarding.completed'
+                    WHEN ane.event_code = 'pretest_guidelines' THEN 'collection.reminder.pretest'
+                    WHEN ane.event_code = 'questionnaire_reminder_before' THEN 'assessment.reminder.before'
+                    WHEN ane.event_code = 'questionnaire_reminder_after' THEN 'assessment.reminder.after'
+                    WHEN ane.event_code = 'blood_report_ready' THEN 'report.blood.ready'
+                    WHEN ane.event_code = 'bioai_report_ready' THEN 'report.bioai.ready'
+                    WHEN ane.event_code = 'consultation_ready' THEN 'consultation.ready'
+                    WHEN ane.event_code = 'consultation_remainder' THEN 'consultation.reminder'
+                    WHEN ane.event_code = 'consultation_booking_alert' THEN 'consultation.booked'
+                    WHEN ane.event_code = 'booking_guide' THEN 'collection.reminder.booking_guide'
+                    WHEN ane.event_code = 'report_ready' THEN 'report.vifc.ready'
+                    ELSE ane.event_code
+                END
+                FROM auto_notification_events AS ane
+                WHERE en.notification_event_id = ane.id
+                  AND (en.event_code IS NULL OR en.event_code = ane.event_code);
+              END IF;
+            END $$
             """
         )
     )
@@ -122,15 +128,22 @@ def _upsert_notification_event(
 def _migrate_global_bindings(conn) -> None:
     aggregated: dict[tuple[str, str], list[str]] = {}
 
-    default_rows = conn.execute(
+    default_rows = []
+    if conn.execute(
         sa.text(
-            """
-            SELECT ane.event_code, def_row.notification_services
-            FROM engagement_notification_defaults AS def_row
-            JOIN auto_notification_events AS ane ON ane.id = def_row.notification_event_id
-            """
+            "SELECT to_regclass('public.engagement_notification_defaults') IS NOT NULL "
+            "AND to_regclass('public.auto_notification_events') IS NOT NULL"
         )
-    ).fetchall()
+    ).scalar():
+        default_rows = conn.execute(
+            sa.text(
+                """
+                SELECT ane.event_code, def_row.notification_services
+                FROM engagement_notification_defaults AS def_row
+                JOIN auto_notification_events AS ane ON ane.id = def_row.notification_event_id
+                """
+            )
+        ).fetchall()
     for row in default_rows:
         mapped = map_legacy_event_code(row.event_code)
         recipient = EVENT_DEFAULT_RECIPIENT.get(mapped, "participant")
