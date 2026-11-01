@@ -39,6 +39,17 @@ class NotificationEventBindingsRepository:
         )
         return result.scalar_one_or_none()
 
+    async def list_active_by_event_code(
+        self, db: AsyncSession, *, event_code: str
+    ) -> list[NotificationEventBinding]:
+        result = await db.execute(
+            select(NotificationEventBinding)
+            .where(NotificationEventBinding.event_code == event_code)
+            .where(NotificationEventBinding.is_active.is_(True))
+            .order_by(NotificationEventBinding.recipient_type.asc())
+        )
+        return list(result.scalars().all())
+
     async def create(
         self,
         db: AsyncSession,

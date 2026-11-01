@@ -204,18 +204,35 @@ class PartnerAuthService:
         return created.session_id, delivery
 
     async def deliver_otp(self, db: AsyncSession, *, delivery: PartnerOtpDelivery) -> None:
-        await self._notifications_service.dispatch_to_contacts(
+        from modules.notifications.engine import emit_event_or_legacy
+
+        contact = {
+            "first_name": delivery.name,
+            "last_name": "",
+            "phone": delivery.phone or "",
+            "email": delivery.email or "",
+        }
+
+        async def _legacy() -> None:
+            await self._notifications_service.dispatch_to_contacts(
+                db,
+                service_key=delivery.service_key,
+                contacts=[contact],
+                otp=delivery.otp,
+            )
+
+        await emit_event_or_legacy(
             db,
-            service_key=delivery.service_key,
-            contacts=[
-                {
-                    "first_name": delivery.name,
-                    "last_name": "",
-                    "phone": delivery.phone or "",
-                    "email": delivery.email or "",
-                }
-            ],
-            otp=delivery.otp,
+            event_code="auth.otp.sent",
+            payload={
+                "otp": delivery.otp,
+                "service_key": delivery.service_key,
+                "recipient_type": "partner",
+                "contacts": [contact],
+                "partner": contact,
+            },
+            legacy_fn=_legacy,
+            notifications_service=self._notifications_service,
         )
 
     async def verify_otp(

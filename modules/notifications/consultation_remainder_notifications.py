@@ -124,16 +124,39 @@ async def dispatch_consultation_remainder_notifications(
                     continue
 
                 skipped_all = False
-                await notifications_service.dispatch(
+
+                async def _legacy_dispatch() -> None:
+                    await notifications_service.dispatch(
+                        db,
+                        payload=DispatchRequest(
+                            service_key=sk,
+                            user_ids=[participant.user_id],
+                            engagement_id=participant.engagement_id,
+                            session_details=session_details,
+                            external_link=cfg.external_link,
+                        ),
+                        triggered_by_user_id=None,
+                    )
+
+                from modules.notifications.engine import emit_event_or_legacy
+
+                await emit_event_or_legacy(
                     db,
-                    payload=DispatchRequest(
-                        service_key=sk,
-                        user_ids=[participant.user_id],
-                        engagement_id=participant.engagement_id,
-                        session_details=session_details,
-                        external_link=cfg.external_link,
-                    ),
-                    triggered_by_user_id=None,
+                    event_code="consultation.reminder",
+                    payload={
+                        "user_id": participant.user_id,
+                        "service_key": sk,
+                        "recipient_type": "participant",
+                        "session_details": (
+                            session_details.model_dump(mode="json", exclude_none=True)
+                            if session_details
+                            else None
+                        ),
+                        "external_link": cfg.external_link,
+                    },
+                    engagement_id=participant.engagement_id,
+                    legacy_fn=_legacy_dispatch,
+                    notifications_service=notifications_service,
                 )
                 dispatched_any = True
                 details.append({

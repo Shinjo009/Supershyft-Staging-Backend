@@ -40,6 +40,9 @@ def _resolve_parameter_value(raw: object, context: dict[str, Any]) -> str:
     if isinstance(raw, dict):
         if "literal" in raw:
             return str(raw.get("literal") or "")
+        ref = raw.get("ref")
+        if isinstance(ref, str) and ref.strip():
+            return _resolve_ref(ref.strip(), context)
         source = raw.get("source")
         if isinstance(source, str):
             match = _SOURCE_PATTERN.match(source.strip())

@@ -191,15 +191,38 @@ async def _dispatch_one(
             )
             return
 
-        await notifications_service.dispatch(
+        event_code = (
+            "payment.gift.sent.booker"
+            if "sender" in service_key
+            else "payment.gift.sent.member"
+        )
+
+        async def _legacy() -> None:
+            await notifications_service.dispatch(
+                db,
+                payload=DispatchRequest(
+                    service_key=service_key,
+                    user_ids=[user_id],
+                    engagement_id=engagement_id,
+                    participant_details=participant_details,
+                ),
+                triggered_by_user_id=None,
+            )
+
+        from modules.notifications.engine import emit_event_or_legacy
+
+        await emit_event_or_legacy(
             db,
-            payload=DispatchRequest(
-                service_key=service_key,
-                user_ids=[user_id],
-                engagement_id=engagement_id,
-                participant_details=participant_details,
-            ),
-            triggered_by_user_id=None,
+            event_code=event_code,
+            payload={
+                "user_id": user_id,
+                "service_key": service_key,
+                "recipient_type": "participant",
+                "participant_details": participant_details,
+            },
+            engagement_id=engagement_id,
+            legacy_fn=_legacy,
+            notifications_service=notifications_service,
         )
     except Exception as exc:
         logger.warning(

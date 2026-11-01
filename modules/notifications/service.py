@@ -241,6 +241,8 @@ class NotificationsService:
         *,
         payload: DispatchRequest,
         triggered_by_user_id: int | None = None,
+        event_code: str | None = None,
+        recipient_type: str | None = None,
     ) -> dict:
         svc = await self._repo.get_service_by_key(db, service_key=payload.service_key)
         if svc is None or not svc.is_active:
@@ -474,6 +476,8 @@ class NotificationsService:
             assessment_instance_id=resolved_assessment_instance_id,
             message="Notification dispatch initiated",
             triggered_by_user_id=triggered_by_user_id,
+            event_code=(event_code or "").strip() or None,
+            recipient_type=(recipient_type or "").strip() or None,
         )
         notification = await self._repo.create_notification(db, notification)
 
@@ -531,6 +535,8 @@ class NotificationsService:
         engagement_id: int | None = None,
         participant_details: dict | None = None,
         session_details: SessionDetails | None = None,
+        event_code: str | None = None,
+        recipient_type: str | None = None,
     ) -> dict:
         """Dispatch a notification to raw contacts (no users table lookup).
 
@@ -613,6 +619,8 @@ class NotificationsService:
             assessment_instance_id=None,
             message="Notification dispatch initiated",
             triggered_by_user_id=None,
+            event_code=(event_code or "").strip() or None,
+            recipient_type=(recipient_type or "").strip() or None,
         )
         notification = await self._repo.create_notification(db, notification)
 

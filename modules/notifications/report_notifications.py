@@ -83,16 +83,41 @@ async def send_report_notifications(
                 continue
 
         try:
-            await notifications_service.dispatch(
+            svc = service_cache.get(sk)
+            event_code = "report.blood.ready"
+            if svc is not None and svc.require_bio_ai_report_url:
+                event_code = "report.bioai.ready"
+            elif svc is not None and svc.require_blood_report_url:
+                event_code = "report.blood.ready"
+
+            async def _legacy_dispatch() -> None:
+                await notifications_service.dispatch(
+                    db,
+                    payload=DispatchRequest(
+                        service_key=sk,
+                        user_ids=[user_id],
+                        engagement_id=engagement_id,
+                        assessment_instance_id=assessment_instance_id,
+                        external_link=cfg.external_link,
+                    ),
+                    triggered_by_user_id=None,
+                )
+
+            from modules.notifications.engine import emit_event_or_legacy
+
+            await emit_event_or_legacy(
                 db,
-                payload=DispatchRequest(
-                    service_key=sk,
-                    user_ids=[user_id],
-                    engagement_id=engagement_id,
-                    assessment_instance_id=assessment_instance_id,
-                    external_link=cfg.external_link,
-                ),
-                triggered_by_user_id=None,
+                event_code=event_code,
+                payload={
+                    "user_id": user_id,
+                    "service_key": sk,
+                    "recipient_type": "participant",
+                    "assessment_instance_id": assessment_instance_id,
+                    "external_link": cfg.external_link,
+                },
+                engagement_id=engagement_id,
+                legacy_fn=_legacy_dispatch,
+                notifications_service=notifications_service,
             )
         except AppError as exc:
             details.append({

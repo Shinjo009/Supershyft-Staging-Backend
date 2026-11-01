@@ -99,43 +99,62 @@ async def notify_default_onboarding_assistants_on_support_query(
     details = participant_details_from_support_ticket(user, ticket=ticket)
     ticket_id = int(ticket.ticket_id)
 
-    for service_key in service_keys:
-        try:
-            svc = await notifications_repository.get_service_by_key(db, service_key=service_key)
-            if svc is None:
-                logger.warning(
-                    "Support notification skipped: service_key=%s not found (ticket_id=%s)",
-                    service_key,
-                    ticket_id,
-                )
-                continue
-            if not svc.is_active:
-                logger.warning(
-                    "Support notification skipped: service_key=%s inactive (ticket_id=%s)",
-                    service_key,
-                    ticket_id,
-                )
-                continue
+    async def _legacy() -> None:
+        keys = _parse_service_keys(
+            getattr(settings_row, "default_support_query_notification", None) if settings_row else None
+        )
+        for service_key in keys:
+            try:
+                svc = await notifications_repository.get_service_by_key(db, service_key=service_key)
+                if svc is None:
+                    logger.warning(
+                        "Support notification skipped: service_key=%s not found (ticket_id=%s)",
+                        service_key,
+                        ticket_id,
+                    )
+                    continue
+                if not svc.is_active:
+                    logger.warning(
+                        "Support notification skipped: service_key=%s inactive (ticket_id=%s)",
+                        service_key,
+                        ticket_id,
+                    )
+                    continue
 
-            if svc.require_participant_detail and not details:
-                logger.warning(
-                    "Support notification skipped: service_key=%s requires participant_details "
-                    "(ticket_id=%s)",
-                    service_key,
-                    ticket_id,
-                )
-                continue
+                if svc.require_participant_detail and not details:
+                    logger.warning(
+                        "Support notification skipped: service_key=%s requires participant_details "
+                        "(ticket_id=%s)",
+                        service_key,
+                        ticket_id,
+                    )
+                    continue
 
-            await notifications_service.dispatch_to_contacts(
-                db,
-                service_key=service_key,
-                contacts=contacts,
-                participant_details=details,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Support notification failed for ticket_id=%s service_key=%s: %s",
-                ticket_id,
-                service_key,
-                str(exc),
-            )
+                await notifications_service.dispatch_to_contacts(
+                    db,
+                    service_key=service_key,
+                    contacts=contacts,
+                    participant_details=details,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Support notification failed for ticket_id=%s service_key=%s: %s",
+                    ticket_id,
+                    service_key,
+                    str(exc),
+                )
+
+    from modules.notifications.engine import emit_event_or_legacy
+
+    await emit_event_or_legacy(
+        db,
+        event_code="support.ticket.created",
+        payload={
+            "ticket": {"ticket_id": ticket_id},
+            "participant_details": details,
+            "recipient_type": "admin",
+            "service_keys": service_keys,
+        },
+        legacy_fn=_legacy,
+        notifications_service=notifications_service,
+    )

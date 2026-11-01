@@ -100,11 +100,28 @@ async def dispatch_booking_guide_reminders(
                 for cfg in service_configs:
                     sk = cfg.service_key
                     skipped_all = False
-                    await notifications_service.dispatch_to_contacts(
+
+                    async def _legacy_contact_dispatch() -> None:
+                        await notifications_service.dispatch_to_contacts(
+                            db,
+                            service_key=sk,
+                            contacts=[contact],
+                            engagement_id=engagement_id,
+                        )
+
+                    from modules.notifications.engine import emit_event_or_legacy
+
+                    await emit_event_or_legacy(
                         db,
-                        service_key=sk,
-                        contacts=[contact],
+                        event_code="collection.reminder.booking_guide",
+                        payload={
+                            "recipient_type": "partner",
+                            "contacts": [contact],
+                            "service_key": sk,
+                        },
                         engagement_id=engagement_id,
+                        legacy_fn=_legacy_contact_dispatch,
+                        notifications_service=notifications_service,
                     )
                     dispatched_any = True
                     details.append({

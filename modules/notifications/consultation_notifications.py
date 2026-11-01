@@ -91,15 +91,33 @@ async def dispatch_consultation_notifications(
                     continue
 
                 skipped_all = False
-                await notifications_service.dispatch(
+
+                async def _legacy_dispatch() -> None:
+                    await notifications_service.dispatch(
+                        db,
+                        payload=DispatchRequest(
+                            service_key=sk,
+                            user_ids=[user_id],
+                            engagement_id=engagement_id,
+                            external_link=cfg.external_link,
+                        ),
+                        triggered_by_user_id=None,
+                    )
+
+                from modules.notifications.engine import emit_event_or_legacy
+
+                await emit_event_or_legacy(
                     db,
-                    payload=DispatchRequest(
-                        service_key=sk,
-                        user_ids=[user_id],
-                        engagement_id=engagement_id,
-                        external_link=cfg.external_link,
-                    ),
-                    triggered_by_user_id=None,
+                    event_code="consultation.ready",
+                    payload={
+                        "user_id": user_id,
+                        "service_key": sk,
+                        "recipient_type": "participant",
+                        "external_link": cfg.external_link,
+                    },
+                    engagement_id=engagement_id,
+                    legacy_fn=_legacy_dispatch,
+                    notifications_service=notifications_service,
                 )
                 dispatched_any = True
                 details.append({

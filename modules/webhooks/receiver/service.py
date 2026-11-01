@@ -361,67 +361,90 @@ class WebhooksReceiverService:
         if self._notifications_service is None:
             return []
 
-        dispatched: list[dict[str, Any]] = []
-        for service_key in _BOOKING_CONFIRMATION_SERVICE_KEYS:
-            try:
-                skip_reason = await should_skip_notification(
-                    db,
-                    service_key=service_key,
-                    user_id=user_id,
-                    engagement_id=engagement_id,
-                )
-                if skip_reason:
-                    logger.info(
-                        "Healthians booking confirmation skipped: service_key=%s user=%s "
-                        "engagement=%s reason=%s",
-                        service_key,
-                        user_id,
-                        engagement_id,
-                        skip_reason,
+        async def _legacy() -> list[dict[str, Any]]:
+            dispatched: list[dict[str, Any]] = []
+            for service_key in _BOOKING_CONFIRMATION_SERVICE_KEYS:
+                try:
+                    skip_reason = await should_skip_notification(
+                        db,
+                        service_key=service_key,
+                        user_id=user_id,
+                        engagement_id=engagement_id,
+                    )
+                    if skip_reason:
+                        logger.info(
+                            "Healthians booking confirmation skipped: service_key=%s user=%s "
+                            "engagement=%s reason=%s",
+                            service_key,
+                            user_id,
+                            engagement_id,
+                            skip_reason,
+                        )
+                        dispatched.append(
+                            {
+                                "service_key": service_key,
+                                "action": "skipped",
+                                "reason": skip_reason,
+                            }
+                        )
+                        continue
+
+                    result = await self._notifications_service.dispatch(
+                        db,
+                        payload=DispatchRequest(
+                            service_key=service_key,
+                            user_ids=[user_id],
+                            engagement_id=engagement_id,
+                            session_details=session_details,
+                        ),
+                        triggered_by_user_id=None,
                     )
                     dispatched.append(
                         {
                             "service_key": service_key,
-                            "action": "skipped",
-                            "reason": skip_reason,
+                            "action": "dispatched",
+                            "notification_id": result.get("notification_id"),
                         }
                     )
-                    continue
+                except Exception as exc:
+                    logger.warning(
+                        "Healthians booking confirmation failed: service_key=%s user=%s "
+                        "engagement=%s: %s",
+                        service_key,
+                        user_id,
+                        engagement_id,
+                        exc,
+                    )
+                    dispatched.append(
+                        {
+                            "service_key": service_key,
+                            "action": "failed",
+                            "reason": str(exc)[:200],
+                        }
+                    )
+            return dispatched
 
-                result = await self._notifications_service.dispatch(
-                    db,
-                    payload=DispatchRequest(
-                        service_key=service_key,
-                        user_ids=[user_id],
-                        engagement_id=engagement_id,
-                        session_details=session_details,
-                    ),
-                    triggered_by_user_id=None,
-                )
-                dispatched.append(
-                    {
-                        "service_key": service_key,
-                        "action": "dispatched",
-                        "notification_id": result.get("notification_id"),
-                    }
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Healthians booking confirmation failed: service_key=%s user=%s "
-                    "engagement=%s: %s",
-                    service_key,
-                    user_id,
-                    engagement_id,
-                    exc,
-                )
-                dispatched.append(
-                    {
-                        "service_key": service_key,
-                        "action": "failed",
-                        "reason": str(exc)[:200],
-                    }
-                )
-        return dispatched
+        from modules.notifications.engine import emit_event
+
+        ids = await emit_event(
+            db,
+            event_code="collection.confirmed",
+            payload={
+                "user_id": user_id,
+                "recipient_type": "participant",
+                "session_details": session_details.model_dump(mode="json", exclude_none=True),
+            },
+            engagement_id=engagement_id,
+            notifications_service=self._notifications_service,
+        )
+        if ids:
+            return [
+                {"action": "dispatched", "notification_id": nid, "service_key": "engine"}
+                for nid in ids
+            ]
+        if settings.NOTIFICATION_ENGINE_LEGACY_FALLBACK:
+            return await _legacy()
+        return []
 
     async def _dispatch_phlebo_event_notifications(
         self,
@@ -440,6 +463,35 @@ class WebhooksReceiverService:
         service_keys = _PHLEBO_EVENT_SERVICE_KEYS.get(event_type)
         if not service_keys:
             return []
+
+        from modules.notifications.engine import emit_event
+        from modules.notifications.event_code_maps import catalog_event_for_phlebo_webhook
+
+        catalog_code = catalog_event_for_phlebo_webhook(event_type)
+        if catalog_code:
+            ids = await emit_event(
+                db,
+                event_code=catalog_code,
+                payload={
+                    "user_id": user_id,
+                    "recipient_type": "participant",
+                    "participant_details": participant_details,
+                    "session_details": (
+                        session_details.model_dump(mode="json", exclude_none=True)
+                        if session_details
+                        else None
+                    ),
+                },
+                engagement_id=engagement_id,
+                notifications_service=self._notifications_service,
+            )
+            if ids:
+                return [
+                    {"action": "dispatched", "notification_id": nid, "service_key": "engine"}
+                    for nid in ids
+                ]
+            if not settings.NOTIFICATION_ENGINE_LEGACY_FALLBACK:
+                return []
 
         dispatched: list[dict[str, Any]] = []
         for service_key in service_keys:
@@ -805,61 +857,84 @@ class WebhooksReceiverService:
         if self._notifications_service is None:
             return []
 
-        service_keys = await self._en_repo.get_services_for_engagement_event(
-            db, engagement_id=engagement_id, event_code="report_ready",
-        )
-        if not service_keys:
-            return []
+        async def _legacy() -> list[dict[str, Any]]:
+            service_keys = await self._en_repo.get_services_for_engagement_event(
+                db, engagement_id=engagement_id, event_code="report_ready",
+            )
+            if not service_keys:
+                return []
 
-        dispatched: list[dict[str, Any]] = []
-        for service_key in service_keys:
-            try:
-                skip_reason = await should_skip_notification(
-                    db,
-                    service_key=service_key,
-                    user_id=user_id,
-                    engagement_id=engagement_id,
-                )
-                if skip_reason:
-                    logger.info(
-                        "Aurae report_ready notification skipped: service_key=%s user=%s "
-                        "engagement=%s reason=%s",
-                        service_key, user_id, engagement_id, skip_reason,
+            dispatched: list[dict[str, Any]] = []
+            for service_key in service_keys:
+                try:
+                    skip_reason = await should_skip_notification(
+                        db,
+                        service_key=service_key,
+                        user_id=user_id,
+                        engagement_id=engagement_id,
+                    )
+                    if skip_reason:
+                        logger.info(
+                            "Aurae report_ready notification skipped: service_key=%s user=%s "
+                            "engagement=%s reason=%s",
+                            service_key, user_id, engagement_id, skip_reason,
+                        )
+                        dispatched.append({
+                            "service_key": service_key,
+                            "action": "skipped",
+                            "reason": skip_reason,
+                        })
+                        continue
+
+                    result = await self._notifications_service.dispatch(
+                        db,
+                        payload=DispatchRequest(
+                            service_key=service_key,
+                            user_ids=[user_id],
+                            engagement_id=engagement_id,
+                            assessment_instance_id=assessment_instance_id,
+                        ),
+                        triggered_by_user_id=None,
                     )
                     dispatched.append({
                         "service_key": service_key,
-                        "action": "skipped",
-                        "reason": skip_reason,
+                        "action": "dispatched",
+                        "notification_id": result.get("notification_id"),
                     })
-                    continue
+                except Exception as exc:
+                    logger.warning(
+                        "Aurae report_ready notification failed: service_key=%s user=%s "
+                        "engagement=%s: %s",
+                        service_key, user_id, engagement_id, exc,
+                    )
+                    dispatched.append({
+                        "service_key": service_key,
+                        "action": "failed",
+                        "reason": str(exc)[:200],
+                    })
+            return dispatched
 
-                result = await self._notifications_service.dispatch(
-                    db,
-                    payload=DispatchRequest(
-                        service_key=service_key,
-                        user_ids=[user_id],
-                        engagement_id=engagement_id,
-                        assessment_instance_id=assessment_instance_id,
-                    ),
-                    triggered_by_user_id=None,
-                )
-                dispatched.append({
-                    "service_key": service_key,
-                    "action": "dispatched",
-                    "notification_id": result.get("notification_id"),
-                })
-            except Exception as exc:
-                logger.warning(
-                    "Aurae report_ready notification failed: service_key=%s user=%s "
-                    "engagement=%s: %s",
-                    service_key, user_id, engagement_id, exc,
-                )
-                dispatched.append({
-                    "service_key": service_key,
-                    "action": "failed",
-                    "reason": str(exc)[:200],
-                })
-        return dispatched
+        from modules.notifications.engine import emit_event
+
+        ids = await emit_event(
+            db,
+            event_code="report.vifc.ready",
+            payload={
+                "user_id": user_id,
+                "recipient_type": "participant",
+                "assessment_instance_id": assessment_instance_id,
+            },
+            engagement_id=engagement_id,
+            notifications_service=self._notifications_service,
+        )
+        if ids:
+            return [
+                {"action": "dispatched", "notification_id": nid, "service_key": "engine"}
+                for nid in ids
+            ]
+        if settings.NOTIFICATION_ENGINE_LEGACY_FALLBACK:
+            return await _legacy()
+        return []
 
     async def handle_aurae_webhook(
         self,

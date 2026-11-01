@@ -220,21 +220,41 @@ class ServerHealthService:
             return "skipped_no_recipients"
 
         try:
-            result = await notifications_service.dispatch(
+            from modules.notifications.engine import emit_event_or_legacy
+
+            async def _legacy() -> None:
+                await notifications_service.dispatch(
+                    db,
+                    payload=DispatchRequest(
+                        service_key=settings.CPU_ALERT_SERVICE_KEY,
+                        user_ids=user_ids,
+                        participant_details={
+                            "hostname": payload.hostname,
+                            "cpu_usage": f"{payload.cpu_usage:.0f}",
+                            "memory_usage": f"{payload.memory_usage:.0f}",
+                            "storage_usage": f"{payload.storage_usage:.0f}",
+                            "load_1m": f"{payload.load_1m}",
+                            "cores": str(payload.cores),
+                        },
+                    ),
+                )
+
+            await emit_event_or_legacy(
                 db,
-                payload=DispatchRequest(
-                    service_key=settings.CPU_ALERT_SERVICE_KEY,
-                    user_ids=user_ids,
-                    participant_details={
+                event_code="system.cpu.alert",
+                payload={
+                    "user_ids": user_ids,
+                    "service_key": settings.CPU_ALERT_SERVICE_KEY,
+                    "recipient_type": "admin",
+                    "participant_details": {
                         "hostname": payload.hostname,
                         "cpu_usage": f"{payload.cpu_usage:.0f}",
-                        "memory_usage": f"{payload.memory_usage:.0f}",
-                        "storage_usage": f"{payload.storage_usage:.0f}",
-                        "load_1m": f"{payload.load_1m}",
-                        "cores": str(payload.cores),
                     },
-                ),
+                },
+                legacy_fn=_legacy,
+                notifications_service=notifications_service,
             )
+            result = {"status": "pending"}
         except Exception as exc:
             logger.warning(
                 "CPU alert dispatch failed (hostname=%s cpu=%.1f): %s",

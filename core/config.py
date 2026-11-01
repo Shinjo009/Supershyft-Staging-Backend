@@ -181,6 +181,9 @@ class Settings:
     NOTIFICATION_SERVICE_BASE_URL: str = os.getenv("NOTIFICATION_SERVICE_BASE_URL", "https://n8n.supershyft.com")
     NOTIFICATION_SERVICE_TIMEOUT_SECONDS: int = int(os.getenv("NOTIFICATION_SERVICE_TIMEOUT_SECONDS", "15"))
     NOTIFICATION_API_KEY: str = os.getenv("NOTIFICATION_API_KEY", "")
+    NOTIFICATION_ENGINE_LEGACY_FALLBACK: bool = (
+        os.getenv("NOTIFICATION_ENGINE_LEGACY_FALLBACK", "true").lower() == "true"
+    )
 
     # Direct notification delivery (WhatAPI POST + SMTP) — empty defaults for local dev
     SMTP_FROM_EMAIL: str = os.getenv("SMTP_FROM_EMAIL", "")
