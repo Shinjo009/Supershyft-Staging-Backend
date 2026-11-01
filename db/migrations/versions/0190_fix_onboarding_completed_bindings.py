@@ -1,7 +1,7 @@
 """Fix onboarding.completed global bindings (OA alert + participant welcome).
 
 Revision ID: 0190_onboarding_bindings
-Revises: 0189_n8n_templates
+Revises: 0188_notification_cutover
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0190_onboarding_bindings"
-down_revision = "0189_n8n_templates"
+down_revision = "0188_notification_cutover"
 branch_labels = None
 depends_on = None
 
