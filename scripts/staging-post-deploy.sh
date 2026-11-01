@@ -25,6 +25,9 @@ if [[ -f .env ]]; then
   set +a
 fi
 
+echo "==> Minimal direct content backfill (idempotent)"
+python scripts/backfill_minimal_direct_content.py
+
 echo "==> Cutover readiness (before Alembic)"
 python scripts/verify_notification_cutover_ready.py
 
