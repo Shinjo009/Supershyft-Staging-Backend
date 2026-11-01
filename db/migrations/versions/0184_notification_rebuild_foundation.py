@@ -5,13 +5,14 @@ Revises: 0183_redcliffe
 
 Unique on notification_events: (event_code, recipient_type) only.
 filters JSONB is reserved for future branching; uniqueness with NULL filters is deferred.
+
+Uses IF NOT EXISTS so staging DBs with partial legacy rebuild columns can upgrade safely.
 """
 
 from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy.dialects import postgresql
 
 revision = "0184_notif_rebuild"
 down_revision = "0183_redcliffe"
@@ -20,52 +21,51 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("notification_services", sa.Column("template_name", sa.String(), nullable=True))
-    op.add_column(
-        "notification_services",
-        sa.Column("template_variables", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-    )
-    op.add_column("notification_services", sa.Column("email_subject", sa.String(), nullable=True))
-    op.add_column("notification_services", sa.Column("email_body", sa.Text(), nullable=True))
-    op.add_column("notification_services", sa.Column("email_html", sa.Text(), nullable=True))
-
-    op.add_column("notifications", sa.Column("queue_id", sa.String(), nullable=True))
-    op.add_column("notifications", sa.Column("event_code", sa.String(), nullable=True))
-    op.add_column("notifications", sa.Column("recipient_type", sa.String(), nullable=True))
-
-    op.add_column("engagement_notifications", sa.Column("event_code", sa.String(), nullable=True))
-    op.add_column("engagement_notifications", sa.Column("recipient_type", sa.String(), nullable=True))
-    op.create_index(
-        "ix_engagement_notifications_eng_event_recipient",
-        "engagement_notifications",
-        ["engagement_id", "event_code", "recipient_type"],
-    )
-
-    op.create_table(
-        "notification_events",
-        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("event_code", sa.String(), nullable=False),
-        sa.Column("event_name", sa.String(), nullable=False),
-        sa.Column("recipient_type", sa.String(), nullable=False),
-        sa.Column(
-            "notification_services",
-            postgresql.JSONB(astext_type=sa.Text()),
-            nullable=False,
-        ),
-        sa.Column("custom_contacts", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("filters", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("is_active", sa.Boolean(), server_default=sa.text("true"), nullable=False),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("event_code", "recipient_type", name="uq_notification_events_code_recipient"),
-    )
-
     conn = op.get_bind()
+
+    for stmt in (
+        "ALTER TABLE notification_services ADD COLUMN IF NOT EXISTS template_name VARCHAR",
+        "ALTER TABLE notification_services ADD COLUMN IF NOT EXISTS template_variables JSONB",
+        "ALTER TABLE notification_services ADD COLUMN IF NOT EXISTS email_subject VARCHAR",
+        "ALTER TABLE notification_services ADD COLUMN IF NOT EXISTS email_body TEXT",
+        "ALTER TABLE notification_services ADD COLUMN IF NOT EXISTS email_html TEXT",
+        "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS queue_id VARCHAR",
+        "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS event_code VARCHAR",
+        "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS recipient_type VARCHAR",
+        "ALTER TABLE engagement_notifications ADD COLUMN IF NOT EXISTS event_code VARCHAR",
+        "ALTER TABLE engagement_notifications ADD COLUMN IF NOT EXISTS recipient_type VARCHAR",
+    ):
+        conn.execute(sa.text(stmt))
+
+    conn.execute(
+        sa.text(
+            """
+            CREATE INDEX IF NOT EXISTS ix_engagement_notifications_eng_event_recipient
+            ON engagement_notifications (engagement_id, event_code, recipient_type)
+            """
+        )
+    )
+
+    conn.execute(
+        sa.text(
+            """
+            CREATE TABLE IF NOT EXISTS notification_events (
+                id SERIAL PRIMARY KEY,
+                event_code VARCHAR NOT NULL,
+                event_name VARCHAR NOT NULL,
+                recipient_type VARCHAR NOT NULL,
+                notification_services JSONB NOT NULL,
+                custom_contacts JSONB,
+                filters JSONB,
+                is_active BOOLEAN NOT NULL DEFAULT true,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                CONSTRAINT uq_notification_events_code_recipient
+                    UNIQUE (event_code, recipient_type)
+            )
+            """
+        )
+    )
+
     conn.execute(
         sa.text(
             """
