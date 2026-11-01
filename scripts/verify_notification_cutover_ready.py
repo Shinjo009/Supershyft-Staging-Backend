@@ -20,11 +20,18 @@ from sqlalchemy import create_engine, text
 from core.config import settings
 
 
+def _sync_database_url(url: str) -> str:
+    """Use a synchronous driver for one-off readiness checks."""
+    if "+asyncpg" in url:
+        return url.replace("postgresql+asyncpg", "postgresql+psycopg2", 1)
+    return url
+
+
 def _engine():
     url = os.getenv("DATABASE_URL") or settings.DATABASE_URL
     if not url:
         raise SystemExit("DATABASE_URL is not set")
-    return create_engine(url, pool_pre_ping=True)
+    return create_engine(_sync_database_url(url), pool_pre_ping=True)
 
 
 def main() -> None:
