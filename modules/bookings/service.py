@@ -191,12 +191,16 @@ def _healthians_location_for_slots(
     engagement: Engagement,
     participant: EngagementParticipant,
 ) -> dict[str, str]:
-    lat = participant.latitude if participant.latitude is not None else engagement.latitude
-    lng = participant.longitude if participant.longitude is not None else engagement.longitude
-    zipcode = (participant.pincode or "").strip() or (engagement.pincode or "") or ""
-    zone = (participant.healthians_zone_id or "").strip() or (engagement.healthians_zone_id or "") or ""
+    from modules.engagements.participant_location import booking_location_field
+
+    lat = booking_location_field(participant, engagement, "latitude")
+    lng = booking_location_field(participant, engagement, "longitude")
+    zipcode = booking_location_field(participant, engagement, "pincode") or ""
+    zipcode = str(zipcode).strip() if zipcode is not None else ""
+    zone = booking_location_field(participant, engagement, "healthians_zone_id") or ""
+    zone = str(zone).strip() if zone is not None else ""
     return {
-        "zone_id": str(zone),
+        "zone_id": zone,
         "lat": str(lat or ""),
         "long": str(lng or ""),
         "zipcode": zipcode,
@@ -328,6 +332,11 @@ async def check_service_availability(
         )
         db.add(participant)
         await db.flush()
+        from modules.engagements.participant_location import copy_engagement_location_to_participant
+
+        copy_engagement_location_to_participant(participant, engagement)
+        db.add(participant)
+        await db.flush()
         await db.commit()
 
         if _is_orange_health(pkg):
@@ -429,17 +438,28 @@ async def _ensure_healthians_zone_for_slots(
     user_id: int,
 ) -> tuple[dict[str, str], str | None]:
     """Fill lat/long/zone for Healthians slot fetch. B2C onboard never stores zone_id."""
+    from modules.engagements.participant_location import use_participant_home_for_booking
+
+    participant_home = use_participant_home_for_booking(engagement, participant)
     if loc["zone_id"] and loc["lat"] and loc["long"] and loc["zipcode"]:
         return loc, None
 
     if not loc["lat"] or not loc["long"]:
-        address = (participant.address or "").strip() or (engagement.address or "").strip() or None
-        city = (participant.city or "").strip() or (engagement.city or "").strip() or None
-        pincode = loc["zipcode"] or None
+        if participant_home:
+            address = (participant.address or "").strip() or None
+            city = (participant.city or "").strip() or None
+            pincode = loc["zipcode"] or (participant.pincode or "").strip() or None
+            landmark = participant.landmark
+        else:
+            address = (participant.address or "").strip() or (engagement.address or "").strip() or None
+            city = (participant.city or "").strip() or (engagement.city or "").strip() or None
+            pincode = loc["zipcode"] or None
+            landmark = None
         if address or city or pincode:
             geocoded = await _geocode_for_booking(
                 db,
                 address_line=address,
+                landmark=landmark,
                 city=city,
                 pincode=pincode,
                 engagement_id=engagement.engagement_id,
@@ -450,8 +470,23 @@ async def _ensure_healthians_zone_for_slots(
                 loc["long"] = str(geocoded["longitude"])
                 if not loc["zipcode"] and geocoded.get("pincode"):
                     loc["zipcode"] = str(geocoded["pincode"])
-                engagement.latitude = float(loc["lat"])
-                engagement.longitude = float(loc["long"])
+                if participant_home:
+                    participant.latitude = float(loc["lat"])
+                    participant.longitude = float(loc["long"])
+                    if geocoded.get("state"):
+                        participant.state = geocoded.get("state")
+                    if geocoded.get("country"):
+                        participant.country = geocoded.get("country")
+                    db.add(participant)
+                else:
+                    engagement.latitude = float(loc["lat"])
+                    engagement.longitude = float(loc["long"])
+                    if participant.latitude is None:
+                        participant.latitude = float(loc["lat"])
+                    if participant.longitude is None:
+                        participant.longitude = float(loc["long"])
+                    db.add(participant)
+                db.add(engagement)
                 await db.flush()
 
     missing = [key for key in ("lat", "long", "zipcode") if not loc[key]]
@@ -511,12 +546,17 @@ async def _ensure_healthians_zone_for_slots(
         return loc, resp.get("message") or "Healthians zone could not be resolved for this address"
 
     loc["zone_id"] = str(zone_id)
-    engagement_row = (
-        await db.execute(select(Engagement).where(Engagement.engagement_id == engagement.engagement_id))
-    ).scalar_one_or_none()
-    if engagement_row is not None:
-        engagement_row.healthians_zone_id = loc["zone_id"]
+    if participant_home:
+        participant.healthians_zone_id = loc["zone_id"]
+        db.add(participant)
         await db.flush()
+    else:
+        engagement_row = (
+            await db.execute(select(Engagement).where(Engagement.engagement_id == engagement.engagement_id))
+        ).scalar_one_or_none()
+        if engagement_row is not None:
+            engagement_row.healthians_zone_id = loc["zone_id"]
+            await db.flush()
     return loc, None
 
 
@@ -1311,11 +1351,9 @@ async def verify_and_finalize_draft_bookings(
 
 
 def _booking_location_field(participant: EngagementParticipant, engagement: Engagement, field: str) -> Any:
-    """Prefer participant home-collection location when set; else engagement."""
-    participant_value = getattr(participant, field, None)
-    if participant_value is not None and str(participant_value).strip() != "":
-        return participant_value
-    return getattr(engagement, field, None)
+    from modules.engagements.participant_location import booking_location_field
+
+    return booking_location_field(participant, engagement, field)
 
 
 async def _freeze_healthians_slot_for_participant(

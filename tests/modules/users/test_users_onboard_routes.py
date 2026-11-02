@@ -606,6 +606,108 @@ async def test_engagement_onboard_overwrites_existing_address_fields(async_clien
     assert row.state == "KA"
     assert row.country == "IN"
 
+    data = response.json()["data"]
+    participant_row = (
+        await test_db_session.execute(
+            text(
+                "SELECT address, pincode, city, state, country FROM engagement_participants "
+                "WHERE engagement_participant_id = :epid"
+            ),
+            {"epid": data["engagement_participant_id"]},
+        )
+    ).first()
+    assert participant_row.address == "New Street 42"
+    assert participant_row.pincode == "560001"
+    assert participant_row.city == "Bengaluru"
+    assert participant_row.state == "KA"
+    assert participant_row.country == "IN"
+
+    engagement_row = (
+        await test_db_session.execute(
+            text("SELECT address, pincode, city FROM engagements WHERE engagement_id = 3301")
+        )
+    ).first()
+    assert engagement_row.address is None
+    assert engagement_row.pincode is None
+    assert engagement_row.city == "BLR"
+
+
+@pytest.mark.asyncio
+async def test_public_onboard_persists_address_on_user_engagement_and_participant(
+    async_client, test_db_session
+):
+    await test_db_session.execute(
+        text(
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
+            "VALUES (1, 'PK1', 'Package', 1) ON CONFLICT (package_id) DO NOTHING"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, status) "
+            "VALUES (1, 'REF1', 'Diag Package', 1) ON CONFLICT (diagnostic_package_id) DO NOTHING"
+        )
+    )
+    await test_db_session.commit()
+
+    payload = {
+        "age": 31,
+        "first_name": "Addr",
+        "last_name": "User",
+        "email": "addruser@example.com",
+        "phone": "8888888881",
+        "address": "221B Baker Street",
+        "pincode": "411001",
+        "city": "Pune",
+        "state": "MH",
+        "country": "IN",
+        "blood_collection_date": "2026-02-01",
+        "blood_collection_time_slot": "10:00",
+    }
+
+    response = await async_client.post("/users/public/onboard", json=payload)
+    assert response.status_code == 200
+    data = response.json()["data"]
+
+    user_row = (
+        await test_db_session.execute(
+            text(
+                "SELECT address, pin_code, city, state, country FROM users WHERE user_id = :uid"
+            ),
+            {"uid": data["user_id"]},
+        )
+    ).first()
+    assert user_row.address == "221B Baker Street"
+    assert user_row.pin_code == "411001"
+    assert user_row.city == "Pune"
+
+    engagement_row = (
+        await test_db_session.execute(
+            text(
+                "SELECT address, pincode, city, state, country, organization_id "
+                "FROM engagements WHERE engagement_id = :eid"
+            ),
+            {"eid": data["engagement_id"]},
+        )
+    ).first()
+    assert engagement_row.organization_id is None
+    assert engagement_row.address == "221B Baker Street"
+    assert engagement_row.pincode == "411001"
+    assert engagement_row.city == "Pune"
+
+    participant_row = (
+        await test_db_session.execute(
+            text(
+                "SELECT address, pincode, city, state, country FROM engagement_participants "
+                "WHERE engagement_participant_id = :epid"
+            ),
+            {"epid": data["engagement_participant_id"]},
+        )
+    ).first()
+    assert participant_row.address == "221B Baker Street"
+    assert participant_row.pincode == "411001"
+    assert participant_row.city == "Pune"
+
 
 @pytest.mark.asyncio
 async def test_engagement_onboard_overwrites_existing_age_and_email(async_client, test_db_session):

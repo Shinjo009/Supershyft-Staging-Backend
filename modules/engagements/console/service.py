@@ -512,7 +512,25 @@ class ConsoleService:
             participant_department_slugs=department_slugs,
         )
 
-        result = [_console_participant_to_dict(row) for row in participants]
+        ep_ids = [int(row[0]) for row in participants if row[0] is not None]
+        participant_rows: dict[int, EngagementParticipant] = {}
+        if ep_ids:
+            ep_result = await db.execute(
+                select(EngagementParticipant).where(
+                    EngagementParticipant.engagement_participant_id.in_(ep_ids)
+                )
+            )
+            for ep in ep_result.scalars().all():
+                participant_rows[int(ep.engagement_participant_id)] = ep
+
+        from modules.engagements.participant_location import overlay_console_display_address
+
+        result: list[dict] = []
+        for row in participants:
+            slim = _console_participant_to_dict(row)
+            ep = participant_rows.get(int(row[0])) if row[0] is not None else None
+            overlay_console_display_address(slim, participant=ep, engagement=engagement)
+            result.append(slim)
         return result, total
 
     async def book_participant(

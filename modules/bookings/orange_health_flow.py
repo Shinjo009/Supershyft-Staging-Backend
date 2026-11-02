@@ -204,12 +204,15 @@ async def create_booking_for_member(
         }
 
     patient_name = f"{first_name} {last_name}".strip()
-    address = (participant.address or engagement.address or "").strip()
+    from modules.engagements.participant_location import booking_location_field
+
+    address_raw = booking_location_field(participant, engagement, "address")
+    address = (str(address_raw).strip() if address_raw is not None else "")
     if not address:
         return {"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": "Missing address"}
 
-    lat = participant.latitude if participant.latitude is not None else engagement.latitude
-    lng = participant.longitude if participant.longitude is not None else engagement.longitude
+    lat = booking_location_field(participant, engagement, "latitude")
+    lng = booking_location_field(participant, engagement, "longitude")
 
     payload = build_orange_health_order_payload(
         participant_address=address,

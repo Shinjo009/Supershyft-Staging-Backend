@@ -2599,6 +2599,20 @@ class UsersService:
                 db.add(user)
                 await db.flush()
             created = False
+            from modules.engagements.participant_location import (
+                address_profile_update_from_onboard_payload,
+                onboard_payload_has_address,
+            )
+
+            if onboard_payload_has_address(payload):
+                profile_update = address_profile_update_from_onboard_payload(payload)
+                if profile_update:
+                    updated = await self._repository.update_user_partial(
+                        db, user.user_id, profile_update
+                    )
+                    if updated is not None:
+                        user = updated
+                    await self._sync_default_address_from_user(db, user)
         else:
             email = str(payload.email) if payload.email is not None else None
 
@@ -2670,11 +2684,11 @@ class UsersService:
         )
 
         if onboarded_by_user_id:
-            engagement_city = user.city
-            engagement_address = user.address
-            engagement_pincode = user.pin_code
-            engagement_state = user.state
-            engagement_country = user.country
+            engagement_city = payload.city if payload.city is not None else user.city
+            engagement_address = payload.address if payload.address is not None else user.address
+            engagement_pincode = payload.pincode if payload.pincode is not None else user.pin_code
+            engagement_state = payload.state if payload.state is not None else user.state
+            engagement_country = payload.country if payload.country is not None else user.country
         else:
             engagement_city = payload.city or user.city
             engagement_address = payload.address
@@ -2728,6 +2742,11 @@ class UsersService:
             participant_blood_group=payload.participant_blood_group,
             consultations=consultations
         )
+        from modules.engagements.participant_location import copy_engagement_location_to_participant
+
+        copy_engagement_location_to_participant(time_slot, engagement)
+        db.add(time_slot)
+        await db.flush()
 
         if self._assessments_service is None:
             raise RuntimeError("Assessments service is required")
@@ -3164,6 +3183,15 @@ class UsersService:
             booker_message=payload.booker_message,
             blood_collection_time_slot_id=payload.blood_collection_time_slot_id,
         )
+        from modules.engagements.participant_location import (
+            copy_onboard_payload_location_to_participant,
+            onboard_payload_has_address,
+        )
+
+        if onboard_payload_has_address(payload):
+            copy_onboard_payload_location_to_participant(time_slot, payload)
+            db.add(time_slot)
+            await db.flush()
 
         if requires_payment:
             from modules.auth.dependencies import get_auth_service
