@@ -16,12 +16,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.masking import mask_email, mask_phone
 from modules.assessments.models import AssessmentInstance
 from modules.audit.repository import AuditRepository
+from modules.diagnostics.models import DiagnosticPackage
 from modules.discounts.models import DiscountCode, DiscountUsage
 from modules.engagements.blood_booking_enums import BloodBookingStatus
 from modules.engagements.enums import EngagementPaymentType
 from modules.engagements.models import Engagement, EngagementParticipant, ParticipantBloodBooking
 from modules.experts.models import ConsultationBooking
 from modules.notifications.models import Notification
+from modules.notifications.repository import NotificationsRepository
+from modules.notifications.service import NotificationsService
 from modules.organizations.models import Organization
 from modules.payments.models import Booking
 from modules.reports.models import IndividualHealthReport
@@ -431,6 +434,75 @@ async def _attach_booking_collection(db: AsyncSession, items: list[dict[str, Any
         item["collection_location"] = ", ".join(loc_bits) if loc_bits else (r.eng_city or item.get("city"))
         if not item.get("city"):
             item["city"] = r.city or r.eng_city
+
+
+def _package_id_for_gender(row: Any, gender: str | None) -> int | None:
+    text = (gender or "").strip().lower()
+    if "female" in text and row.diagnostic_package_id_female:
+        return int(row.diagnostic_package_id_female)
+    if "male" in text and "female" not in text and row.diagnostic_package_id_male:
+        return int(row.diagnostic_package_id_male)
+    if row.diagnostic_package_id:
+        return int(row.diagnostic_package_id)
+    if row.diagnostic_package_id_male:
+        return int(row.diagnostic_package_id_male)
+    if row.diagnostic_package_id_female:
+        return int(row.diagnostic_package_id_female)
+    return None
+
+
+async def _attach_package_names(db: AsyncSession, items: list[dict[str, Any]]) -> None:
+    """Fill package_name from the engagement diagnostic package when the row has none."""
+    needing = [i for i in items if i.get("engagement_id") is not None and not i.get("package_name")]
+    if not needing:
+        return
+    eng_ids = {int(i["engagement_id"]) for i in needing}
+    user_ids = {int(i["user_id"]) for i in needing if i.get("user_id") is not None}
+    eng_rows = (
+        await db.execute(
+            select(
+                Engagement.engagement_id,
+                Engagement.diagnostic_package_id,
+                Engagement.diagnostic_package_id_male,
+                Engagement.diagnostic_package_id_female,
+            ).where(Engagement.engagement_id.in_(eng_ids))
+        )
+    ).all()
+    by_eng = {int(r.engagement_id): r for r in eng_rows}
+    genders: dict[int, str] = {}
+    if user_ids:
+        user_rows = (
+            await db.execute(select(User.user_id, User.gender).where(User.user_id.in_(user_ids)))
+        ).all()
+        genders = {int(r.user_id): str(r.gender or "") for r in user_rows}
+    pkg_ids = {
+        pid
+        for row in eng_rows
+        for pid in (
+            row.diagnostic_package_id,
+            row.diagnostic_package_id_male,
+            row.diagnostic_package_id_female,
+        )
+        if pid is not None
+    }
+    names: dict[int, str] = {}
+    if pkg_ids:
+        pkg_rows = (
+            await db.execute(
+                select(DiagnosticPackage.diagnostic_package_id, DiagnosticPackage.package_name).where(
+                    DiagnosticPackage.diagnostic_package_id.in_(pkg_ids)
+                )
+            )
+        ).all()
+        names = {int(r.diagnostic_package_id): r.package_name for r in pkg_rows if r.package_name}
+    for item in needing:
+        row = by_eng.get(int(item["engagement_id"]))
+        if row is None:
+            continue
+        uid = item.get("user_id")
+        pid = _package_id_for_gender(row, genders.get(int(uid)) if uid is not None else None)
+        if pid is not None and names.get(pid):
+            item["package_name"] = names[pid]
 
 
 def _lab_report_status(*, collected_at, diagnostic_report_url: str | None) -> str:
@@ -1371,6 +1443,51 @@ def _normalize_drill_id(drill: str) -> tuple[str, int | None, int | None]:
     return raw, None, None
 
 
+def _recipient_label(recipients: list[dict] | None) -> str | None:
+    names: list[str] = []
+    for rec in recipients or []:
+        if not isinstance(rec, dict):
+            continue
+        first = str(rec.get("first_name") or "").strip()
+        last = str(rec.get("last_name") or "").strip()
+        name = " ".join(part for part in (first, last) if part)
+        if not name:
+            stored = str(rec.get("name") or "").strip()
+            name = stored
+        if not name and isinstance(rec.get("user_id"), int):
+            name = f"User #{rec['user_id']}"
+        if name:
+            names.append(name)
+    return ", ".join(names) if names else None
+
+
+async def _fill_engagement_names(db: AsyncSession, items: list[dict[str, Any]]) -> None:
+    missing = [
+        item
+        for item in items
+        if item.get("engagement_id") and not item.get("engagement_name")
+    ]
+    if not missing:
+        return
+    ids = {int(item["engagement_id"]) for item in missing}
+    rows = (
+        await db.execute(
+            select(
+                Engagement.engagement_id,
+                Engagement.engagement_name,
+                Engagement.engagement_code,
+            ).where(Engagement.engagement_id.in_(ids))
+        )
+    ).all()
+    by_id = {row.engagement_id: row for row in rows}
+    for item in missing:
+        row = by_id.get(int(item["engagement_id"]))
+        if row is None:
+            continue
+        item["engagement_name"] = row.engagement_name
+        item["engagement_code"] = row.engagement_code
+
+
 def _apply_user_search(stmt, *, q: str | None, city: str | None):
     if q:
         like = f"%{q.strip().lower()}%"
@@ -1382,8 +1499,9 @@ def _apply_user_search(stmt, *, q: str | None, city: str | None):
                 func.lower(func.coalesce(User.email, "")).like(like),
             )
         )
-    if city:
-        stmt = stmt.where(func.lower(func.coalesce(User.city, "")) == city.strip().lower())
+    if city and city.strip():
+        like = f"%{city.strip().lower()}%"
+        stmt = stmt.where(func.lower(func.coalesce(User.city, "")).like(like))
     return stmt
 
 
@@ -1921,35 +2039,44 @@ async def build_command_drill(
                 )
 
     elif drill_id == "failed_notifications":
-        base = select(
-            Notification.notification_id,
-            Notification.service_key,
-            Notification.channel,
-            Notification.status,
-            Notification.engagement_id,
-            Notification.dispatched_at,
-            Notification.completed_at,
-        ).where(Notification.status == "failed")
+        filters = [Notification.status == "failed"]
         if date_from is not None or date_to is not None:
-            base = base.where(_date_in_range(Notification.dispatched_at, date_from, date_to))
+            filters.append(_date_in_range(Notification.dispatched_at, date_from, date_to))
+        if q and q.strip():
+            like = f"%{q.strip().lower()}%"
+            filters.append(func.lower(func.coalesce(Notification.message, "")).like(like))
+        base = select(Notification).where(*filters)
         total = await _scalar_count(db, select(func.count()).select_from(base.order_by(None).subquery()))
-        rows = (
+        notes = (
             await db.execute(
                 base.order_by(Notification.dispatched_at.desc().nullslast()).offset(offset).limit(limit)
             )
-        ).all()
-        items = [
-            {
-                "notification_id": r.notification_id,
-                "service_key": r.service_key,
-                "channel": str(r.channel) if r.channel is not None else None,
-                "status": str(r.status),
-                "engagement_id": r.engagement_id,
-                "dispatched_at": r.dispatched_at.isoformat() if r.dispatched_at else None,
-                "completed_at": r.completed_at.isoformat() if r.completed_at else None,
-            }
-            for r in rows
-        ]
+        ).scalars().all()
+        enriched = await NotificationsService(NotificationsRepository())._enrich_notification_list_items(
+            db, list(notes)
+        )
+        items = []
+        for row in enriched:
+            recipients = row.get("recipients") if isinstance(row.get("recipients"), list) else []
+            user_id = next(
+                (
+                    rec.get("user_id")
+                    for rec in recipients
+                    if isinstance(rec, dict) and isinstance(rec.get("user_id"), int)
+                ),
+                None,
+            )
+            items.append(
+                {
+                    "notification_id": row.get("notification_id"),
+                    "recipient_name": _recipient_label(recipients),
+                    "engagement_id": row.get("engagement_id"),
+                    "engagement_name": row.get("engagement_name"),
+                    "engagement_code": row.get("engagement_code"),
+                    "message": row.get("message"),
+                    "user_id": user_id,
+                }
+            )
 
     elif drill_id == "total_bookings":
         base = (
@@ -2120,6 +2247,10 @@ async def build_command_drill(
             total = len(coupons)
             items = coupons[offset : offset + limit]
 
+    await _attach_booking_collection(db, items)
+    await _attach_package_names(db, items)
+    await _attach_journey_statuses(db, items)
+    await _fill_engagement_names(db, items)
     return {
         "drill": drill_id,
         "items": items,
