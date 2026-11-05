@@ -1434,7 +1434,8 @@ async def get_engagement_camp_overview(
             error_code="INVALID_INPUT",
             message="Camp overview is only available for B2B (organization) engagements",
         )
-    data = await build_camp_overview(db, engagement=engagement)
+    slot_detail = await engagements_service.resolve_slot_detail(db, engagement)
+    data = await build_camp_overview(db, engagement=engagement, slot_detail=slot_detail)
     return success_response(data)
 
 

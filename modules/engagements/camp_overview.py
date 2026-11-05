@@ -10,14 +10,45 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.assessments.models import AssessmentInstance
 from modules.engagements.blood_booking_enums import BloodBookingStatus
+from modules.engagements.enums import BloodCollectionType
 from modules.engagements.models import Engagement, EngagementParticipant, ParticipantBloodBooking
+from modules.engagements.slot_detail_dates import enabled_blood_collection_dates
 from modules.experts.models import ConsultationBooking
 from modules.reports.models import IndividualHealthReport
 
 _ACTIVE = BloodBookingStatus.active.value
 
 
-async def build_camp_overview(db: AsyncSession, *, engagement: Engagement) -> dict[str, Any]:
+def _summary_dates(
+    engagement: Engagement,
+    slot_detail: dict[str, Any] | None,
+) -> list[date]:
+    """Camp collection uses on-site blood dates. Other modes use the engagement window."""
+    mode = engagement.blood_collection_type
+    mode_value = mode.value if isinstance(mode, BloodCollectionType) else mode
+    if mode_value == BloodCollectionType.camp_collection.value:
+        return enabled_blood_collection_dates(slot_detail)
+
+    start = engagement.start_date
+    end = engagement.end_date
+    if not start or not end or end < start:
+        return []
+    if (end - start).days > 60:
+        end = start + timedelta(days=60)
+    days: list[date] = []
+    cur = start
+    while cur <= end:
+        days.append(cur)
+        cur += timedelta(days=1)
+    return days
+
+
+async def build_camp_overview(
+    db: AsyncSession,
+    *,
+    engagement: Engagement,
+    slot_detail: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     eng_id = int(engagement.engagement_id)
 
     registered = int(
@@ -148,22 +179,10 @@ async def build_camp_overview(db: AsyncSession, *, engagement: Engagement) -> di
     questionnaire_pending = max(0, registered - questionnaire_done)
     consultations_pending = max(0, registered - consultations_done)
 
-    # Day-wise rows from start_date..end_date (inclusive).
     days: list[dict[str, Any]] = []
-    start = engagement.start_date
-    end = engagement.end_date
-    if start and end and end >= start:
-        # Cap extreme ranges to keep response bounded.
-        span = (end - start).days
-        if span > 60:
-            end = start + timedelta(days=60)
-        day_i = 0
-        cur = start
-        while cur <= end:
-            day_i += 1
-            day_rows = await _day_metrics(db, engagement_id=eng_id, day=cur)
-            days.append({"date": cur.isoformat(), "day_index": day_i, **day_rows})
-            cur += timedelta(days=1)
+    for day_i, cur in enumerate(_summary_dates(engagement, slot_detail), start=1):
+        day_rows = await _day_metrics(db, engagement_id=eng_id, day=cur)
+        days.append({"date": cur.isoformat(), "day_index": day_i, **day_rows})
 
     return {
         "engagement_id": eng_id,
