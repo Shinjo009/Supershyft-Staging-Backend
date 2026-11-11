@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.discounts.models import DiscountCode, DiscountUsage
+from modules.engagements.models import EngagementParticipant
 from modules.payments.models import Booking, Order, Payment
 from modules.users.models import User
 
@@ -28,6 +29,65 @@ def _user_contact_row(user: User | None) -> dict[str, Any] | None:
         "name": name,
         "role": "participant",
     }
+
+
+async def _family_gift_participant_details(
+    db: AsyncSession,
+    *,
+    payer_user_id: int,
+    bookings: list[Booking],
+) -> dict[str, str] | None:
+    """Gift-style participant_details for family-onboard sender/receiver WA templates."""
+    if not bookings:
+        return None
+
+    payer = (
+        await db.execute(select(User).where(User.user_id == int(payer_user_id)))
+    ).scalar_one_or_none()
+    if payer is None:
+        return None
+
+    first_booking = bookings[0]
+    member_user = (
+        await db.execute(select(User).where(User.user_id == int(first_booking.user_id)))
+    ).scalar_one_or_none()
+    if member_user is None:
+        return None
+
+    relationship: str | None = None
+    booker_message: str | None = None
+    meta = first_booking.metadata_ or {}
+    engagement_id = meta.get("engagement_id")
+    if engagement_id is not None:
+        ep_result = await db.execute(
+            select(EngagementParticipant)
+            .where(
+                EngagementParticipant.engagement_id == int(engagement_id),
+                EngagementParticipant.user_id == int(first_booking.user_id),
+            )
+            .order_by(EngagementParticipant.engagement_participant_id.desc())
+            .limit(1)
+        )
+        participant = ep_result.scalar_one_or_none()
+        if participant is not None:
+            relationship = participant.booker_relation
+            booker_message = participant.booker_message
+
+    from modules.notifications.family_onboard_gift_notify import (
+        GIFT_URL,
+        _participant_details,
+    )
+    from modules.notifications.onboarding_notify import detail_or_hyphen
+
+    details = _participant_details(
+        booker=payer,
+        recipient=member_user,
+        relationship=relationship,
+        gift_url=GIFT_URL,
+    )
+    if booker_message and str(booker_message).strip():
+        details["gift_message"] = detail_or_hyphen(booker_message)
+    return details
 
 
 async def build_payment_completed_emit_context(
@@ -106,6 +166,11 @@ async def build_payment_completed_emit_context(
         "members": members,
         "payment": payment_block,
     }
+    gift_details = await _family_gift_participant_details(
+        db, payer_user_id=payer_user_id, bookings=bookings
+    )
+    if gift_details:
+        ctx["participant_details"] = gift_details
     return ctx
 
 
