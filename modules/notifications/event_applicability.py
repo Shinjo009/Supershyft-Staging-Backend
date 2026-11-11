@@ -44,6 +44,7 @@ class EngagementApplicability:
     auto_booking: TriStateRule = "any"
     consultation_mode: ConsultationModeRule = "any"
     requires_consultation_type: bool = False
+    payment_types: tuple[str, ...] = ()
     platform_only: bool = False
 
 
@@ -347,6 +348,11 @@ def engagement_notification_applicable(
         if cm != rule.consultation_mode:
             return False
 
+    if rule.payment_types:
+        pt = (profile.payment_type or "").strip()
+        if pt not in rule.payment_types:
+            return False
+
     return True
 
 
@@ -417,7 +423,12 @@ EVENT_CATALOG_META: dict[str, dict[str, Any]] = {
     },
     "payments.completed": {
         "groups": ("Payments & checkout",),
-        "applicability": EngagementApplicability(platform_only=True),
+        "applicability": EngagementApplicability(
+            engagement_kinds=_ALL_ENGAGEMENT_KINDS,
+            blood_collection="any",
+            auto_booking="any",
+            payment_types=("paid_by_patient",),
+        ),
     },
     "payments.failed": {
         "groups": ("Payments & checkout",),

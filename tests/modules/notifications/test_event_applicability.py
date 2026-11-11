@@ -3,6 +3,7 @@
 from modules.notifications.event_applicability import (
     engagement_notification_applicable,
     profile_from_mapping,
+    show_on_engagement_wizard,
 )
 
 
@@ -50,8 +51,26 @@ def test_questionnaire_reminders_bio_ai_only():
     assert not engagement_notification_applicable("reminders.questionnaire_after", blood_only)
 
 
-def test_payments_not_on_engagement_wizard():
+def test_payments_completed_for_paid_by_patient_engagements():
     profile = profile_from_mapping(
-        {"engagement_kind": "blood_test", "blood_collection_type": "camp_collection"}
+        {
+            "engagement_kind": "bio_ai_with_consultation",
+            "blood_collection_type": "home_collection",
+            "auto_booking": False,
+            "consultation_mode": "online",
+            "payment_type": "paid_by_patient",
+        }
+    )
+    assert engagement_notification_applicable("payments.completed", profile)
+    assert show_on_engagement_wizard("payments.completed")
+
+
+def test_payments_completed_not_on_paid_by_group_camp():
+    profile = profile_from_mapping(
+        {
+            "engagement_kind": "blood_test",
+            "blood_collection_type": "camp_collection",
+            "payment_type": "paid_by_group",
+        }
     )
     assert not engagement_notification_applicable("payments.completed", profile)
