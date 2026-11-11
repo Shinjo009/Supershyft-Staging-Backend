@@ -26,7 +26,10 @@ from modules.notifications.bindings_service import NotificationBindingsService
 from modules.notifications.events_catalog import get_event
 from modules.notifications.models import NotificationService
 from modules.notifications.repository import NotificationsRepository
-from modules.notifications.emit_condition import derive_condition_key, validate_emit_condition
+from modules.notifications.emit_condition import (
+    derive_binding_slot_key,
+    validate_emit_condition,
+)
 from modules.notifications.payload_contact_catalog import (
     allows_payload_recipient,
     get_payload_contact_field,
@@ -152,13 +155,23 @@ class NotificationBindingWizardService:
             pass
         return None
 
-    def _validate_emit_condition(self, payload: WizardBindingPayload, ev) -> tuple[str, dict | None]:
+    def _validate_emit_condition(
+        self,
+        payload: WizardBindingPayload,
+        ev,
+        *,
+        recipient_config: dict | None,
+    ) -> tuple[str, dict | None]:
         raw = None
         if payload.emit_condition is not None:
             raw = payload.emit_condition.model_dump(mode="json", exclude_none=True)
         validated = validate_emit_condition(raw, event_code=ev.code)
-        key = derive_condition_key(validated)
-        return key, validated
+        slot_key = derive_binding_slot_key(
+            validated,
+            recipient_type=payload.recipient_type.strip(),
+            recipient_config=recipient_config,
+        )
+        return slot_key, validated
 
     async def _ensure_service(
         self,
@@ -232,7 +245,9 @@ class NotificationBindingWizardService:
                 message=f"Unknown event_code '{payload.event_code}'",
             )
         recipient_config = self._validate_recipient(payload, ev)
-        condition_key, emit_condition = self._validate_emit_condition(payload, ev)
+        condition_key, emit_condition = self._validate_emit_condition(
+            payload, ev, recipient_config=recipient_config
+        )
         recipient_type = payload.recipient_type.strip()
         delivery_channel = payload.service.channel.strip().lower()
         svc = await self._ensure_service(db, event_code=payload.event_code, spec=payload.service)
@@ -289,7 +304,9 @@ class NotificationBindingWizardService:
                 message=f"Unknown event_code '{payload.event_code}'",
             )
         recipient_config = self._validate_recipient(payload, ev)
-        condition_key, emit_condition = self._validate_emit_condition(payload, ev)
+        condition_key, emit_condition = self._validate_emit_condition(
+            payload, ev, recipient_config=recipient_config
+        )
         delivery_channel = payload.service.channel.strip().lower()
         svc = await self._ensure_service(db, event_code=payload.event_code, spec=payload.service)
         updated = await self._bindings_repo.update(
@@ -345,7 +362,9 @@ class NotificationBindingWizardService:
             emit_condition=payload.emit_condition,
             service=payload.service,
         )
-        condition_key, emit_condition = self._validate_emit_condition(binding_payload, ev)
+        condition_key, emit_condition = self._validate_emit_condition(
+            binding_payload, ev, recipient_config=recipient_config
+        )
         recipient_type = payload.recipient_type.strip()
         delivery_channel = payload.service.channel.strip().lower()
         svc = await self._ensure_service(db, event_code=payload.event_code, spec=payload.service)

@@ -108,6 +108,27 @@ def validate_emit_condition(
     return out
 
 
+def _payload_path_slug(path: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", path.lower().strip()).strip("-")
+    return slug or "path"
+
+
+def derive_binding_slot_key(
+    condition: dict[str, Any] | None,
+    *,
+    recipient_type: str,
+    recipient_config: dict[str, Any] | None,
+) -> str:
+    """Unique DB slot: discount condition + payload contact path for payload recipients."""
+    base = derive_condition_key(condition)
+    rt = (recipient_type or "").strip()
+    if rt == "payload" and isinstance(recipient_config, dict):
+        path = str(recipient_config.get("payload_path") or "").strip()
+        if path:
+            return f"{base}~{_payload_path_slug(path)}"[:64]
+    return base
+
+
 def derive_condition_key(condition: dict[str, Any] | None) -> str:
     if not condition:
         return "default"

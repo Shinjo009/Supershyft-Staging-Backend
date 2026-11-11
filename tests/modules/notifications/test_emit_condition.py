@@ -1,6 +1,7 @@
 """Tests for binding emit conditions."""
 
 from modules.notifications.emit_condition import (
+    derive_binding_slot_key,
     derive_condition_key,
     format_emit_condition_label,
     matches_condition,
@@ -43,3 +44,21 @@ def test_derive_condition_key_and_label():
     key = derive_condition_key({"path": "payment.discount_code", "op": "equals", "value": "VIP"})
     assert key == "dc-eq-vip"
     assert format_emit_condition_label({"op": "is_empty"}) == "No discount code"
+
+
+def test_derive_binding_slot_key_includes_payload_path():
+    cond = {"path": "payment.discount_code", "op": "equals", "value": "SUPER99"}
+    booker = derive_binding_slot_key(
+        cond,
+        recipient_type="payload",
+        recipient_config={"payload_path": "booker.phone"},
+    )
+    members = derive_binding_slot_key(
+        cond,
+        recipient_type="payload",
+        recipient_config={"payload_path": "members[].phone"},
+    )
+    assert booker != members
+    assert booker.startswith("dc-eq-super99~")
+    assert "booker" in booker
+    assert "members" in members

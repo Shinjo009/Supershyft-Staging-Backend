@@ -143,3 +143,72 @@ async def test_create_binding_wizard_merges_same_slot_services(test_db_session):
         )
     ).scalars().all()
     assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_binding_wizard_separate_rows_per_payload_path(test_db_session):
+    suffix = uuid.uuid4().hex[:8]
+    sender = NotificationService(
+        service_key=f"family-sender-{suffix}",
+        display_name="Sender",
+        channel="whatsapp",
+        webhook_path=f"family-sender-{suffix}",
+        is_active=True,
+        template_name="test_tpl",
+    )
+    receiver = NotificationService(
+        service_key=f"family-receiver-{suffix}",
+        display_name="Receiver",
+        channel="whatsapp",
+        webhook_path=f"family-receiver-{suffix}",
+        is_active=True,
+        template_name="test_tpl",
+    )
+    test_db_session.add_all([sender, receiver])
+    await test_db_session.flush()
+
+    svc = NotificationBindingWizardService()
+    condition = {"path": "payment.discount_code", "op": "equals", "value": "SUPER99"}
+    base = {
+        "event_code": "payments.completed",
+        "recipient_type": "payload",
+        "engagement_type_id": None,
+        "emit_condition": condition,
+    }
+    booker = await svc.create_binding_wizard(
+        test_db_session,
+        WizardBindingPayload(
+            **base,
+            recipient_config={"payload_path": "booker.phone", "value_type": "phone"},
+            service=WizardServiceSpec(
+                notification_service_id=sender.notification_service_id,
+                channel="whatsapp",
+            ),
+        ),
+    )
+    members = await svc.create_binding_wizard(
+        test_db_session,
+        WizardBindingPayload(
+            **base,
+            recipient_config={"payload_path": "members[].phone", "value_type": "phone"},
+            service=WizardServiceSpec(
+                notification_service_id=receiver.notification_service_id,
+                channel="whatsapp",
+            ),
+        ),
+    )
+    await test_db_session.commit()
+
+    assert booker.id != members.id
+    assert booker.recipient_config["payload_path"] == "booker.phone"
+    assert members.recipient_config["payload_path"] == "members[].phone"
+
+    rows = (
+        await test_db_session.execute(
+            select(NotificationEventBinding).where(
+                NotificationEventBinding.event_code == "payments.completed",
+                NotificationEventBinding.recipient_type == "payload",
+            )
+        )
+    ).scalars().all()
+    assert len(rows) == 2
