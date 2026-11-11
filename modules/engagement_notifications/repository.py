@@ -195,7 +195,20 @@ class EngagementNotificationsRepository:
             existing.event_name = name
             existing.delivery_channel = channel
             existing.condition_key = ck
-            existing.notification_services = notification_services
+            if slot_id is None:
+                from modules.engagement_notifications.service_config import (
+                    merge_notification_service_configs,
+                    normalize_notification_services,
+                    serialize_for_db,
+                )
+
+                incoming = normalize_notification_services(notification_services)
+                prior = normalize_notification_services(existing.notification_services)
+                existing.notification_services = serialize_for_db(
+                    merge_notification_service_configs(prior, incoming)
+                )
+            else:
+                existing.notification_services = notification_services
             existing.recipient_config = recipient_config
             existing.emit_condition = emit_condition
             if source_binding_id is not None:

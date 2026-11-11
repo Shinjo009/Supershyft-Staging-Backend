@@ -10,6 +10,8 @@ from core.exceptions import AppError
 from modules.engagement_notifications.repository import EngagementNotificationsRepository
 from modules.engagement_notifications.service_config import (
     NotificationServiceConfigItem,
+    merge_notification_service_configs,
+    normalize_notification_services,
     serialize_for_db,
 )
 from modules.notifications.binding_schemas import (
@@ -244,10 +246,14 @@ class NotificationBindingWizardService:
             condition_key=condition_key,
         )
         if existing is not None:
+            merged = merge_notification_service_configs(
+                normalize_notification_services(existing.notification_services),
+                [new_svc],
+            )
             row = await self._bindings_repo.update(
                 db,
                 existing,
-                notification_services=serialize_for_db([new_svc]),
+                notification_services=serialize_for_db(merged),
                 delivery_channel=delivery_channel,
                 recipient_config=recipient_config if recipient_config is not None else None,
                 condition_key=condition_key,
