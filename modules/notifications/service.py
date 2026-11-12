@@ -724,6 +724,7 @@ class NotificationsService:
             "assessment_instance_id": n.assessment_instance_id,
             "message": n.message,
             "queue_id": n.queue_id,
+            "whatsapp_message_id": n.whatsapp_message_id,
             "triggered_by_user_id": n.triggered_by_user_id,
             "dispatched_at": n.dispatched_at.isoformat() if n.dispatched_at else None,
             "completed_at": n.completed_at.isoformat() if n.completed_at else None,

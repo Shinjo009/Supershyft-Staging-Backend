@@ -5,7 +5,10 @@ Only database queries live here.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import cast, delete, func, select, type_coerce, update as sql_update
 from sqlalchemy.dialects.postgresql import JSONB
@@ -18,6 +21,7 @@ from modules.notifications.models import Notification, NotificationService
 from modules.partners.models import Partner
 from modules.reports.models import IndividualHealthReport
 from modules.users.models import User
+from modules.notifications.context_builder import normalize_whatsapp_phone
 
 
 class NotificationsRepository:
@@ -106,6 +110,85 @@ class NotificationsRepository:
             select(Notification).where(Notification.queue_id == queue_id)
         )
         return result.scalar_one_or_none()
+
+    async def get_notification_by_whatsapp_message_id(
+        self, db: AsyncSession, *, whatsapp_message_id: str
+    ) -> Notification | None:
+        wamid = (whatsapp_message_id or "").strip()
+        if not wamid:
+            return None
+        result = await db.execute(
+            select(Notification).where(Notification.whatsapp_message_id == wamid)
+        )
+        return result.scalar_one_or_none()
+
+    async def find_recent_whatsapp_notification_by_recipient(
+        self,
+        db: AsyncSession,
+        *,
+        recipient_digits: str,
+        dispatched_after: datetime,
+    ) -> Notification | None:
+        target = "".join(ch for ch in recipient_digits if ch.isdigit())
+        if not target:
+            return None
+
+        result = await db.execute(
+            select(Notification)
+            .where(Notification.channel == "whatsapp")
+            .where(Notification.status.in_(("pending", "sent")))
+            .where(Notification.queue_id.isnot(None))
+            .where(Notification.dispatched_at.isnot(None))
+            .where(Notification.dispatched_at >= dispatched_after)
+            .order_by(Notification.dispatched_at.desc())
+            .limit(50)
+        )
+        candidates = list(result.scalars().all())
+        if not candidates:
+            return None
+
+        user_ids: set[int] = set()
+        for n in candidates:
+            raw = n.user if isinstance(n.user, dict) else {}
+            for uid in raw.get("user_ids") or []:
+                if isinstance(uid, int):
+                    user_ids.add(uid)
+
+        users_by_id: dict[int, User] = {}
+        if user_ids:
+            users = await self.get_users_by_ids(db, user_ids=list(user_ids))
+            users_by_id = {u.user_id: u for u in users}
+
+        matches: list[Notification] = []
+        for n in candidates:
+            raw = n.user if isinstance(n.user, dict) else {}
+            phones: list[str] = []
+            for uid in raw.get("user_ids") or []:
+                if isinstance(uid, int):
+                    user = users_by_id.get(uid)
+                    if user and user.phone:
+                        phones.append(str(user.phone))
+            for contact in raw.get("contacts") or []:
+                if isinstance(contact, dict) and contact.get("phone"):
+                    phones.append(str(contact["phone"]))
+
+            for phone in phones:
+                if normalize_whatsapp_phone(phone) == target:
+                    matches.append(n)
+                    break
+                digits = "".join(ch for ch in phone if ch.isdigit())
+                if digits == target:
+                    matches.append(n)
+                    break
+
+        if not matches:
+            return None
+        if len(matches) > 1:
+            logger.warning(
+                "Multiple WhatsApp notifications match recipient %s; using most recent",
+                target,
+            )
+        return matches[0]
 
     async def update_notification(
         self,

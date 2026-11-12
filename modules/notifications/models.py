@@ -89,6 +89,7 @@ class Notification(Base):
         Index("ix_notifications_engagement_id", "engagement_id"),
         Index("ix_notifications_assessment_instance_id", "assessment_instance_id"),
         Index("ix_notifications_queue_id", "queue_id"),
+        Index("ix_notifications_whatsapp_message_id", "whatsapp_message_id"),
     )
 
     notification_id = Column(Integer, primary_key=True, autoincrement=True)
@@ -102,6 +103,7 @@ class Notification(Base):
     )
     message = Column(Text, nullable=True)
     queue_id = Column(String, nullable=True)
+    whatsapp_message_id = Column(String, nullable=True)
     triggered_by_user_id = Column(Integer, ForeignKey("users.user_id"), nullable=True)
     dispatched_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)

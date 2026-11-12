@@ -178,3 +178,131 @@ async def test_whatapi_post_meta_envelope_with_queue_and_statuses(
 
     await test_db_session.refresh(notification)
     assert notification.status == "sent"
+
+
+@pytest.mark.asyncio
+async def test_whatapi_post_meta_failed_without_queue_id(
+    async_client, test_db_session,
+):
+    from modules.users.models import User
+
+    service_key = "whatapi-wh-meta-fail"
+    await _seed_service(test_db_session, service_key=service_key)
+    test_db_session.add(
+        User(
+            user_id=97001,
+            age=30,
+            phone="0000017000",
+            status="active",
+            email="meta-fail@example.com",
+        )
+    )
+    await test_db_session.flush()
+
+    queue_id = "8a0b1daa-a697-4616-9d9e-5913a61677f3"
+    notification = Notification(
+        service_key=service_key,
+        status="sent",
+        channel="whatsapp",
+        user={"user_ids": [97001]},
+        message="WhatsApp delivered (sent)",
+        queue_id=queue_id,
+        dispatched_at=datetime.now(timezone.utc),
+        completed_at=datetime.now(timezone.utc),
+    )
+    test_db_session.add(notification)
+    await test_db_session.commit()
+    await test_db_session.refresh(notification)
+
+    payload = {
+        "object": "whatsapp_business_account",
+        "entry": [
+            {
+                "id": "1658253265196050",
+                "changes": [
+                    {
+                        "field": "messages",
+                        "value": {
+                            "messaging_product": "whatsapp",
+                            "metadata": {
+                                "phone_number_id": "1068820602977269",
+                                "display_phone_number": "917977842511",
+                            },
+                            "statuses": [
+                                {
+                                    "id": "wamid.HBgMOTEwMDAwMDE3MDAwFQIAERgSNjBEREI4MzI0MkJCNEUyRjk3AA==",
+                                    "status": "failed",
+                                    "timestamp": "1794468988",
+                                    "recipient_id": "910000017000",
+                                    "errors": [
+                                        {
+                                            "code": 131026,
+                                            "title": "Message undeliverable",
+                                            "message": "Message undeliverable",
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+    resp = await async_client.post("/webhooks/whatapi", json=payload)
+    assert resp.status_code == 200
+    assert resp.json()["data"]["updated"] == 1
+
+    await test_db_session.refresh(notification)
+    assert notification.status == "failed"
+    assert "undeliverable" in (notification.message or "").lower()
+    assert notification.whatsapp_message_id.startswith("wamid.")
+
+
+@pytest.mark.asyncio
+async def test_whatapi_post_meta_sent_keeps_pending(async_client, test_db_session):
+    service_key = "whatapi-wh-meta-sent"
+    await _seed_service(test_db_session, service_key=service_key)
+    queue_id = "c3d4e5f6-a7b8-9012-cdef-123456789abc"
+    wamid = "wamid.test.sent.pending"
+    notification = Notification(
+        service_key=service_key,
+        status="pending",
+        channel="whatsapp",
+        user={"contacts": [{"phone": "8762830757"}]},
+        message="queued",
+        queue_id=queue_id,
+        dispatched_at=datetime.now(timezone.utc),
+    )
+    test_db_session.add(notification)
+    await test_db_session.commit()
+    await test_db_session.refresh(notification)
+
+    payload = {
+        "object": "whatsapp_business_account",
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "value": {
+                            "messaging_product": "whatsapp",
+                            "statuses": [
+                                {
+                                    "id": wamid,
+                                    "status": "sent",
+                                    "recipient_id": "918762830757",
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+        ],
+    }
+    resp = await async_client.post("/webhooks/whatapi", json=payload)
+    assert resp.status_code == 200
+
+    await test_db_session.refresh(notification)
+    assert notification.status == "pending"
+    assert notification.whatsapp_message_id == wamid
+    assert notification.completed_at is None
