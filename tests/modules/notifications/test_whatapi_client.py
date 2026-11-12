@@ -9,9 +9,27 @@ import httpx
 
 from modules.notifications.whatapi_client import (
     WhatApiClient,
+    canonical_meta_template_name,
     format_whatapi_http_error,
+    message_templates_request_url,
     parse_http_error_body,
 )
+
+
+def test_canonical_meta_template_name_replaces_spaces():
+    assert canonical_meta_template_name("con comp") == "con_comp"
+    assert canonical_meta_template_name("  camp  17  ") == "camp__17"
+
+
+def test_message_templates_request_url_uses_underscore_not_plus():
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(settings, "WHATAPI_DOMAIN", "https://crmapi1.whatapi.in")
+    monkeypatch.setattr(settings, "WHATAPI_VERSION", "v19.0")
+    monkeypatch.setattr(settings, "WHATAPI_WABA_ID", "1658253265196050")
+    url = message_templates_request_url(template_name="con comp")
+    assert "name=con_comp" in url
+    assert "con+comp" not in url
+    monkeypatch.undo()
 
 
 def test_format_whatapi_http_error_includes_provider_message():

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 from urllib.parse import urlencode
 
@@ -42,6 +43,14 @@ def _meta_path(*parts: str) -> str:
     return f"{_whatapi_base()}/api/meta/{version}/{'/'.join(parts)}"
 
 
+def canonical_meta_template_name(name: str) -> str:
+    """Meta template names use underscores; admin users may type spaces."""
+    text = (name or "").strip()
+    if not text:
+        return ""
+    return re.sub(r"\s+", "_", text)
+
+
 def message_templates_request_url(*, template_name: str) -> str:
     """Full GET URL for Meta message template lookup (for integration sync logs)."""
     waba_id = (settings.WHATAPI_WABA_ID or "").strip()
@@ -52,7 +61,8 @@ def message_templates_request_url(*, template_name: str) -> str:
             message="WHATAPI_WABA_ID is not configured",
         )
     base = _meta_path(waba_id, "message_templates")
-    return f"{base}?{urlencode({'name': (template_name or '').strip()})}"
+    canonical = canonical_meta_template_name(template_name)
+    return f"{base}?{urlencode({'name': canonical})}"
 
 
 def send_messages_request_url() -> str:
@@ -138,7 +148,14 @@ class WhatApiClient:
                 error_code="CONFIG_ERROR",
                 message="WHATAPI_WABA_ID is not configured",
             )
-        url = message_templates_request_url(template_name=template_name)
+        canonical = canonical_meta_template_name(template_name)
+        if not canonical:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message="template_name is required",
+            )
+        url = message_templates_request_url(template_name=canonical)
         try:
             async with httpx.AsyncClient(
                 timeout=settings.WHATAPI_TIMEOUT_SECONDS

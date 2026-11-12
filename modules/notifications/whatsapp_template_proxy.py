@@ -5,7 +5,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from modules.notifications.whatapi_client import WhatApiClient, get_whatapi_client
+from modules.notifications.whatapi_client import (
+    WhatApiClient,
+    canonical_meta_template_name,
+    get_whatapi_client,
+)
 from modules.notifications.whatapi_sync_logging import log_whatapi_get_message_templates
 
 _PLACEHOLDER = re.compile(r"\{\{(\d+)\}\}")
@@ -57,6 +61,23 @@ def template_requires_header_media(components: list[dict[str, Any]], header_form
     return False
 
 
+def _body_example_values(components: list[dict[str, Any]]) -> list[str]:
+    for comp in components:
+        if str(comp.get("type") or "").upper() != "BODY":
+            continue
+        example = comp.get("example")
+        if not isinstance(example, dict):
+            return []
+        body_text = example.get("body_text")
+        if not isinstance(body_text, list) or not body_text:
+            return []
+        row = body_text[0]
+        if not isinstance(row, list):
+            return []
+        return [str(v) for v in row]
+    return []
+
+
 def _component_types(components: list[dict[str, Any]]) -> list[str]:
     types: list[str] = []
     for comp in components:
@@ -91,6 +112,7 @@ def normalize_template_response(raw: dict[str, Any]) -> dict[str, Any] | None:
         "requires_header_document": template_requires_header_media(components, header_format),
         "component_types": _component_types(components),
         "body_text": body_text,
+        "body_example_values": _body_example_values(components),
     }
 
 
@@ -99,15 +121,17 @@ class WhatsappTemplateProxy:
         self._client = client or get_whatapi_client()
 
     async def lookup(self, *, template_name: str) -> dict[str, Any]:
-        name = template_name.strip()
+        name = canonical_meta_template_name(template_name)
+        if not name:
+            return {"found": False, "name": ""}
         raw = await log_whatapi_get_message_templates(
             template_name=name,
             engagement_id=None,
             user_id=None,
             notification_id=None,
-            operation=lambda: self._client.fetch_message_template(template_name=name),
+            operation=lambda n=name: self._client.fetch_message_template(template_name=n),
         )
         normalized = normalize_template_response(raw)
         if normalized is None:
-            return {"found": False, "name": template_name.strip()}
+            return {"found": False, "name": name}
         return {"found": True, **normalized}

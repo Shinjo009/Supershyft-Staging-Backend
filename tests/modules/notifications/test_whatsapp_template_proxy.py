@@ -45,6 +45,31 @@ def test_normalize_template_response_header_document():
     assert out["body_positional_count"] == 2
 
 
+def test_normalize_template_response_body_examples():
+    raw = {
+        "data": [
+            {
+                "name": "con_comp",
+                "language": "en",
+                "status": "APPROVED",
+                "category": "UTILITY",
+                "parameter_format": "POSITIONAL",
+                "components": [
+                    {
+                        "type": "BODY",
+                        "text": "Hello {{1}},\n\nYour Supershyft {{2}} consultation",
+                        "example": {"body_text": [["Name", "Doc/nutr"]]},
+                    }
+                ],
+            }
+        ]
+    }
+    out = normalize_template_response(raw)
+    assert out is not None
+    assert out["body_example_values"] == ["Name", "Doc/nutr"]
+    assert "{{1}}" in out["body_text"]
+
+
 def test_normalize_template_header_infers_document_from_example_handle():
     raw = {
         "data": [
