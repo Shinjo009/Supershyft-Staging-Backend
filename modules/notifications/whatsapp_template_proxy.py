@@ -61,6 +61,23 @@ def template_requires_header_media(components: list[dict[str, Any]], header_form
     return False
 
 
+def _header_example_url(components: list[dict[str, Any]]) -> str | None:
+    for comp in components:
+        if str(comp.get("type") or "").upper() != "HEADER":
+            continue
+        example = comp.get("example")
+        if not isinstance(example, dict):
+            return None
+        handles = example.get("header_handle")
+        if not isinstance(handles, list):
+            return None
+        for handle in handles:
+            if isinstance(handle, str) and handle.strip():
+                return handle.strip()
+        return None
+    return None
+
+
 def _body_example_values(components: list[dict[str, Any]]) -> list[str]:
     for comp in components:
         if str(comp.get("type") or "").upper() != "BODY":
@@ -101,6 +118,7 @@ def normalize_template_response(raw: dict[str, Any]) -> dict[str, Any] | None:
             body_text = str(comp.get("text") or "")
             break
     header_format = _header_format(components)
+    header_example = _header_example_url(components)
     return {
         "name": str(item.get("name") or ""),
         "language": str(item.get("language") or ""),
@@ -109,6 +127,7 @@ def normalize_template_response(raw: dict[str, Any]) -> dict[str, Any] | None:
         "parameter_format": str(item.get("parameter_format") or ""),
         "body_positional_count": _count_body_positional_params(components),
         "header_format": header_format,
+        "header_example_url": header_example,
         "requires_header_document": template_requires_header_media(components, header_format),
         "component_types": _component_types(components),
         "body_text": body_text,

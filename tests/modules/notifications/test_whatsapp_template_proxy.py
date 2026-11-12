@@ -90,3 +90,45 @@ def test_normalize_template_header_infers_document_from_example_handle():
     out = normalize_template_response(raw)
     assert out is not None
     assert out["requires_header_document"] is True
+    assert out["header_example_url"] == "https://example.com/a.pdf"
+
+
+def test_normalize_template_response_header_example_image_and_video():
+    image_raw = {
+        "data": [
+            {
+                "name": "send_msg",
+                "components": [
+                    {
+                        "type": "HEADER",
+                        "format": "IMAGE",
+                        "example": {"header_handle": ["https://example.com/sample.png"]},
+                    },
+                    {"type": "BODY", "text": "Hi {{1}}"},
+                ],
+            }
+        ]
+    }
+    video_raw = {
+        "data": [
+            {
+                "name": "inst_doc_2",
+                "components": [
+                    {
+                        "type": "HEADER",
+                        "format": "VIDEO",
+                        "example": {"header_handle": ["https://example.com/sample.mp4"]},
+                    },
+                    {"type": "BODY", "text": "Hi {{1}}"},
+                ],
+            }
+        ]
+    }
+    image = normalize_template_response(image_raw)
+    video = normalize_template_response(video_raw)
+    assert image is not None
+    assert image["header_format"] == "IMAGE"
+    assert image["header_example_url"] == "https://example.com/sample.png"
+    assert video is not None
+    assert video["header_format"] == "VIDEO"
+    assert video["header_example_url"] == "https://example.com/sample.mp4"
