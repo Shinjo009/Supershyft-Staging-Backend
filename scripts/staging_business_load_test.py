@@ -41,7 +41,7 @@ if str(_ROOT) not in sys.path:
 DEFAULT_API = os.getenv("STAGING_API", "https://staging-api.supershyft.com")
 SINK_PHONE = "8762830757"
 SINK_EMAIL = "pratheek.fitnastic@gmail.com"
-PHONE_PREFIX = "999"  # 10-digit phones: 9990000001 …
+PHONE_PREFIX = os.getenv("LOAD_TEST_PHONE_PREFIX", "999")  # 10-digit phones: 9990000001 …
 
 
 @dataclass
