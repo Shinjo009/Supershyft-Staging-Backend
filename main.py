@@ -59,6 +59,7 @@ from modules.discounts.router import router as discounts_router
 from modules.export_logs.router import router as export_logs_router
 from modules.dashboard.router import router as dashboard_router
 from modules.blog.router import router as blog_router
+from modules.notifications.delivery_scheduler import bind_notification_delivery_scheduler
 
 
 # Configure logging
@@ -70,7 +71,10 @@ app = FastAPI(
     description="Supershyft health platform",
     version=settings.APP_VERSION,
     debug=settings.DEBUG,
-    dependencies=[Depends(authorize_inferior_admin_request)],
+    dependencies=[
+        Depends(authorize_inferior_admin_request),
+        Depends(bind_notification_delivery_scheduler),
+    ],
 )
 
 add_exception_handlers(app)

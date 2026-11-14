@@ -73,14 +73,19 @@ async def partner_send_otp(
     )
     await db.commit()
     if delivery is not None:
-        await auth_service.deliver_otp(
-            db,
+        from modules.notifications.delivery_scheduler import get_delivery_scheduler
+        from modules.notifications.otp_delivery_schedule import schedule_staff_otp_delivery
+
+        await schedule_staff_otp_delivery(
+            deliver_fn=auth_service.deliver_otp,
+            db=db,
             delivery=delivery,
             request_phone=str(payload.phone) if payload.phone else None,
             request_email=str(payload.email) if payload.email else None,
             notify_all_channels=payload.phone is not None,
         )
-        await db.commit()
+        if not get_delivery_scheduler().defer_enabled:
+            await db.commit()
     return success_response({"session_id": session_id})
 
 

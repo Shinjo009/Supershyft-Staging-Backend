@@ -466,7 +466,14 @@ async def fastapi_app(
 ) -> FastAPI:
     """FastAPI app wired to the real DB and a capturing notifications service."""
 
-    app = FastAPI(dependencies=[Depends(authorize_inferior_admin_request)])
+    from modules.notifications.delivery_scheduler import bind_notification_delivery_scheduler
+
+    app = FastAPI(
+        dependencies=[
+            Depends(authorize_inferior_admin_request),
+            Depends(bind_notification_delivery_scheduler),
+        ],
+    )
     add_exception_handlers(app)
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

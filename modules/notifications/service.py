@@ -28,6 +28,7 @@ from modules.notifications.schemas import (
     NotificationServiceUpdate,
     SessionDetails,
 )
+from modules.notifications.delivery_scheduler import PendingDeliverJob, get_delivery_scheduler
 from modules.notifications.direct_dispatch import DirectNotificationDispatch, get_direct_dispatch
 from modules.notifications.dispatch_routing import (
     should_use_n8n_webhook,
@@ -550,7 +551,7 @@ class NotificationsService:
         notification = await self._repo.create_notification(db, notification)
 
         sync_log_user_id = payload.user_ids[0] if len(payload.user_ids) == 1 else None
-        return await self._route_and_deliver(
+        return await self._finalize_dispatch(
             db,
             svc=svc,
             notification=notification,
@@ -669,7 +670,7 @@ class NotificationsService:
         )
         notification = await self._repo.create_notification(db, notification)
 
-        return await self._route_and_deliver(
+        return await self._finalize_dispatch(
             db,
             svc=svc,
             notification=notification,
@@ -677,6 +678,72 @@ class NotificationsService:
             engagement_id=engagement_id,
             participant_details=participant_details,
             sync_log_user_id=None,
+        )
+
+    async def _execute_deliver_job(
+        self,
+        db: AsyncSession,
+        job: PendingDeliverJob,
+    ) -> None:
+        svc = await self._repo.get_service_by_key(db, service_key=job.service_key)
+        notification = await self._repo.get_notification_by_id(db, notification_id=job.notification_id)
+        if svc is None or notification is None:
+            logger.error(
+                "Deferred dispatch skipped: notification_id=%s service_key=%s",
+                job.notification_id,
+                job.service_key,
+            )
+            return
+        await self._route_and_deliver(
+            db,
+            svc=svc,
+            notification=notification,
+            members=job.members,
+            engagement_id=job.engagement_id,
+            participant_details=job.participant_details,
+            sync_log_user_id=job.sync_log_user_id,
+        )
+
+    async def _finalize_dispatch(
+        self,
+        db: AsyncSession,
+        *,
+        svc: NotificationService,
+        notification: Notification,
+        members: list[dict],
+        engagement_id: int | None,
+        participant_details: dict | None,
+        sync_log_user_id: int | None,
+    ) -> dict:
+        job = PendingDeliverJob(
+            notification_id=int(notification.notification_id),
+            service_key=str(svc.service_key),
+            members=members,
+            engagement_id=engagement_id,
+            participant_details=participant_details,
+            sync_log_user_id=sync_log_user_id,
+        )
+        scheduler = get_delivery_scheduler()
+
+        async def _run(session: AsyncSession) -> None:
+            await self._execute_deliver_job(session, job)
+
+        if scheduler.defer_enabled:
+            await scheduler.invoke(_run, db=db)
+            return {
+                "notification_id": notification.notification_id,
+                "status": "pending",
+                "message": "Notification dispatch initiated",
+            }
+
+        return await self._route_and_deliver(
+            db,
+            svc=svc,
+            notification=notification,
+            members=members,
+            engagement_id=engagement_id,
+            participant_details=participant_details,
+            sync_log_user_id=sync_log_user_id,
         )
 
     # ── Callback ────────────────────────────────────────────────────────

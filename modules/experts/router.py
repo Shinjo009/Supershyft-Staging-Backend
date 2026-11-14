@@ -391,8 +391,16 @@ async def portal_send_camp_consultation_request_otp(
     )
     await db.commit()
     if delivery is not None:
-        await auth_service.deliver_otp_via_notifications(db, delivery=delivery)
-        await db.commit()
+        from modules.notifications.delivery_scheduler import get_delivery_scheduler
+        from modules.notifications.otp_delivery_schedule import schedule_auth_otp_deliveries
+
+        await schedule_auth_otp_deliveries(
+            auth_service=auth_service,
+            db=db,
+            deliveries=[delivery],
+        )
+        if not get_delivery_scheduler().defer_enabled:
+            await db.commit()
     return success_response(data)
 
 
@@ -454,8 +462,16 @@ async def portal_send_camp_consultation_update_consent_otp(
     )
     await db.commit()
     if delivery is not None:
-        await auth_service.deliver_otp_via_notifications(db, delivery=delivery)
-        await db.commit()
+        from modules.notifications.delivery_scheduler import get_delivery_scheduler
+        from modules.notifications.otp_delivery_schedule import schedule_auth_otp_deliveries
+
+        await schedule_auth_otp_deliveries(
+            auth_service=auth_service,
+            db=db,
+            deliveries=[delivery],
+        )
+        if not get_delivery_scheduler().defer_enabled:
+            await db.commit()
     return success_response(data)
 
 

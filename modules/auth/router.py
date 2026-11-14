@@ -20,6 +20,8 @@ from modules.auth.schemas import (
     build_otp_delivery_response,
 )
 from modules.auth.service import AuthService
+from modules.notifications.delivery_scheduler import get_delivery_scheduler
+from modules.notifications.otp_delivery_schedule import schedule_auth_otp_deliveries
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -43,17 +45,17 @@ async def send_otp(
     )
     await db.commit()
 
-    # Await delivery so WhatsApp/email failures surface on send-otp instead of
-    # leaving a session that always 401s on verify-otp.
     if delivery is not None:
-        await auth_service.deliver_otp_via_notifications(
-            db,
-            delivery=delivery,
+        await schedule_auth_otp_deliveries(
+            auth_service=auth_service,
+            db=db,
+            deliveries=[delivery],
             request_phone=str(payload.phone) if payload.phone else None,
             request_email=str(payload.email) if payload.email else None,
             notify_all_channels=payload.phone is not None,
         )
-        await db.commit()
+        if not get_delivery_scheduler().defer_enabled:
+            await db.commit()
 
     return success_response(
         build_otp_delivery_response(session_id, [delivery] if delivery is not None else [])
@@ -80,14 +82,15 @@ async def resend_otp(
     await db.commit()
 
     if deliveries:
-        for delivery in deliveries:
-            await auth_service.deliver_otp_via_notifications(
-                db,
-                delivery=delivery,
-                request_phone=str(payload.phone) if payload.phone else None,
-                request_email=str(payload.email) if payload.email else None,
-            )
-        await db.commit()
+        await schedule_auth_otp_deliveries(
+            auth_service=auth_service,
+            db=db,
+            deliveries=deliveries,
+            request_phone=str(payload.phone) if payload.phone else None,
+            request_email=str(payload.email) if payload.email else None,
+        )
+        if not get_delivery_scheduler().defer_enabled:
+            await db.commit()
 
     return success_response(build_otp_delivery_response(session_id, deliveries))
 

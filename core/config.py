@@ -83,6 +83,9 @@ class Settings:
     BYPASS_OTP_BY_PHONE: str = os.getenv("BYPASS_OTP_BY_PHONE", "")
     OTP_PHONE_SERVICE_KEY: str = os.getenv("OTP_PHONE_SERVICE_KEY", "whatapi-otp")
     OTP_EMAIL_SERVICE_KEY: str = os.getenv("OTP_EMAIL_SERVICE_KEY", "email-otp")
+    NOTIFICATION_DEFER_HTTP_DELIVERY: bool = (
+        os.getenv("NOTIFICATION_DEFER_HTTP_DELIVERY", "true").lower() == "true"
+    )
 
     # Server health monitoring (read-only SQLite from cron health-check script)
     HEALTH_CHECK_DB_PATH: str = os.getenv(

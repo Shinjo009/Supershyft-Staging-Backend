@@ -3225,7 +3225,13 @@ class UsersService:
                 endpoint=endpoint,
             )
             if delivery is not None:
-                await auth_service.deliver_otp_via_notifications(db, delivery=delivery)
+                from modules.notifications.otp_delivery_schedule import schedule_auth_otp_deliveries
+
+                await schedule_auth_otp_deliveries(
+                    auth_service=auth_service,
+                    db=db,
+                    deliveries=[delivery],
+                )
             if self._audit_service is not None:
                 await self._audit_service.log_event(
                     db,
@@ -3991,7 +3997,13 @@ class UsersService:
             endpoint=endpoint,
         )
         if delivery is not None:
-            await auth_service.deliver_otp_via_notifications(db, delivery=delivery)
+            from modules.notifications.otp_delivery_schedule import schedule_auth_otp_deliveries
+
+            await schedule_auth_otp_deliveries(
+                auth_service=auth_service,
+                db=db,
+                deliveries=[delivery],
+            )
 
         if self._audit_service is not None:
             await self._audit_service.log_event(

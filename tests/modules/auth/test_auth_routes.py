@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
+
 import pytest
 from sqlalchemy import select
 
@@ -662,3 +665,35 @@ async def test_resend_otp_replaces_existing_session(async_client, test_db_sessio
     ).scalars().all()
     assert len(sessions) == 1
     assert sessions[0].session_id == second_session_id
+
+
+@pytest.mark.asyncio
+async def test_send_otp_returns_before_slow_delivery(async_client, test_db_session, monkeypatch):
+    test_db_session.add(
+        User(user_id=9405, age=30, phone="9401000005", status="active", email="user9405@example.com")
+    )
+    await test_db_session.commit()
+
+    capture = async_client._transport.app.state.capturing_notifications_service
+    capture.last_dispatch = None
+
+    real_deliver = None
+
+    async def slow_deliver(db, **kwargs):
+        await asyncio.sleep(0.35)
+        if real_deliver is not None:
+            await real_deliver(db, **kwargs)
+
+    from modules.auth.service import AuthService
+
+    real_deliver = AuthService.deliver_otp_via_notifications
+    monkeypatch.setattr(AuthService, "deliver_otp_via_notifications", slow_deliver)
+
+    started = time.perf_counter()
+    response = await async_client.post("/auth/send-otp", json={"phone": "9401000005"})
+    elapsed = time.perf_counter() - started
+
+    assert response.status_code == 200
+    assert elapsed < 0.25
+    assert capture.last_dispatch is not None
+    assert capture.last_dispatch["service_key"] == "whatapi-otp"
