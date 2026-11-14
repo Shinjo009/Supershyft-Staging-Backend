@@ -1,7 +1,6 @@
 """Command Center bootstrap + drill-downs for admin dashboard.
 
 Canonical B2B/B2C: engagements.organization_id IS NOT NULL / IS NULL.
-See docs/dashboard-kpi-reference.md.
 """
 
 from __future__ import annotations
