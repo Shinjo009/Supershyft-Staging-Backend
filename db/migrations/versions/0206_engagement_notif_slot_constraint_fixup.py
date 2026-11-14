@@ -63,12 +63,12 @@ def upgrade() -> None:
         "engagement_notifications_engagement_id_notification_event_id_key",
         "uq_engagement_notification_slot",
     ):
-        conn.execute(text(f'DROP INDEX IF EXISTS public."{constraint}"'))
         conn.execute(
             text(
                 f'ALTER TABLE engagement_notifications DROP CONSTRAINT IF EXISTS "{constraint}"'
             )
         )
+        conn.execute(text(f'DROP INDEX IF EXISTS public."{constraint}"'))
 
     op.create_unique_constraint(
         "uq_engagement_notification_slot",
