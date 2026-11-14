@@ -612,7 +612,7 @@ def main() -> int:
     parser.add_argument("--bypass-otp", default=None)
     parser.add_argument("--seed-db", action="store_true", help="Insert missing load-test users (staging host)")
     parser.add_argument("--cleanup", action="store_true", help="Delete bot-*@example.com users after test")
-    parser.add_argument("--report", default="docs/ops/load_test_report.json")
+    parser.add_argument("--report", default="scripts/output/load_test_report.json")
     parser.add_argument("--seed", type=int, default=7, help="RNG seed for scenario mix")
     parser.add_argument(
         "--forwarded-for",

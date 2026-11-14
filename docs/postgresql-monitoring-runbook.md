@@ -60,12 +60,13 @@ Keep `workers × (pool_size + max_overflow) + cron_headroom < max_connections`.
 
 ## Staged concurrency testing
 
-From `dev-api/`:
+From `dev-api/` (optional HTTP load while you watch pool queries):
 
 ```bash
-python scripts/concurrency_test.py --url https://staging-api.example.com/health --users 50 --duration 60
+python scripts/staging_business_load_test.py --dry-run --max-bots 200 --concurrency 50
+python scripts/staging_business_load_test.py --yes --max-bots 200 --concurrency 50 --mode smoke --api https://staging-api.supershyft.com
 ```
 
-Run at 10 / 25 / 50 / 100 / 200 concurrent users while monitoring the queries above.
+Run at rising concurrency while monitoring the queries above.
 
 **Pass criteria:** p95 latency stable; no growth in `idle in transaction` count over 5 minutes; pool checked-out bounded.
