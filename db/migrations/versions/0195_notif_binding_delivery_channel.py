@@ -29,6 +29,57 @@ def _drop_legacy_binding_uniques(conn) -> None:
         conn.execute(text(f'ALTER TABLE notification_events DROP CONSTRAINT IF EXISTS "{name}"'))
 
 
+def _dedupe_binding_slots(conn) -> None:
+    """Merge rows that share event_code/recipient/engagement_type/delivery_channel (multi-service split)."""
+    dupes = conn.execute(
+        text(
+            """
+            SELECT event_code, recipient_type, engagement_type_id, delivery_channel,
+                   array_agg(id ORDER BY id) AS ids
+            FROM notification_events
+            GROUP BY 1, 2, 3, 4
+            HAVING COUNT(*) > 1
+            """
+        )
+    ).all()
+    for grp in dupes:
+        ids = list(grp.ids)
+        keep_id = ids[0]
+        merged: list[dict] = []
+        seen: set[str] = set()
+        for rid in ids:
+            raw = conn.execute(
+                text("SELECT notification_services FROM notification_events WHERE id = :id"),
+                {"id": rid},
+            ).scalar_one()
+            if isinstance(raw, str):
+                chunk = json.loads(raw) if raw else []
+            elif isinstance(raw, list):
+                chunk = raw
+            else:
+                chunk = []
+            for item in chunk:
+                if isinstance(item, dict) and item.get("service_key"):
+                    sk = str(item["service_key"])
+                elif isinstance(item, str) and item.strip():
+                    sk = item.strip()
+                    item = {"service_key": sk}
+                else:
+                    continue
+                if sk in seen:
+                    continue
+                seen.add(sk)
+                merged.append(item if isinstance(item, dict) else {"service_key": sk})
+        conn.execute(
+            text(
+                "UPDATE notification_events SET notification_services = CAST(:s AS json) WHERE id = :id"
+            ),
+            {"id": keep_id, "s": json.dumps(merged)},
+        )
+        for rid in ids[1:]:
+            conn.execute(text("DELETE FROM notification_events WHERE id = :id"), {"id": rid})
+
+
 def upgrade() -> None:
     op.execute(
         text(
@@ -129,6 +180,7 @@ def upgrade() -> None:
     op.alter_column("notification_events", "delivery_channel", nullable=False)
 
     _drop_legacy_binding_uniques(conn)
+    _dedupe_binding_slots(conn)
     op.create_unique_constraint(
         "uq_notification_events_binding",
         "notification_events",
