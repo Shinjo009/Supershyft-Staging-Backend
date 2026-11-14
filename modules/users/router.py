@@ -14,7 +14,7 @@ from common.validation import ValidationError
 from core.dependencies import get_current_user
 from core.exceptions import AppError
 from core.network import get_client_ip
-from core.rate_limit import limiter
+from core.rate_limit import limiter, user_onboard_rate_limit
 from db.session import get_db
 from modules.auth.dependencies import get_auth_service
 from modules.auth.service import AuthService
@@ -125,7 +125,7 @@ async def confirm_family_onboard_payment(
 
 
 @router.post("/public/onboard")
-@limiter.limit("3/minute")
+@limiter.limit(user_onboard_rate_limit)
 async def public_onboard_user(
     payload: PublicUserOnboardRequest,
     request: Request,
@@ -165,7 +165,7 @@ async def public_vifc_quick_start(
 
 
 @router.post("/code/{engagement_code}/onboard")
-@limiter.limit("3/minute")
+@limiter.limit(user_onboard_rate_limit)
 async def onboard_user_for_engagement(
     engagement_code: str,
     payload: EngagementUserOnboardRequest,

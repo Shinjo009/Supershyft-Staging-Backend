@@ -11,6 +11,7 @@ from modules.engagement_notifications.service_config import (
     get_external_link_for_service,
 )
 from modules.notifications.binding_resolver import BindingResolver
+from modules.notifications.deliverable_contact import is_deliverable_email
 from modules.notifications.events_catalog import get_event
 from modules.notifications.recipient_resolver import RecipientResolver
 from modules.notifications.repository import NotificationsRepository
@@ -123,6 +124,31 @@ class NotificationEngine:
                             event_code,
                         )
                         continue
+
+                    if str(svc.channel or "").lower() == "email":
+                        if target.user_ids:
+                            users = await self._notifications_repository.get_users_by_ids(
+                                db, user_ids=target.user_ids
+                            )
+                            if not any(is_deliverable_email(u.email) for u in users):
+                                logger.info(
+                                    "Emit skip: no deliverable email for service=%s event=%s users=%s",
+                                    service_key,
+                                    event_code,
+                                    target.user_ids,
+                                )
+                                continue
+                        elif target.contacts:
+                            if not any(
+                                is_deliverable_email(str(c.get("email") or ""))
+                                for c in target.contacts
+                            ):
+                                logger.info(
+                                    "Emit skip: no deliverable email on contacts service=%s event=%s",
+                                    service_key,
+                                    event_code,
+                                )
+                                continue
 
                     ext_link = get_external_link_for_service(
                         binding.notification_services, service_key

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.responses import success_response
 from core.dependencies import get_current_user
 from core.network import get_client_ip
-from core.rate_limit import limiter
+from core.rate_limit import auth_otp_rate_limit, limiter, verify_otp_rate_limit
 from db.session import get_db
 from modules.auth.dependencies import get_auth_service
 from modules.auth.schemas import (
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/send-otp")
-@limiter.limit("5/minute")
+@limiter.limit(auth_otp_rate_limit)
 async def send_otp(
     payload: SendOtpRequest,
     request: Request,
@@ -63,7 +63,7 @@ async def send_otp(
 
 
 @router.post("/resend-otp")
-@limiter.limit("5/minute")
+@limiter.limit(auth_otp_rate_limit)
 async def resend_otp(
     payload: ResendOtpRequest,
     request: Request,
@@ -96,7 +96,7 @@ async def resend_otp(
 
 
 @router.post("/verify-otp")
-@limiter.limit("10/minute")
+@limiter.limit(verify_otp_rate_limit)
 async def verify_otp(
     payload: VerifyOtpRequest,
     request: Request,

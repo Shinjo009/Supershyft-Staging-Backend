@@ -81,6 +81,58 @@ async def test_emit_payload_binding_uses_dispatch_to_contacts(test_db_session):
 
 
 @pytest.mark.asyncio
+async def test_emit_skips_email_otp_when_user_email_not_deliverable():
+    engine = NotificationEngine(
+        binding_resolver=MagicMock(),
+        recipient_resolver=MagicMock(),
+        notifications_service=AsyncMock(),
+        notifications_repository=AsyncMock(),
+    )
+    engine._binding_resolver.resolve = AsyncMock(
+        return_value=[
+            ResolvedBinding(
+                recipient_type="user",
+                notification_services=[
+                    {"service_key": "whatapi-otp"},
+                    {"service_key": "email-otp"},
+                ],
+                event_name="OTP",
+            )
+        ]
+    )
+    engine._recipient_resolver.resolve = AsyncMock(
+        return_value=MagicMock(user_ids=[1], contacts=[])
+    )
+    wa_svc = MagicMock()
+    wa_svc.is_active = True
+    wa_svc.channel = "whatsapp"
+    email_svc = MagicMock()
+    email_svc.is_active = True
+    email_svc.channel = "email"
+
+    async def _get_service(db, service_key):
+        if service_key == "whatapi-otp":
+            return wa_svc
+        if service_key == "email-otp":
+            return email_svc
+        return None
+
+    engine._notifications_repository.get_service_by_key = AsyncMock(side_effect=_get_service)
+    user = MagicMock()
+    user.email = "adi.family@example.com"
+    engine._notifications_repository.get_users_by_ids = AsyncMock(return_value=[user])
+    engine._notifications_service.dispatch = AsyncMock(return_value={"notification_id": 11})
+
+    ids = await engine.emit(
+        AsyncMock(),
+        event_code="auth.otp_sent",
+        context={"user_id": 1, "otp_notify_all_channels": True},
+    )
+    assert ids == [11]
+    assert engine._notifications_service.dispatch.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_legacy_onboarding_maps_to_users_onboarded(test_db_session):
     from modules.notifications.events_catalog import map_legacy_event_code
 

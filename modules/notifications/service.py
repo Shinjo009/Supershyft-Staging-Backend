@@ -694,15 +694,30 @@ class NotificationsService:
                 job.service_key,
             )
             return
-        await self._route_and_deliver(
-            db,
-            svc=svc,
-            notification=notification,
-            members=job.members,
-            engagement_id=job.engagement_id,
-            participant_details=job.participant_details,
-            sync_log_user_id=job.sync_log_user_id,
-        )
+        try:
+            await self._route_and_deliver(
+                db,
+                svc=svc,
+                notification=notification,
+                members=job.members,
+                engagement_id=job.engagement_id,
+                participant_details=job.participant_details,
+                sync_log_user_id=job.sync_log_user_id,
+            )
+        except Exception as exc:
+            logger.exception(
+                "Deferred dispatch failed: notification_id=%s service_key=%s",
+                job.notification_id,
+                job.service_key,
+            )
+            await self._repo.update_notification(
+                db,
+                notification_id=job.notification_id,
+                values={
+                    "status": "failed",
+                    "message": f"Deferred dispatch failed: {exc}"[:500],
+                },
+            )
 
     async def _finalize_dispatch(
         self,

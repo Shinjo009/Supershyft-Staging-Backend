@@ -86,6 +86,9 @@ class Settings:
     NOTIFICATION_DEFER_HTTP_DELIVERY: bool = (
         os.getenv("NOTIFICATION_DEFER_HTTP_DELIVERY", "true").lower() == "true"
     )
+    LOAD_TEST_RATE_LIMIT_RELAXED: bool = (
+        os.getenv("LOAD_TEST_RATE_LIMIT_RELAXED", "false").lower() == "true"
+    )
 
     # Server health monitoring (read-only SQLite from cron health-check script)
     HEALTH_CHECK_DB_PATH: str = os.getenv(
