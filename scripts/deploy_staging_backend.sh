@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Server: ~/scripts/deploy_staging_backend.sh (sync from this file after deploy).
-# Syncs staging API (+ optional admin), runs migrations, restarts a single uvicorn on 8102.
+# Syncs staging API (+ optional admin), runs migrations, restarts uvicorn on 8102 (default 4 workers).
 set -euo pipefail
 
 API_DIR="${STAGING_API_ROOT:-/var/www/staging-api}"
@@ -9,12 +9,14 @@ GIT_BRANCH="${STAGING_GIT_BRANCH:-main}"
 DEPLOY_ADMIN="${DEPLOY_STAGING_ADMIN:-1}"
 RUN_SEED="${STAGING_RUN_POST_DEPLOY:-0}"
 API_PORT="${STAGING_API_PORT:-8102}"
+UVICORN_WORKERS="${STAGING_UVICORN_WORKERS:-4}"
 
 _stop_staging_api() {
   if command -v systemctl >/dev/null 2>&1; then
     systemctl stop staging-api.service 2>/dev/null || true
   fi
   pkill -f "uvicorn main:app --host 127.0.0.1 --port ${API_PORT}" 2>/dev/null || true
+  pkill -f "multiprocessing.spawn import spawn_main" 2>/dev/null || true
   sleep 1
   if command -v fuser >/dev/null 2>&1; then
     fuser -k "${API_PORT}/tcp" 2>/dev/null || true
@@ -33,7 +35,7 @@ _start_staging_api() {
   cd "$API_DIR"
   # shellcheck disable=SC1091
   source venv/bin/activate
-  nohup uvicorn main:app --host 127.0.0.1 --port "${API_PORT}" >>/tmp/staging-api.log 2>&1 &
+  nohup uvicorn main:app --host 127.0.0.1 --port "${API_PORT}" --workers "${UVICORN_WORKERS}" >>/tmp/staging-api.log 2>&1 &
   sleep 2
   curl -sf "http://127.0.0.1:${API_PORT}/health" >/dev/null
 }

@@ -4,6 +4,10 @@
 
 Simulate **1000 users at the same time**, each doing real work: **onboard → OTP login → profile → assessments → questionnaire saves**. Use this to see whether **uvicorn** and **Postgres** stay up (not just whether one endpoint returns 200).
 
+## Staging API process model
+
+Staging runs **4 uvicorn workers** (`staging-api.service` / `deploy_staging_backend.sh`). Each worker has its own DB pool; keep `4 * (DATABASE_POOL_SIZE + DATABASE_MAX_OVERFLOW)` under Postgres `max_connections`.
+
 ## 1. Staging API prep (required)
 
 On the staging API host, in `.env` for the test window:
