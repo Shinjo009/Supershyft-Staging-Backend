@@ -89,6 +89,10 @@ class Settings:
     LOAD_TEST_RATE_LIMIT_RELAXED: bool = (
         os.getenv("LOAD_TEST_RATE_LIMIT_RELAXED", "false").lower() == "true"
     )
+    # Migration / maintenance: block WhatAPI, SMTP, and n8n webhook dispatches.
+    NOTIFICATION_OUTBOUND_DISABLED: bool = (
+        os.getenv("NOTIFICATION_OUTBOUND_DISABLED", "false").lower() == "true"
+    )
 
     # Server health monitoring (read-only SQLite from cron health-check script)
     HEALTH_CHECK_DB_PATH: str = os.getenv(

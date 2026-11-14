@@ -169,6 +169,22 @@ class NotificationsService:
         participant_details: dict | None,
         sync_log_user_id: int | None,
     ) -> dict:
+        if settings.NOTIFICATION_OUTBOUND_DISABLED:
+            await self._repo.update_notification(
+                db,
+                notification_id=notification.notification_id,
+                values={
+                    "status": "skipped",
+                    "message": "Outbound disabled (NOTIFICATION_OUTBOUND_DISABLED)",
+                    "dispatched_at": datetime.now(timezone.utc),
+                },
+            )
+            return {
+                "notification_id": notification.notification_id,
+                "status": "skipped",
+                "message": "Outbound disabled",
+            }
+
         webhook_url = (
             settings.NOTIFICATION_SERVICE_BASE_URL.rstrip("/")
             + "/"

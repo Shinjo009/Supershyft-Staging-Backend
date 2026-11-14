@@ -37,6 +37,7 @@ from modules.notifications.whatapi_client import (
     send_messages_request_url,
     whatapi_auth_descriptor,
 )
+from core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,12 @@ class DirectNotificationDispatch:
         engagement_id: int | None = None,
         sync_log_user_id: int | None = None,
     ) -> DeliverResult:
+        if settings.NOTIFICATION_OUTBOUND_DISABLED:
+            return DeliverResult(
+                status="skipped",
+                message="Outbound notifications disabled (NOTIFICATION_OUTBOUND_DISABLED)",
+                completed_at=datetime.now(timezone.utc),
+            )
         if svc.channel == "email":
             return await self._deliver_email_batch(
                 svc=svc,
