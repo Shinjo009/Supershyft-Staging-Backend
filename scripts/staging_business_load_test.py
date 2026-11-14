@@ -158,7 +158,7 @@ def _onboard_payload(bot_id: int, phone: str, email: str, *, engagement_code: st
     payload: dict[str, Any] = {
         "age": 28,
         "first_name": "Load",
-        "last_name": f"Bot{bot_id}",
+        "last_name": "Test",
         "email": email,
         "phone": phone,
         "gender": "male",
