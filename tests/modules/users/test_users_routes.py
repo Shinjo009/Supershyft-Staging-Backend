@@ -756,3 +756,58 @@ async def test_upcoming_slot_camp_collection_uses_engagement_address(async_clien
     loc = response.json()["data"]["slots"][0]["location"]
     assert loc["type"] == "venue"
     assert loc["display"] == "Camp Venue Address"
+
+
+@pytest.mark.asyncio
+async def test_upcoming_slot_only_scheduled_or_running_engagements(async_client, test_db_session):
+    slot_date = date.today() + timedelta(days=40)
+    user = User(user_id=99010, age=30, phone="990100000000", status="active", first_name="Status")
+    test_db_session.add(user)
+    await test_db_session.flush()
+
+    cases = (
+        (990101, "UPCOMING-DRAFT-99010", "draft"),
+        (990102, "UPCOMING-SCHED-99010", "scheduled"),
+        (990103, "UPCOMING-RUN-99010", "running"),
+        (990104, "UPCOMING-DONE-99010", "completed"),
+        (990105, "UPCOMING-CANCEL-99010", "cancelled"),
+    )
+    for engagement_id, code, status in cases:
+        test_db_session.add(
+            Engagement(
+                engagement_id=engagement_id,
+                engagement_name=f"Status {status}",
+                organization_id=None,
+                engagement_code=code,
+                city="BLR",
+                slot_duration=30,
+                blood_collection_type=BloodCollectionType.home_collection,
+                start_date=slot_date,
+                end_date=slot_date,
+                status=status,
+            )
+        )
+        await test_db_session.flush()
+        participant_id = engagement_id
+        test_db_session.add(
+            EngagementParticipant(
+                engagement_participant_id=participant_id,
+                engagement_id=engagement_id,
+                user_id=99010,
+                booked_by_user_id=99010,
+            )
+        )
+        await test_db_session.flush()
+        await _seed_upcoming_slot_pbb(
+            test_db_session,
+            participant_id=participant_id,
+            slot_date=slot_date,
+            slot_time=time(9, 0),
+        )
+
+    response = await async_client.get("/users/me/upcoming-slot", headers=_auth_header(99010))
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["has_scheduled_slot"] is True
+    codes = {slot["engagement"]["engagement_code"] for slot in data["slots"]}
+    assert codes == {"UPCOMING-SCHED-99010", "UPCOMING-RUN-99010"}
