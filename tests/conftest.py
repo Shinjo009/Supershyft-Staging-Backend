@@ -406,7 +406,6 @@ async def _ensure_otp_notification_services(session: AsyncSession) -> None:
                     service_key=sk,
                     display_name=extra["display_name"],
                     channel=channel,
-                    webhook_path="",
                     is_active=True,
                     require_otp=extra.get("require_otp", False),
                     template_name=extra.get("template_name"),

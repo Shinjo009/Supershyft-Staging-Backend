@@ -1,4 +1,4 @@
-"""Expire notifications stuck in pending without an n8n callback.
+"""Expire notifications stuck in pending without a delivery callback.
 
 Entrypoint: ``python -m db.jobs.expire_stale_notifications --yes``
 """

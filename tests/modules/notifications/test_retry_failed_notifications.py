@@ -90,7 +90,7 @@ async def _seed_service(
             "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, "
             "require_blood_report_url, require_bio_ai_report_url, require_participant_detail, "
             "require_otp, require_session_details, require_external_link) "
-            "VALUES (:sk, :dn, :ch, 'test-webhook', true, false, false, "
+            "VALUES (:sk, :dn, :ch, 'test_tpl', 'Test', 'Test', true, false, false, "
             ":rpd, :rotp, :rsd, :rel) "
             "ON CONFLICT (service_key) DO UPDATE SET "
             "channel = EXCLUDED.channel, require_otp = EXCLUDED.require_otp, "

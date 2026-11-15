@@ -38,7 +38,7 @@ async def _seed_bioai_participant(
             "INSERT INTO notification_services "
             "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, "
             "require_blood_report_url, require_bio_ai_report_url, require_participant_detail) "
-            "VALUES (:sk, :dn, 'email', 'test-webhook', true, false, false, false) "
+            "VALUES (:sk, :dn, 'email', NULL, 'Test', 'Test', true, false, false, false) "
             "ON CONFLICT (service_key) DO NOTHING"
         ),
         {"sk": "booking-alert-whatsapp", "dn": "booking-alert-whatsapp"},
