@@ -52,3 +52,32 @@ async def test_employee_me_includes_pending_task_count(async_client, test_db_ses
     body = response.json()["data"]
     assert "pending_task_count" in body
     assert isinstance(body["pending_task_count"], int)
+
+
+@pytest.mark.asyncio
+async def test_command_notification_health_shape(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=8810, role="admin")
+    response = await async_client.get(
+        "/admin/dashboard/command/notification-health",
+        params={"period": "all_time"},
+        headers=employee_auth_header(8810),
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert set(data.keys()) >= {"sent", "failed", "pending", "total"}
+    assert response.json()["meta"]["period"] == "all_time"
+
+
+@pytest.mark.asyncio
+async def test_command_people_registered_count_only(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=8811, role="admin")
+    response = await async_client.get(
+        "/admin/dashboard/command/people-registered",
+        params={"period": "all_time", "include_rows": "false"},
+        headers=employee_auth_header(8811),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"] == []
+    assert "total" in body["meta"]
+    assert isinstance(body["meta"]["total"], int)
