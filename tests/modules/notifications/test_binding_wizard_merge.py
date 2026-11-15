@@ -131,7 +131,13 @@ async def test_create_binding_wizard_merges_same_slot_services(test_db_session):
     await test_db_session.commit()
 
     assert first.id == second.id
-    keys = {s.service_key for s in second.notification_services}
+
+    def _service_key(entry: object) -> str:
+        if isinstance(entry, dict):
+            return str(entry.get("service_key") or "")
+        return str(getattr(entry, "service_key", "") or "")
+
+    keys = {_service_key(s) for s in (second.notification_services or [])}
     assert keys == {wa1.service_key, wa2.service_key}
 
     rows = (
