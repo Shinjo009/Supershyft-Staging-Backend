@@ -15,7 +15,10 @@ from modules.notifications.service import NotificationsService
 from modules.users.models import User
 
 from tests.modules.notifications.dispatch_mocks import patch_service_direct_deliver
-from tests.modules.notifications.sql_helpers import engagement_status_code
+from tests.modules.notifications.sql_helpers import (
+    engagement_status_code,
+    insert_participant_blood_slot,
+)
 
 QR_SERVICE_KEY = "qr-reminder-whatsapp"
 ENGAGEMENT_DATE = "2026-06-10"
@@ -109,18 +112,12 @@ async def _insert_participant(
         User(user_id=user_id, age=30, phone=f"{user_id}000000000", status="active")
     )
     await test_db_session.flush()
-    await test_db_session.execute(
-        text(
-            "INSERT INTO engagement_participants "
-            "(engagement_id, user_id, engagement_date, slot_start_time, booked_by_user_id) "
-            "VALUES (:eid, :uid, :ed, :slot, :uid)"
-        ),
-        {
-            "eid": engagement_id,
-            "uid": user_id,
-            "ed": date.fromisoformat(engagement_date),
-            "slot": time.fromisoformat("10:00:00"),
-        },
+    await insert_participant_blood_slot(
+        test_db_session,
+        engagement_id=engagement_id,
+        user_id=user_id,
+        collection_date=engagement_date,
+        slot_start_time="10:00:00",
     )
 
 

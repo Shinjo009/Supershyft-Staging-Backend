@@ -16,6 +16,7 @@ from modules.reports.models import IndividualHealthReport
 from modules.users.models import User
 
 from tests.modules.notifications.dispatch_mocks import patch_service_direct_deliver
+from tests.modules.notifications.sql_helpers import insert_participant_blood_slot
 
 CONSULT_WHATSAPP_KEY = "consult-whatsapp"
 CONSULT_EMAIL_KEY = "consult-email"
@@ -140,23 +141,13 @@ async def _insert_participant(
         User(user_id=user_id, age=30, phone=f"{user_id}000000000", status="active")
     )
     await test_db_session.flush()
-    row = (
-        await test_db_session.execute(
-            text(
-                "INSERT INTO engagement_participants "
-                "(engagement_id, user_id, engagement_date, slot_start_time, booked_by_user_id) "
-                "VALUES (:eid, :uid, :ed, :slot, :uid) "
-                "RETURNING engagement_participant_id"
-            ),
-            {
-                "eid": engagement_id,
-                "uid": user_id,
-                "ed": date.fromisoformat(engagement_date),
-                "slot": time.fromisoformat("08:30:00"),
-            },
-        )
-    ).one()
-    return int(row[0])
+    return await insert_participant_blood_slot(
+        test_db_session,
+        engagement_id=engagement_id,
+        user_id=user_id,
+        collection_date=engagement_date,
+        slot_start_time="08:30:00",
+    )
 
 
 async def _insert_consultation_booking(
