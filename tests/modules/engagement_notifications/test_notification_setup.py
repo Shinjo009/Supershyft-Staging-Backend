@@ -59,9 +59,9 @@ async def test_seed_from_global_defaults_clones_bindings(test_db_session):
         text(
             """
             INSERT INTO notification_services (
-                service_key, display_name, channel, webhook_path, is_active
+                service_key, display_name, channel, template_name, email_subject, email_body, is_active
             )
-            VALUES ('pretest-whatsapp', 'Pretest', 'whatsapp', '/pretest', true)
+            VALUES ('pretest-whatsapp', 'Pretest', 'whatsapp', 'pretest_tpl', '', '', true)
             ON CONFLICT (service_key) DO NOTHING
             """
         )
@@ -107,9 +107,9 @@ async def test_resolver_falls_back_to_global_without_engagement_slots(test_db_se
         text(
             """
             INSERT INTO notification_services (
-                service_key, display_name, channel, webhook_path, is_active
+                service_key, display_name, channel, template_name, email_subject, email_body, is_active
             )
-            VALUES ('fallback-pretest', 'P', 'whatsapp', '/p', true)
+            VALUES ('fallback-pretest', 'P', 'whatsapp', 'pretest_fallback', '', '', true)
             ON CONFLICT (service_key) DO NOTHING
             """
         )
@@ -177,9 +177,9 @@ async def test_seed_updates_legacy_row_instead_of_duplicate_insert(test_db_sessi
         text(
             """
             INSERT INTO notification_services (
-                service_key, display_name, channel, webhook_path, is_active
+                service_key, display_name, channel, template_name, email_subject, email_body, is_active
             )
-            VALUES ('confirm-home-wa', 'Confirm', 'whatsapp', '/c', true)
+            VALUES ('confirm-home-wa', 'Confirm', 'whatsapp', 'confirm_tpl', '', '', true)
             ON CONFLICT (service_key) DO NOTHING
             """
         )
@@ -278,13 +278,19 @@ async def test_seed_users_onboarded_clones_all_delivery_channels(test_db_session
             text(
                 """
                 INSERT INTO notification_services (
-                    service_key, display_name, channel, webhook_path, is_active
+                    service_key, display_name, channel, template_name, email_subject, email_body, is_active
                 )
-                VALUES (:sk, :sk, :ch, '/x', true)
+                VALUES (:sk, :sk, :ch, :tpl, :subj, :body, true)
                 ON CONFLICT (service_key) DO NOTHING
                 """
             ),
-            {"sk": sk, "ch": ch},
+            {
+                "sk": sk,
+                "ch": ch,
+                "tpl": "test_tpl",
+                "subj": "Test" if ch == "email" else "",
+                "body": "Test" if ch == "email" else "",
+            },
         )
     await test_db_session.execute(
         text("DELETE FROM notification_events WHERE event_code = 'users.onboarded'")
@@ -364,7 +370,7 @@ async def test_resolver_platform_event_uses_global_even_with_engagement_slots(te
         text(
             """
             INSERT INTO notification_services (
-                service_key, display_name, channel, webhook_path, is_active
+                service_key, display_name, channel, template_name, email_subject, email_body, is_active
             )
             VALUES
             ('global-otp', 'GO', 'whatsapp', '/go', true),

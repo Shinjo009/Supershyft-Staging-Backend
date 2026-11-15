@@ -19,7 +19,6 @@ async def test_create_binding_wizard_separate_channel_rows(test_db_session):
         service_key=f"test-wa-{suffix}",
         display_name="Test WA",
         channel="whatsapp",
-        webhook_path=f"test-wa-{suffix}",
         is_active=True,
         template_name="test_tpl",
     )
@@ -27,7 +26,6 @@ async def test_create_binding_wizard_separate_channel_rows(test_db_session):
         service_key=f"test-em-{suffix}",
         display_name="Test Email",
         channel="email",
-        webhook_path=f"test-em-{suffix}",
         is_active=True,
         email_subject="Code",
         email_body="Your code",
@@ -85,7 +83,6 @@ async def test_create_binding_wizard_merges_same_slot_services(test_db_session):
         service_key=f"test-wa-a-{suffix}",
         display_name="Test WA A",
         channel="whatsapp",
-        webhook_path=f"test-wa-a-{suffix}",
         is_active=True,
         template_name="test_tpl",
     )
@@ -93,7 +90,6 @@ async def test_create_binding_wizard_merges_same_slot_services(test_db_session):
         service_key=f"test-wa-b-{suffix}",
         display_name="Test WA B",
         channel="whatsapp",
-        webhook_path=f"test-wa-b-{suffix}",
         is_active=True,
         template_name="test_tpl",
     )
@@ -158,7 +154,6 @@ async def test_create_binding_wizard_separate_rows_per_payload_path(test_db_sess
         service_key=f"family-sender-{suffix}",
         display_name="Sender",
         channel="whatsapp",
-        webhook_path=f"family-sender-{suffix}",
         is_active=True,
         template_name="test_tpl",
     )
@@ -166,7 +161,6 @@ async def test_create_binding_wizard_separate_rows_per_payload_path(test_db_sess
         service_key=f"family-receiver-{suffix}",
         display_name="Receiver",
         channel="whatsapp",
-        webhook_path=f"family-receiver-{suffix}",
         is_active=True,
         template_name="test_tpl",
     )

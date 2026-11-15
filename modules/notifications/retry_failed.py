@@ -148,15 +148,15 @@ async def list_failed_notifications(
     return list(result.scalars().all())
 
 
-async def load_n8n_request_payload(
+async def load_dispatch_request_payload(
     db: AsyncSession,
     *,
     notification_id: int,
 ) -> dict[str, Any] | None:
-    """Load the original n8n webhook body for a notification dispatch."""
+    """Load the outbound sync-log request payload for a notification dispatch."""
     result = await db.execute(
         select(IntegrationSyncLog.request_payload)
-        .where(IntegrationSyncLog.provider == "n8n")
+        .where(IntegrationSyncLog.provider.in_(("whatapi", "smtp")))
         .where(IntegrationSyncLog.request_payload.isnot(None))
         .where(IntegrationSyncLog.request_payload["notification_id"].as_integer() == notification_id)
         .order_by(IntegrationSyncLog.sync_log_id.desc())
@@ -331,7 +331,7 @@ async def retry_failed_notifications(
                         }
                     )
                 else:
-                    sync_payload = await load_n8n_request_payload(
+                    sync_payload = await load_dispatch_request_payload(
                         session,
                         notification_id=candidate.notification_id,
                     )

@@ -427,7 +427,9 @@ async def upsert_notification_services(
                     service_key=seed.service_key,
                     display_name=seed.display_name,
                     channel=seed.channel,
-                    webhook_path=seed.webhook_path,
+                    template_name=seed.template_name,
+                    email_subject=seed.email_subject,
+                    email_body=seed.email_body,
                     is_active=seed.is_active,
                     require_blood_report_url=seed.require_blood_report_url,
                     require_bio_ai_report_url=seed.require_bio_ai_report_url,
@@ -440,7 +442,9 @@ async def upsert_notification_services(
         else:
             existing.display_name = seed.display_name
             existing.channel = seed.channel
-            existing.webhook_path = seed.webhook_path
+            existing.template_name = seed.template_name
+            existing.email_subject = seed.email_subject
+            existing.email_body = seed.email_body
             existing.is_active = seed.is_active
             existing.require_blood_report_url = seed.require_blood_report_url
             existing.require_bio_ai_report_url = seed.require_bio_ai_report_url

@@ -25,7 +25,7 @@ async def _seed_base(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, "
             "require_blood_report_url, require_bio_ai_report_url, require_participant_detail) "
             "VALUES "
             "('rn-whatsapp', 'RN WhatsApp', 'whatsapp', 'wa-hook', true, false, false, false), "

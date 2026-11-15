@@ -33,7 +33,7 @@ async def _seed_notification_service(test_db_session) -> None:
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, "
             "require_bio_ai_report_url, require_participant_detail, require_session_details) "
             "VALUES (:sk, :dn, 'whatsapp', 'consultation-booking-alert-whatsapp-v1', true, false, false, true, true) "
             "ON CONFLICT (service_key) DO UPDATE SET "
@@ -48,7 +48,7 @@ async def _seed_diagnostic_package(test_db_session, diagnostic_package_id: int =
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, bookings_count) "
-            "VALUES (:did, 'REF1', 'Diag', 'test_provider', 1, 0) ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (:did, 'REF1', 'Diag', 'healthians', 1, 0) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         ),
         {"did": diagnostic_package_id},
     )

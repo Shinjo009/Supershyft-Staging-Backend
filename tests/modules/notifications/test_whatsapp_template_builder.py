@@ -106,7 +106,6 @@ async def test_build_whatsapp_send_payload_infers_otp_slots_when_unconfigured():
         service_key="whatapi-otp",
         display_name="OTP",
         channel="whatsapp",
-        webhook_path="/test",
         template_name="otpmsg",
         template_variables=None,
         require_otp=True,
@@ -144,7 +143,6 @@ async def test_build_whatsapp_send_payload_prefers_english_language():
         service_key="whatapi-otp",
         display_name="OTP",
         channel="whatsapp",
-        webhook_path="/test",
         template_name="otpmsg",
         template_variables={"slots": [{"index": 1, "source": "otp.otp"}]},
     )
@@ -178,7 +176,6 @@ async def test_build_whatsapp_send_payload_uses_meta_canonical_template_name():
         service_key="whatapi-otp",
         display_name="OTP",
         channel="whatsapp",
-        webhook_path="/test",
         template_name="otpmsg",
         template_variables={
             "slots": [
@@ -220,7 +217,6 @@ async def test_build_whatsapp_send_payload_document_header_filename_from_config(
         service_key="pretest-whatsapp-session-v1",
         display_name="Pretest PDF",
         channel="whatsapp",
-        webhook_path="/test",
         template_name="camp15",
         template_variables={
             "slots": [{"index": 1, "source": "literal", "value": "Hello"}],

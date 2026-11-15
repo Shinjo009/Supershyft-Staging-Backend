@@ -14,7 +14,6 @@ def test_merge_e2e_contact_adds_engagement_block():
         service_key="welcome-whatsapp",
         display_name="Welcome",
         channel="whatsapp",
-        webhook_path="/x",
     )
     contact = merge_e2e_contact(
         {"first_name": "A", "phone": "8762830757", "email": ""},
@@ -33,7 +32,6 @@ def test_e2e_skip_reason_support_refs():
         service_key="support-wa",
         display_name="Support",
         channel="whatsapp",
-        webhook_path="/x",
         template_variables={
             "slots": [{"index": 1, "source": "support.ticket_id"}],
         },

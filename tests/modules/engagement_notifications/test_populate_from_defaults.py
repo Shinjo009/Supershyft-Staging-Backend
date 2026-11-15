@@ -37,7 +37,7 @@ async def test_populate_from_defaults_merges_global_when_type_empty(test_db_sess
         text(
             """
             INSERT INTO notification_services (
-                service_key, display_name, channel, webhook_path, is_active
+                service_key, display_name, channel, template_name, is_active
             )
             VALUES ('pretest-whatsapp', 'Pretest', 'whatsapp', '/pretest', true)
             ON CONFLICT (service_key) DO NOTHING

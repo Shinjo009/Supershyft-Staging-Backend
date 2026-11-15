@@ -89,7 +89,7 @@ class Settings:
     LOAD_TEST_RATE_LIMIT_RELAXED: bool = (
         os.getenv("LOAD_TEST_RATE_LIMIT_RELAXED", "false").lower() == "true"
     )
-    # Migration / maintenance: block WhatAPI, SMTP, and n8n webhook dispatches.
+    # Migration / maintenance: block WhatAPI and SMTP dispatches.
     NOTIFICATION_OUTBOUND_DISABLED: bool = (
         os.getenv("NOTIFICATION_OUTBOUND_DISABLED", "false").lower() == "true"
     )
@@ -187,15 +187,10 @@ class Settings:
     # Inbound webhook auth (x-api-key). Falls back to AURAE_API_KEY when unset.
     AURAE_WEBHOOK_API_KEY: str = os.getenv("AURAE_WEBHOOK_API_KEY", "")
 
-    # Notification service (n8n webhooks)
-    NOTIFICATION_SERVICE_BASE_URL: str = os.getenv("NOTIFICATION_SERVICE_BASE_URL", "https://n8n.supershyft.com")
-    NOTIFICATION_SERVICE_TIMEOUT_SECONDS: int = int(os.getenv("NOTIFICATION_SERVICE_TIMEOUT_SECONDS", "15"))
+    # API key for POST /notifications/dispatch and /notifications/callback
     NOTIFICATION_API_KEY: str = os.getenv("NOTIFICATION_API_KEY", "")
-    NOTIFICATION_ALLOW_N8N_FALLBACK: bool = os.getenv(
-        "NOTIFICATION_ALLOW_N8N_FALLBACK", "false"
-    ).lower() in {"1", "true", "yes"}
 
-    # SMTP (direct email; not wired to dispatch in foundation step)
+    # SMTP (direct email)
     SMTP_FROM_EMAIL: str = os.getenv("SMTP_FROM_EMAIL", "")
     SMTP_FROM_NAME: str = os.getenv("SMTP_FROM_NAME", "SuperShyft")
     SMTP_HOST: str = os.getenv("SMTP_HOST", "")

@@ -37,7 +37,7 @@ async def test_engagement_resolver_ignores_global(test_db_session):
         text(
             """
             INSERT INTO notification_services (
-                service_key, display_name, channel, webhook_path, is_active
+                service_key, display_name, channel, template_name, email_subject, email_body, is_active
             )
             VALUES
             ('global-only-svc', 'G', 'whatsapp', '/g', true),

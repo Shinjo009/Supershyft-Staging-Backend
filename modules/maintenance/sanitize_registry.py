@@ -310,7 +310,6 @@ def all_column_specs() -> list[ColumnSpec]:
     for col, kind, req in (
         ("service_key", SanitizeKind.SERVICE_KEY, True),
         ("display_name", SanitizeKind.SAFE_DISPLAY_NAME, True),
-        ("webhook_path", SanitizeKind.SAFE_TEXT, True),
     ):
         add("notification_services", col, kind, ("notification_service_id",), required=req)
 

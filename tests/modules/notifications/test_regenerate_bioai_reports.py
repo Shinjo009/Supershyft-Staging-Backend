@@ -47,7 +47,7 @@ async def _seed_regenerate_participant(
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, package_name, diagnostic_provider, status) "
-            "VALUES (1, 'Test Diagnostic', 'test_provider', 1) ON CONFLICT DO NOTHING"
+            "VALUES (1, 'Test Diagnostic', 'healthians', 1) ON CONFLICT DO NOTHING"
         )
     )
     await test_db_session.execute(

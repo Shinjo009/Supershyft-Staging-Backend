@@ -8,7 +8,6 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import settings
@@ -30,10 +29,7 @@ from modules.notifications.schemas import (
 )
 from modules.notifications.delivery_scheduler import PendingDeliverJob, get_delivery_scheduler
 from modules.notifications.direct_dispatch import DirectNotificationDispatch, get_direct_dispatch
-from modules.notifications.dispatch_routing import (
-    should_use_n8n_webhook,
-    validate_direct_service_config,
-)
+from modules.notifications.dispatch_routing import validate_direct_service_config
 from modules.notifications.report_prepare import prepare_user_report_urls
 from modules.reports.bio_ai_report_resolver import resolve_bio_ai_report_url
 from modules.reports.blood_booking_reports import (
@@ -158,104 +154,6 @@ class NotificationsService:
             metsights_service=self._metsights_service,
         )
 
-    async def _dispatch_via_n8n_webhook(
-        self,
-        db: AsyncSession,
-        *,
-        svc: NotificationService,
-        notification: Notification,
-        members: list[dict],
-        engagement_id: int | None,
-        participant_details: dict | None,
-        sync_log_user_id: int | None,
-    ) -> dict:
-        if settings.NOTIFICATION_OUTBOUND_DISABLED:
-            await self._repo.update_notification(
-                db,
-                notification_id=notification.notification_id,
-                values={
-                    "status": "skipped",
-                    "message": "Outbound disabled (NOTIFICATION_OUTBOUND_DISABLED)",
-                    "dispatched_at": datetime.now(timezone.utc),
-                },
-            )
-            return {
-                "notification_id": notification.notification_id,
-                "status": "skipped",
-                "message": "Outbound disabled",
-            }
-
-        webhook_url = (
-            settings.NOTIFICATION_SERVICE_BASE_URL.rstrip("/")
-            + "/"
-            + svc.webhook_path.lstrip("/")
-        )
-        webhook_payload: dict = {
-            "notification_id": notification.notification_id,
-            "members": members,
-        }
-        if engagement_id is not None:
-            webhook_payload["engagement_id"] = engagement_id
-        if participant_details:
-            webhook_payload["participant_details"] = participant_details
-
-        sync_log_id = await persist_integration_sync_log_isolated(
-            provider="n8n",
-            api_url=webhook_url,
-            engagement_id=engagement_id,
-            user_id=sync_log_user_id,
-            request_payload=webhook_payload,
-        )
-
-        webhook_failed = False
-        webhook_message = "Notification dispatch initiated"
-        try:
-            async with httpx.AsyncClient(
-                timeout=settings.NOTIFICATION_SERVICE_TIMEOUT_SECONDS
-            ) as client:
-                resp = await client.post(webhook_url, json=webhook_payload)
-                resp.raise_for_status()
-                try:
-                    resp_data = resp.json()
-                except Exception:
-                    resp_data = {"status_code": resp.status_code, "body": resp.text}
-                webhook_message = (
-                    resp_data.get("message", "Webhook called successfully")
-                    if isinstance(resp_data, dict)
-                    else "Webhook called successfully"
-                )
-                await finalize_integration_sync_log_isolated(
-                    sync_log_id=sync_log_id,
-                    status="success",
-                    response_payload=resp_data if isinstance(resp_data, dict) else {"body": resp_data},
-                )
-        except Exception as exc:
-            logger.error("Notification webhook call failed: %s", exc)
-            webhook_message = f"Webhook call failed: {exc}"
-            webhook_failed = True
-            await finalize_integration_sync_log_isolated(
-                sync_log_id=sync_log_id,
-                status="failed",
-                error_message=str(exc),
-            )
-
-        notification_status = "failed" if webhook_failed else notification.status
-        update_values: dict = {
-            "status": notification_status,
-            "message": webhook_message,
-            "dispatched_at": datetime.now(timezone.utc),
-        }
-        await self._repo.update_notification(
-            db,
-            notification_id=notification.notification_id,
-            values=update_values,
-        )
-        return {
-            "notification_id": notification.notification_id,
-            "status": notification_status,
-            "message": webhook_message,
-        }
-
     async def _route_and_deliver(
         self,
         db: AsyncSession,
@@ -267,17 +165,6 @@ class NotificationsService:
         participant_details: dict | None,
         sync_log_user_id: int | None,
     ) -> dict:
-        if should_use_n8n_webhook(svc):
-            return await self._dispatch_via_n8n_webhook(
-                db,
-                svc=svc,
-                notification=notification,
-                members=members,
-                engagement_id=engagement_id,
-                participant_details=participant_details,
-                sync_log_user_id=sync_log_user_id,
-            )
-
         validate_direct_service_config(svc)
         result = await self._direct_dispatch.deliver_batch(
             svc=svc,
@@ -980,7 +867,6 @@ class NotificationsService:
             service_key=payload.service_key,
             display_name=payload.display_name,
             channel=payload.channel,
-            webhook_path=payload.webhook_path,
             is_active=payload.is_active,
             require_blood_report_url=payload.require_blood_report_url,
             require_bio_ai_report_url=payload.require_bio_ai_report_url,
@@ -1014,8 +900,6 @@ class NotificationsService:
             svc.display_name = payload.display_name
         if payload.channel is not None:
             svc.channel = payload.channel
-        if payload.webhook_path is not None:
-            svc.webhook_path = payload.webhook_path
         if payload.is_active is not None:
             svc.is_active = payload.is_active
         if payload.require_blood_report_url is not None:

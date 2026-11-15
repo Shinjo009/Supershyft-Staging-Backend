@@ -94,7 +94,9 @@ class SeedNotificationService:
     service_key: str
     display_name: str
     channel: str
-    webhook_path: str
+    template_name: str | None = None
+    email_subject: str | None = None
+    email_body: str | None = None
     is_active: bool = True
     require_blood_report_url: bool = False
     require_bio_ai_report_url: bool = False

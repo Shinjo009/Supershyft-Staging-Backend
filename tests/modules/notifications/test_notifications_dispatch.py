@@ -13,13 +13,10 @@ from modules.employee.models import Employee
 from modules.reports.models import IndividualHealthReport
 from modules.users.models import User
 
+from tests.modules.notifications.dispatch_mocks import patch_service_direct_deliver
+
 TEST_NOTIFICATION_API_KEY = "test-notif-dispatch-key"
 
-
-@pytest.fixture(autouse=True)
-def _legacy_dispatch_uses_n8n_fallback(monkeypatch):
-    """Keep existing dispatch tests on n8n path until services are fully backfilled in tests."""
-    monkeypatch.setattr(settings, "NOTIFICATION_ALLOW_N8N_FALLBACK", True)
 
 
 def _auth_header(employee_id: int) -> dict[str, str]:
@@ -54,7 +51,7 @@ async def _seed_diagnostic_package(test_db_session, *, diagnostic_package_id: in
     await test_db_session.execute(
         text(
             "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status, bookings_count) "
-            "VALUES (:did, :ref, :pname, 'test_provider', 1, 0) ON CONFLICT (diagnostic_package_id) DO NOTHING"
+            "VALUES (:did, :ref, :pname, 'healthians', 1, 0) ON CONFLICT (diagnostic_package_id) DO NOTHING"
         ),
         {"did": diagnostic_package_id, "ref": f"REF{diagnostic_package_id}", "pname": "Diag"},
     )
@@ -76,7 +73,7 @@ async def _seed_engagement(test_db_session, *, engagement_id: int, engagement_co
             slot_duration=20,
             start_date=date(2026, 5, 1),
             end_date=date(2026, 5, 1),
-            status="active",
+            status="running",
         )
     )
     await test_db_session.commit()
@@ -120,7 +117,7 @@ async def test_dispatch_succeeds_when_bio_ai_report_url_present(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
             "VALUES (:sk, 'BioAI Report | Whatsapp', 'whatsapp', 'bio-ai-report', true, false, true, false, false) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_bio_ai_report_url = true"
         ),
@@ -128,30 +125,8 @@ async def test_dispatch_succeeds_when_bio_ai_report_url_present(
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-
-    class _FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"message": "ok"}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+    deliver_calls: list[dict] = []
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
 
     response = await async_client.post(
         "/notifications/dispatch",
@@ -163,7 +138,7 @@ async def test_dispatch_succeeds_when_bio_ai_report_url_present(
         },
     )
     assert response.status_code == 201, response.text
-    assert webhook_calls
+    assert deliver_calls
 
 
 @pytest.mark.asyncio
@@ -195,7 +170,7 @@ async def test_dispatch_fetches_bio_ai_report_when_cache_missing(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
             "VALUES (:sk, 'BioAI Report Fetch', 'whatsapp', 'bio-ai-report-fetch', true, false, true, false, false) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_bio_ai_report_url = true"
         ),
@@ -203,36 +178,8 @@ async def test_dispatch_fetches_bio_ai_report_when_cache_missing(
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-
-    class _FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"message": "ok"}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    async def _fake_get_report(self, *, record_id: str, assessment_type_code: str | None):
-        return {"record_id": record_id}
-
-    async def _fake_register(*args, **kwargs):
-        return "https://bio-ai-reports.supershyft.com/r/FETCH-ME-BIOAI"
-
-    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+    deliver_calls: list[dict] = []
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
     monkeypatch.setattr(
         "modules.metsights.service.MetsightsService.get_report",
         _fake_get_report,
@@ -252,8 +199,8 @@ async def test_dispatch_fetches_bio_ai_report_when_cache_missing(
         },
     )
     assert response.status_code == 201, response.text
-    assert webhook_calls
-    member = webhook_calls[0]["json"]["members"][0]
+    assert deliver_calls
+    member = deliver_calls[0]["members"][0]
     assert member["bio_ai_report_url"] == "https://bio-ai-reports.supershyft.com/r/FETCH-ME-BIOAI"
 
     cached = await test_db_session.execute(
@@ -314,7 +261,7 @@ async def test_dispatch_validates_bio_ai_report_url_for_correct_engagement(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
             "VALUES (:sk, 'BioAI Report | Whatsapp', 'whatsapp', 'bio-ai-report', true, false, true, false, false) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_bio_ai_report_url = true"
         ),
@@ -322,30 +269,8 @@ async def test_dispatch_validates_bio_ai_report_url_for_correct_engagement(
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-
-    class _FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"message": "ok"}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+    deliver_calls: list[dict] = []
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
 
     response = await async_client.post(
         "/notifications/dispatch",
@@ -357,7 +282,7 @@ async def test_dispatch_validates_bio_ai_report_url_for_correct_engagement(
         },
     )
     assert response.status_code == 201, response.text
-    assert webhook_calls
+    assert deliver_calls
 
 
 @pytest.mark.asyncio
@@ -383,7 +308,7 @@ async def test_dispatch_with_api_key_auth(async_client, test_db_session, monkeyp
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
             "VALUES (:sk, 'API Key Dispatch', 'whatsapp', 'api-key-dispatch', true, false, false, false, false) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true"
         ),
@@ -391,30 +316,8 @@ async def test_dispatch_with_api_key_auth(async_client, test_db_session, monkeyp
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-
-    class _FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"message": "ok"}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+    deliver_calls: list[dict] = []
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
 
     response = await async_client.post(
         "/notifications/dispatch",
@@ -426,7 +329,7 @@ async def test_dispatch_with_api_key_auth(async_client, test_db_session, monkeyp
         },
     )
     assert response.status_code == 201, response.text
-    assert webhook_calls
+    assert deliver_calls
 
 
 @pytest.mark.asyncio
@@ -454,7 +357,7 @@ async def test_dispatch_without_bio_ai_report_url_returns_400_when_required(asyn
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
             "VALUES (:sk, 'BioAI Report | Whatsapp', 'whatsapp', 'bio-ai-report', true, false, true, false, false) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_bio_ai_report_url = true"
         ),
@@ -483,7 +386,7 @@ async def test_dispatch_requires_otp_when_service_flag_set(async_client, test_db
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
             "VALUES (:sk, 'OTP Required', 'whatsapp', 'otp-required', true, false, false, false, true) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_otp = true"
         ),
@@ -518,7 +421,7 @@ async def test_dispatch_includes_otp_in_members_when_required(async_client, test
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
             "VALUES (:sk, 'OTP Dispatch', 'whatsapp', 'otp-dispatch', true, false, false, false, true) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_otp = true"
         ),
@@ -526,30 +429,8 @@ async def test_dispatch_includes_otp_in_members_when_required(async_client, test
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-
-    class _FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"message": "ok"}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+    deliver_calls: list[dict] = []
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
 
     response = await async_client.post(
         "/notifications/dispatch",
@@ -557,8 +438,8 @@ async def test_dispatch_includes_otp_in_members_when_required(async_client, test
         json={"service_key": service_key, "user_ids": [9542], "otp": "787878"},
     )
     assert response.status_code == 201, response.text
-    assert webhook_calls
-    member = webhook_calls[0]["json"]["members"][0]
+    assert deliver_calls
+    member = deliver_calls[0]["members"][0]
     assert member["otp"] == "787878"
     assert member["first_name"] == "John"
     assert member["last_name"] == "Doe"
@@ -575,7 +456,7 @@ async def test_dispatch_includes_otp_in_members_even_when_not_required(async_cli
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
             "VALUES (:sk, 'No OTP', 'whatsapp', 'no-otp', true, false, false, false, false) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_otp = false"
         ),
@@ -583,30 +464,8 @@ async def test_dispatch_includes_otp_in_members_even_when_not_required(async_cli
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-
-    class _FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"message": "ok"}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+    deliver_calls: list[dict] = []
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
 
     response = await async_client.post(
         "/notifications/dispatch",
@@ -614,7 +473,7 @@ async def test_dispatch_includes_otp_in_members_even_when_not_required(async_cli
         json={"service_key": service_key, "user_ids": [9543], "otp": "787878"},
     )
     assert response.status_code == 201, response.text
-    member = webhook_calls[0]["json"]["members"][0]
+    member = deliver_calls[0]["members"][0]
     # OTP is forwarded whenever the caller supplies it, even if require_otp is false.
     assert member["otp"] == "787878"
 
@@ -639,7 +498,7 @@ async def test_dispatch_includes_external_link_in_members_when_required(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, "
             "require_blood_report_url, require_bio_ai_report_url, require_participant_detail, "
             "require_otp, require_session_details, require_external_link) "
             "VALUES (:sk, 'External Link Dispatch', 'email', 'external-link-dispatch', true, "
@@ -650,30 +509,8 @@ async def test_dispatch_includes_external_link_in_members_when_required(
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-
-    class _FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"message": "ok"}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+    deliver_calls: list[dict] = []
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
 
     response = await async_client.post(
         "/notifications/dispatch",
@@ -685,8 +522,8 @@ async def test_dispatch_includes_external_link_in_members_when_required(
         },
     )
     assert response.status_code == 201, response.text
-    assert webhook_calls
-    member = webhook_calls[0]["json"]["members"][0]
+    assert deliver_calls
+    member = deliver_calls[0]["members"][0]
     assert member["external_link"] == "https://booking.example.com/path"
     assert member["first_name"] == "Jane"
     assert member["email"] == "user9544@example.com"
@@ -702,7 +539,7 @@ async def test_dispatch_requires_external_link_when_service_requires_it(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, "
             "require_blood_report_url, require_bio_ai_report_url, require_participant_detail, "
             "require_otp, require_session_details, require_external_link) "
             "VALUES (:sk, 'External Link Required', 'email', 'external-link-required', true, "
@@ -731,7 +568,7 @@ async def test_dispatch_omits_external_link_in_members_when_not_required(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, "
             "require_blood_report_url, require_bio_ai_report_url, require_participant_detail, "
             "require_otp, require_session_details, require_external_link) "
             "VALUES (:sk, 'No External Link', 'email', 'no-external-link', true, "
@@ -742,30 +579,8 @@ async def test_dispatch_omits_external_link_in_members_when_not_required(
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-
-    class _FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"message": "ok"}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+    deliver_calls: list[dict] = []
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
 
     response = await async_client.post(
         "/notifications/dispatch",
@@ -773,66 +588,48 @@ async def test_dispatch_omits_external_link_in_members_when_not_required(
         json={"service_key": service_key, "user_ids": [9545]},
     )
     assert response.status_code == 201, response.text
-    member = webhook_calls[0]["json"]["members"][0]
+    member = deliver_calls[0]["members"][0]
     assert "external_link" not in member
 
 
 async def _seed_simple_dispatch_service(
-    test_db_session, *, user_id: int, service_key: str, webhook_path: str = "test-webhook"
+    test_db_session, *, user_id: int, service_key: str, template_name: str = "test_tpl"
 ):
-    test_db_session.add(User(user_id=user_id, age=30, phone=f"{user_id}0000000", status="active"))
+    test_db_session.add(
+        User(
+            user_id=user_id,
+            age=30,
+            phone=f"{user_id}0000000",
+            email=f"user{user_id}@example.com",
+            status="active",
+        )
+    )
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
-            "VALUES (:sk, 'Sync Log Test', 'email', :wp, true, false, false, false, false) "
-            "ON CONFLICT (service_key) DO UPDATE SET is_active = true, webhook_path = EXCLUDED.webhook_path"
+            "(service_key, display_name, channel, email_subject, email_body, is_active, "
+            "require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "VALUES (:sk, 'Sync Log Test', 'email', 'Hello', 'Body', true, false, false, false, false) "
+            "ON CONFLICT (service_key) DO UPDATE SET is_active = true, email_subject = EXCLUDED.email_subject"
         ),
-        {"sk": service_key, "wp": webhook_path},
+        {"sk": service_key},
     )
     await test_db_session.commit()
 
 
-def _fake_httpx_client(*, succeed: bool = True):
-    class _FakeResponse:
-        status_code = 200
-        text = "ok"
-
-        def raise_for_status(self):
-            if not succeed:
-                raise RuntimeError("webhook failed")
-
-        def json(self):
-            return {"message": "ok"}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            return _FakeResponse()
-
-    return _FakeClient
-
 
 @pytest.mark.asyncio
-async def test_dispatch_creates_n8n_sync_log_on_success(async_client, test_db_session, monkeypatch):
+async def test_dispatch_creates_smtp_sync_log_on_success(async_client, test_db_session, monkeypatch):
     monkeypatch.setattr(settings, "NOTIFICATION_API_KEY", TEST_NOTIFICATION_API_KEY)
     service_key = "sync_log_success_test"
     await _seed_simple_dispatch_service(
-        test_db_session, user_id=9601, service_key=service_key, webhook_path="welcome-whatsapp"
+        test_db_session, user_id=9601, service_key=service_key, template_name="welcome-whatsapp"
     )
 
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(succeed=True),
-    )
+    async def _send_ok(**_kwargs):
+        return {"message_id": "test-ok"}
+
+    monkeypatch.setattr("modules.notifications.direct_dispatch.send_email", _send_ok)
 
     response = await async_client.post(
         "/notifications/dispatch",
@@ -846,34 +643,34 @@ async def test_dispatch_creates_n8n_sync_log_on_success(async_client, test_db_se
         text(
             "SELECT provider, engagement_id, user_id, api_endpoint_url, request_payload, "
             "response_payload, status, error_message "
-            "FROM integration_sync_logs WHERE provider = 'n8n' "
+            "FROM integration_sync_logs WHERE provider = 'smtp' "
             "ORDER BY sync_log_id DESC LIMIT 1"
         )
     )
     row = result.mappings().one()
-    assert row["provider"] == "n8n"
+    assert row["provider"] == "smtp"
     assert row["engagement_id"] is None
     assert row["user_id"] is None
-    assert row["api_endpoint_url"].endswith("/welcome-whatsapp")
+    assert row["api_endpoint_url"].startswith("smtp://")
     assert row["request_payload"]["notification_id"] == notification_id
-    assert row["request_payload"]["members"]
+    assert row["request_payload"]["to"] == "user9601@example.com"
     assert row["status"] == "success"
-    assert row["response_payload"] == {"message": "ok"}
+    assert row["response_payload"] == {"message_id": "test-ok"}
     assert row["error_message"] is None
 
 
 @pytest.mark.asyncio
-async def test_dispatch_creates_n8n_sync_log_on_failure(async_client, test_db_session, monkeypatch):
+async def test_dispatch_creates_smtp_sync_log_on_failure(async_client, test_db_session, monkeypatch):
     monkeypatch.setattr(settings, "NOTIFICATION_API_KEY", TEST_NOTIFICATION_API_KEY)
     service_key = "sync_log_failure_test"
     await _seed_simple_dispatch_service(
-        test_db_session, user_id=9602, service_key=service_key, webhook_path="failed-webhook"
+        test_db_session, user_id=9602, service_key=service_key, template_name="failed-webhook"
     )
 
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(succeed=False),
-    )
+    async def _send_fail(**_kwargs):
+        raise RuntimeError("smtp failed")
+
+    monkeypatch.setattr("modules.notifications.direct_dispatch.send_email", _send_fail)
 
     response = await async_client.post(
         "/notifications/dispatch",
@@ -882,7 +679,7 @@ async def test_dispatch_creates_n8n_sync_log_on_failure(async_client, test_db_se
     )
     assert response.status_code == 201, response.text
     assert response.json()["data"]["status"] == "failed"
-    assert "Webhook call failed" in response.json()["data"]["message"]
+    assert "SMTP" in response.json()["data"]["message"]
 
     notification_id = response.json()["data"]["notification_id"]
     notif_row = await test_db_session.execute(
@@ -894,13 +691,13 @@ async def test_dispatch_creates_n8n_sync_log_on_failure(async_client, test_db_se
     result = await test_db_session.execute(
         text(
             "SELECT status, error_message, response_payload "
-            "FROM integration_sync_logs WHERE provider = 'n8n' "
+            "FROM integration_sync_logs WHERE provider = 'smtp' "
             "ORDER BY sync_log_id DESC LIMIT 1"
         )
     )
     row = result.mappings().one()
     assert row["status"] == "failed"
-    assert "webhook failed" in row["error_message"]
+    assert "smtp failed" in row["error_message"].lower()
     assert row["response_payload"] is None
 
 
@@ -946,7 +743,7 @@ async def test_dispatch_rejects_bioai_service_for_fitprint_without_report_url(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
             "VALUES (:sk, 'BioAI FitPrint', 'whatsapp', 'bio-ai-fitprint', true, false, true, false, false) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_bio_ai_report_url = true"
         ),
@@ -1007,7 +804,7 @@ async def test_dispatch_uses_assessment_instance_id_for_metsights_pro(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
             "VALUES (:sk, 'BioAI Pro', 'whatsapp', 'bio-ai-pro', true, false, true, false, false) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_bio_ai_report_url = true"
         ),
@@ -1015,30 +812,8 @@ async def test_dispatch_uses_assessment_instance_id_for_metsights_pro(
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-
-    class _FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"message": "ok"}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+    deliver_calls: list[dict] = []
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
 
     response = await async_client.post(
         "/notifications/dispatch",
@@ -1051,8 +826,8 @@ async def test_dispatch_uses_assessment_instance_id_for_metsights_pro(
         },
     )
     assert response.status_code == 201, response.text
-    assert webhook_calls
-    member = webhook_calls[0]["json"]["members"][0]
+    assert deliver_calls
+    member = deliver_calls[0]["members"][0]
     assert member["bio_ai_report_url"] == "https://example.com/bio-ai/basic"
 
 
@@ -1085,7 +860,7 @@ async def test_dispatch_rejects_assessment_instance_id_for_wrong_user(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
             "VALUES (:sk, 'BioAI Wrong User', 'whatsapp', 'bio-ai-wrong', true, false, true, false, false) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_bio_ai_report_url = true"
         ),
@@ -1118,7 +893,7 @@ async def test_dispatch_rejects_assessment_instance_id_with_multiple_users(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
             "VALUES (:sk, 'Multi User', 'whatsapp', 'multi-user', true, false, false, false, false) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true"
         ),
@@ -1168,7 +943,7 @@ async def test_dispatch_non_report_without_scope_leaves_engagement_null(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
             "VALUES (:sk, 'Welcome No Scope', 'email', 'welcome-no-scope', true, false, false, false, false) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true"
         ),
@@ -1176,10 +951,7 @@ async def test_dispatch_non_report_without_scope_leaves_engagement_null(
     )
     await test_db_session.commit()
 
-    monkeypatch.setattr(
-        "modules.notifications.service.httpx.AsyncClient",
-        _fake_httpx_client(succeed=True),
-    )
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
 
     response = await async_client.post(
         "/notifications/dispatch",
@@ -1211,7 +983,7 @@ async def test_dispatch_report_service_without_scope_returns_400(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
             "VALUES (:sk, 'Report No Scope', 'email', 'report-no-scope', true, true, true, false, false) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_blood_report_url = true, require_bio_ai_report_url = true"
         ),
@@ -1294,7 +1066,7 @@ async def test_dispatch_report_service_auto_picks_latest_instance(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
             "VALUES (:sk, 'Blood Report Auto Pick', 'email', 'blood-report-auto-pick', true, true, false, false, false) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_blood_report_url = true"
         ),
@@ -1302,30 +1074,8 @@ async def test_dispatch_report_service_auto_picks_latest_instance(
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-
-    class _FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"message": "ok"}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+    deliver_calls: list[dict] = []
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
 
     response = await async_client.post(
         "/notifications/dispatch",
@@ -1333,8 +1083,8 @@ async def test_dispatch_report_service_auto_picks_latest_instance(
         json={"service_key": service_key, "user_ids": [9743]},
     )
     assert response.status_code == 201, response.text
-    assert webhook_calls
-    webhook_payload = webhook_calls[0]["json"]
+    assert deliver_calls
+    webhook_payload = deliver_calls[0]
     assert webhook_payload["engagement_id"] == 9742
     member = webhook_payload["members"][0]
     assert member["blood_report_url"] == archived_url
@@ -1391,7 +1141,7 @@ async def test_dispatch_fetches_blood_report_when_cache_missing(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
             "VALUES (:sk, 'Blood Report Fetch', 'whatsapp', 'blood-report-fetch', true, true, false, false, false) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_blood_report_url = true"
         ),
@@ -1399,61 +1149,8 @@ async def test_dispatch_fetches_blood_report_when_cache_missing(
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-
-    class _FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"message": "ok"}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    async def _fake_resolve_booking_id(*, db, user_id, engagement_id, record_id, metsights_service):
-        from modules.reports.healthians_booking_resolver import (
-            HealthiansBookingSource,
-            ResolvedHealthiansBooking,
-        )
-
-        return ResolvedHealthiansBooking(
-            booking_id="BOOK-9753",
-            source=HealthiansBookingSource.PARTICIPANT,
-            collection_data=None,
-        )
-
-    async def _fake_get_access_token():
-        return "token"
-
-    async def _fake_get_booking_report(access_token, booking_id):
-        return {
-            "data": [
-                {
-                    "customer_name": "Blood User",
-                    "report_url": f"https://example.com/blood/{booking_id}.pdf",
-                    "full_report": 1,
-                }
-            ]
-        }
-
-    archived_url = "https://supershyft.com/reports/AbCdEfGhIjKlMnOp.pdf"
-
-    async def _fake_archive(source_url, *, assessment_instance_id):
-        return archived_url
-
-    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+    deliver_calls: list[dict] = []
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
     monkeypatch.setattr(
         "modules.reports.blood_report_resolver.resolve_healthians_booking_id",
         _fake_resolve_booking_id,
@@ -1481,8 +1178,8 @@ async def test_dispatch_fetches_blood_report_when_cache_missing(
         },
     )
     assert response.status_code == 201, response.text
-    assert webhook_calls
-    member = webhook_calls[0]["json"]["members"][0]
+    assert deliver_calls
+    member = deliver_calls[0]["members"][0]
     assert member["blood_report_url"] == archived_url
 
     cached = await test_db_session.execute(
@@ -1773,7 +1470,7 @@ async def test_callback_rejects_update_when_already_sent(async_client, test_db_s
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, "
             "require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
             "VALUES ('callback_test', 'Callback Test', 'email', 'callback-test', true, false, false, false, false) "
             "ON CONFLICT (service_key) DO NOTHING"
@@ -1846,7 +1543,7 @@ async def test_dispatch_vifc_with_pre_stored_report_url_succeeds(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
             "VALUES (:sk, 'VIFC BioAI Report', 'whatsapp', 'vifc-report', true, false, true, false, false) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_bio_ai_report_url = true"
         ),
@@ -1854,30 +1551,8 @@ async def test_dispatch_vifc_with_pre_stored_report_url_succeeds(
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-
-    class _FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"message": "ok"}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+    deliver_calls: list[dict] = []
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
 
     response = await async_client.post(
         "/notifications/dispatch",
@@ -1890,8 +1565,8 @@ async def test_dispatch_vifc_with_pre_stored_report_url_succeeds(
         },
     )
     assert response.status_code == 201, response.text
-    assert webhook_calls
-    member = webhook_calls[0]["json"]["members"][0]
+    assert deliver_calls
+    member = deliver_calls[0]["members"][0]
     assert member["bio_ai_report_url"] == (
         "https://reportsauraehealth.s3.ap-south-1.amazonaws.com/auraeaireports/vifc-test.pdf"
     )
@@ -1925,7 +1600,7 @@ async def test_dispatch_vifc_without_report_url_returns_400(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail, require_otp) "
             "VALUES (:sk, 'VIFC No URL', 'whatsapp', 'vifc-no-url', true, false, true, false, false) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_bio_ai_report_url = true"
         ),
@@ -1957,7 +1632,7 @@ async def test_dispatch_requires_session_details_when_service_flag_set(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, "
             "require_bio_ai_report_url, require_participant_detail, require_otp, require_session_details) "
             "VALUES (:sk, 'Session Required', 'email', 'session-required', true, false, false, false, false, true) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_session_details = true"
@@ -1995,7 +1670,7 @@ async def test_dispatch_includes_session_details_in_webhook_when_provided(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, "
             "require_bio_ai_report_url, require_participant_detail, require_otp, require_session_details) "
             "VALUES (:sk, 'Session Dispatch', 'email', 'session-dispatch', true, false, false, false, false, true) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_session_details = true"
@@ -2004,30 +1679,8 @@ async def test_dispatch_includes_session_details_in_webhook_when_provided(
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-
-    class _FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"message": "ok"}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+    deliver_calls: list[dict] = []
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
 
     response = await async_client.post(
         "/notifications/dispatch",
@@ -2044,15 +1697,15 @@ async def test_dispatch_includes_session_details_in_webhook_when_provided(
         },
     )
     assert response.status_code == 201, response.text
-    assert webhook_calls
-    member = webhook_calls[0]["json"]["members"][0]
+    assert deliver_calls
+    member = deliver_calls[0]["members"][0]
     assert member["session_details"] == {
         "want": True,
         "date": "2026-08-17",
         "slot": "14:00-14:30",
         "expert_type": "doctor",
     }
-    assert "session_details" not in webhook_calls[0]["json"]
+    assert "session_details" not in deliver_calls[0]
 
 
 @pytest.mark.asyncio
@@ -2065,7 +1718,7 @@ async def test_dispatch_omits_session_details_when_not_required(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, require_blood_report_url, "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, "
             "require_bio_ai_report_url, require_participant_detail, require_otp, require_session_details) "
             "VALUES (:sk, 'Session Optional', 'email', 'session-optional', true, false, false, false, false, false) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = true, require_session_details = false"
@@ -2074,30 +1727,8 @@ async def test_dispatch_omits_session_details_when_not_required(
     )
     await test_db_session.commit()
 
-    webhook_calls: list[dict] = []
-
-    class _FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"message": "ok"}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+    deliver_calls: list[dict] = []
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
 
     response = await async_client.post(
         "/notifications/dispatch",
@@ -2105,6 +1736,6 @@ async def test_dispatch_omits_session_details_when_not_required(
         json={"service_key": service_key, "user_ids": [9843]},
     )
     assert response.status_code == 201, response.text
-    assert webhook_calls
-    assert "session_details" not in webhook_calls[0]["json"]
-    assert "session_details" not in webhook_calls[0]["json"]["members"][0]
+    assert deliver_calls
+    assert "session_details" not in deliver_calls[0]
+    assert "session_details" not in deliver_calls[0]["members"][0]

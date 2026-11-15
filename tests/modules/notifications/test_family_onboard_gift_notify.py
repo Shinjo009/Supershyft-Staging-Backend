@@ -23,6 +23,8 @@ from modules.notifications.repository import NotificationsRepository
 from modules.notifications.service import NotificationsService
 from modules.users.models import User
 
+from tests.modules.notifications.dispatch_mocks import patch_service_direct_deliver
+
 _KEYS = (
     SENDER_WHATSAPP_KEY,
     SENDER_EMAIL_KEY,
@@ -81,25 +83,44 @@ async def _seed_engagement(test_db_session, *, engagement_id: int) -> None:
 
 
 async def _seed_gift_services(test_db_session) -> None:
-    for key, channel, path in (
-        (SENDER_WHATSAPP_KEY, "whatsapp", "/family-onboard-sender-whatsapp-v1"),
-        (SENDER_EMAIL_KEY, "email", "/family-onboard-sender-email-v1"),
-        (RECEIVER_WHATSAPP_KEY, "whatsapp", "/family-onboard-receiver-whatsapp-v1"),
-        (RECEIVER_EMAIL_KEY, "email", "/family-onboard-receiver-email-v1"),
+    for key, channel, template in (
+        (SENDER_WHATSAPP_KEY, "whatsapp", "family_onboard_sender_wa"),
+        (SENDER_EMAIL_KEY, "email", "family_onboard_sender_email"),
+        (RECEIVER_WHATSAPP_KEY, "whatsapp", "family_onboard_receiver_wa"),
+        (RECEIVER_EMAIL_KEY, "email", "family_onboard_receiver_email"),
     ):
-        await test_db_session.execute(
-            text(
-                "INSERT INTO notification_services "
-                "(service_key, display_name, channel, webhook_path, is_active, "
-                "require_blood_report_url, require_bio_ai_report_url, require_participant_detail, "
-                "require_otp, require_session_details, require_external_link) "
-                "VALUES (:sk, :sk, :ch, :path, true, false, false, true, false, false, false) "
-                "ON CONFLICT (service_key) DO UPDATE SET "
-                "require_participant_detail = true, is_active = true, webhook_path = EXCLUDED.webhook_path"
-            ),
-            {"sk": key, "ch": channel, "path": path},
-        )
+        if channel == "email":
+            await test_db_session.execute(
+                text(
+                    "INSERT INTO notification_services "
+                    "(service_key, display_name, channel, email_subject, email_body, is_active, "
+                    "require_blood_report_url, require_bio_ai_report_url, require_participant_detail, "
+                    "require_otp, require_session_details, require_external_link) "
+                    "VALUES (:sk, :sk, :ch, 'Gift', 'Hello', true, false, false, true, false, false, false) "
+                    "ON CONFLICT (service_key) DO UPDATE SET "
+                    "require_participant_detail = true, is_active = true, email_subject = EXCLUDED.email_subject"
+                ),
+                {"sk": key, "ch": channel},
+            )
+        else:
+            await test_db_session.execute(
+                text(
+                    "INSERT INTO notification_services "
+                    "(service_key, display_name, channel, template_name, is_active, "
+                    "require_blood_report_url, require_bio_ai_report_url, require_participant_detail, "
+                    "require_otp, require_session_details, require_external_link) "
+                    "VALUES (:sk, :sk, :ch, :tpl, true, false, false, true, false, false, false) "
+                    "ON CONFLICT (service_key) DO UPDATE SET "
+                    "require_participant_detail = true, is_active = true, template_name = EXCLUDED.template_name"
+                ),
+                {"sk": key, "ch": channel, "tpl": template},
+            )
     await test_db_session.commit()
+
+
+def _call_service_key(call: dict) -> str:
+    svc = call.get("svc")
+    return str(getattr(svc, "service_key", "") or "")
 
 
 def test_is_booker_plus_alias_email():
@@ -117,33 +138,8 @@ async def _reload_user(test_db_session, user_id: int) -> User:
 async def test_notify_family_onboard_gift_dispatches_four_services(test_db_session, monkeypatch):
     await _seed_gift_services(test_db_session)
     await _seed_engagement(test_db_session, engagement_id=88099)
-    webhook_calls: list[dict] = []
-
-    class _FakeResponse:
-        status_code = 200
-        text = "ok"
-
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"accepted": True}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+    deliver_calls: list[dict] = []
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
 
     booker = User(
         user_id=88001,
@@ -178,7 +174,7 @@ async def test_notify_family_onboard_gift_dispatches_four_services(test_db_sessi
         relationship="child",
     )
 
-    assert len(webhook_calls) == 4
+    assert len(deliver_calls) == 4
     rows = (
         await test_db_session.execute(
             text(
@@ -190,16 +186,16 @@ async def test_notify_family_onboard_gift_dispatches_four_services(test_db_sessi
     assert set(rows) == set(_KEYS)
 
     receiver_calls = [
-        c for c in webhook_calls if "family-onboard-receiver-whatsapp" in c["url"]
+        c for c in deliver_calls if RECEIVER_WHATSAPP_KEY == _call_service_key(c)
     ]
     sender_calls = [
-        c for c in webhook_calls if "family-onboard-sender-whatsapp" in c["url"]
+        c for c in deliver_calls if SENDER_WHATSAPP_KEY == _call_service_key(c)
     ]
     assert len(receiver_calls) == 1
     assert len(sender_calls) == 1
-    assert receiver_calls[0]["json"]["participant_details"]["gift_url"] == _TEST_CARD_URL
-    assert sender_calls[0]["json"]["participant_details"]["gift_url"] == GIFT_URL
-    assert sender_calls[0]["json"]["participant_details"]["booker_phone"] == booker.phone
+    assert receiver_calls[0]["participant_details"]["gift_url"] == _TEST_CARD_URL
+    assert sender_calls[0]["participant_details"]["gift_url"] == GIFT_URL
+    assert sender_calls[0]["participant_details"]["booker_phone"] == booker.phone
 
     sync_row = (
         await test_db_session.execute(
@@ -221,7 +217,7 @@ async def test_notify_family_onboard_gift_dispatches_four_services(test_db_sessi
 async def test_receiver_gift_card_api_failure_falls_back_to_app_url(test_db_session, monkeypatch):
     await _seed_gift_services(test_db_session)
     await _seed_engagement(test_db_session, engagement_id=88089)
-    webhook_calls: list[dict] = []
+    deliver_calls: list[dict] = []
 
     async def _fail_create(self, payload):
         raise AppError(
@@ -231,31 +227,7 @@ async def test_receiver_gift_card_api_failure_falls_back_to_app_url(test_db_sess
         )
 
     monkeypatch.setattr(BioAiReportsClient, "create_gift_card", _fail_create)
-
-    class _FakeResponse:
-        status_code = 200
-
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"accepted": True}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            webhook_calls.append({"url": url, "json": json})
-            return _FakeResponse()
-
-    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
 
     booker = User(
         user_id=88081,
@@ -292,10 +264,10 @@ async def test_receiver_gift_card_api_failure_falls_back_to_app_url(test_db_sess
     )
 
     receiver_calls = [
-        c for c in webhook_calls if "family-onboard-receiver-whatsapp" in c["url"]
+        c for c in deliver_calls if RECEIVER_WHATSAPP_KEY == _call_service_key(c)
     ]
     assert len(receiver_calls) == 1
-    assert receiver_calls[0]["json"]["participant_details"]["gift_url"] == GIFT_URL
+    assert receiver_calls[0]["participant_details"]["gift_url"] == GIFT_URL
 
     failed_row = (
         await test_db_session.execute(
@@ -316,33 +288,8 @@ async def test_receiver_gift_card_api_failure_falls_back_to_app_url(test_db_sess
 async def test_notify_skips_receiver_email_for_plus_alias(test_db_session, monkeypatch):
     await _seed_gift_services(test_db_session)
     await _seed_engagement(test_db_session, engagement_id=88199)
-    calls: list[str] = []
-
-    class _FakeResponse:
-        status_code = 200
-
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"accepted": True}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            if json and "notification_id" in json:
-                calls.append(url)
-            return _FakeResponse()
-
-    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+    deliver_calls: list[dict] = []
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
 
     booker = User(
         user_id=88101,
@@ -434,30 +381,8 @@ async def test_notify_does_not_raise_when_dispatch_raises(test_db_session, monke
 async def test_notify_dedup_skips_second_send(test_db_session, monkeypatch):
     await _seed_gift_services(test_db_session)
     await _seed_engagement(test_db_session, engagement_id=88399)
-
-    class _FakeResponse:
-        status_code = 200
-
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"accepted": True}
-
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json=None):
-            return _FakeResponse()
-
-    monkeypatch.setattr("modules.notifications.service.httpx.AsyncClient", _FakeClient)
+    deliver_calls: list[dict] = []
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
 
     booker = User(
         user_id=88301,

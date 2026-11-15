@@ -11,7 +11,7 @@ from modules.notifications.repository import NotificationsRepository
 DEFAULT_PENDING_TIMEOUT_HOURS = 2
 
 _STALE_MESSAGE = (
-    "Delivery timeout — WhatAPI webhook or n8n callback did not report completion"
+    "Delivery timeout — WhatAPI webhook did not report completion"
 )
 
 

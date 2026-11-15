@@ -87,7 +87,7 @@ async def _seed_service(
     await test_db_session.execute(
         text(
             "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, "
             "require_blood_report_url, require_bio_ai_report_url, require_participant_detail, "
             "require_otp, require_session_details, require_external_link) "
             "VALUES (:sk, :dn, :ch, 'test-webhook', true, false, false, "
@@ -737,7 +737,6 @@ def test_build_dispatch_request_reconstructs_session_details_from_sync_log():
         service_key="consult-email",
         display_name="Consult",
         channel="email",
-        webhook_path="/consult",
         is_active=True,
         require_session_details=True,
     )
@@ -766,11 +765,11 @@ def test_build_dispatch_request_reconstructs_session_details_from_sync_log():
 
 
 @pytest.mark.asyncio
-async def test_load_n8n_request_payload_from_sync_log(test_db_session):
+async def test_load_dispatch_request_payload_from_sync_log(test_db_session):
     test_db_session.add(
         IntegrationSyncLog(
-            provider="n8n",
-            api_endpoint_url="https://n8n.example/webhook/test",
+            provider="whatapi",
+            api_endpoint_url="https://whatapi.example/messages",
             request_payload={
                 "notification_id": 4242,
                 "members": [
@@ -790,9 +789,9 @@ async def test_load_n8n_request_payload_from_sync_log(test_db_session):
     )
     await test_db_session.commit()
 
-    from modules.notifications.retry_failed import load_n8n_request_payload
+    from modules.notifications.retry_failed import load_dispatch_request_payload
 
-    payload = await load_n8n_request_payload(test_db_session, notification_id=4242)
+    payload = await load_dispatch_request_payload(test_db_session, notification_id=4242)
     assert payload is not None
     assert payload["notification_id"] == 4242
     assert payload["members"][0]["email"] == "a@b.com"

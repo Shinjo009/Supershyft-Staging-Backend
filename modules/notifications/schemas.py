@@ -83,7 +83,6 @@ class NotificationServiceCreate(BaseModel):
     service_key: ServiceKey
     display_name: SafeDisplayName
     channel: str = Field(..., pattern=r"^(email|whatsapp)$")
-    webhook_path: SafeText = ""
     is_active: bool = True
     require_blood_report_url: bool = False
     require_bio_ai_report_url: bool = False
@@ -105,7 +104,6 @@ class BulkDeleteNotificationsRequest(BaseModel):
 class NotificationServiceUpdate(BaseModel):
     display_name: OptionalSafeDisplayName = None
     channel: str | None = Field(None, pattern=r"^(email|whatsapp)$")
-    webhook_path: OptionalSafeText = None
     is_active: bool | None = None
     require_blood_report_url: bool | None = None
     require_bio_ai_report_url: bool | None = None

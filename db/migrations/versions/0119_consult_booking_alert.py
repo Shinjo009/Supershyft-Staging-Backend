@@ -76,9 +76,7 @@ def upgrade() -> None:
                 INSERT INTO notification_services (
                     service_key,
                     display_name,
-                    channel,
-                    webhook_path,
-                    is_active,
+                    channel, webhook_path, is_active,
                     require_blood_report_url,
                     require_bio_ai_report_url,
                     require_participant_detail,

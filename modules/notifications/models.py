@@ -59,7 +59,6 @@ class NotificationService(Base):
     service_key = Column(String, nullable=False, unique=True)
     display_name = Column(String, nullable=False)
     channel = Column(notification_channel_enum, nullable=False)
-    webhook_path = Column(String, nullable=False, server_default="")
     is_active = Column(Boolean, nullable=False, server_default="true")
     require_blood_report_url = Column(Boolean, nullable=False, server_default="false")
     require_bio_ai_report_url = Column(Boolean, nullable=False, server_default="false")

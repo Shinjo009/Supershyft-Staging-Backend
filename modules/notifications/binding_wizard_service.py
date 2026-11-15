@@ -220,7 +220,6 @@ class NotificationBindingWizardService:
             service_key=key,
             display_name=display_name,
             channel=spec.channel,
-            webhook_path=key,
             is_active=spec.is_active,
             template_name=spec.template_name,
             template_variables=build_template_variables(

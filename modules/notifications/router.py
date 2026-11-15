@@ -51,7 +51,6 @@ def _service_dict(s) -> dict:
         "service_key": s.service_key,
         "display_name": s.display_name,
         "channel": s.channel,
-        "webhook_path": s.webhook_path,
         "is_active": s.is_active,
         "require_blood_report_url": s.require_blood_report_url,
         "require_bio_ai_report_url": s.require_bio_ai_report_url,
@@ -68,7 +67,7 @@ def _service_dict(s) -> dict:
     }
 
 
-# ── Authenticated callback (called by n8n / external service) ───────────
+# ── Authenticated delivery status callback ───────────────────────────────
 
 @router.post("/callback")
 async def notification_callback(

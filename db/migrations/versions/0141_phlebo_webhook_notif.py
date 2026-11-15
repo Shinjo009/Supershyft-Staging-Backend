@@ -91,9 +91,7 @@ def upgrade() -> None:
                 INSERT INTO notification_services (
                     service_key,
                     display_name,
-                    channel,
-                    webhook_path,
-                    is_active,
+                    channel, webhook_path, is_active,
                     require_blood_report_url,
                     require_bio_ai_report_url,
                     require_participant_detail,
@@ -116,7 +114,6 @@ def upgrade() -> None:
                 ON CONFLICT (service_key) DO UPDATE SET
                     display_name = EXCLUDED.display_name,
                     channel = EXCLUDED.channel,
-                    webhook_path = EXCLUDED.webhook_path,
                     is_active = true,
                     require_participant_detail = EXCLUDED.require_participant_detail,
                     require_session_details = EXCLUDED.require_session_details
