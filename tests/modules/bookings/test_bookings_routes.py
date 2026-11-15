@@ -1226,12 +1226,21 @@ async def test_book_pay_rejects_unlocked_draft(async_client, test_db_session):
 
 
 @pytest.mark.asyncio
-async def test_book_pay_rejects_metsights_pro_without_hormones(async_client, test_db_session):
+async def test_book_pay_coerces_metsights_pro_without_hormones(async_client, test_db_session, monkeypatch):
+    """Pro defaults without hormones should coerce to Essentials and still create a Razorpay order."""
+    monkeypatch.setattr(settings, "RAZORPAY_KEY_SECRET", "test_razorpay_secret")
     await _seed_healthians_diagnostic_package(test_db_session, package_id=1)
     await test_db_session.execute(
         text(
             "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
             "VALUES (902, 'METSIGHTS_PRO', 'Metsights Pro', 1) "
+            "ON CONFLICT (package_id) DO UPDATE SET package_code = EXCLUDED.package_code, status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
+            "VALUES (903, 'METSIGHTS_BASIC', 'MetSights Essentials', 1) "
             "ON CONFLICT (package_id) DO UPDATE SET package_code = EXCLUDED.package_code, status = EXCLUDED.status"
         )
     )
@@ -1279,10 +1288,96 @@ async def test_book_pay_rejects_metsights_pro_without_hormones(async_client, tes
         enforce_metsights_pro_gate=True,
     )
 
+    with patch(
+        "modules.payments.services._create_razorpay_order_sync",
+        side_effect=_mock_razorpay_order,
+    ):
+        response = await async_client.post(
+            "/book/pay",
+            headers=_auth_header(940012),
+            json={"members": [{"user_id": 940012, "engagement_id": 940112}]},
+        )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["razorpay_order_id"]
+    assessment_row = (
+        await test_db_session.execute(
+            text(
+                "SELECT e.assessment_package_id, p.package_code "
+                "FROM engagements e "
+                "JOIN assessment_packages p ON p.package_id = e.assessment_package_id "
+                "WHERE e.engagement_id = 940112"
+            )
+        )
+    ).one()
+    assert assessment_row.assessment_package_id != 902
+    assert assessment_row.package_code in ("METSIGHTS_BASIC", "METSIGHTS_ESSENTIALS")
+
+
+@pytest.mark.asyncio
+async def test_book_pay_rejects_metsights_pro_when_essentials_unavailable(async_client, test_db_session):
+    await _seed_healthians_diagnostic_package(test_db_session, package_id=1)
+    await test_db_session.execute(
+        text(
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
+            "VALUES (904, 'METSIGHTS_PRO', 'Metsights Pro', 1) "
+            "ON CONFLICT (package_id) DO UPDATE SET package_code = EXCLUDED.package_code, status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "UPDATE assessment_packages SET status = 2 "
+            "WHERE package_code IN ('METSIGHTS_BASIC', 'METSIGHTS_ESSENTIALS')"
+        )
+    )
+    by_type = {
+        "bio_ai": {
+            "assessment_package_id": 904,
+            "diagnostic_package_id": 1,
+            "blood_collection_type": "home_collection",
+            "create_profile_on_metsights": True,
+            "enroll_for_fitprint_full": False,
+            "auto_booking": False,
+            "slot_duration": 20,
+            "payment_type": "paid_by_patient",
+        }
+    }
+    await test_db_session.execute(text("DELETE FROM platform_settings"))
+    await test_db_session.execute(
+        text(
+            "INSERT INTO platform_settings ("
+            "settings_id, b2c_default_assessment_package_id, b2c_default_diagnostic_package_id, "
+            "b2c_default_engagement_type, b2c_onboarding_by_engagement_type"
+            ") VALUES (1, 904, 1, 'bio_ai', CAST(:by_type AS jsonb))"
+        ),
+        {"by_type": json.dumps(by_type)},
+    )
+    u = User(
+        user_id=940013,
+        age=30,
+        phone="9400130000",
+        status="active",
+        first_name="Pro",
+        last_name="NoEssentials",
+        gender="female",
+        city="Mumbai",
+        parent_id=None,
+    )
+    test_db_session.add(u)
+    await test_db_session.commit()
+    await _seed_draft_engagement(
+        test_db_session,
+        engagement_id=940113,
+        user_id=940013,
+        booked_by_user_id=940013,
+        locked=True,
+        enforce_metsights_pro_gate=True,
+    )
+
     response = await async_client.post(
         "/book/pay",
-        headers=_auth_header(940012),
-        json={"members": [{"user_id": 940012, "engagement_id": 940112}]},
+        headers=_auth_header(940013),
+        json={"members": [{"user_id": 940013, "engagement_id": 940113}]},
     )
     assert response.status_code == 400
     body = response.json()

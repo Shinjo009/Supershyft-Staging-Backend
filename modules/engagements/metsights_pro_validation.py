@@ -279,7 +279,7 @@ async def ensure_metsights_pro_allowed_before_b2c_draft_pay(
             return
         engagement_type_id = int(bio_ai_row.id)
     else:
-        from modules.engagement_types.models import EngagementType
+        from modules.engagements.models import EngagementType
 
         type_row = await db.execute(
             select(EngagementType.code).where(EngagementType.id == int(engagement_type_id)).limit(1)
@@ -288,9 +288,10 @@ async def ensure_metsights_pro_allowed_before_b2c_draft_pay(
 
     resolved_assessment = getattr(engagement, "assessment_package_id", None)
     if resolved_assessment is None:
+        from modules.platform_settings.repository import PlatformSettingsRepository
         from modules.platform_settings.service import PlatformSettingsService
 
-        settings_service = PlatformSettingsService()
+        settings_service = PlatformSettingsService(repository=PlatformSettingsRepository())
         defaults = await settings_service.resolve_b2c_onboarding_defaults(db, type_code)
         resolved_assessment = defaults.assessment_package_id
 
