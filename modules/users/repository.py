@@ -38,6 +38,15 @@ from modules.reports.models import IndividualHealthReport, ReportsUserSyncState
 from modules.support.models import SupportTicket
 
 
+def _stamp_new_user_timestamps(user: User) -> None:
+    """Ensure insert paths set timestamps (SQLite/tests lack DB server defaults)."""
+    now = datetime.now(timezone.utc)
+    if user.created_at is None:
+        user.created_at = now
+    if user.updated_at is None:
+        user.updated_at = now
+
+
 class UsersRepository:
     """User database queries."""
 
@@ -372,6 +381,7 @@ class UsersRepository:
             parent_id=parent_user.user_id,
             relationship=data.get("relationship"),
         )
+        _stamp_new_user_timestamps(sub_profile)
         db.add(sub_profile)
         await db.flush()
         return sub_profile
@@ -719,9 +729,38 @@ class UsersRepository:
         return user
 
     async def create_user(self, db: AsyncSession, user: User) -> User:
+        _stamp_new_user_timestamps(user)
         db.add(user)
         await db.flush()
         return user
+
+    async def list_users_for_created_at_backfill(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int | None = None,
+        limit: int | None = None,
+    ) -> list[tuple[int, str]]:
+        """Users with NULL created_at and a non-empty Metsights profile id."""
+        query = (
+            select(User.user_id, User.metsights_profile_id)
+            .where(User.created_at.is_(None))
+            .where(User.metsights_profile_id.isnot(None))
+            .where(func.trim(User.metsights_profile_id) != "")
+            .order_by(User.user_id.asc())
+        )
+        if user_id is not None:
+            query = query.where(User.user_id == user_id)
+        if limit is not None:
+            query = query.limit(limit)
+        rows = (await db.execute(query)).all()
+        out: list[tuple[int, str]] = []
+        for row in rows:
+            uid = int(row.user_id)
+            profile_id = (row.metsights_profile_id or "").strip()
+            if profile_id:
+                out.append((uid, profile_id))
+        return out
 
     async def patch_missing_fields(self, db: AsyncSession, *, user: User, data: dict) -> User:
         """Update only fields that are currently empty.
