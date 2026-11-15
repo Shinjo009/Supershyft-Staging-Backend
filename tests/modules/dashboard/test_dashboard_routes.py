@@ -55,64 +55,29 @@ async def test_employee_me_includes_pending_task_count(async_client, test_db_ses
 
 
 @pytest.mark.asyncio
-async def test_dashboard_command_bootstrap_shape(async_client, test_db_session):
-    await seed_employee(test_db_session, employee_id=8805, role="admin")
+async def test_command_notification_health_shape(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=8810, role="admin")
     response = await async_client.get(
-        "/admin/dashboard/command",
-        headers=employee_auth_header(8805),
-        params={"audience": "all"},
+        "/admin/dashboard/command/notification-health",
+        params={"period": "all_time"},
+        headers=employee_auth_header(8810),
     )
     assert response.status_code == 200
     data = response.json()["data"]
-    assert "server_health" in data
-    assert "notification_health" in data
-    assert "booking_issues" in data
-    assert "tickets" in data
-    assert "overview_kpis" in data
-    assert "action_center" in data
-    assert "b2b" in data
-    assert "b2c" in data
-    kpis = data["overview_kpis"]
-    assert "people_registered" in kpis
-    assert "tests_completed" in kpis
-    assert kpis["people_registered"]["b2b"] is None
-    assert kpis["people_registered"]["b2c"] is None
-    assert set(data["action_center"].keys()) >= {
-        "upcoming_collections",
-        "overdue_collections",
-        "blood_reports_pending",
-        "questionnaire_pending",
-        "bio_ai_pending",
-        "consultations_pending",
-    }
-    assert "lifecycle_counts" in data["b2b"]
-    assert "camps" in data["b2b"]
+    assert set(data.keys()) >= {"sent", "failed", "pending", "total"}
+    assert response.json()["meta"]["period"] == "all_time"
 
 
 @pytest.mark.asyncio
-async def test_dashboard_command_audience_b2b_b2c(async_client, test_db_session):
-    await seed_employee(test_db_session, employee_id=8806, role="admin")
-    for audience in ("b2b", "b2c", "all"):
-        response = await async_client.get(
-            "/admin/dashboard/command",
-            headers=employee_auth_header(8806),
-            params={"audience": audience},
-        )
-        assert response.status_code == 200
-        assert response.json()["data"]["filters"]["audience"] == audience
-
-
-@pytest.mark.asyncio
-async def test_dashboard_command_drill_people_registered(async_client, test_db_session):
-    await seed_employee(test_db_session, employee_id=8807, role="admin")
+async def test_command_people_registered_count_only(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=8811, role="admin")
     response = await async_client.get(
-        "/admin/dashboard/command/drill",
-        headers=employee_auth_header(8807),
-        params={"drill": "people_registered", "page": 1, "limit": 10},
+        "/admin/dashboard/command/people-registered",
+        params={"period": "all_time", "include_rows": "false"},
+        headers=employee_auth_header(8811),
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["data"]["drill"] == "people_registered"
-    assert isinstance(body["data"]["items"], list)
-    assert "page" in body["meta"]
+    assert body["data"] == []
     assert "total" in body["meta"]
+    assert isinstance(body["meta"]["total"], int)

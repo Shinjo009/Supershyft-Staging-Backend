@@ -1,9 +1,8 @@
-"""Dashboard year-stats + Command Center for admin KPI cards."""
+"""Dashboard year-stats and overview/operations for admin KPI cards."""
 
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
@@ -11,23 +10,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.responses import success_response
 from db.session import get_db
-from modules.employee.dependencies import get_current_employee
-from modules.employee.service import EmployeeContext
+from modules.dashboard.command_period import resolve_period_bounds
 from modules.dashboard.command_service import (
-    build_command_bootstrap,
-    build_command_drill,
+    failed_notifications_page,
+    notification_health_counts,
+    people_registered_count,
+    people_registered_page,
 )
 from modules.dashboard.service import (
     build_dashboard_operations,
     build_dashboard_overview,
     year_stats_payload,
 )
+from modules.employee.dependencies import get_current_employee
+from modules.employee.service import EmployeeContext
 from modules.engagements.models import Engagement, EngagementParticipant
+from modules.notifications.dependencies import get_notifications_service
+from modules.notifications.service import NotificationsService
+from modules.questionnaire.dependencies import get_questionnaire_management_service
+from modules.questionnaire.service import QuestionnaireService
 
 router = APIRouter(prefix="/admin/dashboard", tags=["dashboard"])
-
-AudienceParam = Literal["all", "b2b", "b2c"]
-LifecycleParam = Literal["all", "ongoing", "upcoming", "completed"]
 
 
 @router.get("/year-stats")
@@ -77,62 +80,90 @@ async def get_dashboard_operations(
     return success_response(payload)
 
 
-@router.get("/command")
-async def get_dashboard_command(
-    audience: AudienceParam = Query("all"),
-    from_: date | None = Query(None, alias="from"),
-    to: date | None = Query(None),
-    lifecycle: LifecycleParam = Query("all"),
+@router.get("/command/notification-health")
+async def get_command_notification_health(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
 ):
-    del employee  # auth gate only
-    payload = await build_command_bootstrap(
-        db,
-        audience=audience,
-        date_from=from_,
-        date_to=to,
-        lifecycle=lifecycle,
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
     )
-    return success_response(payload)
+    counts = await notification_health_counts(
+        db, dispatched_from=start, dispatched_to=end
+    )
+    return success_response(counts, meta={"period": preset})
 
 
-@router.get("/command/drill")
-async def get_dashboard_command_drill(
-    drill: str = Query(..., min_length=1),
-    audience: AudienceParam = Query("all"),
-    from_: date | None = Query(None, alias="from"),
-    to: date | None = Query(None),
-    lifecycle: LifecycleParam = Query("all"),
+@router.get("/command/notification-health/failed")
+async def get_command_notification_health_failed(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
-    limit: int = Query(25, ge=1, le=100),
-    package_id: int | None = Query(None),
-    discount_code_id: int | None = Query(None),
-    q: str | None = Query(None),
-    city: str | None = Query(None),
+    limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
+    notifications_service: NotificationsService = Depends(get_notifications_service),
 ):
-    del employee  # auth gate only
-    payload = await build_command_drill(
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    rows, total = await failed_notifications_page(
         db,
-        drill=drill,
-        audience=audience,
-        date_from=from_,
-        date_to=to,
-        lifecycle=lifecycle,
+        notifications_service=notifications_service,
+        dispatched_from=start,
+        dispatched_to=end,
         page=page,
         limit=limit,
-        package_id=package_id,
-        discount_code_id=discount_code_id,
-        q=q,
-        city=city,
     )
     return success_response(
-        payload,
-        meta={
-            "page": payload.get("page", page),
-            "limit": payload.get("limit", limit),
-            "total": payload.get("total", 0),
-        },
+        rows,
+        meta={"period": preset, "page": page, "limit": limit, "total": total},
+    )
+
+
+@router.get("/command/people-registered")
+async def get_command_people_registered(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    include_rows: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    questionnaire_service: QuestionnaireService = Depends(
+        get_questionnaire_management_service
+    ),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    all_time = preset == "all_time"
+    if not include_rows:
+        total = await people_registered_count(
+            db, created_from=start, created_to=end, all_time=all_time
+        )
+        return success_response(
+            [],
+            meta={"period": preset, "page": page, "limit": limit, "total": total},
+        )
+    rows, total = await people_registered_page(
+        db,
+        created_from=start,
+        created_to=end,
+        all_time=all_time,
+        page=page,
+        limit=limit,
+        questionnaire_service=questionnaire_service,
+    )
+    return success_response(
+        rows,
+        meta={"period": preset, "page": page, "limit": limit, "total": total},
     )
