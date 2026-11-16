@@ -234,6 +234,12 @@ class DiagnosticsService:
             exclude_group_id=int(group.group_id),
         )
         for match in matches:
+            if (
+                group.profile_group_id is not None
+                and match.profile_group_id is not None
+                and int(group.profile_group_id) == int(match.profile_group_id)
+            ):
+                continue
             match_bucket = self._normalized_provider_bucket(match.diagnostic_provider)
             if match_bucket == provider_bucket:
                 raise AppError(

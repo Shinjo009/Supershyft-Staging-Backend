@@ -236,3 +236,47 @@ async def test_assign_null_provider_test_group_allowed_not_warned_on_package_lis
     assigned = tests_resp.json()["data"]["groups"]
     assert len(assigned) == 1
     assert assigned[0]["diagnostic_provider"] is None
+
+
+@pytest.mark.asyncio
+async def test_update_profile_variant_allows_same_test_set_as_sibling(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=935, role="admin")
+    param = HealthParameter(test_name="T", parameter_type="test")
+    test_db_session.add(param)
+    await test_db_session.flush()
+
+    profile = DiagnosticProfileGroup()
+    test_db_session.add(profile)
+    await test_db_session.flush()
+
+    healthians = DiagnosticTestGroup(
+        profile_group_id=profile.profile_group_id,
+        is_default_for_group=True,
+        group_name="Liver Profile",
+        group_key="liver_h",
+        diagnostic_provider="healthians",
+        package_for="both",
+    )
+    generic = DiagnosticTestGroup(
+        profile_group_id=profile.profile_group_id,
+        is_default_for_group=False,
+        group_name="Liver Profile",
+        group_key="liver_generic",
+        diagnostic_provider=None,
+        package_for="public",
+    )
+    test_db_session.add_all([healthians, generic])
+    await test_db_session.flush()
+    for gid in (healthians.group_id, generic.group_id):
+        test_db_session.add(
+            DiagnosticTestGroupTest(group_id=gid, test_id=param.test_id, display_order=1)
+        )
+    await test_db_session.commit()
+
+    response = await async_client.put(
+        f"/diagnostic-test-groups/{generic.group_id}",
+        headers=employee_auth_header(935),
+        json={"group_name": "Liver Profile"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["group_name"] == "Liver Profile"
