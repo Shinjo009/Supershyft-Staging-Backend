@@ -13,9 +13,11 @@ from modules.assessments.models import (
     AssessmentInstance,
     AssessmentPackageCategory,
 )
+from core.exceptions import AppError
 from modules.dashboard.command_period import pick_latest_engagement
 from modules.diagnostics.models import DiagnosticPackage
 from modules.engagements.blood_bookings_repository import current_blood_booking_subquery
+from modules.engagements.dependencies import get_engagements_repository
 from modules.engagements.models import Engagement, EngagementParticipant, EngagementType
 from modules.experts.models import ConsultationBooking
 from modules.notifications.models import Notification
@@ -23,6 +25,14 @@ from modules.notifications.service import NotificationsService
 from modules.questionnaire.models import QuestionnaireCategory
 from modules.reports.models import IndividualHealthReport
 from modules.users.models import User
+
+B2B_BUCKET_STATUS: dict[str, str] = {
+    "ongoing": "running",
+    "upcoming": "scheduled",
+    "completed": "completed",
+}
+
+VALID_B2B_BUCKETS = frozenset(B2B_BUCKET_STATUS.keys())
 
 
 def _person_name(first: str | None, last: str | None) -> str:
@@ -581,3 +591,135 @@ async def _build_people_rows(
             }
         )
     return out
+
+
+def _b2b_start_date_filter(
+    *,
+    start_from: datetime | None,
+    start_to: datetime | None,
+    all_time: bool,
+):
+    """Apply period filter on Engagement.start_date.
+
+    Non-all_time: require non-null start_date within inclusive date bounds.
+    all_time: no date filter (null start_date included).
+    """
+    if all_time:
+        return None
+    clauses = [Engagement.start_date.is_not(None)]
+    if start_from is not None:
+        clauses.append(Engagement.start_date >= start_from.date())
+    if start_to is not None:
+        clauses.append(Engagement.start_date <= start_to.date())
+    return clauses
+
+
+def _b2b_base_query(
+    *,
+    status: str,
+    start_from: datetime | None,
+    start_to: datetime | None,
+    all_time: bool,
+):
+    query = select(Engagement).where(
+        Engagement.organization_id.is_not(None),
+        Engagement.status == status,
+    )
+    date_clauses = _b2b_start_date_filter(
+        start_from=start_from, start_to=start_to, all_time=all_time
+    )
+    if date_clauses:
+        query = query.where(*date_clauses)
+    return query
+
+
+async def b2b_summary_counts(
+    db: AsyncSession,
+    *,
+    start_from: datetime | None,
+    start_to: datetime | None,
+    all_time: bool,
+) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for bucket, status in B2B_BUCKET_STATUS.items():
+        query = select(func.count()).select_from(Engagement).where(
+            Engagement.organization_id.is_not(None),
+            Engagement.status == status,
+        )
+        date_clauses = _b2b_start_date_filter(
+            start_from=start_from, start_to=start_to, all_time=all_time
+        )
+        if date_clauses:
+            query = query.where(*date_clauses)
+        out[bucket] = int((await db.execute(query)).scalar_one() or 0)
+    return out
+
+
+async def b2b_engagements_page(
+    db: AsyncSession,
+    *,
+    bucket: str,
+    start_from: datetime | None,
+    start_to: datetime | None,
+    all_time: bool,
+    page: int,
+    limit: int,
+) -> tuple[list[dict[str, Any]], int]:
+    key = (bucket or "").strip().lower()
+    if key not in VALID_B2B_BUCKETS:
+        raise AppError(
+            status_code=400,
+            error_code="INVALID_INPUT",
+            message=f"Invalid bucket: {bucket}. Expected one of: ongoing, upcoming, completed",
+        )
+    status = B2B_BUCKET_STATUS[key]
+    base = _b2b_base_query(
+        status=status,
+        start_from=start_from,
+        start_to=start_to,
+        all_time=all_time,
+    )
+    total = int(
+        (
+            await db.execute(
+                select(func.count()).select_from(base.subquery())
+            )
+        ).scalar_one()
+        or 0
+    )
+    offset = max(0, (page - 1) * limit)
+    rows = (
+        await db.execute(
+            base.order_by(
+                Engagement.start_date.asc().nullslast(),
+                Engagement.engagement_id.asc(),
+            )
+            .offset(offset)
+            .limit(limit)
+        )
+    ).scalars().all()
+
+    engagement_ids = [int(e.engagement_id) for e in rows]
+    repo = get_engagements_repository()
+    counts = await repo.count_distinct_participants_by_engagement_ids(
+        db, engagement_ids=engagement_ids
+    )
+
+    result: list[dict[str, Any]] = []
+    for e in rows:
+        eid = int(e.engagement_id)
+        start = e.start_date
+        end = e.end_date
+        result.append(
+            {
+                "engagement_id": eid,
+                "engagement_code": str(e.engagement_code or ""),
+                "engagement_name": str(e.engagement_name or ""),
+                "city": str(e.city or ""),
+                "start_date": start.isoformat() if start else None,
+                "end_date": end.isoformat() if end else None,
+                "status": str(e.status or ""),
+                "participant_count": int(counts.get(eid, 0)),
+            }
+        )
+    return result, total

@@ -12,6 +12,8 @@ from common.responses import success_response
 from db.session import get_db
 from modules.dashboard.command_period import resolve_period_bounds
 from modules.dashboard.command_service import (
+    b2b_engagements_page,
+    b2b_summary_counts,
     failed_notifications_page,
     notification_health_counts,
     people_registered_count,
@@ -166,4 +168,61 @@ async def get_command_people_registered(
     return success_response(
         rows,
         meta={"period": preset, "page": page, "limit": limit, "total": total},
+    )
+
+
+@router.get("/command/b2b/summary")
+async def get_command_b2b_summary(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    counts = await b2b_summary_counts(
+        db,
+        start_from=start,
+        start_to=end,
+        all_time=preset == "all_time",
+    )
+    return success_response(counts, meta={"period": preset})
+
+
+@router.get("/command/b2b/engagements")
+async def get_command_b2b_engagements(
+    bucket: str = Query(..., description="ongoing | upcoming | completed"),
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    rows, total = await b2b_engagements_page(
+        db,
+        bucket=bucket,
+        start_from=start,
+        start_to=end,
+        all_time=preset == "all_time",
+        page=page,
+        limit=limit,
+    )
+    return success_response(
+        rows,
+        meta={
+            "period": preset,
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "bucket": bucket.strip().lower(),
+        },
     )
