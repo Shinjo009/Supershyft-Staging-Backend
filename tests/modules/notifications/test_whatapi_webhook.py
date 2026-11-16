@@ -306,3 +306,108 @@ async def test_whatapi_post_meta_sent_keeps_pending(async_client, test_db_sessio
     assert notification.status == "pending"
     assert notification.whatsapp_message_id == wamid
     assert notification.completed_at is None
+    assert "awaiting delivery confirmation" in (notification.message or "").lower()
+
+
+def _meta_status_payload(*, wamid: str, status: str, recipient_id: str = "918762830757") -> dict:
+    return {
+        "object": "whatsapp_business_account",
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "value": {
+                            "messaging_product": "whatsapp",
+                            "statuses": [
+                                {
+                                    "id": wamid,
+                                    "status": status,
+                                    "recipient_id": recipient_id,
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_whatapi_post_meta_out_of_order_sent_does_not_downgrade(
+    async_client, test_db_session
+):
+    """Meta sometimes delivers `delivered` before a late `sent`; never downgrade."""
+    service_key = "whatapi-wh-meta-ooo"
+    await _seed_service(test_db_session, service_key=service_key)
+    queue_id = "d4e5f6a7-b8c9-0123-def0-23456789abcd"
+    wamid = "wamid.test.ooo.delivered.then.sent"
+    notification = Notification(
+        service_key=service_key,
+        status="pending",
+        channel="whatsapp",
+        user={"contacts": [{"phone": "8762830757"}]},
+        message="WhatsApp template queued via WhatAPI POST",
+        queue_id=queue_id,
+        dispatched_at=datetime.now(timezone.utc),
+    )
+    test_db_session.add(notification)
+    await test_db_session.commit()
+    await test_db_session.refresh(notification)
+
+    delivered = await async_client.post(
+        "/webhooks/whatapi",
+        json=_meta_status_payload(wamid=wamid, status="delivered"),
+    )
+    assert delivered.status_code == 200
+    await test_db_session.refresh(notification)
+    assert notification.status == "sent"
+    assert notification.completed_at is not None
+    delivered_message = notification.message
+
+    late_sent = await async_client.post(
+        "/webhooks/whatapi",
+        json=_meta_status_payload(wamid=wamid, status="sent"),
+    )
+    assert late_sent.status_code == 200
+    await test_db_session.refresh(notification)
+    assert notification.status == "sent"
+    assert notification.completed_at is not None
+    assert notification.message == delivered_message
+
+
+@pytest.mark.asyncio
+async def test_whatapi_ack_stores_wamid_from_response(async_client, test_db_session):
+    service_key = "whatapi-wh-ack-wamid"
+    await _seed_service(test_db_session, service_key=service_key)
+    queue_id = "e5f6a7b8-c9d0-1234-ef01-3456789abcde"
+    wamid = "wamid.HBgMOTE4NzYyODMwNzU3FQIAERgSTESTQUNLV0FNSUQAAA=="
+    notification = Notification(
+        service_key=service_key,
+        status="pending",
+        channel="whatsapp",
+        user={"contacts": [{"phone": "8762830757"}]},
+        message="queued",
+        queue_id=queue_id,
+        dispatched_at=datetime.now(timezone.utc),
+    )
+    test_db_session.add(notification)
+    await test_db_session.commit()
+    await test_db_session.refresh(notification)
+
+    payload = {
+        "message": {"queue_id": queue_id, "message_status": "sent"},
+        "response": {
+            "contacts": [{"input": "918762830757", "wa_id": "918762830757"}],
+            "messages": [{"id": wamid, "message_status": "accepted"}],
+            "messaging_product": "whatsapp",
+        },
+        "messaging_channel": "whatsapp",
+    }
+    resp = await async_client.post("/webhooks/whatapi", json=payload)
+    assert resp.status_code == 200
+
+    await test_db_session.refresh(notification)
+    # WhatAPI queue "sent" maps to DB sent
+    assert notification.status == "sent"
+    assert notification.whatsapp_message_id == wamid

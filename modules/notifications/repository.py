@@ -215,9 +215,45 @@ class NotificationsRepository:
             .where(Notification.status == "pending")
             .where(Notification.dispatched_at.isnot(None))
             .where(Notification.dispatched_at < dispatched_before)
+            .where(Notification.completed_at.is_(None))
             .order_by(Notification.notification_id.asc())
         )
         return [row[0] for row in result.all()]
+
+    async def list_pending_completed_notification_ids(
+        self,
+        db: AsyncSession,
+        *,
+        dispatched_before: datetime,
+    ) -> list[int]:
+        """Pending rows that already have completed_at (out-of-order webhook downgrade)."""
+        result = await db.execute(
+            select(Notification.notification_id)
+            .where(Notification.status == "pending")
+            .where(Notification.dispatched_at.isnot(None))
+            .where(Notification.dispatched_at < dispatched_before)
+            .where(Notification.completed_at.isnot(None))
+            .order_by(Notification.notification_id.asc())
+        )
+        return [row[0] for row in result.all()]
+
+    async def heal_pending_completed_notifications(
+        self,
+        db: AsyncSession,
+        *,
+        dispatched_before: datetime,
+        message: str,
+    ) -> int:
+        result = await db.execute(
+            sql_update(Notification)
+            .where(Notification.status == "pending")
+            .where(Notification.dispatched_at.isnot(None))
+            .where(Notification.dispatched_at < dispatched_before)
+            .where(Notification.completed_at.isnot(None))
+            .values(status="sent", message=message)
+        )
+        await db.flush()
+        return int(result.rowcount or 0)
 
     async def expire_stale_pending_notifications(
         self,
@@ -231,6 +267,7 @@ class NotificationsRepository:
             .where(Notification.status == "pending")
             .where(Notification.dispatched_at.isnot(None))
             .where(Notification.dispatched_at < dispatched_before)
+            .where(Notification.completed_at.is_(None))
             .values(status="failed", message=message)
         )
         await db.flush()
