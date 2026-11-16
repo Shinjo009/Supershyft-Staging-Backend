@@ -135,6 +135,16 @@ def upgrade() -> None:
             """
         )
 
+    # Partial unique index uq_diagnostic_test_group_one_default_per_profile allows only one
+    # default per profile_group_id; clear defaults before merging profiles, then re-rank below.
+    op.execute(
+        """
+        UPDATE diagnostic_test_groups
+        SET is_default_for_group = false
+        WHERE is_default_for_group = true
+        """
+    )
+
     # Move all survivors for the same test set into the anchor profile group.
     op.execute(
         f"""
