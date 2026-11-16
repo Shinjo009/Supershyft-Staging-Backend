@@ -162,6 +162,7 @@ async def test_assign_test_group_provider_mismatch_rejected(async_client, test_d
         group_name="Healthians TG",
         group_key="mismatch_tg_h",
         diagnostic_provider="healthians",
+        package_for="both",
     )
     test_db_session.add_all([package, tg])
     await test_db_session.commit()
@@ -202,6 +203,7 @@ async def test_assign_null_provider_test_group_allowed_not_warned_on_package_lis
         group_name="Null provider TG",
         group_key="null_provider_tg",
         diagnostic_provider=None,
+        package_for="both",
     )
     test_db_session.add_all([package, tg])
     await test_db_session.commit()

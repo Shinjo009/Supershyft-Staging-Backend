@@ -7,6 +7,24 @@ from __future__ import annotations
 
 from common.listing import ilike_pattern
 from sqlalchemy import String, case, cast, delete, distinct, func, or_, select, update as sql_update
+
+
+def _package_for_list_predicate(column, package_for: str):
+    normalized = package_for.strip().lower()
+    if normalized == "public":
+        return column.in_(("public", "both"))
+    if normalized == "camp":
+        return column.in_(("camp", "both"))
+    return column == normalized
+
+
+def _test_group_for_list_predicate(column, package_for: str):
+    normalized = package_for.strip().lower()
+    if normalized == "public":
+        return column.in_(("public", "both"))
+    if normalized == "package":
+        return column.in_(("package", "both"))
+    return column == normalized
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -52,7 +70,7 @@ class DiagnosticsRepository:
             query = query.where(DiagnosticPackage.status == "active")
 
         if package_for is not None:
-            query = query.where(DiagnosticPackage.package_for == package_for)
+            query = query.where(_package_for_list_predicate(DiagnosticPackage.package_for, package_for))
 
         if public_only:
             query = query.where(DiagnosticPackage.created_by_user_id.is_(None))
@@ -1312,7 +1330,7 @@ class DiagnosticsRepository:
         if exclude_forked:
             query = query.where(DiagnosticTestGroup.forked_from_group_id.is_(None))
         if package_for is not None:
-            query = query.where(DiagnosticTestGroup.package_for == package_for)
+            query = query.where(_test_group_for_list_predicate(DiagnosticTestGroup.package_for, package_for))
         if filter_chip_key is not None:
             chip_sub = (
                 select(DiagnosticPackageFilterChipLink.group_id)
@@ -1543,7 +1561,7 @@ class DiagnosticsRepository:
             has_allergy_screening=source.has_allergy_screening,
             has_cancer_screening=source.has_cancer_screening,
             gender_suitability=source.gender_suitability,
-            package_for=source.package_for,
+            package_for="package",
             forked_from_group_id=forked_from_group_id,
         )
         db.add(copy)
@@ -1657,6 +1675,76 @@ class DiagnosticsRepository:
             .order_by(DiagnosticTestGroupTest.display_order.asc().nulls_last(), DiagnosticTestGroupTest.id.asc())
         )
         return list(result.scalars().all())
+
+    async def find_catalog_groups_by_test_ids(
+        self,
+        db: AsyncSession,
+        *,
+        test_ids: list[int],
+        exclude_group_id: int | None = None,
+    ) -> list[DiagnosticTestGroup]:
+        target = sorted(dict.fromkeys(test_ids))
+        if not target:
+            return []
+        stmt = select(DiagnosticTestGroup).where(DiagnosticTestGroup.forked_from_group_id.is_(None))
+        if exclude_group_id is not None:
+            stmt = stmt.where(DiagnosticTestGroup.group_id != exclude_group_id)
+        groups = list((await db.execute(stmt)).scalars().all())
+        matches: list[DiagnosticTestGroup] = []
+        for group in groups:
+            ordered_ids = await self.get_assigned_test_ids_for_group_ordered(db, group_id=int(group.group_id))
+            if sorted(ordered_ids) == target:
+                matches.append(group)
+        return matches
+
+    async def create_profile_provider_variant(
+        self,
+        db: AsyncSession,
+        *,
+        source: DiagnosticTestGroup,
+        diagnostic_provider: str | None,
+        external_test_group_code: str | None,
+        package_for: str,
+    ) -> DiagnosticTestGroup:
+        provider_slug = (diagnostic_provider or "lab").lower().replace(" ", "_")
+        base_key = source.group_key
+        candidate = f"{base_key}_{provider_slug}"
+        group_key = candidate
+        suffix = 2
+        while await self.get_group_by_group_key(db, group_key=group_key) is not None:
+            group_key = f"{candidate}_{suffix}"
+            suffix += 1
+        if source.profile_group_id is None:
+            profile = await self.create_profile_group(db)
+            source.profile_group_id = profile.profile_group_id
+            db.add(source)
+            await db.flush()
+        variant = DiagnosticTestGroup(
+            group_name=source.group_name,
+            group_key=group_key,
+            profile_group_id=source.profile_group_id,
+            test_group_image=source.test_group_image,
+            diagnostic_provider=diagnostic_provider,
+            external_test_group_code=external_test_group_code,
+            is_default_for_group=False,
+            display_order=source.display_order,
+            price=source.price,
+            original_price=source.original_price,
+            is_most_popular=source.is_most_popular,
+            has_allergy_screening=source.has_allergy_screening,
+            has_cancer_screening=source.has_cancer_screening,
+            gender_suitability=source.gender_suitability,
+            package_for=package_for,
+            forked_from_group_id=None,
+        )
+        db.add(variant)
+        await db.flush()
+        await self.copy_tests_and_chips_between_groups(
+            db,
+            source_group_id=int(source.group_id),
+            target_group_id=int(variant.group_id),
+        )
+        return variant
 
     async def assign_tests_to_group(
         self,

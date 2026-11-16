@@ -36,6 +36,13 @@ class PackageListType(str, Enum):
 class PackageForType(str, Enum):
     PUBLIC = "public"
     CAMP = "camp"
+    BOTH = "both"
+
+
+class TestGroupPackageForType(str, Enum):
+    PACKAGE = "package"
+    PUBLIC = "public"
+    BOTH = "both"
 
 
 class FilterChipForSchema(str, Enum):
@@ -341,7 +348,7 @@ class TestGroupCreate(BaseModel):
     has_allergy_screening: Optional[bool] = None
     has_cancer_screening: Optional[bool] = None
     gender_suitability: Optional[str] = None
-    package_for: Optional[PackageForType] = None
+    package_for: Optional[TestGroupPackageForType] = None
     is_default_for_group: Optional[bool] = None
 
 
@@ -359,7 +366,7 @@ class TestGroupUpdate(BaseModel):
     has_allergy_screening: Optional[bool] = None
     has_cancer_screening: Optional[bool] = None
     gender_suitability: Optional[str] = None
-    package_for: Optional[PackageForType] = None
+    package_for: Optional[TestGroupPackageForType] = None
     is_default_for_group: Optional[bool] = None
 
 
@@ -387,6 +394,8 @@ class TestGroupResponse(BaseModel):
     same_test_groups: list[TestGroupPeerResponse] = Field(default_factory=list)
     tests: list[HealthParameterResponse] = Field(default_factory=list)
     filter_chips: list[PackageFilterChipResponse] = Field(default_factory=list)
+    created_provider_variant: Optional[TestGroupPeerResponse] = None
+    packages_to_reassign: list[TestGroupPackageListItem] = Field(default_factory=list)
 
 
 class TestGroupProfileGroupListItem(BaseModel):
@@ -400,6 +409,7 @@ class TestGroupProfileGroupListItem(BaseModel):
     profile_group_id: Optional[int] = None
     diagnostic_provider: Optional[str] = None
     profile_group: dict[str, int] = Field(default_factory=dict)
+    warnings: list[DiagnosticWarning] = Field(default_factory=list)
 
 
 class TestGroupPackageListItem(BaseModel):
