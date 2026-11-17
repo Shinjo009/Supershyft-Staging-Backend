@@ -34,9 +34,9 @@ class B2cOnboardingDefaultsRead(BaseModel):
 
 
 class B2cOnboardingDefaultsUpdate(BaseModel):
-    """Keyed by engagement_types.code (must be active)."""
+    """Keyed by engagement_types.code (must be active). Omit types to change only the fallback."""
 
-    defaults_by_engagement_type: dict[str, B2cOnboardingTypeDefaults]
+    defaults_by_engagement_type: dict[str, B2cOnboardingTypeDefaults] = Field(default_factory=dict)
     default_engagement_type_code: str | None = None
 
 

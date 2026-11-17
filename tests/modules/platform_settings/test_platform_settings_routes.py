@@ -232,6 +232,88 @@ async def test_patch_b2c_defaults_rejects_fitprint_without_profile_creation(asyn
 
 
 @pytest.mark.asyncio
+async def test_patch_b2c_defaults_single_type_does_not_validate_other_types(async_client, test_db_session):
+    """Saving one Bio AI type must not fail because another type still has invalid Metsights Pro."""
+    uid = 9111
+    test_db_session.add(User(user_id=uid, age=30, phone="91110000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(employee_id=9111, name="Employee 9111", phone="0000009111", email="employee9111@test.example", role="admin", status="active")
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
+            "(1, 'P1', 'One', 1), (901, 'METSIGHTS_ESSENTIALS', 'Essentials', 1), (902, 'METSIGHTS_PRO', 'Pro', 1) "
+            "ON CONFLICT (package_id) DO UPDATE SET package_code = EXCLUDED.package_code, status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
+            "VALUES (6, 'R6', 'Core', 'healthians', 1), (7, 'R7', 'Core Plus', 'healthians', 1) "
+            "ON CONFLICT (diagnostic_package_id) DO UPDATE SET package_name = EXCLUDED.package_name, status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.commit()
+
+    response_bad = await async_client.patch(
+        "/platform-settings/b2c-onboarding",
+        headers=_auth_header(uid),
+        json={
+            "defaults_by_engagement_type": {
+                "bio_ai_with_consultation": _type_defaults(assessment_package_id=902, diagnostic_package_id=6),
+            }
+        },
+    )
+    assert response_bad.status_code == 400
+
+    response = await async_client.patch(
+        "/platform-settings/b2c-onboarding",
+        headers=_auth_header(uid),
+        json={
+            "defaults_by_engagement_type": {
+                "bio_ai": _type_defaults(assessment_package_id=901, diagnostic_package_id=7),
+            }
+        },
+    )
+    assert response.status_code == 200
+    bio = response.json()["data"]["defaults_by_engagement_type"]["bio_ai"]
+    assert bio["assessment_package_id"] == 901
+
+
+@pytest.mark.asyncio
+async def test_patch_b2c_defaults_default_type_only(async_client, test_db_session):
+    uid = 9112
+    test_db_session.add(User(user_id=uid, age=30, phone="91120000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(employee_id=9112, name="Employee 9112", phone="0000009112", email="employee9112@test.example", role="admin", status="active")
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
+            "VALUES (1, 'P1', 'One', 1) ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
+            "VALUES (1, 'R1', 'D1', 'p', 1) "
+            "ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.patch(
+        "/platform-settings/b2c-onboarding",
+        headers=_auth_header(uid),
+        json={"default_engagement_type_code": "blood_test"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["default_engagement_type_code"] == "blood_test"
+
+
+@pytest.mark.asyncio
 async def test_patch_b2c_defaults_rejects_metsights_pro_missing_hormones(async_client, test_db_session):
     uid = 9110
     test_db_session.add(User(user_id=uid, age=30, phone="91100000001", status="active"))

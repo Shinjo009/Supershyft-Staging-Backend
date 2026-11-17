@@ -299,11 +299,15 @@ class PlatformSettingsService:
         endpoint: str,
     ) -> B2cOnboardingDefaultsRead:
         provided = {str(code).strip(): entry for code, entry in payload.defaults_by_engagement_type.items()}
-        if not provided:
+        updating_defaults = bool(provided)
+        if not updating_defaults and payload.default_engagement_type_code is None:
             raise AppError(
                 status_code=422,
                 error_code="INVALID_B2C_ONBOARDING_DEFAULTS",
-                message="defaults_by_engagement_type must include at least one engagement type",
+                message=(
+                    "Provide defaults_by_engagement_type with at least one engagement type, "
+                    "or set default_engagement_type_code"
+                ),
             )
 
         active_codes = await self._list_active_engagement_type_codes(db)
@@ -325,38 +329,42 @@ class PlatformSettingsService:
         for code in active_codes:
             complete[code] = provided.get(code) or existing_map.get(code) or _fallback_type_defaults()
 
-        for code, entry in complete.items():
-            await self.ensure_active_b2c_packages(db, entry.assessment_package_id, entry.diagnostic_package_id)
-
-        pro_violations: list[str] = []
-        for code, entry in complete.items():
-            violation = await metsights_pro_b2c_defaults_violation(
-                db,
-                engagement_type_code=code,
-                assessment_package_id=entry.assessment_package_id,
-                diagnostic_package_id=entry.diagnostic_package_id,
-                diagnostic_package_id_male=entry.diagnostic_package_id_male,
-                diagnostic_package_id_female=entry.diagnostic_package_id_female,
-            )
-            if violation:
-                pro_violations.append(violation)
-        if pro_violations:
-            raise AppError(
-                status_code=400,
-                error_code="INVALID_INPUT",
-                message=" ".join(pro_violations),
-            )
-
-        for code, entry in complete.items():
-            if entry.enroll_for_fitprint_full and not entry.create_profile_on_metsights:
-                raise AppError(
-                    status_code=422,
-                    error_code="INVALID_B2C_ONBOARDING_DEFAULTS",
-                    message=(
-                        f"FitPrint Full enrollment requires Metsights profile creation "
-                        f"(engagement_type={code})"
-                    ),
+        if updating_defaults:
+            for code in provided:
+                entry = complete[code]
+                await self.ensure_active_b2c_packages(
+                    db, entry.assessment_package_id, entry.diagnostic_package_id
                 )
+
+            pro_violations: list[str] = []
+            for code, entry in provided.items():
+                violation = await metsights_pro_b2c_defaults_violation(
+                    db,
+                    engagement_type_code=code,
+                    assessment_package_id=entry.assessment_package_id,
+                    diagnostic_package_id=entry.diagnostic_package_id,
+                    diagnostic_package_id_male=entry.diagnostic_package_id_male,
+                    diagnostic_package_id_female=entry.diagnostic_package_id_female,
+                )
+                if violation:
+                    pro_violations.append(violation)
+            if pro_violations:
+                raise AppError(
+                    status_code=400,
+                    error_code="INVALID_INPUT",
+                    message=" ".join(pro_violations),
+                )
+
+            for code, entry in provided.items():
+                if entry.enroll_for_fitprint_full and not entry.create_profile_on_metsights:
+                    raise AppError(
+                        status_code=422,
+                        error_code="INVALID_B2C_ONBOARDING_DEFAULTS",
+                        message=(
+                            f"FitPrint Full enrollment requires Metsights profile creation "
+                            f"(engagement_type={code})"
+                        ),
+                    )
 
         serialized = {code: _type_defaults_to_dict(entry) for code, entry in complete.items()}
         # Preserve configs for inactive codes so reactivating a type keeps settings.
