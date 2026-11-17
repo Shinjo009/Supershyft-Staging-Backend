@@ -235,3 +235,106 @@ async def test_build_whatsapp_send_payload_document_header_filename_from_config(
     doc = components[0]["parameters"][0]["document"]
     assert doc["link"] == "https://supershyft.com/reports/tCO8xWspk1Mdxsn5.pdf"
     assert doc["filename"] == "pretest-guidelines.pdf"
+
+
+@pytest.mark.asyncio
+async def test_build_whatsapp_send_payload_video_header():
+    client = MagicMock()
+    client.fetch_message_template = AsyncMock(
+        return_value={
+            "data": [
+                {
+                    "name": "inst_phlebo_3",
+                    "language": "en",
+                    "components": [
+                        {"type": "HEADER", "format": "VIDEO"},
+                        {
+                            "type": "BODY",
+                            "text": (
+                                "Hello {{1}},\n\nPlease watch the attached video...\n{{2}}\n\n"
+                                "Regards\nTeam Supershyft"
+                            ),
+                        },
+                    ],
+                }
+            ]
+        }
+    )
+    video_url = (
+        "https://api.supershyft.com/media/video/Admin%20dashboard%20guide%20-%20English.mp4"
+    )
+    svc = NotificationService(
+        service_key="reminders-booking-guide-whatsapp",
+        display_name="Booking guide video for phlebos | English",
+        channel="whatsapp",
+        template_name="inst_phlebo_3",
+        template_variables={
+            "slots": [
+                {"index": 1, "source": "literal", "value": "Harshili Gada"},
+                {
+                    "index": 2,
+                    "source": "literal",
+                    "value": "https://admin.supershyft.com/engagements/console",
+                },
+            ],
+            "header": {"source": "literal", "value": video_url},
+        },
+    )
+    member = {"first_name": "Harshili"}
+
+    name, components, language = await build_whatsapp_send_payload(
+        client, svc, member=member
+    )
+
+    assert name == "inst_phlebo_3"
+    assert language == "en"
+    header = components[0]
+    assert header["type"] == "header"
+    assert header["parameters"][0] == {
+        "type": "video",
+        "video": {"link": video_url},
+    }
+    body = components[1]
+    assert [p["text"] for p in body["parameters"]] == [
+        "Harshili Gada",
+        "https://admin.supershyft.com/engagements/console",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_build_whatsapp_send_payload_image_header():
+    client = MagicMock()
+    client.fetch_message_template = AsyncMock(
+        return_value={
+            "data": [
+                {
+                    "name": "camp_image",
+                    "language": "en",
+                    "components": [
+                        {"type": "HEADER", "format": "IMAGE"},
+                        {"type": "BODY", "text": "Hi {{1}}"},
+                    ],
+                }
+            ]
+        }
+    )
+    image_url = "https://api.supershyft.com/media/image/guide.png"
+    svc = NotificationService(
+        service_key="image-guide-whatsapp",
+        display_name="Image guide",
+        channel="whatsapp",
+        template_name="camp_image",
+        template_variables={
+            "slots": [{"index": 1, "source": "literal", "value": "Hello"}],
+            "header": {"source": "literal", "value": image_url},
+        },
+    )
+
+    _, components, _ = await build_whatsapp_send_payload(
+        client, svc, member={"first_name": "A"}
+    )
+
+    assert components[0]["parameters"][0] == {
+        "type": "image",
+        "image": {"link": image_url},
+    }

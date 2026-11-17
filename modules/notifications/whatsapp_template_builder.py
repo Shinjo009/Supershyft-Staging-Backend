@@ -77,14 +77,52 @@ def _pick_template_entry(
     return None
 
 
-def _header_is_document(components: list[dict[str, Any]]) -> bool:
+_HEADER_MEDIA_FORMATS = frozenset({"DOCUMENT", "IMAGE", "VIDEO"})
+
+
+def _header_media_format(components: list[dict[str, Any]]) -> str | None:
+    """Return Meta HEADER media format (DOCUMENT / IMAGE / VIDEO), if any."""
     for component in components:
         if not isinstance(component, dict):
             continue
         if str(component.get("type", "")).upper() != "HEADER":
             continue
-        return str(component.get("format", "")).upper() in {"DOCUMENT", "IMAGE"}
-    return False
+        fmt = str(component.get("format", "")).upper()
+        if fmt in _HEADER_MEDIA_FORMATS:
+            return fmt
+        return None
+    return None
+
+
+def _build_header_media_component(
+    header_format: str,
+    *,
+    header_link: str,
+    filename: str | None,
+) -> dict[str, Any]:
+    """Build Meta template header parameter matching DOCUMENT / IMAGE / VIDEO."""
+    if header_format == "VIDEO":
+        return {
+            "type": "header",
+            "parameters": [{"type": "video", "video": {"link": header_link}}],
+        }
+    if header_format == "IMAGE":
+        return {
+            "type": "header",
+            "parameters": [{"type": "image", "image": {"link": header_link}}],
+        }
+    return {
+        "type": "header",
+        "parameters": [
+            {
+                "type": "document",
+                "document": {
+                    "link": header_link,
+                    "filename": filename or "document.pdf",
+                },
+            }
+        ],
+    }
 
 
 async def build_whatsapp_send_payload(
@@ -136,18 +174,15 @@ async def build_whatsapp_send_payload(
 
     components: list[dict[str, Any]] = []
     header_link = resolve_header_link(svc.template_variables, context)
-    if header_link and _header_is_document(components_meta):
-        filename = resolve_header_filename(svc.template_variables, context) or "document.pdf"
+    header_format = _header_media_format(components_meta)
+    if header_link and header_format:
+        filename = resolve_header_filename(svc.template_variables, context)
         components.append(
-            {
-                "type": "header",
-                "parameters": [
-                    {
-                        "type": "document",
-                        "document": {"link": header_link, "filename": filename},
-                    }
-                ],
-            }
+            _build_header_media_component(
+                header_format,
+                header_link=header_link,
+                filename=filename,
+            )
         )
 
     if slot_values:
