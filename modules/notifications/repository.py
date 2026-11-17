@@ -10,7 +10,7 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-from sqlalchemy import cast, delete, func, select, type_coerce, update as sql_update
+from sqlalchemy import cast, delete, func, select, text, type_coerce, update as sql_update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -85,6 +85,35 @@ class NotificationsRepository:
             .where(Notification.service_key == service_key)
         )
         return int(result.scalar_one())
+
+    async def list_service_keys_with_notification_logs(
+        self, db: AsyncSession,
+    ) -> set[str]:
+        result = await db.execute(select(Notification.service_key).distinct())
+        return {str(row) for row in result.scalars().all() if row}
+
+    async def list_service_keys_used_in_event_bindings(
+        self, db: AsyncSession,
+    ) -> set[str]:
+        stmt = text(
+            """
+            SELECT DISTINCT elem->>'service_key' AS service_key
+            FROM (
+                SELECT notification_services::jsonb AS services FROM notification_events
+                UNION ALL
+                SELECT notification_services::jsonb AS services FROM engagement_notifications
+            ) AS bindings,
+            LATERAL jsonb_array_elements(
+                CASE
+                    WHEN jsonb_typeof(bindings.services) = 'array' THEN bindings.services
+                    ELSE '[]'::jsonb
+                END
+            ) AS elem
+            WHERE COALESCE(elem->>'service_key', '') <> ''
+            """
+        )
+        result = await db.execute(stmt)
+        return {str(row) for row in result.scalars().all() if row}
 
     # ── Notification CRUD ───────────────────────────────────────────────
 

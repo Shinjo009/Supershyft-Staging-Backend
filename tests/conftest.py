@@ -252,12 +252,22 @@ class CapturingNotificationsService:
     """Notifications service mock that captures OTP dispatch calls for tests."""
 
     def __init__(self):
+        from modules.metsights.client import MetsightsClient
+        from modules.metsights.service import MetsightsService
         from modules.notifications.repository import NotificationsRepository
+        from modules.notifications.service import NotificationsService
 
-        self._repo = NotificationsRepository()
+        self._delegate = NotificationsService(
+            repository=NotificationsRepository(),
+            metsights_service=MetsightsService(client=MetsightsClient()),
+        )
+        self._repo = self._delegate._repo
         self.last_dispatch: dict | None = None
         self.last_otp: str | None = None
         self.dispatches: list[dict] = []
+
+    def __getattr__(self, name: str):
+        return getattr(self._delegate, name)
 
     def reset_captures(self) -> None:
         self.last_dispatch = None

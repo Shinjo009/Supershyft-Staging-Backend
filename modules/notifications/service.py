@@ -853,6 +853,22 @@ class NotificationsService:
     async def list_services(self, db: AsyncSession) -> list[NotificationService]:
         return await self._repo.list_services(db)
 
+    async def _blocked_service_keys(self, db: AsyncSession) -> set[str]:
+        binding_keys = await self._repo.list_service_keys_used_in_event_bindings(db)
+        log_keys = await self._repo.list_service_keys_with_notification_logs(db)
+        return binding_keys | log_keys
+
+    async def service_can_delete(self, db: AsyncSession, *, service_key: str) -> bool:
+        blocked = await self._blocked_service_keys(db)
+        return service_key not in blocked
+
+    async def list_services_with_delete_flags(
+        self, db: AsyncSession,
+    ) -> list[tuple[NotificationService, bool]]:
+        services = await self._repo.list_services(db)
+        blocked = await self._blocked_service_keys(db)
+        return [(svc, svc.service_key not in blocked) for svc in services]
+
     async def create_service(
         self, db: AsyncSession, *, payload: NotificationServiceCreate
     ) -> NotificationService:
@@ -967,6 +983,13 @@ class NotificationsService:
         if svc is None:
             raise AppError(
                 status_code=404, error_code="NOT_FOUND", message="Service not found"
+            )
+        binding_keys = await self._repo.list_service_keys_used_in_event_bindings(db)
+        if svc.service_key in binding_keys:
+            raise AppError(
+                status_code=409,
+                error_code="CONFLICT",
+                message="Cannot delete a service that is used in notification events.",
             )
         in_use = await self._repo.count_notifications_for_service_key(
             db, service_key=svc.service_key
