@@ -24,6 +24,7 @@ from modules.notifications.models import Notification
 from modules.notifications.service import NotificationsService
 from modules.questionnaire.models import QuestionnaireCategory
 from modules.reports.models import IndividualHealthReport
+from modules.support.models import SupportTicket
 from modules.users.models import User
 
 B2B_BUCKET_STATUS: dict[str, str] = {
@@ -1110,3 +1111,564 @@ async def b2b_engagements_page(
             }
         )
     return result, total
+
+
+def _stamp_period_clauses(
+    column,
+    *,
+    stamp_from: datetime | None,
+    stamp_to: datetime | None,
+    all_time: bool,
+):
+    """Null stamps are excluded from ranged filters; included only for all_time."""
+    if all_time:
+        return []
+    clauses = [column.is_not(None)]
+    if stamp_from is not None:
+        clauses.append(column >= stamp_from)
+    if stamp_to is not None:
+        clauses.append(column <= stamp_to)
+    return clauses
+
+
+async def _people_page_for_audience(
+    db: AsyncSession,
+    *,
+    audience: dict[int, str],
+    page: int,
+    limit: int,
+    today: date | None = None,
+    questionnaire_service: Any | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    day = today or datetime.now(timezone.utc).date()
+    counts = _audience_split_counts(audience)
+    user_ids = sorted(audience.keys(), reverse=True)
+    offset = max(0, (page - 1) * limit)
+    page_ids = user_ids[offset : offset + limit]
+    if not page_ids:
+        return [], counts
+
+    users = (
+        await db.execute(
+            select(User)
+            .where(User.user_id.in_(page_ids))
+            .order_by(User.user_id.desc())
+        )
+    ).scalars().all()
+    by_id = {int(u.user_id): u for u in users}
+    ordered = [by_id[uid] for uid in page_ids if uid in by_id]
+    rows = await _build_people_rows(
+        db,
+        users=ordered,
+        user_ids=[int(u.user_id) for u in ordered],
+        today=day,
+        questionnaire_service=questionnaire_service,
+    )
+    return rows, counts
+
+
+async def _blood_report_audience_by_user(
+    db: AsyncSession,
+    *,
+    received_from: datetime | None,
+    received_to: datetime | None,
+    all_time: bool,
+) -> dict[int, str]:
+    """Distinct users whose current blood booking has a diagnostic report URL."""
+    curr_pbb = current_blood_booking_subquery()
+    query = (
+        select(
+            EngagementParticipant.user_id,
+            Engagement.organization_id,
+            curr_pbb.c.report_received_at,
+            EngagementParticipant.engagement_participant_id,
+        )
+        .select_from(curr_pbb)
+        .join(
+            EngagementParticipant,
+            EngagementParticipant.engagement_participant_id
+            == curr_pbb.c.engagement_participant_id,
+        )
+        .join(
+            Engagement,
+            Engagement.engagement_id == EngagementParticipant.engagement_id,
+        )
+        .where(
+            curr_pbb.c.diagnostic_report_url.is_not(None),
+            func.btrim(curr_pbb.c.diagnostic_report_url) != "",
+        )
+    )
+    for clause in _stamp_period_clauses(
+        curr_pbb.c.report_received_at,
+        stamp_from=received_from,
+        stamp_to=received_to,
+        all_time=all_time,
+    ):
+        query = query.where(clause)
+
+    rows = (await db.execute(query)).all()
+    best: dict[int, tuple[datetime | None, int | None, int]] = {}
+    for row in rows:
+        uid = int(row.user_id)
+        received_at = row.report_received_at
+        ep_id = int(row.engagement_participant_id)
+        prev = best.get(uid)
+        if prev is None or (
+            received_at is not None
+            and (
+                prev[0] is None
+                or received_at > prev[0]
+                or (received_at == prev[0] and ep_id > prev[2])
+            )
+        ):
+            best[uid] = (received_at, row.organization_id, ep_id)
+
+    return {
+        uid: _audience_type(has_engagement=True, organization_id=org_id)
+        for uid, (_ra, org_id, _ep) in best.items()
+    }
+
+
+async def blood_report_generated_counts(
+    db: AsyncSession,
+    *,
+    received_from: datetime | None,
+    received_to: datetime | None,
+    all_time: bool,
+) -> dict[str, int]:
+    audience = await _blood_report_audience_by_user(
+        db,
+        received_from=received_from,
+        received_to=received_to,
+        all_time=all_time,
+    )
+    return _audience_split_counts(audience)
+
+
+async def blood_report_generated_page(
+    db: AsyncSession,
+    *,
+    received_from: datetime | None,
+    received_to: datetime | None,
+    all_time: bool,
+    page: int,
+    limit: int,
+    today: date | None = None,
+    questionnaire_service: Any | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    audience = await _blood_report_audience_by_user(
+        db,
+        received_from=received_from,
+        received_to=received_to,
+        all_time=all_time,
+    )
+    return await _people_page_for_audience(
+        db,
+        audience=audience,
+        page=page,
+        limit=limit,
+        today=today,
+        questionnaire_service=questionnaire_service,
+    )
+
+
+async def _bioai_report_audience_by_user(
+    db: AsyncSession,
+    *,
+    received_from: datetime | None,
+    received_to: datetime | None,
+    all_time: bool,
+) -> dict[int, str]:
+    """Distinct users with an IHR that has a BioAI report_url."""
+    query = (
+        select(
+            IndividualHealthReport.user_id,
+            Engagement.organization_id,
+            IndividualHealthReport.report_received_at,
+            IndividualHealthReport.report_id,
+        )
+        .select_from(IndividualHealthReport)
+        .join(
+            Engagement,
+            Engagement.engagement_id == IndividualHealthReport.engagement_id,
+        )
+        .where(
+            IndividualHealthReport.report_url.is_not(None),
+            func.btrim(IndividualHealthReport.report_url) != "",
+        )
+    )
+    for clause in _stamp_period_clauses(
+        IndividualHealthReport.report_received_at,
+        stamp_from=received_from,
+        stamp_to=received_to,
+        all_time=all_time,
+    ):
+        query = query.where(clause)
+
+    rows = (await db.execute(query)).all()
+    best: dict[int, tuple[datetime | None, int | None, int]] = {}
+    for row in rows:
+        uid = int(row.user_id)
+        received_at = row.report_received_at
+        report_id = int(row.report_id)
+        prev = best.get(uid)
+        if prev is None or (
+            received_at is not None
+            and (
+                prev[0] is None
+                or received_at > prev[0]
+                or (received_at == prev[0] and report_id > prev[2])
+            )
+        ):
+            best[uid] = (received_at, row.organization_id, report_id)
+
+    return {
+        uid: _audience_type(has_engagement=True, organization_id=org_id)
+        for uid, (_ra, org_id, _rid) in best.items()
+    }
+
+
+async def bioai_report_generated_counts(
+    db: AsyncSession,
+    *,
+    received_from: datetime | None,
+    received_to: datetime | None,
+    all_time: bool,
+) -> dict[str, int]:
+    audience = await _bioai_report_audience_by_user(
+        db,
+        received_from=received_from,
+        received_to=received_to,
+        all_time=all_time,
+    )
+    return _audience_split_counts(audience)
+
+
+async def bioai_report_generated_page(
+    db: AsyncSession,
+    *,
+    received_from: datetime | None,
+    received_to: datetime | None,
+    all_time: bool,
+    page: int,
+    limit: int,
+    today: date | None = None,
+    questionnaire_service: Any | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    audience = await _bioai_report_audience_by_user(
+        db,
+        received_from=received_from,
+        received_to=received_to,
+        all_time=all_time,
+    )
+    return await _people_page_for_audience(
+        db,
+        audience=audience,
+        page=page,
+        limit=limit,
+        today=today,
+        questionnaire_service=questionnaire_service,
+    )
+
+
+async def _consultation_done_audience_by_user(
+    db: AsyncSession,
+    *,
+    done_from: datetime | None,
+    done_to: datetime | None,
+    all_time: bool,
+) -> dict[int, str]:
+    """Distinct users with at least one consultation booking marked done."""
+    query = (
+        select(
+            EngagementParticipant.user_id,
+            Engagement.organization_id,
+            ConsultationBooking.consultation_done_at,
+            ConsultationBooking.consultation_id,
+        )
+        .select_from(ConsultationBooking)
+        .join(
+            EngagementParticipant,
+            EngagementParticipant.engagement_participant_id
+            == ConsultationBooking.engagement_participant_id,
+        )
+        .join(
+            Engagement,
+            Engagement.engagement_id == EngagementParticipant.engagement_id,
+        )
+        .where(ConsultationBooking.done.is_(True))
+    )
+    for clause in _stamp_period_clauses(
+        ConsultationBooking.consultation_done_at,
+        stamp_from=done_from,
+        stamp_to=done_to,
+        all_time=all_time,
+    ):
+        query = query.where(clause)
+
+    rows = (await db.execute(query)).all()
+    best: dict[int, tuple[datetime | None, int | None, int]] = {}
+    for row in rows:
+        uid = int(row.user_id)
+        done_at = row.consultation_done_at
+        cid = int(row.consultation_id)
+        prev = best.get(uid)
+        if prev is None or (
+            done_at is not None
+            and (
+                prev[0] is None
+                or done_at > prev[0]
+                or (done_at == prev[0] and cid > prev[2])
+            )
+        ):
+            best[uid] = (done_at, row.organization_id, cid)
+
+    return {
+        uid: _audience_type(has_engagement=True, organization_id=org_id)
+        for uid, (_da, org_id, _cid) in best.items()
+    }
+
+
+async def consultation_done_counts(
+    db: AsyncSession,
+    *,
+    done_from: datetime | None,
+    done_to: datetime | None,
+    all_time: bool,
+) -> dict[str, int]:
+    audience = await _consultation_done_audience_by_user(
+        db,
+        done_from=done_from,
+        done_to=done_to,
+        all_time=all_time,
+    )
+    return _audience_split_counts(audience)
+
+
+async def consultation_done_page(
+    db: AsyncSession,
+    *,
+    done_from: datetime | None,
+    done_to: datetime | None,
+    all_time: bool,
+    page: int,
+    limit: int,
+    today: date | None = None,
+    questionnaire_service: Any | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    audience = await _consultation_done_audience_by_user(
+        db,
+        done_from=done_from,
+        done_to=done_to,
+        all_time=all_time,
+    )
+    return await _people_page_for_audience(
+        db,
+        audience=audience,
+        page=page,
+        limit=limit,
+        today=today,
+        questionnaire_service=questionnaire_service,
+    )
+
+
+def _open_engagement_base_query(
+    *,
+    start_from: datetime | None,
+    start_to: datetime | None,
+    all_time: bool,
+):
+    query = select(Engagement).where(
+        Engagement.status.in_(("running", "scheduled")),
+    )
+    date_clauses = _b2b_start_date_filter(
+        start_from=start_from, start_to=start_to, all_time=all_time
+    )
+    if date_clauses:
+        query = query.where(*date_clauses)
+    return query
+
+
+async def open_engagement_counts(
+    db: AsyncSession,
+    *,
+    start_from: datetime | None,
+    start_to: datetime | None,
+    all_time: bool,
+) -> dict[str, int]:
+    base = _open_engagement_base_query(
+        start_from=start_from, start_to=start_to, all_time=all_time
+    )
+    rows = (await db.execute(base)).scalars().all()
+    b2b = sum(1 for e in rows if e.organization_id is not None)
+    b2c = sum(1 for e in rows if e.organization_id is None)
+    return {"total": len(rows), "b2b": b2b, "b2c": b2c}
+
+
+async def open_engagement_page(
+    db: AsyncSession,
+    *,
+    start_from: datetime | None,
+    start_to: datetime | None,
+    all_time: bool,
+    page: int,
+    limit: int,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    base = _open_engagement_base_query(
+        start_from=start_from, start_to=start_to, all_time=all_time
+    )
+    rows_all = (
+        await db.execute(
+            base.order_by(
+                Engagement.start_date.asc().nullslast(),
+                Engagement.engagement_id.asc(),
+            )
+        )
+    ).scalars().all()
+    counts = {
+        "total": len(rows_all),
+        "b2b": sum(1 for e in rows_all if e.organization_id is not None),
+        "b2c": sum(1 for e in rows_all if e.organization_id is None),
+    }
+    offset = max(0, (page - 1) * limit)
+    page_rows = rows_all[offset : offset + limit]
+
+    dx_ids = {
+        int(e.diagnostic_package_id)
+        for e in page_rows
+        if e.diagnostic_package_id is not None
+    }
+    dx_name_by_id: dict[int, str] = {}
+    if dx_ids:
+        packages = (
+            await db.execute(
+                select(DiagnosticPackage).where(
+                    DiagnosticPackage.diagnostic_package_id.in_(list(dx_ids))
+                )
+            )
+        ).scalars().all()
+        for pkg in packages:
+            dx_name_by_id[int(pkg.diagnostic_package_id)] = str(pkg.package_name or "")
+
+    result: list[dict[str, Any]] = []
+    for e in page_rows:
+        start = e.start_date
+        end = e.end_date
+        dx_id = e.diagnostic_package_id
+        result.append(
+            {
+                "engagement_id": int(e.engagement_id),
+                "engagement_code": str(e.engagement_code or ""),
+                "engagement_name": str(e.engagement_name or ""),
+                "type": "B2B" if e.organization_id is not None else "B2C",
+                "city": str(e.city or ""),
+                "package": dx_name_by_id.get(int(dx_id), "") if dx_id is not None else "",
+                "start_date": start.isoformat() if start else None,
+                "end_date": end.isoformat() if end else None,
+            }
+        )
+    return result, counts
+
+
+def _tickets_created_at_filter(
+    *,
+    created_from: datetime | None,
+    created_to: datetime | None,
+    all_time: bool,
+):
+    if all_time:
+        return []
+    clauses = [SupportTicket.created_at.is_not(None)]
+    if created_from is not None:
+        clauses.append(SupportTicket.created_at >= created_from)
+    if created_to is not None:
+        clauses.append(SupportTicket.created_at <= created_to)
+    return clauses
+
+
+async def tickets_counts(
+    db: AsyncSession,
+    *,
+    created_from: datetime | None,
+    created_to: datetime | None,
+    all_time: bool,
+) -> dict[str, int]:
+    base = select(SupportTicket.status, func.count()).select_from(SupportTicket)
+    for clause in _tickets_created_at_filter(
+        created_from=created_from, created_to=created_to, all_time=all_time
+    ):
+        base = base.where(clause)
+    rows = (await db.execute(base.group_by(SupportTicket.status))).all()
+    open_count = 0
+    solved_count = 0
+    for status, count in rows:
+        key = str(status or "").strip().lower()
+        n = int(count or 0)
+        if key == "open":
+            open_count = n
+        elif key in ("resolved", "closed"):
+            solved_count += n
+    return {
+        "open": open_count,
+        "solved": solved_count,
+        "total": open_count + solved_count,
+    }
+
+
+async def tickets_page(
+    db: AsyncSession,
+    *,
+    created_from: datetime | None,
+    created_to: datetime | None,
+    all_time: bool,
+    page: int,
+    limit: int,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    counts = await tickets_counts(
+        db,
+        created_from=created_from,
+        created_to=created_to,
+        all_time=all_time,
+    )
+    query = select(SupportTicket).order_by(
+        SupportTicket.created_at.desc().nullslast(),
+        SupportTicket.ticket_id.desc(),
+    )
+    for clause in _tickets_created_at_filter(
+        created_from=created_from, created_to=created_to, all_time=all_time
+    ):
+        query = query.where(clause)
+    offset = max(0, (page - 1) * limit)
+    tickets = (await db.execute(query.offset(offset).limit(limit))).scalars().all()
+
+    user_ids = {int(t.user_id) for t in tickets if t.user_id is not None}
+    users_by_id: dict[int, User] = {}
+    if user_ids:
+        users = (
+            await db.execute(select(User).where(User.user_id.in_(list(user_ids))))
+        ).scalars().all()
+        users_by_id = {int(u.user_id): u for u in users}
+
+    result: list[dict[str, Any]] = []
+    for t in tickets:
+        user = users_by_id.get(int(t.user_id)) if t.user_id is not None else None
+        raised_at = t.created_at
+        result.append(
+            {
+                "ticket_id": int(t.ticket_id),
+                "raised_by": {
+                    "name": _person_name(
+                        getattr(user, "first_name", None) if user else None,
+                        getattr(user, "last_name", None) if user else None,
+                    )
+                    if user
+                    else "—",
+                    "phone": str(user.phone) if user and user.phone else "",
+                },
+                "contact": str(t.contact_input or ""),
+                "query": str(t.query_text or ""),
+                "raised_at": raised_at.isoformat() if raised_at else None,
+                "status": str(t.status or ""),
+            }
+        )
+    return result, counts

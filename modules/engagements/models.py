@@ -261,6 +261,7 @@ class ParticipantBloodBooking(Base):
     alnum_order_id = Column(String, nullable=True)
     provider_status = Column(blood_booking_provider_status_enum, nullable=True)
     diagnostic_report_url = Column(Text, nullable=True)
+    report_received_at = Column(DateTime(timezone=True), nullable=True)
     blood_parameters = Column(JSON, nullable=True)
     blood_report_raw = Column(JSON, nullable=True)
     blood_parameters_full_report = Column(Boolean, nullable=True)

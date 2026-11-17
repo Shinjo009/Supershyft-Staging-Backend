@@ -1968,7 +1968,9 @@ class ExpertAvailabilityService:
         self._ensure_within_engagement_window(engagement)
 
         booking.meet_link = meet_link
-        booking.done = True
+        from modules.reports.report_timestamps import mark_consultation_done
+
+        mark_consultation_done(booking)
         db.add(booking)
         await db.flush()
 
@@ -3009,7 +3011,9 @@ class ExpertAvailabilityService:
                 message="Consultation is already marked done",
             )
         self._ensure_within_engagement_window(engagement)
-        booking.done = True
+        from modules.reports.report_timestamps import mark_consultation_done
+
+        mark_consultation_done(booking)
         db.add(booking)
         await db.flush()
         return {

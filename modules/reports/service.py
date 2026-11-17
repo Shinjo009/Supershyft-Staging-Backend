@@ -821,7 +821,9 @@ class ReportsService:
                 engagement_id=int(assessment_instance.engagement_id),
             )
         if target is not None:
-            target.diagnostic_report_url = url_to_store
+            from modules.reports.report_timestamps import set_diagnostic_report_url
+
+            set_diagnostic_report_url(target, url_to_store)
             if full_report is not None:
                 target.blood_parameters_full_report = full_report
             if verified_at is not None:
@@ -947,6 +949,8 @@ class ReportsService:
         )
         report_url = _BIO_AI_METSIGHTS_REPORT_URL_OVERRIDES.get(report_url, report_url)
 
+        from modules.reports.report_timestamps import set_bioai_report_url
+
         if existing_report is None:
             existing_report = await self._repository.get_or_create_individual_report_by_assessment(
                 db,
@@ -954,10 +958,10 @@ class ReportsService:
                 engagement_id=int(assessment_instance.engagement_id),
                 assessment_instance_id=int(assessment_instance.assessment_instance_id),
             )
-            existing_report.report_url = report_url
+            set_bioai_report_url(existing_report, report_url)
             await self._repository.update_individual_report(db, existing_report)
         else:
-            existing_report.report_url = report_url
+            set_bioai_report_url(existing_report, report_url)
             await self._repository.update_individual_report(db, existing_report)
 
         await self._require_audit_service().log_event(

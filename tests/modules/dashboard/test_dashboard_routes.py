@@ -285,3 +285,322 @@ async def test_command_b2b_engagements_invalid_bucket(async_client, test_db_sess
         headers=employee_auth_header(8822),
     )
     assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_command_blood_report_generated_count_only(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=8830, role="admin")
+    response = await async_client.get(
+        "/admin/dashboard/command/blood-report-generated",
+        params={"period": "all_time", "include_rows": "false"},
+        headers=employee_auth_header(8830),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"] == []
+    meta = body["meta"]
+    for key in ("total", "b2b", "b2c"):
+        assert key in meta
+        assert isinstance(meta[key], int)
+    assert meta["total"] == meta["b2b"] + meta["b2c"]
+
+
+@pytest.mark.asyncio
+async def test_command_bioai_report_generated_count_only(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=8831, role="admin")
+    response = await async_client.get(
+        "/admin/dashboard/command/bioai-report-generated",
+        params={"period": "all_time", "include_rows": "false"},
+        headers=employee_auth_header(8831),
+    )
+    assert response.status_code == 200
+    meta = response.json()["meta"]
+    for key in ("total", "b2b", "b2c"):
+        assert key in meta
+    assert meta["total"] == meta["b2b"] + meta["b2c"]
+
+
+@pytest.mark.asyncio
+async def test_command_consultation_done_count_only(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=8832, role="admin")
+    response = await async_client.get(
+        "/admin/dashboard/command/consultation-done",
+        params={"period": "all_time", "include_rows": "false"},
+        headers=employee_auth_header(8832),
+    )
+    assert response.status_code == 200
+    meta = response.json()["meta"]
+    for key in ("total", "b2b", "b2c"):
+        assert key in meta
+    assert meta["total"] == meta["b2b"] + meta["b2c"]
+
+
+@pytest.mark.asyncio
+async def test_command_open_engagements_and_null_start_date(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=8833, role="admin")
+    await _seed_b2b_command_fixtures(test_db_session)
+
+    ranged = await async_client.get(
+        "/admin/dashboard/command/open-engagements",
+        params={"period": "this_week", "include_rows": "false"},
+        headers=employee_auth_header(8833),
+    )
+    assert ranged.status_code == 200
+    data = ranged.json()["meta"]
+    # running+scheduled with non-null start: B2B ongoing, B2B upcoming, B2C running
+    assert data["total"] == 3
+    assert data["b2b"] == 2
+    assert data["b2c"] == 1
+
+    all_time = await async_client.get(
+        "/admin/dashboard/command/open-engagements",
+        params={"period": "all_time", "include_rows": "true"},
+        headers=employee_auth_header(8833),
+    )
+    assert all_time.status_code == 200
+    body = all_time.json()
+    # includes null-start running B2B
+    assert body["meta"]["total"] == 4
+    assert body["meta"]["b2b"] == 3
+    assert body["meta"]["b2c"] == 1
+    codes = {row["engagement_code"] for row in body["data"]}
+    assert "B2B-NULL-88204" in codes
+    assert "B2B-DONE-88203" not in codes  # completed excluded
+    row = next(r for r in body["data"] if r["engagement_code"] == "B2B-ONG-88201")
+    assert row["type"] == "B2B"
+    assert row["city"] == "Mumbai"
+    assert "package" in row
+    assert "start_date" in row and "end_date" in row
+
+
+@pytest.mark.asyncio
+async def test_command_tickets_open_solved_and_null_created(async_client, test_db_session):
+    from datetime import datetime, timezone
+
+    from modules.support.models import SupportTicket
+    from modules.users.models import User
+
+    await seed_employee(test_db_session, employee_id=8834, role="admin")
+    user = User(
+        user_id=88340,
+        first_name="Tick",
+        last_name="Et",
+        phone="8834000000",
+        age=28,
+        status="active",
+    )
+    test_db_session.add(user)
+    await test_db_session.flush()
+    now = datetime.now(timezone.utc)
+    test_db_session.add_all(
+        [
+            SupportTicket(
+                ticket_id=88341,
+                user_id=88340,
+                contact_input="8834000000",
+                query_text="Open issue",
+                status="open",
+                created_at=now,
+            ),
+            SupportTicket(
+                ticket_id=88342,
+                user_id=88340,
+                contact_input="help@example.com",
+                query_text="Resolved issue",
+                status="resolved",
+                created_at=now,
+            ),
+        ]
+    )
+    await test_db_session.commit()
+
+    ranged = await async_client.get(
+        "/admin/dashboard/command/tickets",
+        params={"period": "this_week", "include_rows": "false"},
+        headers=employee_auth_header(8834),
+    )
+    assert ranged.status_code == 200
+    meta = ranged.json()["meta"]
+    assert meta["open"] == 1
+    assert meta["solved"] == 1
+    assert meta["total"] == 2
+
+    all_time = await async_client.get(
+        "/admin/dashboard/command/tickets",
+        params={"period": "all_time", "include_rows": "true"},
+        headers=employee_auth_header(8834),
+    )
+    assert all_time.status_code == 200
+    body = all_time.json()
+    assert body["meta"]["open"] == 1
+    assert body["meta"]["solved"] == 1
+    assert body["meta"]["total"] == 2
+    assert len(body["data"]) == 2
+    sample = next(r for r in body["data"] if r["ticket_id"] == 88341)
+    assert sample["raised_by"]["name"] == "Tick Et"
+    assert sample["raised_by"]["phone"] == "8834000000"
+    assert sample["contact"] == "8834000000"
+    assert sample["query"] == "Open issue"
+    assert sample["status"] == "open"
+
+
+@pytest.mark.asyncio
+async def test_command_consultation_done_null_stamp_all_time_only(
+    async_client, test_db_session
+):
+    from datetime import date, datetime, timezone
+
+    from modules.engagements.models import Engagement, EngagementParticipant
+    from modules.experts.models import ConsultationBooking
+    from modules.users.models import User
+
+    await seed_employee(test_db_session, employee_id=8835, role="admin")
+    today = date.today()
+    user = User(
+        user_id=88350,
+        first_name="Con",
+        last_name="Sult",
+        phone="8835000000",
+        age=35,
+        status="active",
+    )
+    test_db_session.add(user)
+    await test_db_session.flush()
+    test_db_session.add(
+        Engagement(
+            engagement_id=88350,
+            engagement_code="CONS-88350",
+            engagement_name="Consult Camp",
+            organization_id=None,
+            city="Pune",
+            start_date=today,
+            end_date=today,
+            status="running",
+            slot_duration=20,
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        EngagementParticipant(
+            engagement_participant_id=88350,
+            engagement_id=88350,
+            user_id=88350,
+            booked_by_user_id=88350,
+        )
+    )
+    await test_db_session.flush()
+    now = datetime.now(timezone.utc)
+    test_db_session.add_all(
+        [
+            ConsultationBooking(
+                consultation_id=88351,
+                engagement_participant_id=88350,
+                expert_type="nutritionist",
+                want=True,
+                done=True,
+                consultation_done_at=now,
+            ),
+            ConsultationBooking(
+                consultation_id=88352,
+                engagement_participant_id=88350,
+                expert_type="physician",
+                want=True,
+                done=True,
+                consultation_done_at=None,
+            ),
+        ]
+    )
+    await test_db_session.commit()
+
+    ranged = await async_client.get(
+        "/admin/dashboard/command/consultation-done",
+        params={"period": "this_week", "include_rows": "false"},
+        headers=employee_auth_header(8835),
+    )
+    assert ranged.status_code == 200
+    # Distinct user with stamped done booking only
+    assert ranged.json()["meta"]["total"] == 1
+    assert ranged.json()["meta"]["b2c"] == 1
+
+    all_time = await async_client.get(
+        "/admin/dashboard/command/consultation-done",
+        params={"period": "all_time", "include_rows": "false"},
+        headers=employee_auth_header(8835),
+    )
+    assert all_time.status_code == 200
+    # Same user still counts once even with a null-stamp done booking
+    assert all_time.json()["meta"]["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_command_blood_report_null_stamp_all_time_only(async_client, test_db_session):
+    from datetime import date, datetime, timezone
+
+    from modules.engagements.blood_booking_enums import BloodBookingRelation, BloodBookingStatus
+    from modules.engagements.models import Engagement, EngagementParticipant, ParticipantBloodBooking
+    from modules.users.models import User
+
+    await seed_employee(test_db_session, employee_id=8836, role="admin")
+    today = date.today()
+    user = User(
+        user_id=88360,
+        first_name="Blood",
+        last_name="Report",
+        phone="8836000000",
+        age=40,
+        status="active",
+    )
+    test_db_session.add(user)
+    await test_db_session.flush()
+    test_db_session.add(
+        Engagement(
+            engagement_id=88360,
+            engagement_code="BLD-88360",
+            engagement_name="Blood Camp",
+            organization_id=None,
+            city="Goa",
+            start_date=today,
+            end_date=today,
+            status="running",
+            slot_duration=20,
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        EngagementParticipant(
+            engagement_participant_id=88360,
+            engagement_id=88360,
+            user_id=88360,
+            booked_by_user_id=88360,
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        ParticipantBloodBooking(
+            engagement_participant_id=88360,
+            relation=BloodBookingRelation.primary.value,
+            status=BloodBookingStatus.active.value,
+            diagnostic_report_url="https://example.com/blood.pdf",
+            report_received_at=None,
+            collected_at=datetime.now(timezone.utc),
+        )
+    )
+    await test_db_session.commit()
+
+    ranged = await async_client.get(
+        "/admin/dashboard/command/blood-report-generated",
+        params={"period": "this_week", "include_rows": "false"},
+        headers=employee_auth_header(8836),
+    )
+    assert ranged.status_code == 200
+    assert ranged.json()["meta"]["total"] == 0
+
+    all_time = await async_client.get(
+        "/admin/dashboard/command/blood-report-generated",
+        params={"period": "all_time", "include_rows": "true"},
+        headers=employee_auth_header(8836),
+    )
+    assert all_time.status_code == 200
+    assert all_time.json()["meta"]["total"] == 1
+    assert all_time.json()["meta"]["b2c"] == 1
+    assert len(all_time.json()["data"]) == 1

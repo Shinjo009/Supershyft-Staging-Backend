@@ -14,14 +14,24 @@ from modules.dashboard.command_period import resolve_period_bounds
 from modules.dashboard.command_service import (
     b2b_engagements_page,
     b2b_summary_counts,
+    bioai_report_generated_counts,
+    bioai_report_generated_page,
+    blood_report_generated_counts,
+    blood_report_generated_page,
+    consultation_done_counts,
+    consultation_done_page,
     failed_notifications_page,
     notification_health_counts,
+    open_engagement_counts,
+    open_engagement_page,
     people_registered_count,
     people_registered_page,
     questionnaire_done_counts,
     questionnaire_done_page,
     tests_completed_counts,
     tests_completed_page,
+    tickets_counts,
+    tickets_page,
 )
 from modules.dashboard.service import (
     build_dashboard_operations,
@@ -290,6 +300,293 @@ async def get_command_questionnaire_done(
             "total": counts["total"],
             "b2b": counts["b2b"],
             "b2c": counts["b2c"],
+        },
+    )
+
+
+@router.get("/command/blood-report-generated")
+async def get_command_blood_report_generated(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    include_rows: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    questionnaire_service: QuestionnaireService = Depends(
+        get_questionnaire_management_service
+    ),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    all_time = preset == "all_time"
+    if not include_rows:
+        counts = await blood_report_generated_counts(
+            db,
+            received_from=start,
+            received_to=end,
+            all_time=all_time,
+        )
+        return success_response(
+            [],
+            meta={
+                "period": preset,
+                "page": page,
+                "limit": limit,
+                "total": counts["total"],
+                "b2b": counts["b2b"],
+                "b2c": counts["b2c"],
+            },
+        )
+    rows, counts = await blood_report_generated_page(
+        db,
+        received_from=start,
+        received_to=end,
+        all_time=all_time,
+        page=page,
+        limit=limit,
+        questionnaire_service=questionnaire_service,
+    )
+    return success_response(
+        rows,
+        meta={
+            "period": preset,
+            "page": page,
+            "limit": limit,
+            "total": counts["total"],
+            "b2b": counts["b2b"],
+            "b2c": counts["b2c"],
+        },
+    )
+
+
+@router.get("/command/bioai-report-generated")
+async def get_command_bioai_report_generated(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    include_rows: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    questionnaire_service: QuestionnaireService = Depends(
+        get_questionnaire_management_service
+    ),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    all_time = preset == "all_time"
+    if not include_rows:
+        counts = await bioai_report_generated_counts(
+            db,
+            received_from=start,
+            received_to=end,
+            all_time=all_time,
+        )
+        return success_response(
+            [],
+            meta={
+                "period": preset,
+                "page": page,
+                "limit": limit,
+                "total": counts["total"],
+                "b2b": counts["b2b"],
+                "b2c": counts["b2c"],
+            },
+        )
+    rows, counts = await bioai_report_generated_page(
+        db,
+        received_from=start,
+        received_to=end,
+        all_time=all_time,
+        page=page,
+        limit=limit,
+        questionnaire_service=questionnaire_service,
+    )
+    return success_response(
+        rows,
+        meta={
+            "period": preset,
+            "page": page,
+            "limit": limit,
+            "total": counts["total"],
+            "b2b": counts["b2b"],
+            "b2c": counts["b2c"],
+        },
+    )
+
+
+@router.get("/command/consultation-done")
+async def get_command_consultation_done(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    include_rows: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    questionnaire_service: QuestionnaireService = Depends(
+        get_questionnaire_management_service
+    ),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    all_time = preset == "all_time"
+    if not include_rows:
+        counts = await consultation_done_counts(
+            db,
+            done_from=start,
+            done_to=end,
+            all_time=all_time,
+        )
+        return success_response(
+            [],
+            meta={
+                "period": preset,
+                "page": page,
+                "limit": limit,
+                "total": counts["total"],
+                "b2b": counts["b2b"],
+                "b2c": counts["b2c"],
+            },
+        )
+    rows, counts = await consultation_done_page(
+        db,
+        done_from=start,
+        done_to=end,
+        all_time=all_time,
+        page=page,
+        limit=limit,
+        questionnaire_service=questionnaire_service,
+    )
+    return success_response(
+        rows,
+        meta={
+            "period": preset,
+            "page": page,
+            "limit": limit,
+            "total": counts["total"],
+            "b2b": counts["b2b"],
+            "b2c": counts["b2c"],
+        },
+    )
+
+
+@router.get("/command/open-engagements")
+async def get_command_open_engagements(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    include_rows: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    all_time = preset == "all_time"
+    if not include_rows:
+        counts = await open_engagement_counts(
+            db,
+            start_from=start,
+            start_to=end,
+            all_time=all_time,
+        )
+        return success_response(
+            [],
+            meta={
+                "period": preset,
+                "page": page,
+                "limit": limit,
+                "total": counts["total"],
+                "b2b": counts["b2b"],
+                "b2c": counts["b2c"],
+            },
+        )
+    rows, counts = await open_engagement_page(
+        db,
+        start_from=start,
+        start_to=end,
+        all_time=all_time,
+        page=page,
+        limit=limit,
+    )
+    return success_response(
+        rows,
+        meta={
+            "period": preset,
+            "page": page,
+            "limit": limit,
+            "total": counts["total"],
+            "b2b": counts["b2b"],
+            "b2c": counts["b2c"],
+        },
+    )
+
+
+@router.get("/command/tickets")
+async def get_command_tickets(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    include_rows: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    all_time = preset == "all_time"
+    if not include_rows:
+        counts = await tickets_counts(
+            db,
+            created_from=start,
+            created_to=end,
+            all_time=all_time,
+        )
+        return success_response(
+            [],
+            meta={
+                "period": preset,
+                "page": page,
+                "limit": limit,
+                "open": counts["open"],
+                "solved": counts["solved"],
+                "total": counts["total"],
+            },
+        )
+    rows, counts = await tickets_page(
+        db,
+        created_from=start,
+        created_to=end,
+        all_time=all_time,
+        page=page,
+        limit=limit,
+    )
+    return success_response(
+        rows,
+        meta={
+            "period": preset,
+            "page": page,
+            "limit": limit,
+            "open": counts["open"],
+            "solved": counts["solved"],
+            "total": counts["total"],
         },
     )
 

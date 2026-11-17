@@ -130,10 +130,12 @@ async def clear_blood_report_data_for_participant(
             ParticipantBloodBooking.engagement_participant_id == engagement_participant_id
         )
     )
+    from modules.reports.report_timestamps import set_diagnostic_report_url
+
     for row in result.scalars().all():
         row.blood_parameters = None
         row.blood_report_raw = None
-        row.diagnostic_report_url = None
+        set_diagnostic_report_url(row, None)
         row.blood_parameters_full_report = None
         row.blood_parameters_verified_at = None
         db.add(row)
