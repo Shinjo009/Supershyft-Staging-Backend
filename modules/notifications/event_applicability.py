@@ -387,6 +387,7 @@ def list_applicable_event_codes(profile: EngagementNotificationProfile) -> list[
 
 _BLOOD_KINDS = ("bio_ai", "blood_test", "blood_test_with_consultation", "bio_ai_with_consultation")
 _BIO_AI_KINDS = ("bio_ai", "bio_ai_with_consultation")
+_FACE_SCAN_KINDS = ("bio_ai",)
 _CONSULT_KINDS = ("consultation", "blood_test_with_consultation", "bio_ai_with_consultation")
 _ALL_ENGAGEMENT_KINDS = _BLOOD_KINDS + ("consultation",)
 
@@ -496,7 +497,7 @@ EVENT_CATALOG_META: dict[str, dict[str, Any]] = {
     },
     "reports.face_scan_ready": {
         "groups": ("Reports & reminders",),
-        "applicability": _eng(kinds=_BIO_AI_KINDS),
+        "applicability": _eng(kinds=_FACE_SCAN_KINDS),
     },
     "reminders.pretest": {
         "groups": ("Camp & enrollment", "Reports & reminders"),

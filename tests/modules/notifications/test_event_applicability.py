@@ -30,6 +30,26 @@ def test_pretest_on_home_collection_for_blood_types():
     assert engagement_notification_applicable("bookings.phlebo_assigned", profile)
 
 
+def test_face_scan_ready_bio_ai_only_not_consultation_type():
+    bio_ai = profile_from_mapping(
+        {
+            "engagement_kind": "bio_ai",
+            "blood_collection_type": "camp_collection",
+            "auto_booking": False,
+        }
+    )
+    bio_ai_consult = profile_from_mapping(
+        {
+            "engagement_kind": "bio_ai_with_consultation",
+            "blood_collection_type": "camp_collection",
+            "auto_booking": False,
+            "consultation_mode": "online",
+        }
+    )
+    assert engagement_notification_applicable("reports.face_scan_ready", bio_ai)
+    assert not engagement_notification_applicable("reports.face_scan_ready", bio_ai_consult)
+
+
 def test_questionnaire_reminders_bio_ai_only():
     bio_ai_home = profile_from_mapping(
         {

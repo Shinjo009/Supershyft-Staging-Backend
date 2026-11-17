@@ -37,6 +37,10 @@ from modules.engagements.blood_bookings_repository import BloodBookingsRepositor
 from modules.engagements.models import EngagementParticipant
 from modules.engagements.repository import EngagementsRepository
 from modules.notifications.dedup import should_skip_notification
+from modules.notifications.event_applicability import (
+    engagement_notification_applicable,
+    profile_from_engagement,
+)
 from modules.notifications.pretest_reminders import format_blood_collection_slot
 from modules.notifications.schemas import DispatchRequest, SessionDetails
 from modules.notifications.service import NotificationsService
@@ -735,6 +739,13 @@ class WebhooksReceiverService:
         """Dispatch configured report_ready notification services for the engagement."""
         if self._notifications_service is None:
             return []
+
+        engagement = await self._engagements_repository.get_engagement_by_id(db, engagement_id)
+        if engagement is None:
+            return [{"action": "skipped", "reason": "engagement_not_found"}]
+        profile = await profile_from_engagement(db, engagement)
+        if not engagement_notification_applicable("reports.face_scan_ready", profile):
+            return [{"action": "skipped", "reason": "not_applicable_engagement_type"}]
 
         from modules.notifications.engine import get_notification_engine
 
