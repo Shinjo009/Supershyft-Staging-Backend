@@ -92,3 +92,63 @@ async def test_engagement_resolver_ignores_global(test_db_session):
     }
     assert "eng-only-svc" in keys
     assert "global-only-svc" not in keys
+
+
+@pytest.mark.asyncio
+async def test_engagement_resolver_strict_skips_global_fallback(test_db_session):
+    from tests.helpers.engagement_types import engagement_type_id
+
+    type_id = await engagement_type_id(test_db_session, "blood_test")
+    eid = 88003
+    await test_db_session.execute(
+        text(
+            """
+            INSERT INTO engagements (
+                engagement_id, engagement_name, engagement_code, engagement_type,
+                assessment_package_id, diagnostic_package_id, city, slot_duration,
+                start_date, end_date, status, blood_collection_type
+            )
+            VALUES (
+                :eid, 'Strict Eng', 'E2E88003', :etype, 1, 1, 'BLR', 20,
+                '2026-12-03', '2026-12-03', 3, 'camp_collection'
+            )
+            ON CONFLICT (engagement_id) DO NOTHING
+            """
+        ),
+        {"eid": eid, "etype": type_id},
+    )
+    await test_db_session.execute(
+        text(
+            """
+            INSERT INTO notification_services (
+                service_key, display_name, channel, template_name, email_subject, email_body, is_active
+            )
+            VALUES ('global-strict-svc', 'G', 'whatsapp', '/g', '', '', true)
+            ON CONFLICT (service_key) DO NOTHING
+            """
+        )
+    )
+    await test_db_session.execute(
+        text(
+            """
+            INSERT INTO notification_events (
+                event_code, event_name, recipient_type, delivery_channel,
+                notification_services, engagement_type_id, condition_key
+            )
+            VALUES (
+                'reminders.pretest', 'Pretest', 'user', 'whatsapp',
+                CAST(:svc AS jsonb), NULL, 'default'
+            )
+            """
+        ),
+        {"svc": json.dumps([{"service_key": "global-strict-svc"}])},
+    )
+    await test_db_session.commit()
+
+    resolver = BindingResolver()
+    resolved = await resolver.resolve(
+        test_db_session,
+        event_code="reminders.pretest",
+        engagement_id=eid,
+    )
+    assert resolved == []

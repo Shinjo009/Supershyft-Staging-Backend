@@ -29,6 +29,8 @@ from modules.platform_settings.schemas import (
     EngagementNotificationDefaultsUpdate,
     GeocodingProviderSettingsRead,
     GeocodingProviderSettingsUpdate,
+    NotificationResolutionSettingsRead,
+    NotificationResolutionSettingsUpdate,
     SupportQueryNotificationRead,
     SupportQueryNotificationUpdate,
 )
@@ -554,22 +556,62 @@ class PlatformSettingsService:
 
         return await self.get_geocoding_provider(db)
 
+    async def get_notification_resolution(self, db: AsyncSession) -> NotificationResolutionSettingsRead:
+        strict = await self._repository.resolve_strict_engagement_notification_bindings(db)
+        return NotificationResolutionSettingsRead(strict_engagement_notification_bindings=strict)
+
+    async def update_notification_resolution(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        payload: NotificationResolutionSettingsUpdate,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> NotificationResolutionSettingsRead:
+        _ = employee
+        a_id, d_id = await self.resolve_b2c_default_package_ids(db)
+        await self._repository.upsert_strict_engagement_notification_bindings(
+            db,
+            strict_engagement_notification_bindings=payload.strict_engagement_notification_bindings,
+            updated_by_user_id=None,
+            assessment_package_id=a_id,
+            diagnostic_package_id=d_id,
+        )
+
+        if self._audit_service is not None:
+            await self._audit_service.log_event(
+                db,
+                action="EMPLOYEE_UPDATE_NOTIFICATION_RESOLUTION",
+                endpoint=endpoint,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                user_id=None,
+                session_id=None,
+            )
+
+        return await self.get_notification_resolution(db)
+
     async def get_settings_bootstrap(self, db: AsyncSession, *, engagement_types_service) -> dict[str, Any]:
         """Core platform settings reads for admin Settings page initial load."""
         (
             b2c_defaults,
             support_query_notification,
             geocoding_provider,
+            notification_resolution,
             engagement_types,
         ) = await asyncio.gather(
             self.get_b2c_onboarding_defaults(db),
             self.get_support_query_notification(db),
             self.get_geocoding_provider(db),
+            self.get_notification_resolution(db),
             engagement_types_service.list_all(db, is_active=True),
         )
         return {
             "b2c_onboarding": b2c_defaults.model_dump(mode="json"),
             "support_query_notification": support_query_notification.model_dump(),
             "geocoding_provider": geocoding_provider.model_dump(mode="json"),
+            "notification_resolution": notification_resolution.model_dump(),
             "engagement_types": [item.model_dump(mode="json") for item in engagement_types],
         }

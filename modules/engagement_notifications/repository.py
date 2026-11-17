@@ -350,14 +350,26 @@ class EngagementNotificationsRepository:
         existing_keys = {_slot_key(s) for s in existing_slots}
         existing_legacy = {(s.event_code, s.recipient_type) for s in existing_slots}
 
+        engagement = await db.get(Engagement, engagement_id)
+        type_id: int | None = None
+        if engagement is not None and engagement.engagement_type is not None:
+            type_id = int(engagement.engagement_type)
+
         created: list[EngagementNotification] = []
         for event_code in sorted(codes):
-            global_rows = await self._bindings_repo.list_for_event(
+            candidate_rows = await self._bindings_repo.list_for_event(
                 db, event_code=event_code, engagement_type_id=None
             )
-            for row in global_rows:
-                if row.engagement_type_id is not None:
-                    continue
+            if type_id is not None:
+                candidate_rows = [
+                    *candidate_rows,
+                    *(
+                        await self._bindings_repo.list_for_event(
+                            db, event_code=event_code, engagement_type_id=type_id
+                        )
+                    ),
+                ]
+            for row in candidate_rows:
                 normalized_code = map_legacy_event_code(row.event_code)
                 slot_key = (
                     normalized_code,

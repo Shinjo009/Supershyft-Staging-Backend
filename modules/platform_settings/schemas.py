@@ -86,3 +86,11 @@ class GeocodingProviderSettingsRead(BaseModel):
 
 class GeocodingProviderSettingsUpdate(BaseModel):
     geocoding_provider: GeocodingProvider
+
+
+class NotificationResolutionSettingsRead(BaseModel):
+    strict_engagement_notification_bindings: bool = True
+
+
+class NotificationResolutionSettingsUpdate(BaseModel):
+    strict_engagement_notification_bindings: bool

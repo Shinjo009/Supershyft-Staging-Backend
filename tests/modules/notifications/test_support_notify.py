@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import text
 
 from modules.employee.models import Employee
-from modules.notifications.repository import NotificationsRepository
-from modules.notifications.service import NotificationsService
 from modules.notifications.support_notify import notify_default_onboarding_assistants_on_support_query
 from modules.platform_settings.repository import PlatformSettingsRepository
 from modules.support.models import SupportTicket
@@ -27,10 +26,41 @@ async def _seed_notification_service(
         text(
             "INSERT INTO notification_services "
             "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail) "
-            "VALUES (:sk, :dn, 'email', 'notify-admin-contact-query', :active, false, false, false) "
+            "VALUES (:sk, :dn, 'email', 'notify-admin-contact-query', '', '', :active, false, false, false) "
             "ON CONFLICT (service_key) DO UPDATE SET is_active = :active"
         ),
         {"sk": service_key, "dn": service_key, "active": is_active},
+    )
+    await test_db_session.commit()
+
+
+async def _seed_support_ticket_created_binding(test_db_session, *, service_key: str) -> None:
+    await test_db_session.execute(
+        text("DELETE FROM notification_events WHERE event_code = 'support.ticket_created'")
+    )
+    await test_db_session.execute(
+        text(
+            """
+            INSERT INTO notification_events (
+                event_code, event_name, recipient_type, notification_services,
+                engagement_type_id, delivery_channel
+            )
+            VALUES (
+                'support.ticket_created',
+                'Support ticket created',
+                'departments.ops',
+                CAST(:services AS json),
+                NULL,
+                COALESCE(
+                    (SELECT channel::text FROM notification_services WHERE service_key = :service_key),
+                    'unknown'
+                )
+            )
+            ON CONFLICT ON CONSTRAINT uq_notification_events_binding DO UPDATE
+            SET notification_services = EXCLUDED.notification_services
+            """
+        ),
+        {"services": json.dumps([{"service_key": service_key}]), "service_key": service_key},
     )
     await test_db_session.commit()
 
@@ -56,6 +86,7 @@ async def test_support_notify_dispatches_to_default_assistants(test_db_session, 
     service_key = "support-contact-email"
     await _seed_notification_service(test_db_session, service_key=service_key)
     await _ensure_packages(test_db_session)
+    await _seed_support_ticket_created_binding(test_db_session, service_key=service_key)
 
     user = User(
         user_id=9401,
@@ -80,21 +111,6 @@ async def test_support_notify_dispatches_to_default_assistants(test_db_session, 
     )
     await test_db_session.flush()
     await seed_employee_departments(test_db_session, employee_id=9402, departments=["ops"], commit=False)
-
-    await test_db_session.execute(
-        text("DELETE FROM notification_events WHERE event_code = 'support.ticket_created'")
-    )
-
-    await test_db_session.execute(text("DELETE FROM platform_settings"))
-    await test_db_session.execute(
-        text(
-            "INSERT INTO platform_settings "
-            "(settings_id, b2c_default_assessment_package_id, b2c_default_diagnostic_package_id, "
-            "default_support_query_notification) "
-            "VALUES (1, 1, 1, :sk)"
-        ),
-        {"sk": service_key},
-    )
     await test_db_session.commit()
 
     ticket = SupportTicket(
@@ -144,17 +160,6 @@ async def test_support_notify_noop_when_no_service_keys(test_db_session, monkeyp
     test_db_session.add(user)
     await test_db_session.flush()
 
-    await test_db_session.execute(text("DELETE FROM platform_settings"))
-    await test_db_session.execute(
-        text(
-            "INSERT INTO platform_settings "
-            "(settings_id, b2c_default_assessment_package_id, b2c_default_diagnostic_package_id, "
-            "default_support_query_notification) "
-            "VALUES (1, 1, 1, NULL)"
-        )
-    )
-    await test_db_session.commit()
-
     ticket = SupportTicket(
         user_id=9411,
         contact_input="94110000001",
@@ -186,22 +191,11 @@ async def test_support_notify_noop_when_no_assistants(test_db_session, monkeypat
     service_key = "support-no-assistants"
     await _seed_notification_service(test_db_session, service_key=service_key)
     await _ensure_packages(test_db_session)
+    await _seed_support_ticket_created_binding(test_db_session, service_key=service_key)
 
     user = User(user_id=9421, age=30, phone="94210000001", status="active")
     test_db_session.add(user)
     await test_db_session.flush()
-
-    await test_db_session.execute(text("DELETE FROM platform_settings"))
-    await test_db_session.execute(
-        text(
-            "INSERT INTO platform_settings "
-            "(settings_id, b2c_default_assessment_package_id, b2c_default_diagnostic_package_id, "
-            "default_support_query_notification) "
-            "VALUES (1, 1, 1, :sk)"
-        ),
-        {"sk": service_key},
-    )
-    await test_db_session.commit()
 
     ticket = SupportTicket(
         user_id=9421,
@@ -211,34 +205,6 @@ async def test_support_notify_noop_when_no_assistants(test_db_session, monkeypat
     )
     test_db_session.add(ticket)
     await test_db_session.flush()
-
-    import json
-
-    await test_db_session.execute(
-        text(
-            """
-            INSERT INTO notification_events (
-                event_code, event_name, recipient_type, notification_services,
-                engagement_type_id, delivery_channel
-            )
-            VALUES (
-                'support.ticket_created',
-                'Support ticket created',
-                'departments.ops',
-                CAST(:services AS json),
-                NULL,
-                COALESCE(
-                    (SELECT channel::text FROM notification_services WHERE service_key = :service_key),
-                    'unknown'
-                )
-            )
-            ON CONFLICT ON CONSTRAINT uq_notification_events_binding DO UPDATE
-            SET notification_services = EXCLUDED.notification_services
-            """
-        ),
-        {"services": json.dumps([{"service_key": service_key}]), "service_key": service_key},
-    )
-    await test_db_session.commit()
 
     from modules.notifications.engine import get_notification_engine, reset_notification_engine
 

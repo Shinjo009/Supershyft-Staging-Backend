@@ -19,5 +19,7 @@ async def test_platform_settings_bootstrap(async_client, test_db_session):
     assert "b2c_onboarding" in data
     assert "support_query_notification" in data
     assert "geocoding_provider" in data
+    assert "notification_resolution" in data
+    assert data["notification_resolution"]["strict_engagement_notification_bindings"] is True
     assert "engagement_types" in data
     assert isinstance(data["engagement_types"], list)

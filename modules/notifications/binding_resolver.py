@@ -19,6 +19,7 @@ from modules.notifications.bindings_repository import NotificationBindingsReposi
 from modules.notifications.emit_condition import matches_condition
 from modules.notifications.event_applicability import engagement_applicability_for_event
 from modules.notifications.events_catalog import get_event
+from modules.platform_settings.repository import PlatformSettingsRepository
 
 
 @dataclass(frozen=True)
@@ -100,6 +101,9 @@ class BindingResolver:
                     ctx=ctx,
                     default_event_name=ev.name,
                 )
+            strict = await PlatformSettingsRepository().resolve_strict_engagement_notification_bindings(db)
+            if strict:
+                return []
 
         if engagement_type_id is None and engagement_id is not None:
             engagement_type_id = await self._engagement_type_id(db, engagement_id)

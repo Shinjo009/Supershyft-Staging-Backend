@@ -225,3 +225,36 @@ class PlatformSettingsRepository:
             return row.geocoding_provider
         return GeocodingProvider(str(row.geocoding_provider))
 
+    async def resolve_strict_engagement_notification_bindings(self, db: AsyncSession) -> bool:
+        row = await self.get_by_id(db)
+        if row is None:
+            return True
+        return bool(getattr(row, "strict_engagement_notification_bindings", True))
+
+    async def upsert_strict_engagement_notification_bindings(
+        self,
+        db: AsyncSession,
+        *,
+        strict_engagement_notification_bindings: bool,
+        updated_by_user_id: int | None,
+        assessment_package_id: int,
+        diagnostic_package_id: int,
+    ) -> PlatformSettings:
+        existing = await self.get_by_id(db)
+        if existing is None:
+            row = PlatformSettings(
+                settings_id=_PLATFORM_SETTINGS_PK,
+                b2c_default_assessment_package_id=assessment_package_id,
+                b2c_default_diagnostic_package_id=diagnostic_package_id,
+                strict_engagement_notification_bindings=strict_engagement_notification_bindings,
+                updated_by_user_id=updated_by_user_id,
+            )
+            db.add(row)
+            await db.flush()
+            return row
+
+        existing.strict_engagement_notification_bindings = strict_engagement_notification_bindings
+        existing.updated_by_user_id = updated_by_user_id
+        await db.flush()
+        return existing
+

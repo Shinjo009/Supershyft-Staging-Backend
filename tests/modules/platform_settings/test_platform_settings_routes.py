@@ -668,6 +668,79 @@ async def test_patch_geocoding_provider_persists(async_client, test_db_session):
 
 
 @pytest.mark.asyncio
+async def test_get_notification_resolution_defaults_to_strict(async_client, test_db_session):
+    uid = 9116
+    test_db_session.add(User(user_id=uid, age=30, phone="91160000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=9116,
+            name="Employee 9116",
+            phone="0000009116",
+            email="employee9116@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    await test_db_session.execute(text("DELETE FROM platform_settings"))
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        "/platform-settings/notification-resolution",
+        headers=_auth_header(uid),
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["strict_engagement_notification_bindings"] is True
+
+
+@pytest.mark.asyncio
+async def test_patch_notification_resolution_persists(async_client, test_db_session):
+    uid = 9117
+    test_db_session.add(User(user_id=uid, age=30, phone="91170000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=9117,
+            name="Employee 9117",
+            phone="0000009117",
+            email="employee9117@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
+            "(1, 'P1', 'One', 1) "
+            "ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
+            "VALUES (1, 'R1', 'D1', 'healthians', 1) "
+            "ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.patch(
+        "/platform-settings/notification-resolution",
+        headers=_auth_header(uid),
+        json={"strict_engagement_notification_bindings": False},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["strict_engagement_notification_bindings"] is False
+
+    get_response = await async_client.get(
+        "/platform-settings/notification-resolution",
+        headers=_auth_header(uid),
+    )
+    assert get_response.status_code == 200
+    assert get_response.json()["data"]["strict_engagement_notification_bindings"] is False
+
+
+@pytest.mark.asyncio
 async def test_patch_geocoding_provider_rejects_invalid(async_client, test_db_session):
     uid = 9115
     test_db_session.add(User(user_id=uid, age=30, phone="91150000001", status="active"))

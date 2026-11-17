@@ -102,6 +102,96 @@ async def test_seed_from_global_defaults_clones_bindings(test_db_session):
 
 
 @pytest.mark.asyncio
+async def test_seed_from_global_defaults_includes_type_scoped_bindings(test_db_session):
+    from tests.helpers.engagement_types import engagement_type_id
+
+    type_id = await engagement_type_id(test_db_session, "bio_ai")
+    eid = 88012
+    await test_db_session.execute(
+        text(
+            """
+            INSERT INTO engagements (
+                engagement_id, engagement_name, engagement_code, engagement_type,
+                assessment_package_id, diagnostic_package_id, city, slot_duration,
+                start_date, end_date, status, blood_collection_type, payment_type
+            )
+            VALUES (
+                :eid, 'Seed Type Notify', 'E2E88012', :etype, 1, 1, 'BLR', 20,
+                '2026-12-11', '2026-12-11', 3, 'camp_collection', 'paid_by_group'
+            )
+            ON CONFLICT (engagement_id) DO NOTHING
+            """
+        ),
+        {"eid": eid, "etype": type_id},
+    )
+    await test_db_session.execute(
+        text(
+            """
+            INSERT INTO notification_services (
+                service_key, display_name, channel, template_name, email_subject, email_body, is_active
+            )
+            VALUES
+            ('type-onboard-wa', 'Type', 'whatsapp', 't', '', '', true),
+            ('global-onboard-wa', 'Global', 'whatsapp', 'g', '', '', true)
+            ON CONFLICT (service_key) DO NOTHING
+            """
+        )
+    )
+    await test_db_session.execute(
+        text(
+            """
+            INSERT INTO notification_events (
+                event_code, event_name, recipient_type, delivery_channel,
+                notification_services, engagement_type_id, condition_key
+            )
+            VALUES (
+                'users.onboarded', 'Onboarded', 'user', 'whatsapp',
+                CAST(:global_svc AS jsonb), NULL, 'default'
+            ), (
+                'users.onboarded', 'Onboarded', 'user', 'whatsapp',
+                CAST(:type_svc AS jsonb), :etype, 'default'
+            )
+            """
+        ),
+        {
+            "global_svc": json.dumps([{"service_key": "global-onboard-wa"}]),
+            "type_svc": json.dumps([{"service_key": "type-onboard-wa"}]),
+            "etype": type_id,
+        },
+    )
+    repo = EngagementNotificationsRepository()
+    rows = await repo.populate_from_defaults(
+        test_db_session, engagement_id=eid, engagement_type_id=type_id
+    )
+    await test_db_session.commit()
+    onboarded = [r for r in rows if r.event_code == "users.onboarded"]
+    assert len(onboarded) >= 1
+    keys = set()
+    for row in onboarded:
+        for svc in row.notification_services or []:
+            if isinstance(svc, dict) and svc.get("service_key"):
+                keys.add(svc["service_key"])
+    assert "global-onboard-wa" in keys
+    assert "type-onboard-wa" in keys
+
+
+async def _ensure_platform_packages(test_db_session) -> None:
+    await test_db_session.execute(
+        text(
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
+            "(1, 'P1', 'One', 1) ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
+            "VALUES (1, 'R1', 'D1', 'healthians', 1) "
+            "ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
+        )
+    )
+
+
+@pytest.mark.asyncio
 async def test_resolver_falls_back_to_global_without_engagement_slots(test_db_session):
     await test_db_session.execute(
         text(
@@ -129,6 +219,19 @@ async def test_resolver_falls_back_to_global_without_engagement_slots(test_db_se
             """
         ),
         {"svc": json.dumps([{"service_key": "fallback-pretest"}])},
+    )
+    await _ensure_platform_packages(test_db_session)
+    await test_db_session.execute(text("DELETE FROM platform_settings"))
+    await test_db_session.execute(
+        text(
+            """
+            INSERT INTO platform_settings (
+                settings_id, b2c_default_assessment_package_id, b2c_default_diagnostic_package_id,
+                strict_engagement_notification_bindings
+            )
+            VALUES (1, 1, 1, false)
+            """
+        )
     )
     await test_db_session.commit()
 
