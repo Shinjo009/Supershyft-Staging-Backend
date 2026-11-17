@@ -1469,7 +1469,7 @@ async def test_book_bio_ai_verifies_and_finalizes(async_client, test_db_session,
     assert eng_row.status == "scheduled"
     assert eng_row.engagement_type == "bio_ai"
     assert str(eng_row.start_date) == "2026-07-15"
-    assert str(eng_row.end_date) == "2026-07-18"
+    assert str(eng_row.end_date) == "2026-07-17"
     assert eng_row.engagement_name == "Bio-2026-07-15"
     assert eng_row.onboarding_notification == "booking-alert-whatsapp"
 
@@ -1571,7 +1571,7 @@ async def test_book_bio_ai_applies_defaults_assigns_assistants_and_notifies(
         )
     ).one()
     assert str(eng_row.start_date) == "2026-07-15"
-    assert str(eng_row.end_date) == "2026-07-18"
+    assert str(eng_row.end_date) == "2026-07-17"
     assert eng_row.onboarding_notification == "booking-alert-whatsapp"
     assert eng_row.pretest_guidelines_notification == "pretest-alert-whatsapp"
     assert eng_row.questionnaire_reminder_1 == "qr1-alert-whatsapp"
@@ -1774,7 +1774,7 @@ async def test_book_bio_ai_finalize_attempts_metsights_and_survives_failure(
     ).one()
     assert eng_row.engagement_type == "blood_test"
     assert str(eng_row.start_date) == "2026-07-15"
-    assert str(eng_row.end_date) == "2026-07-18"
+    assert str(eng_row.end_date) == "2026-07-17"
 
 
 @pytest.mark.asyncio

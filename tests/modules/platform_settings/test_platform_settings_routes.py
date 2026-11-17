@@ -100,6 +100,65 @@ async def test_get_b2c_defaults_fallback_when_no_row(async_client, test_db_sessi
     assert data.get("default_engagement_type_code") == "bio_ai"
     assert bio.get("slot_duration") == 20
     assert bio.get("payment_type") == "paid_by_patient"
+    assert bio.get("engagement_duration_days") == 3
+
+
+@pytest.mark.asyncio
+async def test_patch_b2c_defaults_persists_engagement_duration_days(async_client, test_db_session):
+    uid = 9113
+    test_db_session.add(User(user_id=uid, age=30, phone="91130000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(employee_id=9113, name="Employee 9113", phone="0000009113", email="employee9113@test.example", role="admin", status="active")
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
+            "VALUES (1, 'P1', 'One', 1) ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
+            "VALUES (1, 'R1', 'D1', 'healthians', 1) "
+            "ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.patch(
+        "/platform-settings/b2c-onboarding",
+        headers=_auth_header(uid),
+        json={
+            "defaults_by_engagement_type": {
+                "bio_ai": _type_defaults(engagement_duration_days=7),
+            }
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["defaults_by_engagement_type"]["bio_ai"]["engagement_duration_days"] == 7
+
+
+@pytest.mark.asyncio
+async def test_patch_b2c_defaults_rejects_invalid_engagement_duration_days(async_client, test_db_session):
+    uid = 9114
+    test_db_session.add(User(user_id=uid, age=30, phone="91140000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(employee_id=9114, name="Employee 9114", phone="0000009114", email="employee9114@test.example", role="admin", status="active")
+    )
+    await test_db_session.commit()
+
+    response = await async_client.patch(
+        "/platform-settings/b2c-onboarding",
+        headers=_auth_header(uid),
+        json={
+            "defaults_by_engagement_type": {
+                "bio_ai": _type_defaults(engagement_duration_days=0),
+            }
+        },
+    )
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio

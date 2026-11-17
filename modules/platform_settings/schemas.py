@@ -24,6 +24,7 @@ class B2cOnboardingTypeDefaults(BaseModel):
     consultation_mode: ConsultationMode | None = None
     auto_booking: bool = False
     payment_type: EngagementPaymentType = EngagementPaymentType.paid_by_patient
+    engagement_duration_days: int = Field(default=3, ge=1, le=90)
 
 
 class B2cOnboardingDefaultsRead(BaseModel):

@@ -38,6 +38,7 @@ _FALLBACK_B2C_BLOOD_COLLECTION_TYPE: BloodCollectionType | None = None
 _FALLBACK_B2C_CREATE_PROFILE_ON_METSIGHTS = True
 _FALLBACK_B2C_ENROLL_FOR_FITPRINT_FULL = False
 _FALLBACK_B2C_SLOT_DURATION = 20
+_FALLBACK_B2C_ENGAGEMENT_DURATION_DAYS = 3
 _FALLBACK_B2C_PAYMENT_TYPE = EngagementPaymentType.paid_by_patient
 
 
@@ -54,6 +55,7 @@ def _fallback_type_defaults() -> B2cOnboardingTypeDefaults:
         consultation_mode=None,
         auto_booking=False,
         payment_type=_FALLBACK_B2C_PAYMENT_TYPE,
+        engagement_duration_days=_FALLBACK_B2C_ENGAGEMENT_DURATION_DAYS,
     )
 
 
@@ -80,6 +82,7 @@ def _parse_type_defaults(raw: Any) -> B2cOnboardingTypeDefaults | None:
             cleaned = [str(k).strip() for k in keys_raw if str(k).strip()]
             category_keys = cleaned or None
         slot_duration = int(raw.get("slot_duration", _FALLBACK_B2C_SLOT_DURATION))
+        duration_days = int(raw.get("engagement_duration_days", _FALLBACK_B2C_ENGAGEMENT_DURATION_DAYS))
         return B2cOnboardingTypeDefaults(
             assessment_package_id=int(raw["assessment_package_id"]),
             diagnostic_package_id=diagnostic_package_id,
@@ -96,6 +99,7 @@ def _parse_type_defaults(raw: Any) -> B2cOnboardingTypeDefaults | None:
             consultation_mode=consultation,
             auto_booking=bool(raw.get("auto_booking", False)),
             payment_type=payment or _FALLBACK_B2C_PAYMENT_TYPE,
+            engagement_duration_days=max(1, min(90, duration_days)),
         )
     except (KeyError, TypeError, ValueError):
         return None
@@ -119,6 +123,7 @@ def _type_defaults_to_dict(defaults: B2cOnboardingTypeDefaults) -> dict[str, Any
         "consultation_mode": mode.value if isinstance(mode, ConsultationMode) else mode,
         "auto_booking": defaults.auto_booking,
         "payment_type": payment.value if isinstance(payment, EngagementPaymentType) else payment,
+        "engagement_duration_days": defaults.engagement_duration_days,
     }
 
 
