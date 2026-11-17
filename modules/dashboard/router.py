@@ -18,6 +18,10 @@ from modules.dashboard.command_service import (
     notification_health_counts,
     people_registered_count,
     people_registered_page,
+    questionnaire_done_counts,
+    questionnaire_done_page,
+    tests_completed_counts,
+    tests_completed_page,
 )
 from modules.dashboard.service import (
     build_dashboard_operations,
@@ -168,6 +172,125 @@ async def get_command_people_registered(
     return success_response(
         rows,
         meta={"period": preset, "page": page, "limit": limit, "total": total},
+    )
+
+
+@router.get("/command/tests-completed")
+async def get_command_tests_completed(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    include_rows: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    questionnaire_service: QuestionnaireService = Depends(
+        get_questionnaire_management_service
+    ),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    all_time = preset == "all_time"
+    if not include_rows:
+        counts = await tests_completed_counts(
+            db,
+            collected_from=start,
+            collected_to=end,
+            all_time=all_time,
+        )
+        return success_response(
+            [],
+            meta={
+                "period": preset,
+                "page": page,
+                "limit": limit,
+                "total": counts["total"],
+                "b2b": counts["b2b"],
+                "b2c": counts["b2c"],
+            },
+        )
+    rows, counts = await tests_completed_page(
+        db,
+        collected_from=start,
+        collected_to=end,
+        all_time=all_time,
+        page=page,
+        limit=limit,
+        questionnaire_service=questionnaire_service,
+    )
+    return success_response(
+        rows,
+        meta={
+            "period": preset,
+            "page": page,
+            "limit": limit,
+            "total": counts["total"],
+            "b2b": counts["b2b"],
+            "b2c": counts["b2c"],
+        },
+    )
+
+
+@router.get("/command/questionnaire-done")
+async def get_command_questionnaire_done(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    include_rows: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    questionnaire_service: QuestionnaireService = Depends(
+        get_questionnaire_management_service
+    ),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    all_time = preset == "all_time"
+    if not include_rows:
+        counts = await questionnaire_done_counts(
+            db,
+            completed_from=start,
+            completed_to=end,
+            all_time=all_time,
+            questionnaire_service=questionnaire_service,
+        )
+        return success_response(
+            [],
+            meta={
+                "period": preset,
+                "page": page,
+                "limit": limit,
+                "total": counts["total"],
+                "b2b": counts["b2b"],
+                "b2c": counts["b2c"],
+            },
+        )
+    rows, counts = await questionnaire_done_page(
+        db,
+        completed_from=start,
+        completed_to=end,
+        all_time=all_time,
+        page=page,
+        limit=limit,
+        questionnaire_service=questionnaire_service,
+    )
+    return success_response(
+        rows,
+        meta={
+            "period": preset,
+            "page": page,
+            "limit": limit,
+            "total": counts["total"],
+            "b2b": counts["b2b"],
+            "b2c": counts["b2c"],
+        },
     )
 
 

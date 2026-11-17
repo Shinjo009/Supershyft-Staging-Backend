@@ -83,6 +83,44 @@ async def test_command_people_registered_count_only(async_client, test_db_sessio
     assert isinstance(body["meta"]["total"], int)
 
 
+@pytest.mark.asyncio
+async def test_command_tests_completed_count_only(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=8812, role="admin")
+    response = await async_client.get(
+        "/admin/dashboard/command/tests-completed",
+        params={"period": "all_time", "include_rows": "false"},
+        headers=employee_auth_header(8812),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"] == []
+    meta = body["meta"]
+    assert meta["period"] == "all_time"
+    for key in ("total", "b2b", "b2c"):
+        assert key in meta
+        assert isinstance(meta[key], int)
+    assert meta["total"] == meta["b2b"] + meta["b2c"]
+
+
+@pytest.mark.asyncio
+async def test_command_questionnaire_done_count_only(async_client, test_db_session):
+    await seed_employee(test_db_session, employee_id=8813, role="admin")
+    response = await async_client.get(
+        "/admin/dashboard/command/questionnaire-done",
+        params={"period": "all_time", "include_rows": "false"},
+        headers=employee_auth_header(8813),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"] == []
+    meta = body["meta"]
+    assert meta["period"] == "all_time"
+    for key in ("total", "b2b", "b2c"):
+        assert key in meta
+        assert isinstance(meta[key], int)
+    assert meta["total"] == meta["b2b"] + meta["b2c"]
+
+
 async def _seed_b2b_command_fixtures(test_db_session):
     """Seed B2B engagements across buckets + one B2C + null start_date row."""
     from datetime import date
