@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.assessments.models import (
@@ -1131,6 +1131,42 @@ def _stamp_period_clauses(
     return clauses
 
 
+def _date_period_clauses(
+    column,
+    *,
+    stamp_from: datetime | None,
+    stamp_to: datetime | None,
+    all_time: bool,
+):
+    """Period filter for Date columns (inclusive calendar-day bounds)."""
+    if all_time:
+        return []
+    clauses = [column.is_not(None)]
+    if stamp_from is not None:
+        clauses.append(column >= stamp_from.date())
+    if stamp_to is not None:
+        clauses.append(column <= stamp_to.date())
+    return clauses
+
+
+def _stamp_in_period(
+    stamp: datetime | None,
+    *,
+    stamp_from: datetime | None,
+    stamp_to: datetime | None,
+    all_time: bool,
+) -> bool:
+    if all_time:
+        return True
+    if stamp is None:
+        return False
+    if stamp_from is not None and stamp < stamp_from:
+        return False
+    if stamp_to is not None and stamp > stamp_to:
+        return False
+    return True
+
+
 async def _people_page_for_audience(
     db: AsyncSession,
     *,
@@ -1672,3 +1708,948 @@ async def tickets_page(
             }
         )
     return result, counts
+
+
+# ---------------------------------------------------------------------------
+# Action Center pending audiences
+# ---------------------------------------------------------------------------
+
+
+async def _upcoming_collections_audience_by_user(
+    db: AsyncSession,
+    *,
+    collection_from: datetime | None,
+    collection_to: datetime | None,
+    all_time: bool,
+    today: date | None = None,
+) -> dict[int, str]:
+    """Current PBB: not collected, collection_date >= today, period on collection_date."""
+    day = today or datetime.now(timezone.utc).date()
+    curr_pbb = current_blood_booking_subquery()
+    query = (
+        select(
+            EngagementParticipant.user_id,
+            Engagement.organization_id,
+            curr_pbb.c.collection_date,
+            EngagementParticipant.engagement_participant_id,
+        )
+        .select_from(curr_pbb)
+        .join(
+            EngagementParticipant,
+            EngagementParticipant.engagement_participant_id
+            == curr_pbb.c.engagement_participant_id,
+        )
+        .join(
+            Engagement,
+            Engagement.engagement_id == EngagementParticipant.engagement_id,
+        )
+        .where(
+            curr_pbb.c.collected_at.is_(None),
+            curr_pbb.c.collection_date.is_not(None),
+            curr_pbb.c.collection_date >= day,
+        )
+    )
+    for clause in _date_period_clauses(
+        curr_pbb.c.collection_date,
+        stamp_from=collection_from,
+        stamp_to=collection_to,
+        all_time=all_time,
+    ):
+        query = query.where(clause)
+
+    rows = (await db.execute(query)).all()
+    best: dict[int, tuple[date | None, int | None, int]] = {}
+    for row in rows:
+        uid = int(row.user_id)
+        cdate = row.collection_date
+        ep_id = int(row.engagement_participant_id)
+        prev = best.get(uid)
+        if prev is None or (
+            cdate is not None
+            and (prev[0] is None or cdate > prev[0] or (cdate == prev[0] and ep_id > prev[2]))
+        ):
+            best[uid] = (cdate, row.organization_id, ep_id)
+
+    return {
+        uid: _audience_type(has_engagement=True, organization_id=org_id)
+        for uid, (_cd, org_id, _ep) in best.items()
+    }
+
+
+async def upcoming_collections_counts(
+    db: AsyncSession,
+    *,
+    collection_from: datetime | None,
+    collection_to: datetime | None,
+    all_time: bool,
+    today: date | None = None,
+) -> dict[str, int]:
+    audience = await _upcoming_collections_audience_by_user(
+        db,
+        collection_from=collection_from,
+        collection_to=collection_to,
+        all_time=all_time,
+        today=today,
+    )
+    return _audience_split_counts(audience)
+
+
+async def upcoming_collections_page(
+    db: AsyncSession,
+    *,
+    collection_from: datetime | None,
+    collection_to: datetime | None,
+    all_time: bool,
+    page: int,
+    limit: int,
+    today: date | None = None,
+    questionnaire_service: Any | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    audience = await _upcoming_collections_audience_by_user(
+        db,
+        collection_from=collection_from,
+        collection_to=collection_to,
+        all_time=all_time,
+        today=today,
+    )
+    return await _people_page_for_audience(
+        db,
+        audience=audience,
+        page=page,
+        limit=limit,
+        today=today,
+        questionnaire_service=questionnaire_service,
+    )
+
+
+async def _overdue_collections_audience_by_user(
+    db: AsyncSession,
+    *,
+    collection_from: datetime | None,
+    collection_to: datetime | None,
+    all_time: bool,
+    today: date | None = None,
+) -> dict[int, str]:
+    """Current PBB: past collection_date, not collected, booking_id empty."""
+    day = today or datetime.now(timezone.utc).date()
+    curr_pbb = current_blood_booking_subquery()
+    query = (
+        select(
+            EngagementParticipant.user_id,
+            Engagement.organization_id,
+            curr_pbb.c.collection_date,
+            EngagementParticipant.engagement_participant_id,
+        )
+        .select_from(curr_pbb)
+        .join(
+            EngagementParticipant,
+            EngagementParticipant.engagement_participant_id
+            == curr_pbb.c.engagement_participant_id,
+        )
+        .join(
+            Engagement,
+            Engagement.engagement_id == EngagementParticipant.engagement_id,
+        )
+        .where(
+            curr_pbb.c.collected_at.is_(None),
+            curr_pbb.c.collection_date.is_not(None),
+            curr_pbb.c.collection_date < day,
+            or_(
+                curr_pbb.c.booking_id.is_(None),
+                func.btrim(curr_pbb.c.booking_id) == "",
+            ),
+        )
+    )
+    for clause in _date_period_clauses(
+        curr_pbb.c.collection_date,
+        stamp_from=collection_from,
+        stamp_to=collection_to,
+        all_time=all_time,
+    ):
+        query = query.where(clause)
+
+    rows = (await db.execute(query)).all()
+    best: dict[int, tuple[date | None, int | None, int]] = {}
+    for row in rows:
+        uid = int(row.user_id)
+        cdate = row.collection_date
+        ep_id = int(row.engagement_participant_id)
+        prev = best.get(uid)
+        if prev is None or (
+            cdate is not None
+            and (prev[0] is None or cdate > prev[0] or (cdate == prev[0] and ep_id > prev[2]))
+        ):
+            best[uid] = (cdate, row.organization_id, ep_id)
+
+    return {
+        uid: _audience_type(has_engagement=True, organization_id=org_id)
+        for uid, (_cd, org_id, _ep) in best.items()
+    }
+
+
+async def overdue_collections_counts(
+    db: AsyncSession,
+    *,
+    collection_from: datetime | None,
+    collection_to: datetime | None,
+    all_time: bool,
+    today: date | None = None,
+) -> dict[str, int]:
+    audience = await _overdue_collections_audience_by_user(
+        db,
+        collection_from=collection_from,
+        collection_to=collection_to,
+        all_time=all_time,
+        today=today,
+    )
+    return _audience_split_counts(audience)
+
+
+async def overdue_collections_page(
+    db: AsyncSession,
+    *,
+    collection_from: datetime | None,
+    collection_to: datetime | None,
+    all_time: bool,
+    page: int,
+    limit: int,
+    today: date | None = None,
+    questionnaire_service: Any | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    audience = await _overdue_collections_audience_by_user(
+        db,
+        collection_from=collection_from,
+        collection_to=collection_to,
+        all_time=all_time,
+        today=today,
+    )
+    return await _people_page_for_audience(
+        db,
+        audience=audience,
+        page=page,
+        limit=limit,
+        today=today,
+        questionnaire_service=questionnaire_service,
+    )
+
+
+async def _questionnaire_pending_audience_by_user(
+    db: AsyncSession,
+    *,
+    assigned_from: datetime | None,
+    assigned_to: datetime | None,
+    all_time: bool,
+    questionnaire_service: Any | None = None,
+) -> dict[int, str]:
+    """Enrolled users whose supershyft required questionnaire is not complete.
+
+    Period stamp: assessment_instances.assigned_at (null excluded from ranged).
+    """
+    enroll_q = (
+        select(
+            EngagementParticipant.user_id,
+            EngagementParticipant.engagement_participant_id,
+            Engagement.engagement_id,
+            Engagement.organization_id,
+            Engagement.assessment_package_id,
+        )
+        .select_from(EngagementParticipant)
+        .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
+    )
+    enroll_rows = (await db.execute(enroll_q)).all()
+    if not enroll_rows:
+        return {}
+
+    user_ids = list({int(r.user_id) for r in enroll_rows})
+    engagement_ids = list({int(r.engagement_id) for r in enroll_rows})
+
+    all_inst = (
+        await db.execute(
+            select(AssessmentInstance).where(
+                AssessmentInstance.user_id.in_(user_ids),
+                AssessmentInstance.engagement_id.in_(engagement_ids),
+            )
+        )
+    ).scalars().all()
+    grouped: dict[tuple[int, int], list[AssessmentInstance]] = {}
+    for inst in all_inst:
+        grouped.setdefault((int(inst.user_id), int(inst.engagement_id)), []).append(inst)
+
+    package_ids = list(
+        {
+            int(r.assessment_package_id)
+            for r in enroll_rows
+            if r.assessment_package_id is not None
+        }
+    )
+    supershyft_cats_by_package: dict[int, list[int]] = {}
+    if package_ids:
+        cat_rows = (
+            await db.execute(
+                select(
+                    AssessmentPackageCategory.package_id,
+                    QuestionnaireCategory.category_id,
+                )
+                .join(
+                    QuestionnaireCategory,
+                    QuestionnaireCategory.category_id
+                    == AssessmentPackageCategory.category_id,
+                )
+                .where(AssessmentPackageCategory.package_id.in_(package_ids))
+                .where(QuestionnaireCategory.category_of == "supershyft")
+            )
+        ).all()
+        for prow in cat_rows:
+            supershyft_cats_by_package.setdefault(int(prow.package_id), []).append(
+                int(prow.category_id)
+            )
+
+    instance_ids = [int(i.assessment_instance_id) for i in all_inst]
+    progress_by_instance: dict[int, dict[int, str]] = {}
+    if instance_ids:
+        progress_rows = (
+            await db.execute(
+                select(AssessmentCategoryProgress).where(
+                    AssessmentCategoryProgress.assessment_instance_id.in_(instance_ids)
+                )
+            )
+        ).scalars().all()
+        for p in progress_rows:
+            progress_by_instance.setdefault(int(p.assessment_instance_id), {})[
+                int(p.category_id)
+            ] = str(p.status or "")
+
+    # (user_id, assigned_at, org_id, primary|None, cat_ids, progress)
+    candidates: list[
+        tuple[
+            int,
+            datetime | None,
+            int | None,
+            AssessmentInstance | None,
+            list[int],
+            dict[int, str],
+        ]
+    ] = []
+    for row in enroll_rows:
+        uid = int(row.user_id)
+        eng_id = int(row.engagement_id)
+        primary = _pick_primary_instance(
+            grouped.get((uid, eng_id), []),
+            row.assessment_package_id,
+        )
+        assigned_at = primary.assigned_at if primary is not None else None
+        if not _stamp_in_period(
+            assigned_at,
+            stamp_from=assigned_from,
+            stamp_to=assigned_to,
+            all_time=all_time,
+        ):
+            continue
+        cat_ids: list[int] = []
+        progress_map: dict[int, str] = {}
+        if primary is not None:
+            pkg_id = int(primary.package_id)
+            cat_ids = supershyft_cats_by_package.get(pkg_id, [])
+            progress_map = progress_by_instance.get(
+                int(primary.assessment_instance_id), {}
+            )
+        candidates.append(
+            (uid, assigned_at, row.organization_id, primary, cat_ids, progress_map)
+        )
+
+    pending: list[tuple[int, datetime | None, int | None, int]] = []
+    needs_deep: list[
+        tuple[
+            int,
+            datetime | None,
+            int | None,
+            AssessmentInstance,
+            list[int],
+            dict[int, str],
+        ]
+    ] = []
+
+    for uid, assigned_at, org_id, primary, cat_ids, progress_map in candidates:
+        if primary is None:
+            # Enrolled, no assessment yet → pending (all_time only reaches here)
+            pending.append((uid, assigned_at, org_id, 0))
+            continue
+        iid = int(primary.assessment_instance_id)
+        label = _questionnaire_status_label(
+            has_engagement=True,
+            instance_status=str(primary.status or ""),
+            supershyft_category_ids=cat_ids,
+            progress_by_category=progress_map,
+            all_required_answered=None,
+        )
+        if label == "completed":
+            continue
+        if label == "pending" and cat_ids and questionnaire_service is not None:
+            # May still be complete via deep required-answer check
+            needs_deep.append(
+                (uid, assigned_at, org_id, primary, cat_ids, progress_map)
+            )
+        else:
+            pending.append((uid, assigned_at, org_id, iid))
+
+    if needs_deep and questionnaire_service is not None:
+        for uid, assigned_at, org_id, primary, cat_ids, progress_map in needs_deep:
+            try:
+                ok_all = True
+                for cid in cat_ids:
+                    if (progress_map.get(cid) or "").lower() in ("completed", "complete"):
+                        continue
+                    complete = await questionnaire_service.is_category_complete(
+                        db,
+                        assessment_instance_id=int(primary.assessment_instance_id),
+                        category_id=cid,
+                        user_id=uid,
+                    )
+                    if not complete:
+                        ok_all = False
+                        break
+            except Exception:
+                ok_all = False
+            if not ok_all:
+                pending.append(
+                    (uid, assigned_at, org_id, int(primary.assessment_instance_id))
+                )
+
+    best: dict[int, tuple[datetime | None, int | None, int]] = {}
+    for uid, assigned_at, org_id, instance_id in pending:
+        prev = best.get(uid)
+        if prev is None:
+            best[uid] = (assigned_at, org_id, instance_id)
+            continue
+        prev_aa, _prev_org, prev_iid = prev
+        if assigned_at is not None and (prev_aa is None or assigned_at > prev_aa):
+            best[uid] = (assigned_at, org_id, instance_id)
+        elif assigned_at == prev_aa and instance_id > prev_iid:
+            best[uid] = (assigned_at, org_id, instance_id)
+
+    return {
+        uid: _audience_type(has_engagement=True, organization_id=org_id)
+        for uid, (_aa, org_id, _iid) in best.items()
+    }
+
+
+async def questionnaire_pending_counts(
+    db: AsyncSession,
+    *,
+    assigned_from: datetime | None,
+    assigned_to: datetime | None,
+    all_time: bool,
+    questionnaire_service: Any | None = None,
+) -> dict[str, int]:
+    audience = await _questionnaire_pending_audience_by_user(
+        db,
+        assigned_from=assigned_from,
+        assigned_to=assigned_to,
+        all_time=all_time,
+        questionnaire_service=questionnaire_service,
+    )
+    return _audience_split_counts(audience)
+
+
+async def questionnaire_pending_page(
+    db: AsyncSession,
+    *,
+    assigned_from: datetime | None,
+    assigned_to: datetime | None,
+    all_time: bool,
+    page: int,
+    limit: int,
+    today: date | None = None,
+    questionnaire_service: Any | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    audience = await _questionnaire_pending_audience_by_user(
+        db,
+        assigned_from=assigned_from,
+        assigned_to=assigned_to,
+        all_time=all_time,
+        questionnaire_service=questionnaire_service,
+    )
+    return await _people_page_for_audience(
+        db,
+        audience=audience,
+        page=page,
+        limit=limit,
+        today=today,
+        questionnaire_service=questionnaire_service,
+    )
+
+
+async def _blood_reports_pending_audience_by_user(
+    db: AsyncSession,
+    *,
+    collected_from: datetime | None,
+    collected_to: datetime | None,
+    all_time: bool,
+) -> dict[int, str]:
+    """Collected but diagnostic_report_url empty; period on collected_at."""
+    curr_pbb = current_blood_booking_subquery()
+    query = (
+        select(
+            EngagementParticipant.user_id,
+            Engagement.organization_id,
+            curr_pbb.c.collected_at,
+            EngagementParticipant.engagement_participant_id,
+        )
+        .select_from(curr_pbb)
+        .join(
+            EngagementParticipant,
+            EngagementParticipant.engagement_participant_id
+            == curr_pbb.c.engagement_participant_id,
+        )
+        .join(
+            Engagement,
+            Engagement.engagement_id == EngagementParticipant.engagement_id,
+        )
+        .where(
+            curr_pbb.c.collected_at.is_not(None),
+            or_(
+                curr_pbb.c.diagnostic_report_url.is_(None),
+                func.btrim(curr_pbb.c.diagnostic_report_url) == "",
+            ),
+        )
+    )
+    for clause in _stamp_period_clauses(
+        curr_pbb.c.collected_at,
+        stamp_from=collected_from,
+        stamp_to=collected_to,
+        all_time=all_time,
+    ):
+        query = query.where(clause)
+
+    rows = (await db.execute(query)).all()
+    best: dict[int, tuple[datetime | None, int | None, int]] = {}
+    for row in rows:
+        uid = int(row.user_id)
+        collected_at = row.collected_at
+        ep_id = int(row.engagement_participant_id)
+        prev = best.get(uid)
+        if prev is None or (
+            collected_at is not None
+            and (
+                prev[0] is None
+                or collected_at > prev[0]
+                or (collected_at == prev[0] and ep_id > prev[2])
+            )
+        ):
+            best[uid] = (collected_at, row.organization_id, ep_id)
+
+    return {
+        uid: _audience_type(has_engagement=True, organization_id=org_id)
+        for uid, (_ca, org_id, _ep) in best.items()
+    }
+
+
+async def blood_reports_pending_counts(
+    db: AsyncSession,
+    *,
+    collected_from: datetime | None,
+    collected_to: datetime | None,
+    all_time: bool,
+) -> dict[str, int]:
+    audience = await _blood_reports_pending_audience_by_user(
+        db,
+        collected_from=collected_from,
+        collected_to=collected_to,
+        all_time=all_time,
+    )
+    return _audience_split_counts(audience)
+
+
+async def blood_reports_pending_page(
+    db: AsyncSession,
+    *,
+    collected_from: datetime | None,
+    collected_to: datetime | None,
+    all_time: bool,
+    page: int,
+    limit: int,
+    today: date | None = None,
+    questionnaire_service: Any | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    audience = await _blood_reports_pending_audience_by_user(
+        db,
+        collected_from=collected_from,
+        collected_to=collected_to,
+        all_time=all_time,
+    )
+    return await _people_page_for_audience(
+        db,
+        audience=audience,
+        page=page,
+        limit=limit,
+        today=today,
+        questionnaire_service=questionnaire_service,
+    )
+
+
+async def _is_questionnaire_complete_for_instance(
+    *,
+    uid: int,
+    primary: AssessmentInstance,
+    cat_ids: list[int],
+    progress_map: dict[int, str],
+    questionnaire_service: Any | None,
+    db: AsyncSession,
+) -> bool:
+    label = _questionnaire_status_label(
+        has_engagement=True,
+        instance_status=str(primary.status or ""),
+        supershyft_category_ids=cat_ids,
+        progress_by_category=progress_map,
+        all_required_answered=None,
+    )
+    if label == "completed":
+        return True
+    if not cat_ids or questionnaire_service is None:
+        return False
+    try:
+        for cid in cat_ids:
+            if (progress_map.get(cid) or "").lower() in ("completed", "complete"):
+                continue
+            complete = await questionnaire_service.is_category_complete(
+                db,
+                assessment_instance_id=int(primary.assessment_instance_id),
+                category_id=cid,
+                user_id=uid,
+            )
+            if not complete:
+                return False
+        return True
+    except Exception:
+        return False
+
+
+async def _bio_ai_pending_audience_by_user(
+    db: AsyncSession,
+    *,
+    stamp_from: datetime | None,
+    stamp_to: datetime | None,
+    all_time: bool,
+    questionnaire_service: Any | None = None,
+) -> dict[int, str]:
+    """Blood report loaded + questionnaire done + BioAI report_url empty/missing.
+
+    Period stamp: coalesce(IHR.created_at, assessment.completed_at).
+    """
+    curr_pbb = current_blood_booking_subquery()
+    blood_q = (
+        select(
+            EngagementParticipant.user_id,
+            EngagementParticipant.engagement_participant_id,
+            Engagement.engagement_id,
+            Engagement.organization_id,
+            Engagement.assessment_package_id,
+        )
+        .select_from(curr_pbb)
+        .join(
+            EngagementParticipant,
+            EngagementParticipant.engagement_participant_id
+            == curr_pbb.c.engagement_participant_id,
+        )
+        .join(
+            Engagement,
+            Engagement.engagement_id == EngagementParticipant.engagement_id,
+        )
+        .where(
+            curr_pbb.c.diagnostic_report_url.is_not(None),
+            func.btrim(curr_pbb.c.diagnostic_report_url) != "",
+        )
+    )
+    blood_rows = (await db.execute(blood_q)).all()
+    if not blood_rows:
+        return {}
+
+    user_ids = list({int(r.user_id) for r in blood_rows})
+    engagement_ids = list({int(r.engagement_id) for r in blood_rows})
+
+    all_inst = (
+        await db.execute(
+            select(AssessmentInstance).where(
+                AssessmentInstance.user_id.in_(user_ids),
+                AssessmentInstance.engagement_id.in_(engagement_ids),
+            )
+        )
+    ).scalars().all()
+    grouped: dict[tuple[int, int], list[AssessmentInstance]] = {}
+    for inst in all_inst:
+        grouped.setdefault((int(inst.user_id), int(inst.engagement_id)), []).append(inst)
+
+    package_ids = list(
+        {
+            int(r.assessment_package_id)
+            for r in blood_rows
+            if r.assessment_package_id is not None
+        }
+    )
+    supershyft_cats_by_package: dict[int, list[int]] = {}
+    if package_ids:
+        cat_rows = (
+            await db.execute(
+                select(
+                    AssessmentPackageCategory.package_id,
+                    QuestionnaireCategory.category_id,
+                )
+                .join(
+                    QuestionnaireCategory,
+                    QuestionnaireCategory.category_id
+                    == AssessmentPackageCategory.category_id,
+                )
+                .where(AssessmentPackageCategory.package_id.in_(package_ids))
+                .where(QuestionnaireCategory.category_of == "supershyft")
+            )
+        ).all()
+        for prow in cat_rows:
+            supershyft_cats_by_package.setdefault(int(prow.package_id), []).append(
+                int(prow.category_id)
+            )
+
+    instance_ids = [int(i.assessment_instance_id) for i in all_inst]
+    progress_by_instance: dict[int, dict[int, str]] = {}
+    if instance_ids:
+        progress_rows = (
+            await db.execute(
+                select(AssessmentCategoryProgress).where(
+                    AssessmentCategoryProgress.assessment_instance_id.in_(instance_ids)
+                )
+            )
+        ).scalars().all()
+        for p in progress_rows:
+            progress_by_instance.setdefault(int(p.assessment_instance_id), {})[
+                int(p.category_id)
+            ] = str(p.status or "")
+
+    ihr_rows = (
+        await db.execute(
+            select(IndividualHealthReport).where(
+                IndividualHealthReport.user_id.in_(user_ids),
+                or_(
+                    IndividualHealthReport.engagement_id.in_(engagement_ids),
+                    IndividualHealthReport.engagement_id.is_(None),
+                ),
+            )
+        )
+    ).scalars().all()
+    # Prefer IHR matching engagement; key by (user_id, engagement_id)
+    ihr_by_user_eng: dict[tuple[int, int], IndividualHealthReport] = {}
+    ihr_by_user: dict[int, IndividualHealthReport] = {}
+    for ihr in ihr_rows:
+        uid = int(ihr.user_id)
+        eng = int(ihr.engagement_id) if ihr.engagement_id is not None else None
+        if eng is not None:
+            prev = ihr_by_user_eng.get((uid, eng))
+            if prev is None or int(ihr.report_id) > int(prev.report_id):
+                ihr_by_user_eng[(uid, eng)] = ihr
+        prev_u = ihr_by_user.get(uid)
+        if prev_u is None or int(ihr.report_id) > int(prev_u.report_id):
+            ihr_by_user[uid] = ihr
+
+    best: dict[int, tuple[datetime | None, int | None, int]] = {}
+    for row in blood_rows:
+        uid = int(row.user_id)
+        eng_id = int(row.engagement_id)
+        ep_id = int(row.engagement_participant_id)
+        primary = _pick_primary_instance(
+            grouped.get((uid, eng_id), []),
+            row.assessment_package_id,
+        )
+        if primary is None:
+            continue
+        cat_ids = supershyft_cats_by_package.get(int(primary.package_id), [])
+        progress_map = progress_by_instance.get(
+            int(primary.assessment_instance_id), {}
+        )
+        q_done = await _is_questionnaire_complete_for_instance(
+            uid=uid,
+            primary=primary,
+            cat_ids=cat_ids,
+            progress_map=progress_map,
+            questionnaire_service=questionnaire_service,
+            db=db,
+        )
+        if not q_done:
+            continue
+
+        ihr = ihr_by_user_eng.get((uid, eng_id)) or ihr_by_user.get(uid)
+        report_url = str(ihr.report_url or "").strip() if ihr is not None else ""
+        if report_url:
+            continue
+
+        stamp = None
+        if ihr is not None and ihr.created_at is not None:
+            stamp = ihr.created_at
+        elif primary.completed_at is not None:
+            stamp = primary.completed_at
+        if not _stamp_in_period(
+            stamp,
+            stamp_from=stamp_from,
+            stamp_to=stamp_to,
+            all_time=all_time,
+        ):
+            continue
+
+        prev = best.get(uid)
+        if prev is None or (
+            stamp is not None
+            and (prev[0] is None or stamp > prev[0] or (stamp == prev[0] and ep_id > prev[2]))
+        ):
+            best[uid] = (stamp, row.organization_id, ep_id)
+
+    return {
+        uid: _audience_type(has_engagement=True, organization_id=org_id)
+        for uid, (_st, org_id, _ep) in best.items()
+    }
+
+
+async def bio_ai_pending_counts(
+    db: AsyncSession,
+    *,
+    stamp_from: datetime | None,
+    stamp_to: datetime | None,
+    all_time: bool,
+    questionnaire_service: Any | None = None,
+) -> dict[str, int]:
+    audience = await _bio_ai_pending_audience_by_user(
+        db,
+        stamp_from=stamp_from,
+        stamp_to=stamp_to,
+        all_time=all_time,
+        questionnaire_service=questionnaire_service,
+    )
+    return _audience_split_counts(audience)
+
+
+async def bio_ai_pending_page(
+    db: AsyncSession,
+    *,
+    stamp_from: datetime | None,
+    stamp_to: datetime | None,
+    all_time: bool,
+    page: int,
+    limit: int,
+    today: date | None = None,
+    questionnaire_service: Any | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    audience = await _bio_ai_pending_audience_by_user(
+        db,
+        stamp_from=stamp_from,
+        stamp_to=stamp_to,
+        all_time=all_time,
+        questionnaire_service=questionnaire_service,
+    )
+    return await _people_page_for_audience(
+        db,
+        audience=audience,
+        page=page,
+        limit=limit,
+        today=today,
+        questionnaire_service=questionnaire_service,
+    )
+
+
+async def _consultation_pending_audience_by_user(
+    db: AsyncSession,
+    *,
+    created_from: datetime | None,
+    created_to: datetime | None,
+    all_time: bool,
+) -> dict[int, str]:
+    """want=true AND done=false; period on consultation_bookings.created_at."""
+    query = (
+        select(
+            EngagementParticipant.user_id,
+            Engagement.organization_id,
+            ConsultationBooking.created_at,
+            ConsultationBooking.consultation_id,
+        )
+        .select_from(ConsultationBooking)
+        .join(
+            EngagementParticipant,
+            EngagementParticipant.engagement_participant_id
+            == ConsultationBooking.engagement_participant_id,
+        )
+        .join(
+            Engagement,
+            Engagement.engagement_id == EngagementParticipant.engagement_id,
+        )
+        .where(
+            ConsultationBooking.want.is_(True),
+            ConsultationBooking.done.is_(False),
+        )
+    )
+    for clause in _stamp_period_clauses(
+        ConsultationBooking.created_at,
+        stamp_from=created_from,
+        stamp_to=created_to,
+        all_time=all_time,
+    ):
+        query = query.where(clause)
+
+    rows = (await db.execute(query)).all()
+    best: dict[int, tuple[datetime | None, int | None, int]] = {}
+    for row in rows:
+        uid = int(row.user_id)
+        created_at = row.created_at
+        cid = int(row.consultation_id)
+        prev = best.get(uid)
+        if prev is None or (
+            created_at is not None
+            and (
+                prev[0] is None
+                or created_at > prev[0]
+                or (created_at == prev[0] and cid > prev[2])
+            )
+        ):
+            best[uid] = (created_at, row.organization_id, cid)
+
+    return {
+        uid: _audience_type(has_engagement=True, organization_id=org_id)
+        for uid, (_ca, org_id, _cid) in best.items()
+    }
+
+
+async def consultation_pending_counts(
+    db: AsyncSession,
+    *,
+    created_from: datetime | None,
+    created_to: datetime | None,
+    all_time: bool,
+) -> dict[str, int]:
+    audience = await _consultation_pending_audience_by_user(
+        db,
+        created_from=created_from,
+        created_to=created_to,
+        all_time=all_time,
+    )
+    return _audience_split_counts(audience)
+
+
+async def consultation_pending_page(
+    db: AsyncSession,
+    *,
+    created_from: datetime | None,
+    created_to: datetime | None,
+    all_time: bool,
+    page: int,
+    limit: int,
+    today: date | None = None,
+    questionnaire_service: Any | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    audience = await _consultation_pending_audience_by_user(
+        db,
+        created_from=created_from,
+        created_to=created_to,
+        all_time=all_time,
+    )
+    return await _people_page_for_audience(
+        db,
+        audience=audience,
+        page=page,
+        limit=limit,
+        today=today,
+        questionnaire_service=questionnaire_service,
+    )
