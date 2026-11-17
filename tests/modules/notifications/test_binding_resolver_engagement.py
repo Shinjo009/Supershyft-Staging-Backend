@@ -40,8 +40,8 @@ async def test_engagement_resolver_ignores_global(test_db_session):
                 service_key, display_name, channel, template_name, email_subject, email_body, is_active
             )
             VALUES
-            ('global-only-svc', 'G', 'whatsapp', '/g', true),
-            ('eng-only-svc', 'E', 'whatsapp', '/e', true)
+            ('global-only-svc', 'G', 'whatsapp', '/g', '', '', true),
+            ('eng-only-svc', 'E', 'whatsapp', '/e', '', '', true)
             ON CONFLICT (service_key) DO NOTHING
             """
         )
