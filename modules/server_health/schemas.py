@@ -133,6 +133,37 @@ class ServerHealthCurrentRead(BaseModel):
     cpu_alert: ServerHealthCpuAlertRead | None = None
 
 
+class ApiTrafficEndpointStats(BaseModel):
+    method: str
+    path: str
+    count: int = 0
+    error_4xx: int = 0
+    error_5xx: int = 0
+    p50_s: float | None = None
+    p95_s: float | None = None
+    max_s: float | None = None
+
+
+class ApiTrafficTotals(BaseModel):
+    requests: int = 0
+    error_4xx: int = 0
+    error_5xx: int = 0
+    error_rate: float = 0.0
+    p50_s: float | None = None
+    p95_s: float | None = None
+    lines_in_window: int | None = None
+    lines_missing_rt: int | None = None
+
+
+class ApiTrafficRead(BaseModel):
+    generated_at: str
+    window_seconds: int
+    totals: ApiTrafficTotals
+    top_endpoints: list[ApiTrafficEndpointStats] = Field(default_factory=list)
+    slowest_endpoints: list[ApiTrafficEndpointStats] = Field(default_factory=list)
+    error_endpoints: list[ApiTrafficEndpointStats] = Field(default_factory=list)
+
+
 class ServerHealthMetricsIn(BaseModel):
     hostname: str = Field(..., min_length=1, max_length=255)
     cpu_usage: float = Field(..., ge=0, le=100)

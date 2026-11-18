@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 from pathlib import Path
 
@@ -11,6 +12,7 @@ import pytest
 from core.config import settings
 from core.security import create_jwt_token
 from modules.employee.models import Employee
+from modules.server_health.api_traffic_repository import ApiTrafficRepository
 from modules.server_health.dependencies import get_server_health_service
 from modules.server_health.repository import ServerHealthRepository
 from modules.server_health.service import ServerHealthService
@@ -401,3 +403,151 @@ async def test_server_health_current_overlays_posted_metrics(
     assert data["latest_metrics"]["cores"] == 8
     assert data["cpu_alert"]["is_alerting"] is False
     assert data["cpu_alert"]["threshold_pct"] == 75.0
+
+
+_SAMPLE_API_TRAFFIC = {
+    "generated_at": "2026-11-18T09:00:00+00:00",
+    "window_seconds": 3600,
+    "totals": {
+        "requests": 42,
+        "error_4xx": 3,
+        "error_5xx": 1,
+        "error_rate": 0.095238,
+        "p50_s": 0.012,
+        "p95_s": 0.155,
+        "lines_in_window": 42,
+        "lines_missing_rt": 0,
+    },
+    "top_endpoints": [
+        {
+            "method": "GET",
+            "path": "/engagements/code/{id}",
+            "count": 10,
+            "error_4xx": 0,
+            "error_5xx": 0,
+            "p50_s": 0.009,
+            "p95_s": 0.012,
+            "max_s": 0.012,
+        }
+    ],
+    "slowest_endpoints": [],
+    "error_endpoints": [
+        {
+            "method": "POST",
+            "path": "/auth/verify-otp",
+            "count": 4,
+            "error_4xx": 4,
+            "error_5xx": 0,
+            "p50_s": None,
+            "p95_s": None,
+            "max_s": None,
+        }
+    ],
+}
+
+
+@pytest.fixture
+def api_traffic_json_path(tmp_path: Path) -> Path:
+    path = tmp_path / "latest.json"
+    path.write_text(json.dumps(_SAMPLE_API_TRAFFIC), encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def override_server_health_with_traffic(fastapi_app, health_db_path: Path, api_traffic_json_path: Path):
+    service = ServerHealthService(
+        ServerHealthRepository(str(health_db_path)),
+        api_traffic_repository=ApiTrafficRepository(str(api_traffic_json_path)),
+    )
+    fastapi_app.dependency_overrides[get_server_health_service] = lambda: service
+    yield
+    fastapi_app.dependency_overrides.pop(get_server_health_service, None)
+
+
+@pytest.mark.asyncio
+async def test_server_health_api_traffic_requires_auth(async_client):
+    response = await async_client.get("/server-health/api-traffic")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_server_health_api_traffic_requires_admin(
+    async_client, test_db_session, override_server_health_with_traffic
+):
+    uid = 92101
+    test_db_session.add(User(user_id=uid, age=30, phone="92101000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=92101,
+            name="Employee 92101",
+            phone="0000092101",
+            email="employee92101@test.example",
+            role="onboarding_assistant",
+            status="active",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get("/server-health/api-traffic", headers=_auth_header(uid))
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_server_health_api_traffic_returns_payload(
+    async_client, test_db_session, override_server_health_with_traffic
+):
+    uid = 92102
+    test_db_session.add(User(user_id=uid, age=30, phone="92102000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=92102,
+            name="Employee 92102",
+            phone="0000092102",
+            email="employee92102@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get("/server-health/api-traffic", headers=_auth_header(uid))
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"]["totals"]["requests"] == 42
+    assert body["data"]["top_endpoints"][0]["path"] == "/engagements/code/{id}"
+    assert len(body["data"]["error_endpoints"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_server_health_api_traffic_503_when_json_missing(
+    async_client, test_db_session, fastapi_app, health_db_path: Path, tmp_path: Path
+):
+    missing = tmp_path / "nope.json"
+    service = ServerHealthService(
+        ServerHealthRepository(str(health_db_path)),
+        api_traffic_repository=ApiTrafficRepository(str(missing)),
+    )
+    fastapi_app.dependency_overrides[get_server_health_service] = lambda: service
+
+    uid = 92103
+    test_db_session.add(User(user_id=uid, age=30, phone="92103000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=92103,
+            name="Employee 92103",
+            phone="0000092103",
+            email="employee92103@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get("/server-health/api-traffic", headers=_auth_header(uid))
+    assert response.status_code == 503
+    assert "not available" in response.json()["message"].lower()
+
+    fastapi_app.dependency_overrides.pop(get_server_health_service, None)
