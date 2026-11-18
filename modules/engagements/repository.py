@@ -1613,7 +1613,7 @@ class EngagementsRepository:
         *,
         collection_date: date,
     ) -> list[PretestReminderParticipant]:
-        """Return participants for scheduled/running engagements with blood collection on collection_date."""
+        """Return participants (paid or not) for scheduled/running engagements with blood collection on collection_date."""
         curr_pbb = current_blood_booking_subquery()
         query = (
             select(
@@ -1634,7 +1634,6 @@ class EngagementsRepository:
                 EngagementNotification.engagement_id == Engagement.engagement_id,
             )
             .where(self._scheduled_or_running_engagement_status_filter())
-            .where(EngagementParticipant.paid.is_(True))
             .where(curr_pbb.c.collection_date == collection_date)
             .where(EngagementNotification.event_code == "reminders.pretest")
             .distinct()

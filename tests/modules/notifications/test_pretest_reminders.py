@@ -358,6 +358,38 @@ async def _bind_pretest_multichannel_slots(
 
 
 @pytest.mark.asyncio
+async def test_pretest_reminder_list_includes_unpaid_participant(test_db_session):
+    await _seed_dependencies(test_db_session)
+    await _insert_engagement(
+        test_db_session,
+        engagement_id=9612,
+        engagement_code="ENG9612",
+        status="running",
+    )
+    collection_date = "2026-06-02"
+    await _insert_participant(
+        test_db_session,
+        engagement_id=9612,
+        user_id=96121,
+        engagement_date=collection_date,
+        slot_start_time="08:00:00",
+    )
+    await test_db_session.execute(
+        text(
+            "UPDATE engagement_participants SET paid = false "
+            "WHERE engagement_id = 9612 AND user_id = 96121"
+        )
+    )
+    await test_db_session.commit()
+
+    listed = await EngagementsRepository().list_participants_for_pretest_reminder(
+        test_db_session,
+        collection_date=date.fromisoformat(collection_date),
+    )
+    assert any(p.user_id == 96121 and p.engagement_id == 9612 for p in listed)
+
+
+@pytest.mark.asyncio
 async def test_pretest_reminders_merges_multichannel_binding_slots(test_db_session, monkeypatch):
     await _seed_dependencies(test_db_session)
     await _insert_engagement(

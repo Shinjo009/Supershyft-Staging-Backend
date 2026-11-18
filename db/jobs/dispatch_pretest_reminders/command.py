@@ -1,6 +1,6 @@
 """Dispatch pretest blood-collection reminder notifications.
 
-Finds participants in running engagements whose collection date is tomorrow (IST)
+Finds enrolled participants in scheduled/running engagements whose collection date is tomorrow (IST)
 and dispatches notifications using each engagement's pretest_guidelines_notification
 service keys. Intended to run once daily via an external scheduler.
 
