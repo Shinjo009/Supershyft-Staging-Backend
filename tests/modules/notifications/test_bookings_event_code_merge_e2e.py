@@ -101,6 +101,49 @@ async def test_migration_renames_engagement_and_global_bindings(test_db_session)
 
 
 @pytest.mark.asyncio
+async def test_migration_dedupes_old_and_new_consultation_slot_before_rename(test_db_session):
+    """Prod had both consultations.booked and bookings.consultation.booked on the same slot."""
+    eid = 991004
+    await _insert_home_blood_engagement(test_db_session, eid=eid, etype="bio_ai_with_consultation")
+    svc_legacy = json.dumps([{"service_key": "legacy-svc", "external_link": None}])
+    svc_new = json.dumps([{"service_key": "nutrition-consultation-confirmed-whatsapp-1plus1-v1", "external_link": None}])
+    await test_db_session.execute(
+        text(
+            """
+            INSERT INTO engagement_notifications (
+                engagement_id, event_code, event_name, recipient_type, delivery_channel,
+                notification_services, condition_key
+            )
+            VALUES
+            (:eid, 'consultations.booked', 'Consultation booked', 'user', 'whatsapp', CAST(:legacy AS jsonb), 'default'),
+            (:eid, 'bookings.consultation.booked', 'Consultation booked', 'user', 'whatsapp', CAST(:new AS jsonb), 'default')
+            """
+        ),
+        {"eid": eid, "legacy": svc_legacy, "new": svc_new},
+    )
+    await test_db_session.commit()
+
+    await apply_event_code_renames_async(test_db_session)
+    await test_db_session.commit()
+
+    rows = (
+        await test_db_session.execute(
+            text(
+                """
+                SELECT id, event_code, notification_services::text
+                FROM engagement_notifications
+                WHERE engagement_id = :eid AND recipient_type = 'user'
+                """
+            ),
+            {"eid": eid},
+        )
+    ).all()
+    assert len(rows) == 1
+    assert rows[0][1] == "bookings.consultation.booked"
+    assert "nutrition-consultation-confirmed" in rows[0][2]
+
+
+@pytest.mark.asyncio
 async def test_legacy_emit_resolves_migrated_engagement_slot(test_db_session):
     eid = 991002
     await _insert_home_blood_engagement(test_db_session, eid=eid)

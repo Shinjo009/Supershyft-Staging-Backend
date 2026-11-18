@@ -48,8 +48,71 @@ OBSOLETE_EVENT_CODES: tuple[str, ...] = (
 )
 
 
+def _drop_rename_collisions(conn: Connection, values_sql: str) -> None:
+    conn.execute(
+        text(
+            f"""
+            DELETE FROM engagement_notifications AS victim
+            USING (VALUES {values_sql}) AS m(old_code, new_code)
+            WHERE victim.event_code = m.old_code
+              AND EXISTS (
+                SELECT 1 FROM engagement_notifications AS keeper
+                WHERE keeper.engagement_id = victim.engagement_id
+                  AND keeper.recipient_type = victim.recipient_type
+                  AND keeper.delivery_channel = victim.delivery_channel
+                  AND keeper.condition_key = victim.condition_key
+                  AND keeper.id <> victim.id
+                  AND (
+                    keeper.event_code = m.new_code
+                    OR (
+                      keeper.event_code IN (
+                        SELECT r.old_code
+                        FROM (VALUES {values_sql}) AS r(old_code, new_code)
+                        WHERE r.new_code = m.new_code
+                      )
+                      AND keeper.id < victim.id
+                    )
+                  )
+              )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            f"""
+            DELETE FROM notification_events AS victim
+            USING (VALUES {values_sql}) AS m(old_code, new_code)
+            WHERE victim.event_code = m.old_code
+              AND EXISTS (
+                SELECT 1 FROM notification_events AS keeper
+                WHERE keeper.recipient_type = victim.recipient_type
+                  AND keeper.delivery_channel = victim.delivery_channel
+                  AND keeper.condition_key = victim.condition_key
+                  AND (
+                    (keeper.engagement_type_id IS NULL AND victim.engagement_type_id IS NULL)
+                    OR keeper.engagement_type_id = victim.engagement_type_id
+                  )
+                  AND keeper.id <> victim.id
+                  AND (
+                    keeper.event_code = m.new_code
+                    OR (
+                      keeper.event_code IN (
+                        SELECT r.old_code
+                        FROM (VALUES {values_sql}) AS r(old_code, new_code)
+                        WHERE r.new_code = m.new_code
+                      )
+                      AND keeper.id < victim.id
+                    )
+                  )
+              )
+            """
+        )
+    )
+
+
 def apply_event_code_renames(conn: Connection) -> None:
     values_sql = ",\n".join(f"('{old}', '{new}')" for old, new in _EVENT_CODE_RENAMES)
+    _drop_rename_collisions(conn, values_sql)
     for table in ("notification_events", "engagement_notifications"):
         conn.execute(
             text(
