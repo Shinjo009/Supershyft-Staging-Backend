@@ -54,6 +54,11 @@ def _questionnaire_status_label(
     progress_by_category: dict[int, str],
     all_required_answered: bool | None,
 ) -> str:
+    """Label for B2B command dashboard rows (SuperShyft package categories).
+
+    Camp engagement overview and camp-report KPIs use
+    ``modules.reports.questionnaire_kpi_completion`` (MetSights required keys).
+    """
     if not has_engagement:
         return "empty"
     status = (instance_status or "").strip().lower()

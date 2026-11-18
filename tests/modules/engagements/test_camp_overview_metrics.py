@@ -6,6 +6,12 @@ from datetime import date, datetime, timezone
 
 import pytest
 
+from modules.assessments.models import (
+    AssessmentCategoryProgress,
+    AssessmentInstance,
+    AssessmentPackage,
+    AssessmentPackageCategory,
+)
 from modules.engagements.blood_booking_enums import BloodBookingRelation, BloodBookingStatus
 from modules.engagements.models import (
     Engagement,
@@ -14,6 +20,7 @@ from modules.engagements.models import (
     ParticipantBloodBooking,
 )
 from modules.experts.models import ConsultationBooking
+from modules.questionnaire.models import QuestionnaireCategory
 from modules.users.models import User
 from tests.helpers.auth import employee_auth_header, seed_employee
 
@@ -269,3 +276,158 @@ async def test_day_wise_summary_date_filter(async_client, test_db_session):
     data = res.json()["data"]
     assert DAY_A.isoformat() in data["blood_collection"]
     assert data["consultation"] == {}
+
+
+async def _seed_kpi_questionnaire_engagement(
+    test_db_session,
+    *,
+    engagement_id: int,
+    package_id: int,
+    cat_physical_id: int,
+    cat_vitals_id: int,
+    user_filled_id: int,
+    user_empty_id: int,
+    instance_filled_id: int,
+):
+    from sqlalchemy import select as sa_select
+
+    from modules.engagements.models import Engagement
+
+    await _seed_engagement(test_db_session, engagement_id=engagement_id, with_slots=False)
+    row = (
+        await test_db_session.execute(
+            sa_select(Engagement).where(Engagement.engagement_id == engagement_id)
+        )
+    ).scalar_one()
+    row.assessment_package_id = package_id
+
+    test_db_session.add(
+        AssessmentPackage(
+            package_id=package_id,
+            package_code=f"MET-{engagement_id}",
+            display_name="MetSights Basic",
+            assessment_type_code="2",
+            status="active",
+        )
+    )
+    await test_db_session.flush()
+
+    test_db_session.add_all(
+        [
+            QuestionnaireCategory(
+                category_id=cat_physical_id,
+                category_key="physical-measurement",
+                display_name="Physical",
+                category_of="metsights",
+                status="active",
+            ),
+            QuestionnaireCategory(
+                category_id=cat_vitals_id,
+                category_key="vitals",
+                display_name="Vitals",
+                category_of="metsights",
+                status="active",
+            ),
+        ]
+    )
+    await test_db_session.flush()
+
+    test_db_session.add_all(
+        [
+            AssessmentPackageCategory(
+                id=package_id * 10 + 1,
+                package_id=package_id,
+                category_id=cat_physical_id,
+                display_order=1,
+            ),
+            AssessmentPackageCategory(
+                id=package_id * 10 + 2,
+                package_id=package_id,
+                category_id=cat_vitals_id,
+                display_order=2,
+            ),
+        ]
+    )
+    await test_db_session.flush()
+
+    await _add_participant(
+        test_db_session,
+        engagement_id=engagement_id,
+        user_id=user_filled_id,
+        engagement_participant_id=engagement_id * 1000 + 1,
+    )
+    await _add_participant(
+        test_db_session,
+        engagement_id=engagement_id,
+        user_id=user_empty_id,
+        engagement_participant_id=engagement_id * 1000 + 2,
+    )
+
+    test_db_session.add(
+        AssessmentInstance(
+            assessment_instance_id=instance_filled_id,
+            user_id=user_filled_id,
+            package_id=package_id,
+            engagement_id=engagement_id,
+            status="active",
+            metsights_record_id=f"REC-{instance_filled_id}",
+            assigned_at=datetime.now(timezone.utc),
+        )
+    )
+    await test_db_session.flush()
+
+    test_db_session.add_all(
+        [
+            AssessmentCategoryProgress(
+                id=instance_filled_id * 10 + 1,
+                assessment_instance_id=instance_filled_id,
+                category_id=cat_physical_id,
+                status="complete",
+                is_submitted=True,
+                completed_at=datetime(DAY_A.year, DAY_A.month, DAY_A.day, 12, 0, tzinfo=timezone.utc),
+            ),
+            AssessmentCategoryProgress(
+                id=instance_filled_id * 10 + 2,
+                assessment_instance_id=instance_filled_id,
+                category_id=cat_vitals_id,
+                status="incomplete",
+                is_submitted=False,
+            ),
+        ]
+    )
+
+
+@pytest.mark.asyncio
+async def test_progress_report_questionnaire_filled_uses_camp_kpi_rules(
+    async_client, test_db_session
+):
+    """Questionnaire filled follows camp KPI: required MetSights cats; vitals does not block."""
+    eid = 88100
+    pkg_id = 88101
+    cat_phys = 88102
+    cat_vitals = 88103
+    user_ok = 88111
+    user_ns = 88112
+    inst_id = 88130
+
+    await seed_employee(test_db_session, employee_id=8810)
+    await _seed_kpi_questionnaire_engagement(
+        test_db_session,
+        engagement_id=eid,
+        package_id=pkg_id,
+        cat_physical_id=cat_phys,
+        cat_vitals_id=cat_vitals,
+        user_filled_id=user_ok,
+        user_empty_id=user_ns,
+        instance_filled_id=inst_id,
+    )
+    await test_db_session.commit()
+
+    res = await async_client.get(
+        f"/engagements/{eid}/progress-report",
+        headers=_auth_header(8810),
+    )
+    assert res.status_code == 200
+    data = res.json()["data"]
+    assert data["total_registered"] == 2
+    assert data["questionnaire_filled"] == 1
