@@ -40,6 +40,7 @@ class IndividualHealthReport(Base):
     engagement_id = Column(Integer, ForeignKey("engagements.engagement_id"), nullable=False)
     reports = Column(JSON)
     report_url = Column(Text, nullable=True)
+    report_received_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 

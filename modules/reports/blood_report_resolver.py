@@ -305,7 +305,9 @@ async def resolve_blood_report_url(
             error_code="INVALID_STATE",
             message="Blood collection row not found for this participant",
         )
-    target.diagnostic_report_url = url_to_store
+    from modules.reports.report_timestamps import set_diagnostic_report_url
+
+    set_diagnostic_report_url(target, url_to_store)
     if full_report is not None:
         target.blood_parameters_full_report = full_report
     if verified_at is not None:

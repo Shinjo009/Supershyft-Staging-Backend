@@ -1050,7 +1050,9 @@ async def load_blood_reports(
                                 "reason": "no blood booking row for participant",
                             })
                             continue
-                        blood_root.diagnostic_report_url = url_to_store
+                        from modules.reports.report_timestamps import set_diagnostic_report_url
+
+                        set_diagnostic_report_url(blood_root, url_to_store)
                         diagnostic_report_url = url_to_store
                         if api_full_report is not None:
                             blood_root.blood_parameters_full_report = api_full_report
@@ -1089,7 +1091,9 @@ async def load_blood_reports(
                             "reason": "no blood booking row for participant",
                         })
                         continue
-                    blood_root.diagnostic_report_url = url_to_store
+                    from modules.reports.report_timestamps import set_diagnostic_report_url
+
+                    set_diagnostic_report_url(blood_root, url_to_store)
                     diagnostic_report_url = url_to_store
                     blood_root.blood_parameters_full_report = api_full_report
                     blood_root.blood_parameters_verified_at = api_verified_at

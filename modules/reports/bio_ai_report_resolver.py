@@ -139,7 +139,9 @@ async def resolve_bio_ai_report_url(
 
     report_url = _normalize_report_url(fetched_url)
 
-    target.report_url = report_url
+    from modules.reports.report_timestamps import set_bioai_report_url
+
+    set_bioai_report_url(target, report_url)
     if target.assessment_instance_id is None:
         target.assessment_instance_id = assessment_instance_id
     await repo.update_individual_report(db, target)

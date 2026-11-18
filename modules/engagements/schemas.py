@@ -622,6 +622,33 @@ class EngagementBookingSummary(BaseModel):
     as_of_date: date
 
 
+class EngagementProgressReport(BaseModel):
+    total_registered: int = 0
+    blood_collected: int = 0
+    questionnaire_filled: int = 0
+    blood_report_sent: int = 0
+    bio_ai_report_sent: int = 0
+    consultation_done: int = 0
+
+
+class DayWiseBloodMetrics(BaseModel):
+    expected_collection: int = 0
+    sample_collected: int = 0
+    questionnaire_completed: int = 0
+
+
+class DayWiseConsultationMetrics(BaseModel):
+    consultation_want: int = 0
+    consultation_done: int = 0
+
+
+class EngagementDayWiseSummary(BaseModel):
+    blood_collection_dates: list[str] = Field(default_factory=list)
+    consultation_dates: list[str] = Field(default_factory=list)
+    blood_collection: dict[str, DayWiseBloodMetrics] = Field(default_factory=dict)
+    consultation: dict[str, DayWiseConsultationMetrics] = Field(default_factory=dict)
+
+
 class ParticipantBloodBookingAdminCreate(BaseModel):
     """Manual collection row for admin corrections."""
 

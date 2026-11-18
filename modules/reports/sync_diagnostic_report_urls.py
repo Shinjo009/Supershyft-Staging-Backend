@@ -403,7 +403,9 @@ async def sync_diagnostic_report_urls(
                     "reason": "no blood booking row for participant",
                 })
                 continue
-            target.diagnostic_report_url = url_to_store
+            from modules.reports.report_timestamps import set_diagnostic_report_url
+
+            set_diagnostic_report_url(target, url_to_store)
             if api_full_report is not None:
                 target.blood_parameters_full_report = api_full_report
             if api_verified_at is not None:

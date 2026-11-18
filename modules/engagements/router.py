@@ -719,6 +719,48 @@ async def get_engagement_booking_summary(
     return success_response(data)
 
 
+@router.get("/{engagement_id}/progress-report")
+async def get_engagement_progress_report(
+    engagement_id: int,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    engagements_service: EngagementsService = Depends(get_engagements_service),
+):
+    """Camp progress report counts for engagement overview."""
+
+    data = await engagements_service.progress_report_for_engagement_id(
+        db,
+        employee=employee,
+        engagement_id=engagement_id,
+    )
+    return success_response(data)
+
+
+@router.get("/{engagement_id}/day-wise-summary")
+async def get_engagement_day_wise_summary(
+    engagement_id: int,
+    section: str | None = Query(
+        default=None,
+        pattern=r"^(blood_collection|consultation|both)$",
+        description="Optional section filter",
+    ),
+    date: date | None = Query(default=None, description="Optional YYYY-MM-DD day filter"),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    engagements_service: EngagementsService = Depends(get_engagements_service),
+):
+    """Day-wise blood collection / consultation summary for camp overview."""
+
+    data = await engagements_service.day_wise_summary_for_engagement_id(
+        db,
+        employee=employee,
+        engagement_id=engagement_id,
+        section=section,
+        date_filter=date,
+    )
+    return success_response(data)
+
+
 @router.get("/{engagement_id}/participants/filter-options")
 async def get_engagement_participant_filter_options(
     engagement_id: int,
