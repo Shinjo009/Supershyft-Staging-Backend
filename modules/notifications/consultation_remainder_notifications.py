@@ -18,6 +18,7 @@ from modules.notifications.service import NotificationsService
 logger = logging.getLogger(__name__)
 
 _IST = ZoneInfo("Asia/Kolkata")
+_CONSULTATION_REMAINDER_EVENT = "reminders.consultation_reminder"
 
 
 def today_in_ist(*, as_of: date | None = None) -> date:
@@ -103,31 +104,35 @@ async def dispatch_consultation_remainder_notifications(
             dispatched_any = False
             skipped_all = True
             session_details = _session_details_from_participant(participant)
+            dedup_metadata = {"consultation_expert_type": participant.expert_type}
+            skip_reason = await should_skip_notification_on_date(
+                db,
+                event_code=_CONSULTATION_REMAINDER_EVENT,
+                user_id=participant.user_id,
+                engagement_id=participant.engagement_id,
+                reference_date=consultation_date,
+                dedup_metadata=dedup_metadata,
+            )
+            if skip_reason:
+                skipped += 1
+                details.append({
+                    "user_id": participant.user_id,
+                    "engagement_id": participant.engagement_id,
+                    "expert_type": participant.expert_type,
+                    "action": "skipped",
+                    "reason": f"notification '{_CONSULTATION_REMAINDER_EVENT}' {skip_reason}",
+                })
+                continue
+
             for cfg in participant.service_configs:
                 sk = cfg.service_key
-                skip_reason = await should_skip_notification_on_date(
-                    db,
-                    service_key=sk,
-                    user_id=participant.user_id,
-                    engagement_id=participant.engagement_id,
-                    reference_date=consultation_date,
-                )
-                if skip_reason:
-                    details.append({
-                        "user_id": participant.user_id,
-                        "engagement_id": participant.engagement_id,
-                        "expert_type": participant.expert_type,
-                        "service_key": sk,
-                        "action": "skipped",
-                        "reason": f"notification '{sk}' {skip_reason}",
-                    })
-                    continue
-
                 skipped_all = False
                 await notifications_service.dispatch(
                     db,
                     payload=DispatchRequest(
                         service_key=sk,
+                        event_code=_CONSULTATION_REMAINDER_EVENT,
+                        dedup_metadata=dedup_metadata,
                         user_ids=[participant.user_id],
                         engagement_id=participant.engagement_id,
                         session_details=session_details,

@@ -17,6 +17,7 @@ from modules.notifications.service import NotificationsService
 logger = logging.getLogger(__name__)
 
 _IST = ZoneInfo("Asia/Kolkata")
+_PRETEST_EVENT = "reminders.pretest"
 
 
 def _exc_message(exc: BaseException) -> str:
@@ -133,30 +134,31 @@ async def dispatch_pretest_reminders(
         dispatched_any = False
         skipped_all = True
         failed_any = False
+        skip_reason = await should_skip_notification(
+            db,
+            event_code=_PRETEST_EVENT,
+            user_id=participant.user_id,
+            engagement_id=participant.engagement_id,
+        )
+        if skip_reason:
+            skipped += 1
+            details.append({
+                "user_id": participant.user_id,
+                "engagement_id": participant.engagement_id,
+                "action": "skipped",
+                "reason": f"notification '{_PRETEST_EVENT}' {skip_reason}",
+            })
+            continue
+
         for cfg in participant.service_configs:
             sk = cfg.service_key
             try:
-                skip_reason = await should_skip_notification(
-                    db,
-                    service_key=sk,
-                    user_id=participant.user_id,
-                    engagement_id=participant.engagement_id,
-                )
-                if skip_reason:
-                    details.append({
-                        "user_id": participant.user_id,
-                        "engagement_id": participant.engagement_id,
-                        "service_key": sk,
-                        "action": "skipped",
-                        "reason": f"notification '{sk}' {skip_reason}",
-                    })
-                    continue
-
                 skipped_all = False
                 await notifications_service.dispatch(
                     db,
                     payload=DispatchRequest(
                         service_key=sk,
+                        event_code=_PRETEST_EVENT,
                         user_ids=[participant.user_id],
                         engagement_id=participant.engagement_id,
                         session_details=session_details,

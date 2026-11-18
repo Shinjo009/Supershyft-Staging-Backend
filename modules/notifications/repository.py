@@ -306,26 +306,42 @@ class NotificationsRepository:
         self,
         db: AsyncSession,
         *,
-        service_key: str,
+        event_code: str,
         user_id: int,
         engagement_id: int,
         dispatched_after: datetime,
+        service_key: str | None = None,
     ) -> bool:
-        result = await db.execute(
-            select(Notification.notification_id)
-            .where(Notification.service_key == service_key)
-            .where(Notification.engagement_id == engagement_id)
-            .where(Notification.status == "pending")
-            .where(Notification.dispatched_at.isnot(None))
-            .where(Notification.dispatched_at >= dispatched_after)
-            .where(
-                cast(Notification.user, JSONB)["user_ids"].contains(
-                    type_coerce([user_id], JSONB)
-                )
-            )
-            .limit(1)
+        code = (event_code or "").strip()
+        user_filter = cast(Notification.user, JSONB)["user_ids"].contains(
+            type_coerce([user_id], JSONB)
         )
-        return result.scalar_one_or_none() is not None
+        base = [
+            Notification.engagement_id == engagement_id,
+            Notification.status == "pending",
+            Notification.dispatched_at.isnot(None),
+            Notification.dispatched_at >= dispatched_after,
+            user_filter,
+        ]
+        if code:
+            result = await db.execute(
+                select(Notification.notification_id)
+                .where(*base)
+                .where(Notification.event_code == code)
+                .limit(1)
+            )
+            if result.scalar_one_or_none() is not None:
+                return True
+        if service_key:
+            legacy = await db.execute(
+                select(Notification.notification_id)
+                .where(*base)
+                .where(Notification.service_key == service_key)
+                .where(Notification.event_code.is_(None))
+                .limit(1)
+            )
+            return legacy.scalar_one_or_none() is not None
+        return False
 
     async def delete_notification(self, db: AsyncSession, *, notification_id: int) -> int:
         result = await db.execute(
@@ -353,6 +369,7 @@ class NotificationsRepository:
         *,
         statuses: list[str] | None = None,
         service_key: str | None = None,
+        event_code: str | None = None,
         channel: str | None = None,
         user_id: int | None = None,
         engagement_id: int | None = None,
@@ -363,6 +380,8 @@ class NotificationsRepository:
             query = query.where(Notification.status.in_(statuses))
         if service_key:
             query = query.where(Notification.service_key == service_key)
+        if event_code:
+            query = query.where(Notification.event_code == event_code)
         if channel:
             query = query.where(Notification.channel == channel)
         if user_id is not None:
@@ -385,6 +404,7 @@ class NotificationsRepository:
         limit: int,
         statuses: list[str] | None = None,
         service_key: str | None = None,
+        event_code: str | None = None,
         channel: str | None = None,
         user_id: int | None = None,
         engagement_id: int | None = None,
@@ -402,6 +422,7 @@ class NotificationsRepository:
             query,
             statuses=statuses,
             service_key=service_key,
+            event_code=event_code,
             channel=channel,
             user_id=user_id,
             engagement_id=engagement_id,
@@ -417,6 +438,7 @@ class NotificationsRepository:
         *,
         statuses: list[str] | None = None,
         service_key: str | None = None,
+        event_code: str | None = None,
         channel: str | None = None,
         user_id: int | None = None,
         engagement_id: int | None = None,
@@ -428,6 +450,7 @@ class NotificationsRepository:
             query,
             statuses=statuses,
             service_key=service_key,
+            event_code=event_code,
             channel=channel,
             user_id=user_id,
             engagement_id=engagement_id,

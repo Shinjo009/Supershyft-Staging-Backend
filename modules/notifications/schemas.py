@@ -35,6 +35,8 @@ class PrepareReportsRequest(BaseModel):
 
 class DispatchRequest(BaseModel):
     service_key: ServiceKey
+    event_code: str | None = None
+    dedup_metadata: dict | None = None
     user_ids: list[PositiveIntId] = Field(..., min_length=1)
     engagement_id: PositiveIntId | None = None
     assessment_instance_id: PositiveIntId | None = None

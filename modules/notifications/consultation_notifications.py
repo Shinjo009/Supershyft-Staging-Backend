@@ -17,6 +17,7 @@ from modules.notifications.service import NotificationsService
 logger = logging.getLogger(__name__)
 
 _IST = ZoneInfo("Asia/Kolkata")
+_CONSULTATION_READY_EVENT = "reminders.consultation_ready_to_book"
 
 
 async def dispatch_consultation_notifications(
@@ -72,29 +73,30 @@ async def dispatch_consultation_notifications(
         try:
             dispatched_any = False
             skipped_all = True
+            skip_reason = await should_skip_notification(
+                db,
+                event_code=_CONSULTATION_READY_EVENT,
+                user_id=user_id,
+                engagement_id=engagement_id,
+            )
+            if skip_reason:
+                skipped += 1
+                details.append({
+                    "user_id": user_id,
+                    "engagement_id": engagement_id,
+                    "action": "skipped",
+                    "reason": f"notification '{_CONSULTATION_READY_EVENT}' {skip_reason}",
+                })
+                continue
+
             for cfg in service_configs:
                 sk = cfg.service_key
-                skip_reason = await should_skip_notification(
-                    db,
-                    service_key=sk,
-                    user_id=user_id,
-                    engagement_id=engagement_id,
-                )
-                if skip_reason:
-                    details.append({
-                        "user_id": user_id,
-                        "engagement_id": engagement_id,
-                        "service_key": sk,
-                        "action": "skipped",
-                        "reason": f"notification '{sk}' {skip_reason}",
-                    })
-                    continue
-
                 skipped_all = False
                 await notifications_service.dispatch(
                     db,
                     payload=DispatchRequest(
                         service_key=sk,
+                        event_code=_CONSULTATION_READY_EVENT,
                         user_ids=[user_id],
                         engagement_id=engagement_id,
                         external_link=cfg.external_link,

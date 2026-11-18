@@ -43,8 +43,6 @@ async def insert_participant_blood_slot(
             {"eid": engagement_id, "uid": user_id},
         )
     ).scalar_one()
-    if coll_time is None:
-        return int(ep_id)
     await session.execute(
         text(
             "INSERT INTO participant_blood_bookings "

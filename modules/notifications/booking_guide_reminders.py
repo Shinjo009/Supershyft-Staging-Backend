@@ -30,6 +30,7 @@ from modules.notifications.service import NotificationsService
 logger = logging.getLogger(__name__)
 
 _IST = ZoneInfo("Asia/Kolkata")
+_BOOKING_GUIDE_EVENT = "reminders.booking_guide"
 
 
 def _contact_identity(contact: dict) -> dict[str, Any]:
@@ -164,35 +165,37 @@ async def dispatch_booking_guide_reminders(
                 skipped_all = True
                 failed_any = False
 
+                skip_reason = await should_skip_contact_notification(
+                    db,
+                    event_code=_BOOKING_GUIDE_EVENT,
+                    engagement_id=engagement_id,
+                    partner_id=identity["partner_id"],
+                    employee_id=identity["employee_id"],
+                    phone=identity["phone"],
+                    email=identity["email"],
+                )
+                if skip_reason:
+                    skipped += 1
+                    details.append({
+                        **identity,
+                        "engagement_id": engagement_id,
+                        "recipient_type": recipient_type,
+                        "service_key": ",".join(service_keys) if service_keys else None,
+                        "action": "skipped",
+                        "reason": f"notification '{_BOOKING_GUIDE_EVENT}' {skip_reason}",
+                    })
+                    continue
+
                 for cfg in service_configs:
                     sk = cfg.service_key
                     try:
-                        skip_reason = await should_skip_contact_notification(
-                            db,
-                            service_key=sk,
-                            engagement_id=engagement_id,
-                            partner_id=identity["partner_id"],
-                            employee_id=identity["employee_id"],
-                            phone=identity["phone"],
-                            email=identity["email"],
-                        )
-                        if skip_reason:
-                            details.append({
-                                **identity,
-                                "engagement_id": engagement_id,
-                                "recipient_type": recipient_type,
-                                "service_key": sk,
-                                "action": "skipped",
-                                "reason": f"notification '{sk}' {skip_reason}",
-                            })
-                            continue
-
                         skipped_all = False
                         await notifications_service.dispatch_to_contacts(
                             db,
                             service_key=sk,
                             contacts=[contact],
                             engagement_id=engagement_id,
+                            event_code=_BOOKING_GUIDE_EVENT,
                         )
                         dispatched_any = True
                         details.append({

@@ -158,6 +158,7 @@ class NotificationEngine:
                     if target.user_ids and not force_contacts_only:
                         payload = DispatchRequest(
                             service_key=service_key,
+                            event_code=canonical_code,
                             user_ids=target.user_ids,
                             engagement_id=engagement_id,
                             participant_details=participant_details,
@@ -189,6 +190,7 @@ class NotificationEngine:
                             contacts=target.contacts,
                             otp=str(otp) if otp is not None else None,
                             engagement_id=engagement_id,
+                            event_code=canonical_code,
                             participant_details=participant_details,
                             session_details=(
                                 session_details

@@ -44,6 +44,13 @@ CHANNEL_FLAG_TO_SERVICE_KEY: dict[str, str] = {
     "whatsapp_bioai": "send-bioai-whatsapp",
 }
 
+SERVICE_KEY_TO_EVENT_CODE: dict[str, str] = {
+    "send-blood-report-email-v2": "reports.blood_ready",
+    "send-blood-report-whatsapp": "reports.blood_ready",
+    "send-bioai-report-email-v2": "reports.bioai_ready",
+    "send-bioai-whatsapp": "reports.bioai_ready",
+}
+
 # Concept headers used when remapping engagement_notifications overrides
 CONCEPT_TO_FALLBACK_KEY: dict[str, str] = {
     "email blood report sent": "send-blood-report-email-v2",
@@ -468,6 +475,7 @@ async def _backfill_cohort(
                 channel_actions.append({**insert_meta, "action": "would_insert"})
             else:
                 notification = Notification(
+                    event_code=SERVICE_KEY_TO_EVENT_CODE.get(service_key),
                     service_key=service_key,
                     status="sent",
                     channel=channel,

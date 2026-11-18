@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time
 import re
+from typing import Any
 
 from sqlalchemy import String, and_, false, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +32,7 @@ from modules.engagements.slot_detail_dates import engagement_collection_date_mat
 from modules.organizations.models import Organization
 from modules.engagement_notifications.service_config import (
     NotificationServiceConfigItem,
+    merge_notification_service_configs,
     normalize_notification_services,
 )
 
@@ -1975,20 +1977,47 @@ class EngagementsRepository:
                 "status_running": STATUS_ENGAGEMENT["running"],
             },
         )
-        return [
-            ConsultationRemainderParticipant(
-                user_id=int(row.user_id),
-                engagement_id=int(row.engagement_id),
-                service_configs=tuple(normalize_notification_services(row.notification_services)),
-                want=bool(row.want),
-                consultation_date=row.consultation_date,
-                consultation_slot=row.consultation_slot,
-                consultation_cabin=row.consultation_cabin,
-                expert_type=str(row.expert_type),
-                slot_detail=row.slot_detail if isinstance(row.slot_detail, dict) else None,
+        grouped: dict[
+            tuple[int, int, str, date, str | None],
+            dict[str, Any],
+        ] = {}
+        for row in result.all():
+            key = (
+                int(row.user_id),
+                int(row.engagement_id),
+                str(row.expert_type),
+                row.consultation_date,
+                row.consultation_slot,
             )
-            for row in result.all()
-        ]
+            bucket = grouped.get(key)
+            configs = normalize_notification_services(row.notification_services)
+            if bucket is None:
+                grouped[key] = {
+                    "want": bool(row.want),
+                    "consultation_cabin": row.consultation_cabin,
+                    "slot_detail": row.slot_detail if isinstance(row.slot_detail, dict) else None,
+                    "service_configs": list(configs),
+                }
+            else:
+                bucket["service_configs"] = merge_notification_service_configs(
+                    bucket["service_configs"] + list(configs)
+                )
+        participants: list[ConsultationRemainderParticipant] = []
+        for (user_id, engagement_id, expert_type, cdate, cslot), meta in grouped.items():
+            participants.append(
+                ConsultationRemainderParticipant(
+                    user_id=user_id,
+                    engagement_id=engagement_id,
+                    service_configs=tuple(meta["service_configs"]),
+                    want=meta["want"],
+                    consultation_date=cdate,
+                    consultation_slot=cslot,
+                    consultation_cabin=meta["consultation_cabin"],
+                    expert_type=expert_type,
+                    slot_detail=meta["slot_detail"],
+                )
+            )
+        return participants
 
     async def list_engagement_codes_and_cities_by_camp_no(
         self,

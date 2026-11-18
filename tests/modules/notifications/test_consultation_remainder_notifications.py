@@ -358,6 +358,16 @@ async def test_consultation_remainder_second_run_same_day_skips(test_db_session,
     assert first["sent"] == 1
     assert len(deliver_calls) == 2
 
+    dispatched_at = datetime(2026, 6, 10, 9, 0, tzinfo=_IST).astimezone(timezone.utc)
+    await test_db_session.execute(
+        text(
+            "UPDATE notifications SET status = 2, dispatched_at = :ts, completed_at = :ts "
+            "WHERE engagement_id = 9804"
+        ),
+        {"ts": dispatched_at},
+    )
+    await test_db_session.commit()
+
     second = await dispatch_consultation_remainder_notifications(
         test_db_session,
         notifications_service=notifications_service,

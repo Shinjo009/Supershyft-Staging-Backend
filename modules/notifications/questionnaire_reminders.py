@@ -261,34 +261,41 @@ async def dispatch_questionnaire_reminders(
                 })
                 continue
 
+            questionnaire_event = (
+                "reminders.questionnaire_before"
+                if reminder_type == "reminder_before"
+                else "reminders.questionnaire_after"
+            )
             dispatched_any = False
             skipped_all = True
+            skip_reason = await should_skip_notification_on_date(
+                db,
+                event_code=questionnaire_event,
+                user_id=user_id,
+                engagement_id=engagement_id,
+                reference_date=today,
+            )
+            if skip_reason:
+                skipped += 1
+                details.append({
+                    "user_id": user_id,
+                    "engagement_id": engagement_id,
+                    "engagement_date": engagement_date.isoformat(),
+                    "reminder_type": reminder_type,
+                    "service_key": ",".join(service_keys),
+                    "action": "skipped",
+                    "reason": f"notification '{questionnaire_event}' {skip_reason}",
+                })
+                continue
+
             for cfg in service_configs:
                 sk = cfg.service_key
-                skip_reason = await should_skip_notification_on_date(
-                    db,
-                    service_key=sk,
-                    user_id=user_id,
-                    engagement_id=engagement_id,
-                    reference_date=today,
-                )
-                if skip_reason:
-                    details.append({
-                        "user_id": user_id,
-                        "engagement_id": engagement_id,
-                        "engagement_date": engagement_date.isoformat(),
-                        "reminder_type": reminder_type,
-                        "service_key": sk,
-                        "action": "skipped",
-                        "reason": f"notification '{sk}' {skip_reason}",
-                    })
-                    continue
-
                 skipped_all = False
                 await notifications_service.dispatch(
                     db,
                     payload=DispatchRequest(
                         service_key=sk,
+                        event_code=questionnaire_event,
                         user_ids=[user_id],
                         engagement_id=engagement_id,
                         external_link=cfg.external_link,

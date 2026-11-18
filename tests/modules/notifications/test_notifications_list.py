@@ -10,7 +10,6 @@ from sqlalchemy import text
 from core.config import settings
 from core.security import create_jwt_token
 from modules.employee.models import Employee
-from modules.engagements.models import Engagement
 from modules.notifications.models import Notification
 from modules.users.models import User
 
@@ -69,19 +68,16 @@ async def test_list_notifications_enriched_fields(async_client, test_db_session)
             last_name="Test",
         )
     )
-    test_db_session.add(
-        Engagement(
-            engagement_id=9603,
-            engagement_name="Summer Camp",
-            engagement_code="ENG-LIST-9603",
-            engagement_type="bio_ai",
-            assessment_package_id=1,
-            diagnostic_package_id=1,
-            city="BLR",
-            slot_duration=20,
-            start_date=date(2026, 5, 1),
-            end_date=date(2026, 5, 1),
-            status="active",
+    from tests.modules.notifications.sql_helpers import engagement_status_code
+
+    await test_db_session.execute(
+        text(
+            "INSERT INTO engagements "
+            "(engagement_id, engagement_name, engagement_code, engagement_type, assessment_package_id, "
+            "diagnostic_package_id, city, slot_duration, start_date, end_date, status) "
+            "VALUES (9603, 'Summer Camp', 'ENG-LIST-9603', "
+            "(SELECT id FROM engagement_types WHERE code = 'bio_ai'), 1, 1, 'BLR', 20, "
+            f"'2026-05-01', '2026-05-01', {engagement_status_code('running')})"
         )
     )
     dispatched = datetime(2026, 5, 10, 12, 0, 0, tzinfo=timezone.utc)
@@ -113,6 +109,47 @@ async def test_list_notifications_enriched_fields(async_client, test_db_session)
     assert len(row["recipients"]) == 1
     assert row["recipients"][0]["user_id"] == 9602
     assert row["recipients"][0]["first_name"] == "Alex"
+
+
+@pytest.mark.asyncio
+async def test_list_notifications_filter_by_event_code(async_client, test_db_session):
+    await _seed_employee(test_db_session, user_id=9606, employee_id=9606)
+    await _seed_service(test_db_session, service_key="evt-filter-a", display_name="Event A")
+    await _seed_service(test_db_session, service_key="evt-filter-b", display_name="Event B")
+
+    test_db_session.add(
+        Notification(
+            event_code="reminders.pretest",
+            service_key="evt-filter-a",
+            status="sent",
+            channel="email",
+            user={"user_ids": [9606]},
+            message="pretest",
+            dispatched_at=datetime.now(timezone.utc),
+        )
+    )
+    test_db_session.add(
+        Notification(
+            event_code="reports.blood_ready",
+            service_key="evt-filter-b",
+            status="sent",
+            channel="email",
+            user={"user_ids": [9606]},
+            message="blood",
+            dispatched_at=datetime.now(timezone.utc),
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        "/notifications?event_code=reminders.pretest&limit=50",
+        headers=_auth_header(9606),
+    )
+    assert response.status_code == 200
+    rows = response.json()["data"]
+    assert all(r.get("event_code") == "reminders.pretest" for r in rows)
+    assert any(r.get("message") == "pretest" for r in rows)
+    assert not any(r.get("message") == "blood" for r in rows)
 
 
 @pytest.mark.asyncio

@@ -42,6 +42,8 @@ async def test_emit_resolves_engagement_override(test_db_session):
     )
     assert ids == [99]
     engine._binding_resolver.resolve.assert_awaited_once()
+    dispatch_call = engine._notifications_service.dispatch.await_args
+    assert dispatch_call.kwargs["payload"].event_code == "reminders.pretest"
 
 
 @pytest.mark.asyncio
@@ -78,6 +80,8 @@ async def test_emit_payload_binding_uses_dispatch_to_contacts(test_db_session):
     assert ids == [42]
     engine._notifications_service.dispatch_to_contacts.assert_awaited_once()
     engine._notifications_service.dispatch.assert_not_called()
+    contacts_call = engine._notifications_service.dispatch_to_contacts.await_args
+    assert contacts_call.kwargs["event_code"] == "payments.completed"
 
 
 @pytest.mark.asyncio
