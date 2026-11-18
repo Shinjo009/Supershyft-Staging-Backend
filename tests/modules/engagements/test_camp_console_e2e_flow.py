@@ -218,3 +218,120 @@ async def test_camp_phlebo_console_questionnaire_and_book_flow(
     assert blood_row.barcode == "CAMP89001"
     assert blood_row.booking_id == "1715890001"
     assert blood_row.collected_at is not None
+    assert book_res.json()["data"].get("booking_created") is True
+
+
+@pytest.mark.asyncio
+async def test_camp_phlebo_console_book_soft_fail_shows_barcode_on_bootstrap(
+    async_client, test_db_session, monkeypatch
+):
+    """Healthians failure after scan: 200 soft-success; bootstrap lists saved barcode."""
+    monkeypatch.setattr(settings, "HEALTHIANS_CHECKSUM_KEY", "test-checksum-key")
+
+    engagement_id = 8901
+    partner_id = 891
+    participant_user_id = 89002
+    engagement_participant_id = 89003
+
+    await _seed_partner(test_db_session, partner_id=partner_id)
+
+    diag = await test_db_session.get(DiagnosticPackage, 8905)
+    if diag is None:
+        test_db_session.add(
+            DiagnosticPackage(
+                diagnostic_package_id=8905,
+                reference_id="REF8905",
+                package_name="Camp Package",
+                diagnostic_provider="healthians",
+                external_package_code="2002",
+                status="active",
+                bookings_count=0,
+            )
+        )
+        await test_db_session.flush()
+
+    engagement = await _seed_engagement(test_db_session, engagement_id=engagement_id, status="running")
+    engagement.engagement_code = "CAMP8901"
+    engagement.external_camp_id = 89002
+    engagement.latitude = 28.6
+    engagement.longitude = 77.2
+    engagement.pincode = "110001"
+    engagement.address = "Camp ground"
+    engagement.diagnostic_package_id = 8905
+
+    await _assign_assistant(
+        test_db_session,
+        assignment_id=89011,
+        partner_id=partner_id,
+        engagement_id=engagement_id,
+    )
+
+    test_db_session.add(
+        User(
+            user_id=participant_user_id,
+            age=30,
+            phone="8900200000",
+            email="soft.camp@example.com",
+            status="active",
+            first_name="Soft",
+            last_name="Camp",
+            gender="male",
+            relationship="self",
+        )
+    )
+    await test_db_session.flush()
+
+    await upsert_camp_participant_with_schedule(
+        test_db_session,
+        engagement_participant_id=engagement_participant_id,
+        engagement_id=engagement_id,
+        user_id=participant_user_id,
+        collection_date=date.today(),
+        collection_time=time(7, 30),
+    )
+    await test_db_session.commit()
+
+    headers = _partner_auth_header(partner_id)
+    base = f"/engagements/{engagement_id}/console"
+
+    mock_serviceability = AsyncMock(
+        return_value={"status": True, "data": {"zone_id": 42}, "message": "ok"}
+    )
+    mock_create_booking = AsyncMock(
+        return_value={"status": False, "message": "Healthians unavailable"}
+    )
+
+    with patch(
+        "modules.engagements.console.service.healthians_client.check_serviceability_by_location_v2",
+        mock_serviceability,
+    ):
+        with patch(
+            "modules.engagements.console.service.healthians_client.create_booking_v3",
+            mock_create_booking,
+        ):
+            with patch(
+                "modules.engagements.console.service.healthians_client.get_access_token",
+                AsyncMock(return_value="token"),
+            ):
+                book_res = await async_client.post(
+                    f"{base}/participants/{participant_user_id}/book",
+                    json={"barcode": "CAMP89002"},
+                    headers=headers,
+                )
+
+    assert book_res.status_code == 200
+    body = book_res.json()["data"]
+    assert body["booking_created"] is False
+    assert body["barcode_saved"] is True
+    assert body["booking_id"] is None
+
+    boot_res = await async_client.get(
+        f"{base}/bootstrap",
+        params={"page": 1, "limit": 20},
+        headers=headers,
+    )
+    assert boot_res.status_code == 200
+    parts = boot_res.json()["data"]["participants"]
+    row = next(p for p in parts if p["user_id"] == participant_user_id)
+    assert row["barcode"] == "CAMP89002"
+    assert not (row.get("booking_id") or "").strip()
