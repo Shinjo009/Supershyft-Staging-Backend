@@ -67,10 +67,10 @@ _PHLEBO_EVENT_SERVICE_KEYS: dict[str, tuple[str, str]] = {
     "phlebo_delay_notification": ("phlebo-delay-whatsapp", "phlebo-delay-email"),
 }
 _PHLEBO_EVENT_CODES: dict[str, str] = {
-    "phlebo_assigned": "bookings.phlebo_assigned",
-    "phlebo_reassigned": "bookings.phlebo_reassigned",
-    "phlebo_enroute": "bookings.phlebo_enroute",
-    "phlebo_delay_notification": "bookings.phlebo_delayed",
+    "phlebo_assigned": "bookings.blood_test.phlebo_assigned",
+    "phlebo_reassigned": "bookings.blood_test.phlebo_reassigned",
+    "phlebo_enroute": "bookings.blood_test.phlebo_enroute",
+    "phlebo_delay_notification": "bookings.blood_test.phlebo_delayed",
 }
 _PHLEBO_EVENTS_WITH_SESSION = frozenset({"phlebo_assigned", "phlebo_reassigned"})
 AuraeEvent = Literal["results", "report"]
@@ -376,7 +376,7 @@ class WebhooksReceiverService:
         try:
             ids = await get_notification_engine().emit(
                 db,
-                event_code="bookings.confirmed",
+                event_code="bookings.blood_test.confirmed",
                 engagement_id=engagement_id,
                 context={
                     "user_id": user_id,

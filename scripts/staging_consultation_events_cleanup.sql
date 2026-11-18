@@ -1,7 +1,7 @@
 BEGIN;
 
 UPDATE notification_events
-SET event_code = 'consultations.booked', event_name = 'Consultation booked'
+SET event_code = 'bookings.consultation.booked', event_name = 'Consultation booked'
 WHERE event_code = 'assistants.consultation_booked';
 
 UPDATE notification_events
@@ -15,9 +15,10 @@ WHERE event_code = 'consultations.reminder';
 UPDATE engagement_notifications en
 SET event_code = fixed.new_code
 FROM (VALUES
-  ('assistants.consultation_booked', 'consultations.booked'),
-  ('consultation_booking_alert', 'consultations.booked'),
-  ('consultation.booked', 'consultations.booked'),
+  ('assistants.consultation_booked', 'bookings.consultation.booked'),
+  ('consultations.booked', 'bookings.consultation.booked'),
+  ('consultation_booking_alert', 'bookings.consultation.booked'),
+  ('consultation.booked', 'bookings.consultation.booked'),
   ('consultations.ready_to_book', 'reminders.consultation_ready_to_book'),
   ('consultation_ready', 'reminders.consultation_ready_to_book'),
   ('consultation.ready', 'reminders.consultation_ready_to_book'),

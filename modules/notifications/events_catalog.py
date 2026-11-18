@@ -21,6 +21,25 @@ class EventDefinition:
     trigger_kind: TriggerKind = "http"
 
 
+_BLOOD_EVENT_RENAMES: dict[str, str] = {
+    "bookings.confirmed": "bookings.blood_test.confirmed",
+    "bookings.rescheduled": "bookings.blood_test.rescheduled",
+    "bookings.cancelled": "bookings.blood_test.cancelled",
+    "bookings.phlebo_assigned": "bookings.blood_test.phlebo_assigned",
+    "bookings.phlebo_reassigned": "bookings.blood_test.phlebo_reassigned",
+    "bookings.phlebo_enroute": "bookings.blood_test.phlebo_enroute",
+    "bookings.phlebo_delayed": "bookings.blood_test.phlebo_delayed",
+    "bookings.sample_collected": "bookings.blood_test.sample_collected",
+}
+
+_CONSULTATION_EVENT_RENAMES: dict[str, str] = {
+    "consultations.booked": "bookings.consultation.booked",
+    "consultations.confirmed": "bookings.consultation.confirmed",
+    "consultations.rescheduled": "bookings.consultation.rescheduled",
+    "consultations.cancelled": "bookings.consultation.cancelled",
+    "consultations.completed": "bookings.consultation.completed",
+}
+
 LEGACY_EVENT_CODE_MAP: dict[str, str] = {
     "onboarding": "users.onboarded",
     "pretest_guidelines": "reminders.pretest",
@@ -31,21 +50,24 @@ LEGACY_EVENT_CODE_MAP: dict[str, str] = {
     "report_ready": "reports.face_scan_ready",
     "consultation_ready": "reminders.consultation_ready_to_book",
     "consultation_remainder": "reminders.consultation_reminder",
-    "consultation_booking_alert": "consultations.booked",
+    "consultation_booking_alert": "bookings.consultation.booked",
     "consultations.ready_to_book": "reminders.consultation_ready_to_book",
     "consultations.reminder": "reminders.consultation_reminder",
-    "assistants.consultation_booked": "consultations.booked",
+    "assistants.consultation_booked": "bookings.consultation.booked",
+    "consultation.booked": "bookings.consultation.booked",
     "booking_guide": "reminders.booking_guide",
 }
+LEGACY_EVENT_CODE_MAP.update(_BLOOD_EVENT_RENAMES)
+LEGACY_EVENT_CODE_MAP.update(_CONSULTATION_EVENT_RENAMES)
 
 _LEGACY_SERVICE_PREFIX_MAP: dict[str, str] = {
     "whatapi-otp": "auth.otp_sent",
     "email-otp": "auth.otp_sent",
-    "booking-confirmation": "bookings.confirmed",
-    "phlebo-assigned": "bookings.phlebo_assigned",
-    "phlebo-reassigned": "bookings.phlebo_reassigned",
-    "phlebo-enroute": "bookings.phlebo_enroute",
-    "phlebo-delay": "bookings.phlebo_delayed",
+    "booking-confirmation": "bookings.blood_test.confirmed",
+    "phlebo-assigned": "bookings.blood_test.phlebo_assigned",
+    "phlebo-reassigned": "bookings.blood_test.phlebo_reassigned",
+    "phlebo-enroute": "bookings.blood_test.phlebo_enroute",
+    "phlebo-delay": "bookings.blood_test.phlebo_delayed",
     "family-onboard-sender": "family.gift_sent",
     "family-onboard-receiver": "family.gift_received",
     "notify-admin-contact-query": "support.ticket_created",
@@ -103,7 +125,7 @@ EVENTS: tuple[EventDefinition, ...] = (
         trigger_notes="POST /payments/failed",
     ),
     EventDefinition(
-        code="bookings.confirmed",
+        code="bookings.blood_test.confirmed",
         name="Booking confirmed",
         status="current",
         variable_groups=("user", "engagement", "session", "booking"),
@@ -112,7 +134,7 @@ EVENTS: tuple[EventDefinition, ...] = (
         trigger_kind="webhook",
     ),
     EventDefinition(
-        code="bookings.rescheduled",
+        code="bookings.blood_test.rescheduled",
         name="Booking rescheduled",
         status="add",
         variable_groups=("user", "engagement", "session", "booking"),
@@ -120,7 +142,7 @@ EVENTS: tuple[EventDefinition, ...] = (
         trigger_notes="Reschedule blood test APIs",
     ),
     EventDefinition(
-        code="bookings.cancelled",
+        code="bookings.blood_test.cancelled",
         name="Booking cancelled",
         status="add",
         variable_groups=("user", "engagement", "booking"),
@@ -128,7 +150,7 @@ EVENTS: tuple[EventDefinition, ...] = (
         trigger_notes="Cancel blood/bio-ai booking",
     ),
     EventDefinition(
-        code="bookings.phlebo_assigned",
+        code="bookings.blood_test.phlebo_assigned",
         name="Phlebo assigned",
         status="current",
         variable_groups=("user", "session", "phlebo"),
@@ -137,7 +159,7 @@ EVENTS: tuple[EventDefinition, ...] = (
         trigger_kind="webhook",
     ),
     EventDefinition(
-        code="bookings.phlebo_reassigned",
+        code="bookings.blood_test.phlebo_reassigned",
         name="Phlebo reassigned",
         status="current",
         variable_groups=("user", "session", "phlebo"),
@@ -146,7 +168,7 @@ EVENTS: tuple[EventDefinition, ...] = (
         trigger_kind="webhook",
     ),
     EventDefinition(
-        code="bookings.phlebo_enroute",
+        code="bookings.blood_test.phlebo_enroute",
         name="Phlebo en route",
         status="current",
         variable_groups=("user", "session", "phlebo"),
@@ -155,7 +177,7 @@ EVENTS: tuple[EventDefinition, ...] = (
         trigger_kind="webhook",
     ),
     EventDefinition(
-        code="bookings.phlebo_delayed",
+        code="bookings.blood_test.phlebo_delayed",
         name="Phlebo delayed",
         status="current",
         variable_groups=("user", "session", "phlebo"),
@@ -164,7 +186,7 @@ EVENTS: tuple[EventDefinition, ...] = (
         trigger_kind="webhook",
     ),
     EventDefinition(
-        code="bookings.sample_collected",
+        code="bookings.blood_test.sample_collected",
         name="Sample collected",
         status="add",
         variable_groups=("user", "session", "booking"),
@@ -173,7 +195,7 @@ EVENTS: tuple[EventDefinition, ...] = (
         trigger_kind="webhook",
     ),
     EventDefinition(
-        code="consultations.booked",
+        code="bookings.consultation.booked",
         name="Consultation booked",
         status="current",
         variable_groups=("user", "engagement", "consultation"),
@@ -182,7 +204,7 @@ EVENTS: tuple[EventDefinition, ...] = (
         legacy_event_code="consultation_booking_alert",
     ),
     EventDefinition(
-        code="consultations.confirmed",
+        code="bookings.consultation.confirmed",
         name="Consultation confirmed",
         status="add",
         variable_groups=("user", "consultation"),
@@ -190,7 +212,7 @@ EVENTS: tuple[EventDefinition, ...] = (
         trigger_notes="Expert portal confirm",
     ),
     EventDefinition(
-        code="consultations.rescheduled",
+        code="bookings.consultation.rescheduled",
         name="Consultation rescheduled",
         status="add",
         variable_groups=("user", "consultation"),
@@ -198,7 +220,7 @@ EVENTS: tuple[EventDefinition, ...] = (
         trigger_notes="Consultation reschedule",
     ),
     EventDefinition(
-        code="consultations.cancelled",
+        code="bookings.consultation.cancelled",
         name="Consultation cancelled",
         status="add",
         variable_groups=("user", "consultation"),
@@ -206,7 +228,7 @@ EVENTS: tuple[EventDefinition, ...] = (
         trigger_notes="Consultation cancel",
     ),
     EventDefinition(
-        code="consultations.completed",
+        code="bookings.consultation.completed",
         name="Consultation completed",
         status="add",
         variable_groups=("user", "consultation"),
@@ -350,7 +372,10 @@ _EVENTS_BY_CODE: dict[str, EventDefinition] = {e.code: e for e in EVENTS}
 
 
 def map_legacy_event_code(legacy_code: str) -> str:
-    return LEGACY_EVENT_CODE_MAP.get(legacy_code, legacy_code)
+    code = (legacy_code or "").strip()
+    if not code:
+        return code
+    return LEGACY_EVENT_CODE_MAP.get(code, code)
 
 
 def map_legacy_service_key_to_event(service_key: str) -> str | None:
@@ -370,7 +395,8 @@ def list_events(*, status: EventStatus | None = None) -> list[EventDefinition]:
 
 
 def get_event(code: str) -> EventDefinition | None:
-    return _EVENTS_BY_CODE.get(code)
+    canonical = map_legacy_event_code(code)
+    return _EVENTS_BY_CODE.get(canonical)
 
 
 def get_event_by_legacy_code(legacy_code: str) -> EventDefinition | None:

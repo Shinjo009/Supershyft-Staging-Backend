@@ -29,7 +29,7 @@ def test_profile_key_home_excludes_camp_reminder():
         "engagement_type_bio_aiandpayment_type_paid_by_patientandblood_collection_homeandauto_booking_on"
     )
     assert not engagement_notification_applicable("reminders.booking_guide", profile)
-    assert engagement_notification_applicable("bookings.confirmed", profile)
+    assert engagement_notification_applicable("bookings.blood_test.confirmed", profile)
 
 
 @pytest.mark.asyncio
@@ -291,12 +291,12 @@ async def test_seed_updates_legacy_row_instead_of_duplicate_insert(test_db_sessi
         text(
             """
             INSERT INTO engagement_notifications (
-                engagement_id, event_code, event_name, recipient_type,
-                notification_services
+                engagement_id, event_code, event_name, recipient_type, delivery_channel,
+                notification_services, condition_key
             )
             VALUES (
-                :eid, 'bookings.confirmed', 'Confirmed', 'user',
-                CAST(:svc AS jsonb)
+                :eid, 'bookings.confirmed', 'Confirmed', 'user', 'whatsapp',
+                CAST(:svc AS jsonb), 'default'
             )
             """
         ),
@@ -306,7 +306,7 @@ async def test_seed_updates_legacy_row_instead_of_duplicate_insert(test_db_sessi
         text(
             """
             DELETE FROM notification_events
-            WHERE event_code = 'bookings.confirmed' AND engagement_type_id IS NULL
+            WHERE event_code = 'bookings.blood_test.confirmed' AND engagement_type_id IS NULL
             """
         )
     )
@@ -318,13 +318,18 @@ async def test_seed_updates_legacy_row_instead_of_duplicate_insert(test_db_sessi
                 notification_services, engagement_type_id, condition_key
             )
             VALUES (
-                'bookings.confirmed', 'Confirmed', 'user', 'whatsapp',
+                'bookings.blood_test.confirmed', 'Confirmed', 'user', 'whatsapp',
                 CAST(:svc AS jsonb), NULL, 'default'
             )
             """
         ),
         {"svc": json.dumps([{"service_key": "confirm-home-wa"}])},
     )
+    await test_db_session.commit()
+
+    from modules.notifications.event_code_merge import apply_event_code_renames_async
+
+    await apply_event_code_renames_async(test_db_session)
     await test_db_session.commit()
 
     repo = EngagementNotificationsRepository()
@@ -339,7 +344,7 @@ async def test_seed_updates_legacy_row_instead_of_duplicate_insert(test_db_sessi
     await test_db_session.commit()
     assert rows
     slots = await repo.list_slots_for_event(
-        test_db_session, engagement_id=eid, event_code="bookings.confirmed"
+        test_db_session, engagement_id=eid, event_code="bookings.blood_test.confirmed"
     )
     assert len(slots) == 1
     keys = {s.notification_services[0].get("service_key") for s in slots}
@@ -476,8 +481,8 @@ async def test_resolver_platform_event_uses_global_even_with_engagement_slots(te
                 service_key, display_name, channel, template_name, email_subject, email_body, is_active
             )
             VALUES
-            ('global-otp', 'GO', 'whatsapp', '/go', true),
-            ('eng-otp-wrong', 'EW', 'whatsapp', '/ew', true)
+            ('global-otp', 'GO', 'whatsapp', '/go', '', '', true),
+            ('eng-otp-wrong', 'EW', 'whatsapp', '/ew', '', '', true)
             ON CONFLICT (service_key) DO NOTHING
             """
         )

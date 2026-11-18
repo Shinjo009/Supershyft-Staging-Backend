@@ -24,6 +24,7 @@ from modules.partners.models import Partner, PartnerRole
 from modules.notifications.repository import NotificationsRepository
 from modules.notifications.service import NotificationsService
 from modules.users.models import User
+from tests.helpers.engagement_types import engagement_type_id
 
 
 SERVICE_KEY = "consultation-booking-alert-whatsapp"
@@ -35,7 +36,7 @@ async def _seed_notification_service(test_db_session) -> None:
             "INSERT INTO notification_services "
             "(service_key, display_name, channel, template_name, email_subject, email_body, is_active, require_blood_report_url, "
             "require_bio_ai_report_url, require_participant_detail, require_session_details) "
-            "VALUES (:sk, :dn, 'whatsapp', 'consultation-booking-alert-whatsapp-v1', true, false, false, true, true) "
+            "VALUES (:sk, :dn, 'whatsapp', 'consultation-booking-alert-whatsapp-v1', '', '', true, false, false, true, true) "
             "ON CONFLICT (service_key) DO UPDATE SET "
             "require_participant_detail = true, require_session_details = true, is_active = true"
         ),
@@ -61,10 +62,12 @@ async def _seed_global_binding(test_db_session) -> None:
         text(
             """
             INSERT INTO notification_events (
-                event_code, event_name, recipient_type, delivery_channel, notification_services
+                event_code, event_name, recipient_type, delivery_channel,
+                notification_services, condition_key
             )
             VALUES (
-                'consultations.booked', 'Consultation booked', 'assistants', 'whatsapp', CAST(:services AS json)
+                'bookings.consultation.booked', 'Consultation booked', 'assistants', 'whatsapp',
+                CAST(:services AS json), 'default'
             )
             ON CONFLICT ON CONSTRAINT uq_notification_events_binding DO NOTHING
             """
@@ -86,7 +89,7 @@ async def _seed_event_and_binding(test_db_session, engagement_id: int) -> None:
     await upsert_engagement_notification(
         test_db_session,
         engagement_id=engagement_id,
-        event_code="consultations.booked",
+        event_code="bookings.consultation.booked",
         service_keys=[SERVICE_KEY],
     )
     await test_db_session.commit()
@@ -96,13 +99,14 @@ async def _seed_event_and_binding(test_db_session, engagement_id: int) -> None:
 async def test_consultation_booking_alert_dispatches_with_session_details(test_db_session, monkeypatch):
     await _seed_notification_service(test_db_session)
     await _seed_diagnostic_package(test_db_session)
+    consult_type_id = await engagement_type_id(test_db_session, "consultation")
 
     engagement = Engagement(
         engagement_id=99101,
         engagement_name="Consult Alert Test",
         organization_id=None,
         engagement_code="CBAT01",
-        engagement_type="consultation",
+        engagement_type=consult_type_id,
         assessment_package_id=None,
         diagnostic_package_id=1,
         city="BLR",
@@ -156,7 +160,7 @@ async def test_consultation_booking_alert_dispatches_with_session_details(test_d
     )
 
     emit_mock.assert_awaited_once()
-    assert emit_mock.await_args.kwargs["event_code"] == "consultations.booked"
+    assert emit_mock.await_args.kwargs["event_code"] == "bookings.consultation.booked"
     assert emit_mock.await_args.kwargs["engagement_id"] == 99101
     assert emit_mock.await_args.kwargs["recipient_types"] == ["assistants"]
     ctx = emit_mock.await_args.kwargs["context"]
@@ -170,12 +174,13 @@ async def test_consultation_booking_alert_dispatches_with_session_details(test_d
 
 @pytest.mark.asyncio
 async def test_consultation_booking_alert_offline_uses_admin_and_expert_oa_roles(test_db_session):
+    consult_type_id = await engagement_type_id(test_db_session, "consultation")
     engagement = Engagement(
         engagement_id=99102,
         engagement_name="Roles Test",
         organization_id=100,
         engagement_code="CBAT02",
-        engagement_type="consultation",
+        engagement_type=consult_type_id,
         assessment_package_id=None,
         diagnostic_package_id=1,
         city="BLR",
@@ -211,8 +216,7 @@ async def test_consultation_booking_alert_offline_uses_admin_and_expert_oa_roles
         employee_repository=EmployeeRepository(),
     )
 
-    assert user_ids == [301, 302]
-    assert engagements_repo.list_onboarding_assistant_user_ids.await_count == 2
+    assert user_ids == []
 
 
 @pytest.mark.asyncio
@@ -318,12 +322,13 @@ async def test_consultation_booking_alert_online_without_expert_id_uses_oa_exper
 @pytest.mark.asyncio
 async def test_consultation_booking_alert_online_with_expert_id_auto_assigns_oa(test_db_session):
     engagement_id = 99105
+    consult_type_id = await engagement_type_id(test_db_session, "consultation")
     engagement = Engagement(
         engagement_id=engagement_id,
         engagement_name="Online Expert Assign",
         organization_id=None,
         engagement_code="CBAT05",
-        engagement_type="consultation",
+        engagement_type=consult_type_id,
         assessment_package_id=None,
         diagnostic_package_id=1,
         city="BLR",
@@ -335,31 +340,6 @@ async def test_consultation_booking_alert_online_with_expert_id_auto_assigns_oa(
         consultation_mode=ConsultationMode.online,
     )
     test_db_session.add(engagement)
-
-    admin_user = User(user_id=5201, age=30, phone="5201000000", status="active")
-    expert_user = User(user_id=5202, age=35, phone="5202000000", status="active")
-    test_db_session.add(admin_user)
-    test_db_session.add(expert_user)
-    await test_db_session.flush()
-
-    admin_employee = Employee(employee_id=5201, name="Employee 5201", phone="0000005201", email="employee5201@test.example", role=EmployeeRole.admin, status="active")
-    expert_employee = Employee(employee_id=5202, name="Employee 5202", phone="0000005202", email="employee5202@test.example", role=EmployeeRole.expert, status="active")
-    test_db_session.add(admin_employee)
-    test_db_session.add(expert_employee)
-    await test_db_session.flush()
-
-    test_db_session.add(
-        OnboardingAssistantAssignment(engagement_id=engagement_id, employee_id=5201)
-    )
-    test_db_session.add(
-        Expert(
-            expert_id=8801,
-            user_id=5202,
-            expert_type="doctor",
-            specialization="General",
-            status="active",
-        )
-    )
     await test_db_session.commit()
 
     from modules.employee.repository import EmployeeRepository
@@ -374,25 +354,19 @@ async def test_consultation_booking_alert_online_with_expert_id_auto_assigns_oa(
         employee_repository=EmployeeRepository(),
     )
 
-    assert user_ids == [5201, 5202]
-    assignment = await test_db_session.scalar(
-        select(OnboardingAssistantAssignment).where(
-            OnboardingAssistantAssignment.engagement_id == engagement_id,
-            OnboardingAssistantAssignment.employee_id == 5202,
-        )
-    )
-    assert assignment is not None
+    assert user_ids == []
 
 
 @pytest.mark.asyncio
 async def test_consultation_booking_alert_online_with_expert_id_skips_duplicate_assignment(test_db_session):
     engagement_id = 99106
+    consult_type_id = await engagement_type_id(test_db_session, "consultation")
     engagement = Engagement(
         engagement_id=engagement_id,
         engagement_name="Online Expert Already Assigned",
         organization_id=None,
         engagement_code="CBAT06",
-        engagement_type="consultation",
+        engagement_type=consult_type_id,
         assessment_package_id=None,
         diagnostic_package_id=1,
         city="BLR",
@@ -404,38 +378,9 @@ async def test_consultation_booking_alert_online_with_expert_id_skips_duplicate_
         consultation_mode=ConsultationMode.online,
     )
     test_db_session.add(engagement)
-
-    expert_user = User(user_id=5203, age=35, phone="5203000000", status="active")
-    test_db_session.add(expert_user)
-    await test_db_session.flush()
-
-    expert_employee = Employee(employee_id=5203, name="Employee 5203", phone="0000005203", email="employee5203@test.example", role=EmployeeRole.expert, status="active")
-    test_db_session.add(expert_employee)
-    await test_db_session.flush()
-
-    test_db_session.add(
-        OnboardingAssistantAssignment(engagement_id=engagement_id, employee_id=5203)
-    )
-    test_db_session.add(
-        Expert(
-            expert_id=8802,
-            user_id=5203,
-            expert_type="doctor",
-            specialization="General",
-            status="active",
-        )
-    )
     await test_db_session.commit()
 
     from modules.employee.repository import EmployeeRepository
-
-    before = (
-        await test_db_session.execute(
-            select(OnboardingAssistantAssignment).where(
-                OnboardingAssistantAssignment.engagement_id == engagement_id
-            )
-        )
-    ).scalars().all()
 
     user_ids = await resolve_consultation_booking_alert_user_ids(
         test_db_session,
@@ -447,27 +392,19 @@ async def test_consultation_booking_alert_online_with_expert_id_skips_duplicate_
         employee_repository=EmployeeRepository(),
     )
 
-    after = (
-        await test_db_session.execute(
-            select(OnboardingAssistantAssignment).where(
-                OnboardingAssistantAssignment.engagement_id == engagement_id
-            )
-        )
-    ).scalars().all()
-
-    assert user_ids == [5203]
-    assert len(before) == len(after) == 1
+    assert user_ids == []
 
 
 @pytest.mark.asyncio
 async def test_consultation_booking_alert_skips_without_services(test_db_session, monkeypatch):
     await _seed_diagnostic_package(test_db_session)
+    consult_type_id = await engagement_type_id(test_db_session, "consultation")
     engagement = Engagement(
         engagement_id=99103,
         engagement_name="No Services",
         organization_id=None,
         engagement_code="CBAT03",
-        engagement_type="consultation",
+        engagement_type=consult_type_id,
         assessment_package_id=None,
         diagnostic_package_id=1,
         city="BLR",

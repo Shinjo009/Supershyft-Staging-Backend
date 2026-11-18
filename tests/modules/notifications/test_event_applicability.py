@@ -27,6 +27,7 @@ def test_pretest_on_home_collection_for_blood_types():
         }
     )
     assert engagement_notification_applicable("reminders.pretest", profile)
+    assert engagement_notification_applicable("bookings.blood_test.phlebo_assigned", profile)
     assert engagement_notification_applicable("bookings.phlebo_assigned", profile)
 
 

@@ -45,4 +45,7 @@ def test_legacy_map_keys_match_known_auto_events():
         assert legacy in LEGACY_EVENT_CODE_MAP
         assert get_event(LEGACY_EVENT_CODE_MAP[legacy]) is not None
     assert map_legacy_event_code("consultation_ready") == "reminders.consultation_ready_to_book"
-    assert map_legacy_event_code("consultation_booking_alert") == "consultations.booked"
+    assert map_legacy_event_code("consultation_booking_alert") == "bookings.consultation.booked"
+    assert map_legacy_event_code("bookings.confirmed") == "bookings.blood_test.confirmed"
+    assert get_event("consultations.booked") is not None
+    assert get_event("consultations.booked").code == "bookings.consultation.booked"

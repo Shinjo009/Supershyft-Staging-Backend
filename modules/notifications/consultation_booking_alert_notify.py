@@ -293,7 +293,7 @@ async def notify_onboarding_assistants_on_consultation_booking(
     try:
         await get_notification_engine().emit(
             db,
-            event_code="consultations.booked",
+            event_code="bookings.consultation.booked",
             engagement_id=engagement_id,
             recipient_types=["assistants"],
             context={

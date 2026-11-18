@@ -204,9 +204,12 @@ class EngagementNotificationsRepository:
 
                 incoming = normalize_notification_services(notification_services)
                 prior = normalize_notification_services(existing.notification_services)
-                existing.notification_services = serialize_for_db(
-                    merge_notification_service_configs(prior, incoming)
-                )
+                if existing.source_binding_id is None and source_binding_id is not None:
+                    existing.notification_services = serialize_for_db(incoming)
+                else:
+                    existing.notification_services = serialize_for_db(
+                        merge_notification_service_configs(prior, incoming)
+                    )
             else:
                 existing.notification_services = notification_services
             existing.recipient_config = recipient_config
@@ -341,7 +344,7 @@ class EngagementNotificationsRepository:
         existing_slots = await self.list_for_engagement(db, engagement_id)
         def _slot_key(s: EngagementNotification) -> tuple[str, str, str, str]:
             return (
-                s.event_code,
+                map_legacy_event_code(s.event_code),
                 s.recipient_type,
                 (s.delivery_channel or "whatsapp").strip().lower(),
                 s.condition_key or "default",
