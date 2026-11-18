@@ -1,3 +1,5 @@
+-- Prefer Alembic 0214/0215 on deploy; use this script only for manual staging fixes before migrate.
+
 BEGIN;
 
 UPDATE notification_events

@@ -51,6 +51,22 @@ _OBSOLETE_EVENT_CODES: tuple[str, ...] = (
     "consultation.booked",
 )
 
+_REMINDER_EVENT_CODE_RENAMES: tuple[tuple[str, str], ...] = (
+    ("consultations.ready_to_book", "reminders.consultation_ready_to_book"),
+    ("consultation_ready", "reminders.consultation_ready_to_book"),
+    ("consultation.ready", "reminders.consultation_ready_to_book"),
+    ("consultations.reminder", "reminders.consultation_reminder"),
+    ("consultation_remainder", "reminders.consultation_reminder"),
+    ("consultation.reminder", "reminders.consultation_reminder"),
+)
+
+_REMINDER_EVENT_NAMES: tuple[tuple[str, str], ...] = (
+    ("reminders.consultation_ready_to_book", "Ready to book consultation"),
+    ("reminders.consultation_reminder", "Consultation reminder"),
+)
+
+_NON_CATALOG_EVENT_CODES: tuple[str, ...] = ("consultation_done",)
+
 
 def _drop_rename_collisions_engagement(conn, values_sql: str) -> None:
     conn.execute(
@@ -184,6 +200,37 @@ def upgrade() -> None:
     obsolete = ", ".join(f"'{code}'" for code in _OBSOLETE_EVENT_CODES)
     conn.execute(text(f"DELETE FROM notification_events WHERE event_code IN ({obsolete})"))
     conn.execute(text(f"DELETE FROM engagement_notifications WHERE event_code IN ({obsolete})"))
+
+    reminder_values_sql = ",\n".join(f"('{old}', '{new}')" for old, new in _REMINDER_EVENT_CODE_RENAMES)
+    _drop_rename_collisions_notification_events(conn, reminder_values_sql)
+    _drop_rename_collisions_engagement(conn, reminder_values_sql)
+    for table in ("notification_events", "engagement_notifications"):
+        conn.execute(
+            text(
+                f"""
+                UPDATE {table} AS t
+                SET event_code = m.new_code
+                FROM (VALUES {reminder_values_sql}) AS m(old_code, new_code)
+                WHERE t.event_code = m.old_code
+                """
+            )
+        )
+    reminder_names_sql = ",\n".join(f"('{code}', '{name}')" for code, name in _REMINDER_EVENT_NAMES)
+    for table in ("notification_events", "engagement_notifications"):
+        conn.execute(
+            text(
+                f"""
+                UPDATE {table} AS t
+                SET event_name = m.display_name
+                FROM (VALUES {reminder_names_sql}) AS m(event_code, display_name)
+                WHERE t.event_code = m.event_code
+                """
+            )
+        )
+
+    non_catalog = ", ".join(f"'{code}'" for code in _NON_CATALOG_EVENT_CODES)
+    conn.execute(text(f"DELETE FROM notification_events WHERE event_code IN ({non_catalog})"))
+    conn.execute(text(f"DELETE FROM engagement_notifications WHERE event_code IN ({non_catalog})"))
 
     conn.execute(
         text(

@@ -182,6 +182,52 @@ def test_healthians_phlebo_maps_to_blood_test_codes():
 
 
 @pytest.mark.asyncio
+async def test_migration_renames_legacy_ready_to_book_and_deletes_consultation_done(test_db_session):
+    eid = 991005
+    await _insert_home_blood_engagement(test_db_session, eid=eid, etype="bio_ai_with_consultation")
+    svc = json.dumps([{"service_key": "book-nutrition-wa", "external_link": None}])
+    await test_db_session.execute(
+        text(
+            """
+            INSERT INTO engagement_notifications (
+                engagement_id, event_code, event_name, recipient_type, delivery_channel,
+                notification_services, condition_key
+            )
+            VALUES
+            (:eid, 'consultations.ready_to_book', 'Ready to book consultation', 'user', 'whatsapp',
+             CAST(:svc AS jsonb), 'default'),
+            (:eid, 'consultation_done', 'consultation_done', 'user', 'whatsapp',
+             CAST(:svc AS jsonb), 'default')
+            """
+        ),
+        {"eid": eid, "svc": svc},
+    )
+    await test_db_session.commit()
+
+    await apply_event_code_renames_async(test_db_session)
+    await test_db_session.commit()
+
+    codes = (
+        await test_db_session.execute(
+            text(
+                "SELECT event_code FROM engagement_notifications WHERE engagement_id = :eid ORDER BY event_code"
+            ),
+            {"eid": eid},
+        )
+    ).scalars().all()
+    assert codes == ["reminders.consultation_ready_to_book"]
+
+    setup = await build_notification_setup_for_engagement(test_db_session, eid)
+    ready = next(
+        (e for e in setup["events"] if e["event_code"] == "reminders.consultation_ready_to_book"),
+        None,
+    )
+    assert ready is not None
+    assert ready["is_extra"] is False
+    assert "consultation_done" not in {e["event_code"] for e in setup["events"]}
+
+
+@pytest.mark.asyncio
 async def test_notification_setup_consultation_booked_is_applicable_not_extra(test_db_session):
     eid = 991003
     await _insert_home_blood_engagement(test_db_session, eid=eid, etype="bio_ai_with_consultation")

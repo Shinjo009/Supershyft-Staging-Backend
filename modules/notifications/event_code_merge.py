@@ -47,6 +47,23 @@ OBSOLETE_EVENT_CODES: tuple[str, ...] = (
     "consultation.booked",
 )
 
+_REMINDER_EVENT_CODE_RENAMES: tuple[tuple[str, str], ...] = (
+    ("consultations.ready_to_book", "reminders.consultation_ready_to_book"),
+    ("consultation_ready", "reminders.consultation_ready_to_book"),
+    ("consultation.ready", "reminders.consultation_ready_to_book"),
+    ("consultations.reminder", "reminders.consultation_reminder"),
+    ("consultation_remainder", "reminders.consultation_reminder"),
+    ("consultation.reminder", "reminders.consultation_reminder"),
+)
+
+_REMINDER_EVENT_NAMES: tuple[tuple[str, str], ...] = (
+    ("reminders.consultation_ready_to_book", "Ready to book consultation"),
+    ("reminders.consultation_reminder", "Consultation reminder"),
+)
+
+# Stored on bindings but not in the notification events catalog — remove slots.
+NON_CATALOG_EVENT_CODES_TO_DELETE: tuple[str, ...] = ("consultation_done",)
+
 
 def _drop_rename_collisions(conn: Connection, values_sql: str) -> None:
     conn.execute(
@@ -110,8 +127,10 @@ def _drop_rename_collisions(conn: Connection, values_sql: str) -> None:
     )
 
 
-def apply_event_code_renames(conn: Connection) -> None:
-    values_sql = ",\n".join(f"('{old}', '{new}')" for old, new in _EVENT_CODE_RENAMES)
+def _apply_rename_map(conn: Connection, renames: tuple[tuple[str, str], ...]) -> None:
+    if not renames:
+        return
+    values_sql = ",\n".join(f"('{old}', '{new}')" for old, new in renames)
     _drop_rename_collisions(conn, values_sql)
     for table in ("notification_events", "engagement_notifications"):
         conn.execute(
@@ -124,7 +143,12 @@ def apply_event_code_renames(conn: Connection) -> None:
                 """
             )
         )
-    names_sql = ",\n".join(f"('{code}', '{name}')" for code, name in _CANONICAL_EVENT_NAMES)
+
+
+def _apply_display_names(conn: Connection, names: tuple[tuple[str, str], ...]) -> None:
+    if not names:
+        return
+    names_sql = ",\n".join(f"('{code}', '{name}')" for code, name in names)
     for table in ("notification_events", "engagement_notifications"):
         conn.execute(
             text(
@@ -136,6 +160,16 @@ def apply_event_code_renames(conn: Connection) -> None:
                 """
             )
         )
+
+
+def apply_event_code_renames(conn: Connection) -> None:
+    _apply_rename_map(conn, _EVENT_CODE_RENAMES)
+    _apply_display_names(conn, _CANONICAL_EVENT_NAMES)
+
+
+def apply_reminder_event_code_renames(conn: Connection) -> None:
+    _apply_rename_map(conn, _REMINDER_EVENT_CODE_RENAMES)
+    _apply_display_names(conn, _REMINDER_EVENT_NAMES)
 
 
 def dedupe_binding_slots(conn: Connection) -> None:
@@ -178,6 +212,14 @@ def purge_obsolete_event_rows(conn: Connection) -> None:
     conn.execute(text(f"DELETE FROM engagement_notifications WHERE event_code IN ({obsolete})"))
 
 
+def purge_non_catalog_event_rows(conn: Connection) -> None:
+    if not NON_CATALOG_EVENT_CODES_TO_DELETE:
+        return
+    codes = ", ".join(f"'{code}'" for code in NON_CATALOG_EVENT_CODES_TO_DELETE)
+    conn.execute(text(f"DELETE FROM notification_events WHERE event_code IN ({codes})"))
+    conn.execute(text(f"DELETE FROM engagement_notifications WHERE event_code IN ({codes})"))
+
+
 def purge_unreferenced_orphan_services(conn: Connection) -> None:
     conn.execute(
         text(
@@ -206,5 +248,9 @@ async def apply_event_code_renames_async(session: AsyncSession) -> None:
 
     def _run(sync_conn: Connection) -> None:
         apply_event_code_renames(sync_conn)
+        apply_reminder_event_code_renames(sync_conn)
+        dedupe_binding_slots(sync_conn)
+        purge_obsolete_event_rows(sync_conn)
+        purge_non_catalog_event_rows(sync_conn)
 
     await conn.run_sync(_run)
