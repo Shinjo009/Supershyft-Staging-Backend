@@ -426,7 +426,7 @@ async def _build_people_rows(
                 continue
             bio_by_instance[int(ihr.assessment_instance_id)] = ihr.report_url
 
-    # Diagnostic package names
+    # Diagnostic package names + providers
     dx_ids: set[int] = set()
     for r in latest_by_user.values():
         if r is None:
@@ -440,6 +440,7 @@ async def _build_people_rows(
             if val is not None:
                 dx_ids.add(int(val))
     dx_name_by_id: dict[int, str] = {}
+    dx_provider_by_id: dict[int, str] = {}
     if dx_ids:
         pkgs = (
             await db.execute(
@@ -450,6 +451,10 @@ async def _build_people_rows(
         ).scalars().all()
         for pkg in pkgs:
             dx_name_by_id[int(pkg.diagnostic_package_id)] = str(pkg.package_name or "")
+            provider = getattr(pkg, "diagnostic_provider", None)
+            if provider is not None and hasattr(provider, "value"):
+                provider = provider.value
+            dx_provider_by_id[int(pkg.diagnostic_package_id)] = str(provider or "")
 
     out: list[dict[str, Any]] = []
     for user in users:
@@ -462,6 +467,7 @@ async def _build_people_rows(
         )
 
         package_name = ""
+        lab_partner = ""
         collection = ""
         blood = "empty"
         questionnaire = "empty"
@@ -489,6 +495,7 @@ async def _build_people_rows(
                         dx_id = eng.diagnostic_package_id_male
                 if dx_id is not None:
                     package_name = dx_name_by_id.get(int(dx_id), "") or ""
+                    lab_partner = dx_provider_by_id.get(int(dx_id), "") or ""
 
             ep_id = int(eng.engagement_participant_id)
             blood_row = blood_by_ep.get(ep_id)
@@ -574,6 +581,7 @@ async def _build_people_rows(
 
             if is_consult:
                 package_name = ""
+                lab_partner = ""
                 collection = ""
                 blood = ""
                 lab = ""
@@ -584,6 +592,7 @@ async def _build_people_rows(
                 "person": {
                     "name": _person_name(user.first_name, user.last_name),
                     "phone": user.phone or "",
+                    "email": user.email or "",
                 },
                 "type": audience,
                 "engagement": engagement_name,
@@ -591,6 +600,7 @@ async def _build_people_rows(
                 "collection": collection,
                 "blood_collection": blood,
                 "questionnaire": questionnaire,
+                "lab_partner": lab_partner,
                 "lab_report": lab,
                 "bio_ai": bio_ai,
                 "consult": consult,
