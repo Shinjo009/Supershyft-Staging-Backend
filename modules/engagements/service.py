@@ -4147,6 +4147,58 @@ class EngagementsService:
             today=today,
         )
 
+    async def progress_report_for_engagement_id(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        engagement_id: int,
+        questionnaire_service: Any | None = None,
+    ) -> dict[str, int]:
+        """Lifetime camp progress counts for engagement overview."""
+
+        ensure_admin(employee)
+        engagement = await self._ensure_engagement_exists(db, engagement_id)
+
+        from modules.engagements.camp_overview_metrics import build_progress_report
+        from modules.questionnaire.dependencies import get_questionnaire_management_service
+
+        q_service = questionnaire_service or get_questionnaire_management_service()
+        return await build_progress_report(
+            db,
+            engagement=engagement,
+            questionnaire_service=q_service,
+        )
+
+    async def day_wise_summary_for_engagement_id(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        engagement_id: int,
+        section: str | None = None,
+        date_filter: date | None = None,
+        questionnaire_service: Any | None = None,
+    ) -> dict[str, Any]:
+        """Day-wise blood/consultation summary for camp overview."""
+
+        ensure_admin(employee)
+        engagement = await self._ensure_engagement_exists(db, engagement_id)
+        slot_detail = await self.resolve_slot_detail(db, engagement)
+
+        from modules.engagements.camp_overview_metrics import build_day_wise_summary
+        from modules.questionnaire.dependencies import get_questionnaire_management_service
+
+        q_service = questionnaire_service or get_questionnaire_management_service()
+        return await build_day_wise_summary(
+            db,
+            engagement=engagement,
+            slot_detail=slot_detail,
+            section=section,
+            date_filter=date_filter,
+            questionnaire_service=q_service,
+        )
+
     async def list_participants_for_b2c_engagements(
         self,
         db: AsyncSession,

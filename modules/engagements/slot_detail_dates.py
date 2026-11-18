@@ -19,18 +19,11 @@ def _blood_collection_section(slot_detail: dict[str, Any] | None) -> dict[str, A
     return blood
 
 
-def enabled_blood_collection_dates(slot_detail: dict[str, Any] | None) -> list[date]:
-    """Sorted on-site blood dates from an enabled blood_collection section.
-
-    Skips non-date keys and dates whose own ``is_enable`` is false. A disabled
-    section yields no dates.
-    """
-    blood = _blood_collection_section(slot_detail)
-    if blood is None:
+def _enabled_section_dates(section: dict[str, Any] | None) -> list[date]:
+    if section is None:
         return []
-
     found: list[date] = []
-    for date_key, cfg in blood.items():
+    for date_key, cfg in section.items():
         key = str(date_key)
         if not is_slot_detail_date_key(key):
             continue
@@ -39,6 +32,31 @@ def enabled_blood_collection_dates(slot_detail: dict[str, Any] | None) -> list[d
         found.append(date.fromisoformat(key))
     found.sort()
     return found
+
+
+def enabled_blood_collection_dates(slot_detail: dict[str, Any] | None) -> list[date]:
+    """Sorted on-site blood dates from an enabled blood_collection section.
+
+    Skips non-date keys and dates whose own ``is_enable`` is false. A disabled
+    section yields no dates.
+    """
+    return _enabled_section_dates(_blood_collection_section(slot_detail))
+
+
+def _consultation_section(slot_detail: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not slot_detail:
+        return None
+    consultation = slot_detail.get("consultation")
+    if not isinstance(consultation, dict) or not consultation:
+        return None
+    if not section_is_enabled(consultation):
+        return None
+    return consultation
+
+
+def enabled_consultation_dates(slot_detail: dict[str, Any] | None) -> list[date]:
+    """Sorted consultation dates from an enabled consultation section."""
+    return _enabled_section_dates(_consultation_section(slot_detail))
 
 
 def blood_collection_dates_include(
