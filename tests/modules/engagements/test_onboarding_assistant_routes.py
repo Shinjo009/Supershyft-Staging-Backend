@@ -11,6 +11,7 @@ from modules.assessments.models import AssessmentPackage
 from modules.diagnostics.models import DiagnosticPackage
 from modules.engagements.models import Engagement, OnboardingAssistantAssignment
 from modules.organizations.models import Organization
+from modules.experts.models import Expert, ExpertTypeModel
 from modules.partners.models import Partner
 from modules.users.models import User
 from tests.helpers.auth import (
@@ -713,6 +714,106 @@ async def test_create_phlebo_confirm_existing_skips_when_already_assigned(async_
     assert body["partner_id"] == 404
     assert body["added_partner_ids"] == []
     assert body["skipped_partner_ids"] == [404]
+
+
+# ============================================================================
+# POST /engagements/{engagement_id}/onboarding-assistants/create-expert
+# ============================================================================
+
+
+async def _ensure_expert_type_doctor(test_db_session) -> None:
+    existing = await test_db_session.execute(
+        select(ExpertTypeModel).where(ExpertTypeModel.type_key == "doctor")
+    )
+    if existing.scalar_one_or_none() is None:
+        test_db_session.add(ExpertTypeModel(type_key="doctor", type="Doctor"))
+        await test_db_session.flush()
+
+
+@pytest.mark.asyncio
+async def test_create_expert_requires_auth(async_client):
+    response = await async_client.post(
+        "/engagements/1/onboarding-assistants/create-expert",
+        json={
+            "name": "Test Expert",
+            "phone": "8800200001",
+            "specialization": "General",
+            "expert_type": "doctor",
+        },
+    )
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_create_expert_creates_partner_and_assignment(async_client, test_db_session):
+    await _ensure_expert_type_doctor(test_db_session)
+    await _seed_admin(test_db_session, employee_id=221)
+    await _seed_engagement(test_db_session, engagement_id=5031, engagement_code="ENG031")
+
+    response = await async_client.post(
+        "/engagements/5031/onboarding-assistants/create-expert",
+        headers=employee_auth_header(221),
+        json={
+            "name": "New Expert",
+            "phone": "8800200001",
+            "specialization": "Cardiology",
+            "expert_type": "doctor",
+        },
+    )
+    assert response.status_code == 201
+
+    body = response.json()["data"]
+    assert body["partner_created"] is True
+    assert body["role"] == "expert"
+    assert body["name"] == "New Expert"
+    assert body["added_partner_ids"] == [body["partner_id"]]
+
+    created_partner = await test_db_session.get(Partner, body["partner_id"])
+    assert created_partner is not None
+    assert created_partner.role == "expert"
+
+    expert_row = await test_db_session.execute(
+        select(Expert).where(Expert.partner_id == body["partner_id"])
+    )
+    expert = expert_row.scalar_one_or_none()
+    assert expert is not None
+    assert expert.specialization == "Cardiology"
+    assert expert.expert_type == "doctor"
+
+    assignment = await test_db_session.execute(
+        select(OnboardingAssistantAssignment).where(
+            OnboardingAssistantAssignment.engagement_id == 5031,
+            OnboardingAssistantAssignment.partner_id == body["partner_id"],
+        )
+    )
+    assert assignment.scalar_one_or_none() is not None
+
+
+@pytest.mark.asyncio
+async def test_create_expert_confirm_existing_rejects_phlebo_partner(async_client, test_db_session):
+    await _seed_admin(test_db_session, employee_id=222)
+    await _seed_engagement(test_db_session, engagement_id=5032, engagement_code="ENG032")
+    await seed_partner(
+        test_db_session,
+        partner_id=411,
+        role="phlebo",
+        name="Phlebo Partner",
+        phone="8800210001",
+    )
+
+    response = await async_client.post(
+        "/engagements/5032/onboarding-assistants/create-expert",
+        headers=employee_auth_header(222),
+        json={
+            "name": "Phlebo Partner",
+            "phone": "8800210001",
+            "specialization": "X",
+            "expert_type": "doctor",
+            "confirm_existing": True,
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "INVALID_INPUT"
 
 
 # ============================================================================
