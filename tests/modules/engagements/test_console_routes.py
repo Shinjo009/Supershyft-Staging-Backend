@@ -471,3 +471,89 @@ async def test_console_routes_org_manager_assigned_no_organization_id(async_clie
     assert (
         await async_client.get("/engagements/6020/console/participants", headers=headers)
     ).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_console_bootstrap_paginates_and_search_finds_tail_participant(
+    async_client, test_db_session
+):
+    from tests.helpers.console_camp import upsert_camp_participant_with_schedule
+
+    await _seed_employee(test_db_session, employee_id=250, role="admin")
+    engagement_id = 6050
+    await _seed_engagement(test_db_session, engagement_id=engagement_id, status="running")
+
+    for i in range(12):
+        user_id = 196_050 + i
+        ep_id = 186_050 + i
+        test_db_session.add(
+            User(
+                user_id=user_id,
+                phone=f"919605{i:04d}"[-10:],
+                first_name=f"Camp{i}",
+                last_name="User",
+                status="active",
+                gender="male",
+                age=30,
+            )
+        )
+        await test_db_session.flush()
+        await upsert_camp_participant_with_schedule(
+            test_db_session,
+            engagement_participant_id=ep_id,
+            engagement_id=engagement_id,
+            user_id=user_id,
+            collection_date=date.today(),
+            collection_time=time(7, 30),
+        )
+
+    tail_user_id = 196_099
+    tail_ep_id = 186_099
+    test_db_session.add(
+        User(
+            user_id=tail_user_id,
+            phone="9876543210",
+            first_name="ZebraTail",
+            last_name="NewEnroll",
+            status="active",
+            gender="male",
+            age=29,
+        )
+    )
+    await test_db_session.flush()
+    await upsert_camp_participant_with_schedule(
+        test_db_session,
+        engagement_participant_id=tail_ep_id,
+        engagement_id=engagement_id,
+        user_id=tail_user_id,
+        collection_date=date.today(),
+        collection_time=time(7, 30),
+    )
+    await test_db_session.commit()
+
+    headers = _auth_header(250)
+
+    boot = await async_client.get(
+        f"/engagements/{engagement_id}/console/bootstrap",
+        params={"page": 1, "limit": 10},
+        headers=headers,
+    )
+    assert boot.status_code == 200
+    boot_body = boot.json()
+    assert boot_body["meta"]["total"] == 13
+    assert boot_body["meta"]["limit"] == 10
+    assert len(boot_body["data"]["participants"]) == 10
+    assert boot_body["data"]["filter_facets"] is not None
+    assert "collection_dates" in boot_body["data"]["filter_facets"]
+    assert all(p.get("first_name") != "ZebraTail" for p in boot_body["data"]["participants"])
+
+    search_res = await async_client.get(
+        f"/engagements/{engagement_id}/console/participants",
+        params={"search": "ZebraTail", "page": 1, "limit": 10},
+        headers=headers,
+    )
+    assert search_res.status_code == 200
+    rows = search_res.json()["data"]
+    assert len(rows) == 1
+    assert rows[0]["user_id"] == tail_user_id
+    assert rows[0]["first_name"] == "ZebraTail"

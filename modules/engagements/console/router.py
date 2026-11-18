@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +22,7 @@ from modules.engagements.console.schemas import (
 )
 from modules.engagements.console.service import ConsoleService
 from modules.engagements.dependencies import get_console_service
+from modules.engagements.participant_list_filters import parse_participant_list_filters
 from modules.questionnaire.schemas import QuestionnaireResponsesUpsertRequest
 
 router = APIRouter(prefix="/engagements", tags=["engagement-console"])
@@ -65,13 +68,22 @@ async def get_engagement_for_console(
 async def get_engagement_console_bootstrap(
     engagement_id: int,
     page: int = 1,
-    limit: int = 100,
+    limit: int = 10,
+    search: str | None = None,
+    department: str | None = None,
+    engagement_date: date | None = None,
     db: AsyncSession = Depends(get_db),
     actor: ConsoleActor = Depends(get_console_actor),
     console_service: ConsoleService = Depends(get_console_service),
 ):
     if page < 1 or limit < 1 or limit > 100:
         raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+
+    filters = parse_participant_list_filters(
+        search=search,
+        department=department,
+        engagement_date=engagement_date,
+    )
 
     engagement = await console_service.get_engagement_for_console(
         db,
@@ -86,9 +98,20 @@ async def get_engagement_console_bootstrap(
         engagement_id=engagement_id,
         page=page,
         limit=limit,
+        filters=filters,
+    )
+    filter_facets = await console_service.get_console_filter_facets(
+        db,
+        employee=actor.employee,
+        partner=actor.partner,
+        engagement_id=engagement_id,
     )
     return success_response(
-        {"engagement": engagement, "participants": participants},
+        {
+            "engagement": engagement,
+            "participants": participants,
+            "filter_facets": filter_facets,
+        },
         meta={"page": page, "limit": limit, "total": total},
     )
 
@@ -97,7 +120,10 @@ async def get_engagement_console_bootstrap(
 async def get_console_participants(
     engagement_id: int,
     page: int = 1,
-    limit: int = 20,
+    limit: int = 10,
+    search: str | None = None,
+    department: str | None = None,
+    engagement_date: date | None = None,
     db: AsyncSession = Depends(get_db),
     actor: ConsoleActor = Depends(get_console_actor),
     console_service: ConsoleService = Depends(get_console_service),
@@ -105,12 +131,19 @@ async def get_console_participants(
     if page < 1 or limit < 1 or limit > 100:
         raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
 
+    filters = parse_participant_list_filters(
+        search=search,
+        department=department,
+        engagement_date=engagement_date,
+    )
+
     participants, total = await console_service.list_participants_for_console(
         db,
         employee=actor.employee, partner=actor.partner,
         engagement_id=engagement_id,
         page=page,
         limit=limit,
+        filters=filters,
     )
 
     return success_response(participants, meta={"page": page, "limit": limit, "total": total})

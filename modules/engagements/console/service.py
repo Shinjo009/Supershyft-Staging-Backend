@@ -45,6 +45,10 @@ from modules.assessments.package_questions_service import AssessmentPackageCateg
 from modules.assessments.repository import AssessmentsRepository
 from modules.assessments.service import AssessmentsService
 from modules.engagements.models import BloodCollectionType, Engagement, EngagementParticipant
+from modules.engagements.participant_list_filters import (
+    ParticipantListFilters,
+    filters_are_active,
+)
 from modules.engagements.repository import EngagementsRepository
 from modules.engagements.service import _participant_enrollment_to_dict
 from db.transaction import release_request_transaction
@@ -500,6 +504,25 @@ class ConsoleService:
             db, engagement, participant_count=participant_count
         )
 
+    async def get_console_filter_facets(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        partner=None,
+        engagement_id: int,
+    ) -> dict[str, list[str]]:
+        await ensure_console_access(db, engagement_id, repository=self._repository, employee=employee, partner=partner)
+        collection_dates = await self._repository.list_distinct_engagement_dates_for_engagement(
+            db,
+            engagement_id=engagement_id,
+        )
+        departments = await self._repository.list_distinct_participant_departments_for_engagement(
+            db,
+            engagement_id=engagement_id,
+        )
+        return {"collection_dates": collection_dates, "departments": departments}
+
     async def list_participants_for_console(
         self,
         db: AsyncSession,
@@ -509,6 +532,7 @@ class ConsoleService:
         engagement_id: int,
         page: int,
         limit: int,
+        filters: ParticipantListFilters | None = None,
     ) -> tuple[list[dict], int]:
         await ensure_console_access(db, engagement_id, repository=self._repository, employee=employee, partner=partner)
 
@@ -526,17 +550,21 @@ class ConsoleService:
             engagement=engagement,
         )
 
+        active_filters = filters if filters is not None and filters_are_active(filters) else None
+
         participants = await self._repository.list_participants_by_engagement_id(
             db,
             engagement_id=engagement_id,
             page=page,
             limit=limit,
             participant_department_slugs=department_slugs,
+            filters=active_filters,
         )
         total = await self._repository.count_distinct_participants_for_engagement(
             db,
             engagement_id=engagement_id,
             participant_department_slugs=department_slugs,
+            filters=active_filters,
         )
 
         ep_ids = [int(row[0]) for row in participants if row[0] is not None]

@@ -819,6 +819,23 @@ class EngagementsRepository:
         )
         return [row[0].isoformat() for row in result.all() if row[0] is not None]
 
+    async def list_distinct_participant_departments_for_engagement(
+        self,
+        db: AsyncSession,
+        *,
+        engagement_id: int,
+    ) -> list[str]:
+        result = await db.execute(
+            select(func.distinct(EngagementParticipant.participant_department))
+            .where(
+                EngagementParticipant.engagement_id == engagement_id,
+                EngagementParticipant.participant_department.isnot(None),
+                func.trim(EngagementParticipant.participant_department) != "",
+            )
+            .order_by(EngagementParticipant.participant_department.asc())
+        )
+        return [str(row[0]).strip() for row in result.all() if row[0] is not None and str(row[0]).strip()]
+
     async def list_all_participants_by_engagement_id(
         self,
         db: AsyncSession,
