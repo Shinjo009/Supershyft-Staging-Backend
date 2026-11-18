@@ -41,13 +41,13 @@ KPI_QUESTIONNAIRE_REQUIRED_CATEGORY_KEYS = (
     "fitness-parameters",
 )
 
-_INSTANCE_ROW = tuple[int, int, int, int]  # iid, uid, package_id, engagement_id
+_InstanceRow = tuple[int, int, int, int, datetime | None]  # iid, uid, package_id, engagement_id, assigned_at
 
 
 @dataclass
 class KpiQuestionnaireData:
-    instance_rows: list[_INSTANCE_ROW] = field(default_factory=list)
-    instances_by_eng: dict[int, list[_INSTANCE_ROW]] = field(default_factory=dict)
+    instance_rows: list[_InstanceRow] = field(default_factory=list)
+    instances_by_eng: dict[int, list[_InstanceRow]] = field(default_factory=dict)
     progress_map: dict[int, dict[str, dict[str, Any]]] = field(default_factory=dict)
     resp_counts: dict[int, int] = field(default_factory=dict)
     pkg_categories: dict[int, set[str]] = field(default_factory=dict)
@@ -77,7 +77,7 @@ def _category_effective_status(
 def rollup_questionnaire_kpi_for_engagement(
     *,
     scoped_users: set[int],
-    instance_rows: list[_INSTANCE_ROW],
+    instance_rows: list[_InstanceRow],
     data: KpiQuestionnaireData,
 ) -> dict[str, Any]:
     """Return filled / partial / not_started counts and per-user detail for one engagement."""
@@ -193,6 +193,7 @@ async def load_kpi_questionnaire_data(
             AssessmentInstance.user_id,
             AssessmentInstance.package_id,
             AssessmentInstance.engagement_id,
+            AssessmentInstance.assigned_at,
         )
         .join(
             AssessmentPackage,
@@ -207,8 +208,8 @@ async def load_kpi_questionnaire_data(
         instances_query = instances_query.where(AssessmentInstance.user_id.in_(user_ids))
 
     instance_rows_raw = (await db.execute(instances_query)).all()
-    instance_rows: list[_INSTANCE_ROW] = [
-        (int(r[0]), int(r[1]), int(r[2]), int(r[3])) for r in instance_rows_raw
+    instance_rows: list[_InstanceRow] = [
+        (int(r[0]), int(r[1]), int(r[2]), int(r[3]), r[4]) for r in instance_rows_raw
     ]
     if not instance_rows:
         return KpiQuestionnaireData()
@@ -522,3 +523,183 @@ async def questionnaire_kpi_done_users_by_org(
             best[uid] = (completed_at, org_id)
 
     return {uid: org_id for uid, (_ca, org_id) in best.items()}
+
+
+def _stamp_in_period(
+    stamp: datetime | None,
+    *,
+    stamp_from: datetime | None,
+    stamp_to: datetime | None,
+    all_time: bool,
+) -> bool:
+    if all_time:
+        return True
+    if stamp is None:
+        return False
+    if stamp_from is not None and stamp < stamp_from:
+        return False
+    if stamp_to is not None and stamp > stamp_to:
+        return False
+    return True
+
+
+def _assigned_at_for_user_engagement(
+    data: KpiQuestionnaireData,
+    *,
+    user_id: int,
+    engagement_id: int,
+) -> datetime | None:
+    rows = [
+        row
+        for row in data.instances_by_eng.get(engagement_id, [])
+        if int(row[1]) == int(user_id)
+    ]
+    if not rows:
+        return None
+    rows.sort(key=lambda row: int(row[0]))
+    return rows[0][4]
+
+
+def _rollups_by_engagement(
+    *,
+    participants_by_eng: dict[int, set[int]],
+    data: KpiQuestionnaireData,
+) -> dict[int, dict[str, Any]]:
+    rollups: dict[int, dict[str, Any]] = {}
+    for eid, scoped_users in participants_by_eng.items():
+        rollups[eid] = rollup_questionnaire_kpi_for_engagement(
+            scoped_users=scoped_users,
+            instance_rows=data.instances_by_eng.get(eid, []),
+            data=data,
+        )
+    return rollups
+
+
+async def questionnaire_kpi_pending_users_by_org(
+    db: AsyncSession,
+    *,
+    assigned_from: datetime | None,
+    assigned_to: datetime | None,
+    all_time: bool,
+) -> dict[int, int | None]:
+    """Enrolled users who have not met camp-report KPI questionnaire completion."""
+    enroll_rows = (
+        await db.execute(
+            select(
+                EngagementParticipant.user_id,
+                Engagement.engagement_id,
+                Engagement.organization_id,
+            )
+            .select_from(EngagementParticipant)
+            .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
+        )
+    ).all()
+    if not enroll_rows:
+        return {}
+
+    participants_by_eng: dict[int, set[int]] = {}
+    org_by_user_engagement: dict[tuple[int, int], int | None] = {}
+    for row in enroll_rows:
+        uid = int(row.user_id)
+        eid = int(row.engagement_id)
+        participants_by_eng.setdefault(eid, set()).add(uid)
+        org_by_user_engagement[(uid, eid)] = (
+            int(row.organization_id) if row.organization_id is not None else None
+        )
+
+    engagement_ids = list(participants_by_eng.keys())
+    data = await load_kpi_questionnaire_data(
+        db,
+        engagement_ids=engagement_ids,
+        user_ids=None,
+    )
+    rollups = (
+        _rollups_by_engagement(participants_by_eng=participants_by_eng, data=data)
+        if data is not None
+        else {}
+    )
+
+    candidates: list[tuple[int, datetime | None, int | None]] = []
+    for row in enroll_rows:
+        uid = int(row.user_id)
+        eid = int(row.engagement_id)
+        org_id = org_by_user_engagement.get((uid, eid))
+        assigned_at = (
+            _assigned_at_for_user_engagement(data, user_id=uid, engagement_id=eid)
+            if data is not None
+            else None
+        )
+        if not _stamp_in_period(
+            assigned_at,
+            stamp_from=assigned_from,
+            stamp_to=assigned_to,
+            all_time=all_time,
+        ):
+            continue
+        rollup = rollups.get(eid) or {}
+        filled_ids = rollup.get("filled_user_ids") or set()
+        if uid in filled_ids:
+            continue
+        candidates.append((uid, assigned_at, org_id))
+
+    best: dict[int, tuple[datetime | None, int | None]] = {}
+    for uid, assigned_at, org_id in candidates:
+        prev = best.get(uid)
+        if prev is None:
+            best[uid] = (assigned_at, org_id)
+            continue
+        prev_aa, _prev_org = prev
+        if assigned_at is not None and (prev_aa is None or assigned_at > prev_aa):
+            best[uid] = (assigned_at, org_id)
+        elif assigned_at is not None and prev_aa is not None and assigned_at == prev_aa:
+            best[uid] = (assigned_at, org_id)
+
+    return {uid: org_id for uid, (_aa, org_id) in best.items()}
+
+
+def user_engagement_kpi_filled(
+    *,
+    rollups_by_engagement: dict[int, dict[str, Any]],
+    user_id: int,
+    engagement_id: int,
+) -> bool:
+    rollup = rollups_by_engagement.get(int(engagement_id)) or {}
+    filled_ids = rollup.get("filled_user_ids") or set()
+    return int(user_id) in filled_ids
+
+
+async def load_kpi_rollups_for_engagements(
+    db: AsyncSession,
+    *,
+    engagement_ids: list[int],
+) -> dict[int, dict[str, Any]]:
+    """Rollups keyed by engagement_id for all current participants (KPI filled sets)."""
+    if not engagement_ids:
+        return {}
+    enrolled_rows = (
+        await db.execute(
+            select(EngagementParticipant.engagement_id, EngagementParticipant.user_id).where(
+                EngagementParticipant.engagement_id.in_(engagement_ids)
+            )
+        )
+    ).all()
+    participants_by_eng: dict[int, set[int]] = {}
+    for eid, uid in enrolled_rows:
+        participants_by_eng.setdefault(int(eid), set()).add(int(uid))
+
+    data = await load_kpi_questionnaire_data(
+        db,
+        engagement_ids=engagement_ids,
+        user_ids=None,
+    )
+    if data is None:
+        return {
+            eid: {
+                "filled_user_ids": set(),
+                "partially_filled": 0,
+                "not_started": len(participants_by_eng.get(eid, set())),
+                "filled": 0,
+            }
+            for eid in engagement_ids
+        }
+    return _rollups_by_engagement(participants_by_eng=participants_by_eng, data=data)
