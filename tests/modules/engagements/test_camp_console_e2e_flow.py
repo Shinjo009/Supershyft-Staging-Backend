@@ -319,11 +319,11 @@ async def test_camp_phlebo_console_book_soft_fail_shows_barcode_on_bootstrap(
                     headers=headers,
                 )
 
-    assert book_res.status_code == 200
-    body = book_res.json()["data"]
-    assert body["booking_created"] is False
-    assert body["barcode_saved"] is True
-    assert body["booking_id"] is None
+    assert book_res.status_code == 422
+    body = book_res.json()
+    assert body["error_code"] == "HEALTHIANS_BOOKING_FAILED"
+    assert body.get("barcode_saved") is True
+    assert body.get("barcode") == "CAMP89002"
 
     boot_res = await async_client.get(
         f"{base}/bootstrap",

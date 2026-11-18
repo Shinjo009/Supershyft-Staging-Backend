@@ -68,27 +68,46 @@ _BARCODE_COLLECTED_MESSAGE = (
 )
 
 
+def _raise_console_book_partner_error_after_barcode_saved(
+    message: str,
+    *,
+    error_code: str,
+    barcode: str,
+    status_code: int = 422,
+) -> None:
+    raise AppError(
+        status_code=status_code,
+        error_code=error_code,
+        message=message,
+        details={"barcode_saved": True, "barcode": barcode},
+    )
+
+
 def _console_book_barcode_soft_success(
     *,
     engagement_participant_id: int,
     user_id: int,
     barcode: str,
-    partner_error: str | None = None,
+    internal_reason: str | None = None,
 ) -> dict[str, Any]:
-    """Healthians failed after barcode was committed; phlebo can continue."""
-    payload: dict[str, Any] = {
+    """Internal/transport failure after barcode was committed; phlebo can continue."""
+    if internal_reason:
+        logger.warning(
+            "Console book internal failure after barcode save user_id=%s: %s",
+            user_id,
+            internal_reason,
+        )
+    return {
         "status": False,
         "booking_created": False,
         "barcode_saved": True,
+        "internal_failure": True,
         "message": _BARCODE_COLLECTED_MESSAGE,
         "booking_id": None,
         "barcode": barcode,
         "engagement_participant_id": engagement_participant_id,
         "user_id": user_id,
     }
-    if partner_error:
-        payload["partner_error"] = partner_error
-    return payload
 
 _CONSOLE_PARTICIPANT_FIELDS = (
     "engagement_participant_id",
@@ -767,7 +786,7 @@ class ConsoleService:
                 engagement_participant_id=engagement_participant_id,
                 user_id=user_id,
                 barcode=trimmed_barcode,
-                partner_error=str(exc),
+                internal_reason=str(exc),
             )
 
         serviceability_url = f"{settings.HEALTHIANS_BASE_URL}/toast4health/checkServiceabilityByLocation_v2"
@@ -809,26 +828,25 @@ class ConsoleService:
                 engagement_participant_id=engagement_participant_id,
                 user_id=user_id,
                 barcode=trimmed_barcode,
-                partner_error=str(exc),
+                internal_reason=str(exc),
             )
 
         if not serviceability_response.get("status"):
             message = serviceability_response.get("message") or "Location is not serviceable"
-            return _console_book_barcode_soft_success(
-                engagement_participant_id=engagement_participant_id,
-                user_id=user_id,
+            _raise_console_book_partner_error_after_barcode_saved(
+                message,
+                error_code="LOCATION_NOT_SERVICEABLE",
                 barcode=trimmed_barcode,
-                partner_error=message,
             )
 
         zone_data = serviceability_response.get("data") or {}
         zone_id_raw = zone_data.get("zone_id")
         if zone_id_raw is None:
-            return _console_book_barcode_soft_success(
-                engagement_participant_id=engagement_participant_id,
-                user_id=user_id,
+            _raise_console_book_partner_error_after_barcode_saved(
+                "Serviceability response did not include zone_id",
+                error_code="LOCATION_NOT_SERVICEABLE",
                 barcode=trimmed_barcode,
-                partner_error="Serviceability response did not include zone_id",
+                status_code=502,
             )
         zone_id = int(zone_id_raw)
 
@@ -890,11 +908,10 @@ class ConsoleService:
                     response_payload=booking_response,
                     error_message=booking_response.get("message"),
                 )
-                return _console_book_barcode_soft_success(
-                    engagement_participant_id=engagement_participant_id,
-                    user_id=user_id,
+                _raise_console_book_partner_error_after_barcode_saved(
+                    booking_response.get("message") or "Healthians booking failed",
+                    error_code="HEALTHIANS_BOOKING_FAILED",
                     barcode=trimmed_barcode,
-                    partner_error=booking_response.get("message") or "Healthians booking failed",
                 )
 
             healthians_booking_id = booking_response.get("booking_id")
@@ -905,11 +922,11 @@ class ConsoleService:
                     response_payload=booking_response,
                     error_message="Missing booking_id in Healthians response",
                 )
-                return _console_book_barcode_soft_success(
-                    engagement_participant_id=engagement_participant_id,
-                    user_id=user_id,
+                _raise_console_book_partner_error_after_barcode_saved(
+                    "Healthians response did not include booking_id",
+                    error_code="HEALTHIANS_BOOKING_FAILED",
                     barcode=trimmed_barcode,
-                    partner_error="Healthians response did not include booking_id",
+                    status_code=502,
                 )
 
             await finalize_healthians_sync_log_isolated(
@@ -917,6 +934,8 @@ class ConsoleService:
                 status="success",
                 response_payload=booking_response,
             )
+        except AppError:
+            raise
         except Exception as exc:
             await finalize_healthians_sync_log_isolated(
                 sync_log_id=booking_log_id,
@@ -927,7 +946,7 @@ class ConsoleService:
                 engagement_participant_id=engagement_participant_id,
                 user_id=user_id,
                 barcode=trimmed_barcode,
-                partner_error=str(exc),
+                internal_reason=str(exc),
             )
 
         if sync_collection_to_now is None:

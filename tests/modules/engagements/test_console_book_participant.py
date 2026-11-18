@@ -815,12 +815,12 @@ async def test_console_book_persists_barcode_when_healthians_fails(
                     headers=_auth_header(621),
                 )
 
-    assert response.status_code == 200
-    body = response.json()["data"]
-    assert body["booking_created"] is False
-    assert body["barcode_saved"] is True
-    assert body["booking_id"] is None
-    assert "Barcode collected" in (body["message"] or "")
+    assert response.status_code == 422
+    body = response.json()
+    assert body["error_code"] == "HEALTHIANS_BOOKING_FAILED"
+    assert body["message"] == "Healthians API unavailable"
+    assert body.get("barcode_saved") is True
+    assert body.get("barcode") == "BC96004-KEEP"
 
     # Expire cached identity so we see the early commit from book_participant.
     test_db_session.expire_all()
@@ -952,6 +952,7 @@ async def test_console_book_soft_success_when_serviceability_fails(
     data = response.json()["data"]
     assert data["booking_created"] is False
     assert data["barcode_saved"] is True
+    assert data.get("internal_failure") is True
     test_db_session.expire_all()
     blood_row = await get_current_blood_booking(
         test_db_session, engagement_participant_id=96006
@@ -1000,12 +1001,85 @@ async def test_console_book_soft_success_when_create_booking_raises(
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["booking_created"] is False
-    assert data["partner_error"]
+    assert data.get("internal_failure") is True
     test_db_session.expire_all()
     blood_row = await get_current_blood_booking(
         test_db_session, engagement_participant_id=96007
     )
     assert blood_row.barcode == "BC96007"
+
+
+@pytest.mark.asyncio
+async def test_console_book_healthians_invalid_barcode_returns_422_with_barcode_saved(
+    async_client, test_db_session, monkeypatch
+):
+    from modules.audit.models import IntegrationSyncLog
+
+    monkeypatch.setattr(settings, "HEALTHIANS_CHECKSUM_KEY", "test-checksum-key")
+    await _seed_minimal_camp_book(
+        test_db_session,
+        engagement_id=7109,
+        engagement_code="CAMP7109",
+        engagement_participant_id=96009,
+        user_id=93109,
+        employee_id=629,
+    )
+
+    mock_serviceability = AsyncMock(
+        return_value={"status": True, "data": {"zone_id": 42}, "message": "ok"}
+    )
+    mock_create_booking = AsyncMock(
+        return_value={
+            "status": False,
+            "message": "Invalid Barcode. 4544454555",
+            "resCode": "RES0003",
+            "caller": "validateCreateBookingV2",
+        }
+    )
+
+    with patch(
+        "modules.engagements.console.service.healthians_client.check_serviceability_by_location_v2",
+        mock_serviceability,
+    ):
+        with patch(
+            "modules.engagements.console.service.healthians_client.create_booking_v3",
+            mock_create_booking,
+        ):
+            with patch(
+                "modules.engagements.console.service.healthians_client.get_access_token",
+                AsyncMock(return_value="token"),
+            ):
+                response = await async_client.post(
+                    "/engagements/7109/console/participants/93109/book",
+                    json={"barcode": "4544454555"},
+                    headers=_auth_header(629),
+                )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["error_code"] == "HEALTHIANS_BOOKING_FAILED"
+    assert "Invalid Barcode" in body["message"]
+    assert body.get("barcode_saved") is True
+    assert body.get("barcode") == "4544454555"
+
+    test_db_session.expire_all()
+    blood_row = await get_current_blood_booking(
+        test_db_session, engagement_participant_id=96009
+    )
+    assert blood_row.barcode == "4544454555"
+    assert blood_row.booking_id is None
+
+    log_rows = (
+        await test_db_session.execute(
+            select(IntegrationSyncLog)
+            .where(IntegrationSyncLog.engagement_id == 7109)
+            .where(IntegrationSyncLog.user_id == 93109)
+            .where(IntegrationSyncLog.api_endpoint_url.ilike("%createBooking_v3%"))
+            .order_by(IntegrationSyncLog.sync_log_id.desc())
+        )
+    ).scalars().all()
+    assert len(log_rows) >= 1
+    assert log_rows[0].status == "failed"
 
 
 @pytest.mark.asyncio
@@ -1053,8 +1127,9 @@ async def test_console_book_retry_after_soft_fail_creates_healthians_booking(
                     headers=_auth_header(628),
                 )
 
-    assert first.status_code == 200
-    assert first.json()["data"]["booking_created"] is False
+    assert first.status_code == 422
+    assert first.json()["error_code"] == "HEALTHIANS_BOOKING_FAILED"
+    assert first.json().get("barcode_saved") is True
 
     with patch(
         "modules.engagements.console.service.healthians_client.check_serviceability_by_location_v2",
