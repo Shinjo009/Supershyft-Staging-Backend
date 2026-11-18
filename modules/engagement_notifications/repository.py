@@ -126,6 +126,30 @@ class EngagementNotificationsRepository:
     async def delete_slot(self, db: AsyncSession, slot_id: int) -> None:
         await db.execute(delete(EngagementNotification).where(EngagementNotification.id == slot_id))
 
+    async def remove_service_from_slot(
+        self,
+        db: AsyncSession,
+        slot_id: int,
+        service_key: str,
+    ) -> bool:
+        """Remove one service_key from a slot; delete the slot if it was the last service."""
+        slot = await self.get_slot_by_id(db, slot_id)
+        if slot is None:
+            return False
+        key = (service_key or "").strip()
+        if not key:
+            return False
+        prior = normalize_notification_services(slot.notification_services)
+        remaining = [cfg for cfg in prior if cfg.service_key != key]
+        if len(remaining) == len(prior):
+            return False
+        if not remaining:
+            await self.delete_slot(db, slot_id)
+            return True
+        slot.notification_services = serialize_for_db(remaining)
+        await db.flush()
+        return True
+
     async def delete_slots_for_event(
         self, db: AsyncSession, *, engagement_id: int, event_code: str
     ) -> None:
