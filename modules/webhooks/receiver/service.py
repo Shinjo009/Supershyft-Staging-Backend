@@ -206,7 +206,10 @@ def _build_phlebo_participant_details(event_type: str, data: dict) -> dict[str, 
     }
     masked_number = str(data.get("masked_number") or "").strip()
     if masked_number:
+        # Flat aliases used by context_builder → phlebo.phlebo_phone / phone_number.
         details["masked_number"] = masked_number
+        details["phlebo_phone"] = masked_number
+        details["phone_number"] = masked_number
 
     if event_type in _PHLEBO_EVENTS_WITH_SESSION:
         message = str(data.get("message") or "").strip()
@@ -592,12 +595,21 @@ class WebhooksReceiverService:
                                 )
                             )
                     else:
+                        # Enroute / delay templates may still reference session.date/time;
+                        # attach schedule when available without requiring webhook slot fields.
+                        session_details = session_details_for_phlebo_assigned(
+                            payload_data=data,
+                            engagement_date=participant_engagement_date,
+                            slot_start_time=participant_slot_start_time,
+                            cabin=participant_cabin,
+                        )
                         notifications_dispatched = await self._dispatch_phlebo_event_notifications(
                             db,
                             event_type=event_type,
                             user_id=user_id,
                             engagement_id=engagement_id,
                             participant_details=participant_details,
+                            session_details=session_details,
                         )
 
         response_data = {

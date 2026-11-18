@@ -27,6 +27,51 @@ def _strip_placeholder(value: object | None) -> str:
     return "" if text == "-" else text
 
 
+def _phlebo_block_from_pd(pd: dict[str, Any]) -> dict[str, str]:
+    """Map Healthians / catalog phlebo fields onto `phlebo.*` template paths.
+
+    Webhooks store flat keys on participant_details (`phlebo_name`, `masked_number`).
+    Templates and the variable catalog use `phlebo.phlebo_name` / `phlebo.phlebo_phone`
+    (and some email bodies still use `phlebo.phone_number`).
+    """
+    nested = pd.get("phlebo") if isinstance(pd.get("phlebo"), dict) else {}
+    name = _strip_placeholder(
+        pd.get("phlebo_name")
+        or nested.get("phlebo_name")
+        or nested.get("name")
+    )
+    phone_raw = _strip_placeholder(
+        pd.get("phlebo_phone")
+        or pd.get("phone_number")
+        or pd.get("masked_number")
+        or nested.get("phlebo_phone")
+        or nested.get("phone_number")
+        or nested.get("masked_number")
+        or nested.get("phone")
+    )
+    phone = format_phone_display(phone_raw) if phone_raw else ""
+    tracking = _strip_placeholder(
+        pd.get("tracking_url")
+        or pd.get("tracking_link")
+        or nested.get("tracking_url")
+        or nested.get("tracking_link")
+        or nested.get("url")
+    )
+    eta = _strip_placeholder(
+        pd.get("eta_in_minutes")
+        if pd.get("eta_in_minutes") is not None
+        else nested.get("eta_in_minutes")
+    )
+    return {
+        "phlebo_name": name,
+        "phlebo_phone": phone,
+        "phone_number": phone,
+        "masked_number": phone or _strip_placeholder(pd.get("masked_number")),
+        "tracking_url": tracking,
+        "eta_in_minutes": eta,
+    }
+
+
 def _participant_block_from_pd(
     pd: dict[str, Any],
     *,
@@ -125,6 +170,8 @@ def build_member_context(
     if session_cabin == "-":
         session_cabin = ""
 
+    phlebo_block = _phlebo_block_from_pd(pd)
+
     context: dict[str, Any] = {
         "staff": {
             "name": member_name,
@@ -140,6 +187,7 @@ def build_member_context(
             "time": session_time,
             "cabin": session_cabin,
         },
+        "phlebo": phlebo_block,
         "report": {
             "blood_report_url": str(member.get("blood_report_url") or "").strip(),
             "bio_ai_report_url": str(member.get("bio_ai_report_url") or "").strip(),

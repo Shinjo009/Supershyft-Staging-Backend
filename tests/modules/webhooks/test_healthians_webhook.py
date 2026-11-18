@@ -805,6 +805,8 @@ async def test_phlebo_event_dispatches_notifications(
         assert pd["event_type"] == event_type
         assert pd["phlebo_name"] == "Chandrshekar V"
         assert pd["masked_number"] == "08047180026"
+        assert pd["phlebo_phone"] == "08047180026"
+        assert pd["phone_number"] == "08047180026"
         if event_type in {"phlebo_assigned", "phlebo_reassigned"}:
             member = call["json"]["members"][0]
             assert member["session_details"]["date"] == "2026-05-01"

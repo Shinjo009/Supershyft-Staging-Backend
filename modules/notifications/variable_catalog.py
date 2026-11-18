@@ -67,7 +67,13 @@ VARIABLE_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "gift.gift_message",
     ),
     "support": ("support.ticket_id", "support.query_text"),
-    "phlebo": ("phlebo.phlebo_name", "phlebo.phlebo_phone"),
+    "phlebo": (
+        "phlebo.phlebo_name",
+        "phlebo.phlebo_phone",
+        "phlebo.phone_number",
+        "phlebo.tracking_url",
+        "phlebo.eta_in_minutes",
+    ),
     "error": ("error.error_message", "error.api_path"),
     "server": (
         "server.hostname",

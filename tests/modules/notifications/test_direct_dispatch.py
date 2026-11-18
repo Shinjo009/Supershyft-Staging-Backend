@@ -126,6 +126,72 @@ def test_build_member_context_maps_participant_details_booking():
     assert context["user"]["address"] == "HSR Layout"
 
 
+def test_build_member_context_maps_healthians_phlebo_fields():
+    from modules.notifications.context_builder import build_member_context
+    from modules.notifications.template_variables import (
+        interpolate_email_template,
+        resolve_slots,
+    )
+
+    context = build_member_context(
+        {
+            "first_name": "Pratheek",
+            "last_name": "Bedre",
+            "phone": "8762830757",
+            "session_details": {
+                "date": "2026-11-19",
+                "slot": "09:00 AM to 10:00 AM",
+            },
+        },
+        participant_details={
+            "event_type": "phlebo_assigned",
+            "phlebo_name": "Test Phlebo Gowtham",
+            "masked_number": "07949108800",
+        },
+    )
+    assert context["phlebo"]["phlebo_name"] == "Test Phlebo Gowtham"
+    assert context["phlebo"]["phlebo_phone"] == "7949108800"
+    assert context["phlebo"]["phone_number"] == "7949108800"
+
+    email = interpolate_email_template(
+        "Your phlebotomist, {{phlebo.phlebo_name}}, phone {{phlebo.phone_number}} "
+        "/ {{phlebo.phlebo_phone}}",
+        context,
+    )
+    assert "Test Phlebo Gowtham" in email
+    assert "7949108800" in email
+    assert "{{" not in email
+
+    slots = resolve_slots(
+        {
+            "slots": [
+                {"index": 1, "source": "user.name"},
+                {
+                    "index": 2,
+                    "source": "literal",
+                    "value": (
+                        "Good news! Your phlebotomist, {{phlebo.phlebo_name}}, "
+                        "has been assigned."
+                    ),
+                },
+                {
+                    "index": 5,
+                    "source": "literal",
+                    "value": (
+                        "Name: {{phlebo.phlebo_name}} "
+                        "Contact Number: {{phlebo.phlebo_phone}}"
+                    ),
+                },
+            ]
+        },
+        context,
+    )
+    assert slots[1] == (
+        "Good news! Your phlebotomist, Test Phlebo Gowtham, has been assigned."
+    )
+    assert slots[2] == "Name: Test Phlebo Gowtham Contact Number: 7949108800"
+
+
 def test_interpolate_email_support_placeholders():
     from modules.notifications.context_builder import build_member_context
     from modules.notifications.template_variables import interpolate_email_template
