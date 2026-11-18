@@ -10,6 +10,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.responses import success_response
 from db.session import get_db
+from modules.dashboard.b2c_command_service import (
+    b2c_bioai_reports_count,
+    b2c_bioai_reports_page,
+    b2c_collection_tomorrow_count,
+    b2c_collection_tomorrow_page,
+    b2c_consultation_done_count,
+    b2c_consultation_done_page,
+    b2c_coupon_usage,
+    b2c_coupon_users_page,
+    b2c_package_performance,
+    b2c_package_users_page,
+    b2c_summary_counts,
+    b2c_tests_completed_count,
+    b2c_tests_completed_page,
+    b2c_total_bookings_count,
+    b2c_total_bookings_page,
+    b2c_users_page,
+)
 from modules.dashboard.command_period import resolve_period_bounds
 from modules.dashboard.command_service import (
     b2b_engagements_page,
@@ -904,4 +922,356 @@ async def get_command_b2b_engagements(
             "total": total,
             "bucket": bucket.strip().lower(),
         },
+    )
+
+
+def _b2c_period_meta(preset: str, page: int, limit: int, total: int) -> dict:
+    return {
+        "period": preset,
+        "page": page,
+        "limit": limit,
+        "total": total,
+    }
+
+
+@router.get("/command/b2c/summary")
+async def get_command_b2c_summary(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    data = await b2c_summary_counts(
+        db,
+        start_from=start,
+        start_to=end,
+        all_time=preset == "all_time",
+    )
+    return success_response(data, meta={"period": preset})
+
+
+@router.get("/command/b2c/total-bookings")
+async def get_command_b2c_total_bookings(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    include_rows: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    questionnaire_service: QuestionnaireService = Depends(
+        get_questionnaire_management_service
+    ),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    all_time = preset == "all_time"
+    if not include_rows:
+        total = await b2c_total_bookings_count(
+            db, created_from=start, created_to=end, all_time=all_time
+        )
+        return success_response([], meta=_b2c_period_meta(preset, page, limit, total))
+    rows, total = await b2c_total_bookings_page(
+        db,
+        created_from=start,
+        created_to=end,
+        all_time=all_time,
+        page=page,
+        limit=limit,
+        questionnaire_service=questionnaire_service,
+    )
+    return success_response(rows, meta=_b2c_period_meta(preset, page, limit, total))
+
+
+@router.get("/command/b2c/collection-tomorrow")
+async def get_command_b2c_collection_tomorrow(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    include_rows: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    questionnaire_service: QuestionnaireService = Depends(
+        get_questionnaire_management_service
+    ),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    all_time = preset == "all_time"
+    if not include_rows:
+        total = await b2c_collection_tomorrow_count(
+            db,
+            collection_from=start,
+            collection_to=end,
+            all_time=all_time,
+        )
+        return success_response([], meta=_b2c_period_meta(preset, page, limit, total))
+    rows, total = await b2c_collection_tomorrow_page(
+        db,
+        collection_from=start,
+        collection_to=end,
+        all_time=all_time,
+        page=page,
+        limit=limit,
+        questionnaire_service=questionnaire_service,
+    )
+    return success_response(rows, meta=_b2c_period_meta(preset, page, limit, total))
+
+
+@router.get("/command/b2c/tests-completed")
+async def get_command_b2c_tests_completed(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    include_rows: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    questionnaire_service: QuestionnaireService = Depends(
+        get_questionnaire_management_service
+    ),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    all_time = preset == "all_time"
+    if not include_rows:
+        total = await b2c_tests_completed_count(
+            db, collected_from=start, collected_to=end, all_time=all_time
+        )
+        return success_response([], meta=_b2c_period_meta(preset, page, limit, total))
+    rows, total = await b2c_tests_completed_page(
+        db,
+        collected_from=start,
+        collected_to=end,
+        all_time=all_time,
+        page=page,
+        limit=limit,
+        questionnaire_service=questionnaire_service,
+    )
+    return success_response(rows, meta=_b2c_period_meta(preset, page, limit, total))
+
+
+@router.get("/command/b2c/bio-ai-reports")
+async def get_command_b2c_bio_ai_reports(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    include_rows: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    questionnaire_service: QuestionnaireService = Depends(
+        get_questionnaire_management_service
+    ),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    all_time = preset == "all_time"
+    if not include_rows:
+        total = await b2c_bioai_reports_count(
+            db, received_from=start, received_to=end, all_time=all_time
+        )
+        return success_response([], meta=_b2c_period_meta(preset, page, limit, total))
+    rows, total = await b2c_bioai_reports_page(
+        db,
+        received_from=start,
+        received_to=end,
+        all_time=all_time,
+        page=page,
+        limit=limit,
+        questionnaire_service=questionnaire_service,
+    )
+    return success_response(rows, meta=_b2c_period_meta(preset, page, limit, total))
+
+
+@router.get("/command/b2c/consultation-done")
+async def get_command_b2c_consultation_done(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    include_rows: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    questionnaire_service: QuestionnaireService = Depends(
+        get_questionnaire_management_service
+    ),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    all_time = preset == "all_time"
+    if not include_rows:
+        total = await b2c_consultation_done_count(
+            db, done_from=start, done_to=end, all_time=all_time
+        )
+        return success_response([], meta=_b2c_period_meta(preset, page, limit, total))
+    rows, total = await b2c_consultation_done_page(
+        db,
+        done_from=start,
+        done_to=end,
+        all_time=all_time,
+        page=page,
+        limit=limit,
+        questionnaire_service=questionnaire_service,
+    )
+    return success_response(rows, meta=_b2c_period_meta(preset, page, limit, total))
+
+
+@router.get("/command/b2c/package-performance")
+async def get_command_b2c_package_performance(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    rows = await b2c_package_performance(
+        db,
+        created_from=start,
+        created_to=end,
+        all_time=preset == "all_time",
+    )
+    return success_response(rows, meta={"period": preset, "total": len(rows)})
+
+
+@router.get("/command/b2c/package-performance/users")
+async def get_command_b2c_package_users(
+    package_id: int = Query(..., ge=1),
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    questionnaire_service: QuestionnaireService = Depends(
+        get_questionnaire_management_service
+    ),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    rows, total = await b2c_package_users_page(
+        db,
+        package_id=package_id,
+        created_from=start,
+        created_to=end,
+        all_time=preset == "all_time",
+        page=page,
+        limit=limit,
+        questionnaire_service=questionnaire_service,
+    )
+    return success_response(
+        rows,
+        meta={
+            **_b2c_period_meta(preset, page, limit, total),
+            "package_id": package_id,
+        },
+    )
+
+
+@router.get("/command/b2c/coupon-usage")
+async def get_command_b2c_coupon_usage(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    rows = await b2c_coupon_usage(
+        db,
+        created_from=start,
+        created_to=end,
+        all_time=preset == "all_time",
+    )
+    return success_response(rows, meta={"period": preset, "total": len(rows)})
+
+
+@router.get("/command/b2c/coupon-usage/users")
+async def get_command_b2c_coupon_users(
+    discount_code_id: int = Query(..., ge=1),
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    questionnaire_service: QuestionnaireService = Depends(
+        get_questionnaire_management_service
+    ),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    rows, total = await b2c_coupon_users_page(
+        db,
+        discount_code_id=discount_code_id,
+        created_from=start,
+        created_to=end,
+        all_time=preset == "all_time",
+        page=page,
+        limit=limit,
+        questionnaire_service=questionnaire_service,
+    )
+    return success_response(
+        rows,
+        meta={
+            **_b2c_period_meta(preset, page, limit, total),
+            "discount_code_id": discount_code_id,
+        },
+    )
+
+
+@router.get("/command/b2c/users")
+async def get_command_b2c_users(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    questionnaire_service: QuestionnaireService = Depends(
+        get_questionnaire_management_service
+    ),
+):
+    del employee
+    rows, total = await b2c_users_page(
+        db,
+        page=page,
+        limit=limit,
+        questionnaire_service=questionnaire_service,
+    )
+    return success_response(
+        rows,
+        meta={"page": page, "limit": limit, "total": total},
     )
