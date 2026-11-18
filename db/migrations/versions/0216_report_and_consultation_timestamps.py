@@ -1,7 +1,7 @@
 """Add report_received_at and consultation_done_at timestamps for command KPIs.
 
-Revision ID: 0211_report_consult_ts
-Revises: 0210_merge_0209_heads
+Revision ID: 0216_report_consult_ts
+Revises: 0215_reminder_notif_cleanup
 """
 
 from __future__ import annotations
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy import inspect
 
-revision = "0211_report_consult_ts"
-down_revision = "0210_merge_0209_heads"
+revision = "0216_report_consult_ts"
+down_revision = "0215_reminder_notif_cleanup"
 branch_labels = None
 depends_on = None
 
