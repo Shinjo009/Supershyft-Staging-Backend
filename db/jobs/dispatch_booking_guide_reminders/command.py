@@ -1,13 +1,15 @@
-"""Dispatch booking guide notifications to assigned phlebo partners.
+"""Dispatch booking guide notifications for configured engagement recipients.
 
 Finds scheduled or running engagements whose blood collection is tomorrow (IST)
 — from slot_detail blood_collection dates, else active participant blood-booking
-dates, else engagement start_date — and dispatches booking_guide notifications
-to assigned phlebo partners. Intended to run once daily via an external scheduler.
+dates, else engagement start_date — and dispatches ``reminders.booking_guide``
+notifications to each configured recipient type (e.g. phlebo assistants and
+staff assistants). Recipients already sent successfully (or still in flight)
+are skipped on re-run; failed recipients are retried.
 
 Production example (Linux cron, IST):
 
-    # 4pm IST — onboarding assistants for engagements with blood collection tomorrow
+    # 4pm IST — booking-guide recipients for engagements with blood collection tomorrow
     30 16 * * * cd /path/to/dev-api && TZ=Asia/Kolkata /path/to/venv/bin/python -m db.jobs.dispatch_booking_guide_reminders --yes >> /var/log/supershyft/booking-guide-reminders.log 2>&1
 
 Entrypoint: ``python -m db.jobs.dispatch_booking_guide_reminders --yes``
@@ -86,7 +88,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Report how many onboarding assistants would be notified without dispatching.",
+        help="Report how many configured recipients would be notified without dispatching.",
     )
     parser.add_argument(
         "--as-of",

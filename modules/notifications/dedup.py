@@ -96,6 +96,92 @@ async def has_notification_been_sent(
     )
 
 
+def _contact_match_filter(
+    *,
+    partner_id: int | None,
+    employee_id: int | None,
+    phone: str | None,
+    email: str | None,
+):
+    """JSONB containment filter matching one contact identity inside user.contacts."""
+    contacts_col = cast(Notification.user, JSONB)["contacts"]
+    if isinstance(partner_id, int):
+        return contacts_col.contains(type_coerce([{"partner_id": partner_id}], JSONB))
+    if isinstance(employee_id, int):
+        return contacts_col.contains(type_coerce([{"employee_id": employee_id}], JSONB))
+    phone_value = (phone or "").strip()
+    if phone_value:
+        return contacts_col.contains(type_coerce([{"phone": phone_value}], JSONB))
+    email_value = (email or "").strip().lower()
+    if email_value:
+        return contacts_col.contains(type_coerce([{"email": email_value}], JSONB))
+    return None
+
+
+async def should_skip_contact_notification(
+    db: AsyncSession,
+    *,
+    service_key: str,
+    engagement_id: int,
+    partner_id: int | None = None,
+    employee_id: int | None = None,
+    phone: str | None = None,
+    email: str | None = None,
+    pending_timeout_hours: int | None = None,
+) -> str | None:
+    """Return a skip reason for contact-based dispatch (partners/employees), else None.
+
+    Skips when a prior notification for this service_key + engagement + contact
+    identity has status ``sent``, or when a non-stale ``pending`` row is still
+    in flight. Retries when prior rows are ``failed`` or stale ``pending``.
+    """
+    contact_filter = _contact_match_filter(
+        partner_id=partner_id,
+        employee_id=employee_id,
+        phone=phone,
+        email=email,
+    )
+    if contact_filter is None:
+        return None
+
+    hours = (
+        pending_timeout_hours
+        if pending_timeout_hours is not None
+        else DEFAULT_PENDING_TIMEOUT_HOURS
+    )
+    in_flight_cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    in_flight_query = (
+        select(Notification.notification_id)
+        .where(Notification.service_key == service_key)
+        .where(Notification.engagement_id == engagement_id)
+        .where(Notification.status == "pending")
+        .where(Notification.dispatched_at.isnot(None))
+        .where(Notification.dispatched_at >= in_flight_cutoff)
+        .where(contact_filter)
+        .limit(1)
+    )
+    if (await db.execute(in_flight_query)).scalar_one_or_none() is not None:
+        return "already in flight"
+
+    query = (
+        select(Notification.status)
+        .where(Notification.service_key == service_key)
+        .where(Notification.engagement_id == engagement_id)
+        .where(contact_filter)
+    )
+    result = await db.execute(query)
+    statuses = [row[0] for row in result.all()]
+
+    if not statuses:
+        return None
+
+    if any(status == "sent" for status in statuses):
+        return "already sent"
+
+    return None
+
+
 async def should_skip_notification_on_date(
     db: AsyncSession,
     *,

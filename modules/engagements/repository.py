@@ -1682,8 +1682,13 @@ class EngagementsRepository:
         db: AsyncSession,
         *,
         collection_date: date,
-    ) -> list[tuple[int, list[NotificationServiceConfigItem]]]:
-        """Return (engagement_id, service_configs) for scheduled/running engagements with collection on collection_date."""
+    ) -> list[int]:
+        """Return engagement_ids for scheduled/running camps with collection on collection_date.
+
+        Engagements must have at least one ``reminders.booking_guide`` slot with
+        configured notification services. Recipient resolution happens later from
+        each slot's recipient_type (phlebo/staff/etc.).
+        """
         query = (
             select(
                 Engagement.engagement_id,
@@ -1701,7 +1706,6 @@ class EngagementsRepository:
             )
             .where(self._scheduled_or_running_engagement_status_filter())
             .where(EngagementNotification.event_code == "reminders.booking_guide")
-            .distinct()
             .order_by(Engagement.engagement_id.asc())
         )
         result = await db.execute(query)
@@ -1709,7 +1713,7 @@ class EngagementsRepository:
         if not rows:
             return []
 
-        engagement_ids = [int(row.engagement_id) for row in rows]
+        candidate_ids = sorted({int(row.engagement_id) for row in rows})
         pbb_result = await db.execute(
             select(EngagementParticipant.engagement_id)
             .join(
@@ -1718,7 +1722,7 @@ class EngagementsRepository:
                 == EngagementParticipant.engagement_participant_id,
             )
             .where(
-                EngagementParticipant.engagement_id.in_(engagement_ids),
+                EngagementParticipant.engagement_id.in_(candidate_ids),
                 ParticipantBloodBooking.collection_date == collection_date,
                 ParticipantBloodBooking.status == "active",
             )
@@ -1726,12 +1730,14 @@ class EngagementsRepository:
         )
         engagements_with_booking_on_date = {int(eid) for (eid,) in pbb_result.all()}
 
-        matches: list[tuple[int, list[NotificationServiceConfigItem]]] = []
+        matches: list[int] = []
+        seen: set[int] = set()
         for row in rows:
-            service_configs = normalize_notification_services(row.notification_services)
-            if not service_configs:
-                continue
             engagement_id = int(row.engagement_id)
+            if engagement_id in seen:
+                continue
+            if not normalize_notification_services(row.notification_services):
+                continue
             if not engagement_collection_date_matches(
                 start_date=row.start_date,
                 slot_detail=row.slot_detail,
@@ -1741,7 +1747,8 @@ class EngagementsRepository:
                 ),
             ):
                 continue
-            matches.append((engagement_id, service_configs))
+            seen.add(engagement_id)
+            matches.append(engagement_id)
         return matches
 
     async def list_participants_for_questionnaire_reminder(
