@@ -759,177 +759,21 @@ async def _questionnaire_done_audience_by_user(
     all_time: bool,
     questionnaire_service: Any | None = None,
 ) -> dict[int, str]:
-    """Users whose primary assessment questionnaire is completed.
-
-    Ranged periods: only rows with assessment_instances.completed_at in bounds
-    (null completed_at ignored). All-time: also include category-complete /
-    all-required-answered paths even when completed_at is null.
-    """
-    enroll_q = (
-        select(
-            EngagementParticipant.user_id,
-            EngagementParticipant.engagement_participant_id,
-            Engagement.engagement_id,
-            Engagement.organization_id,
-            Engagement.assessment_package_id,
-        )
-        .select_from(EngagementParticipant)
-        .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
+    """Users whose questionnaire is complete (camp-report KPI rules, MetSights required categories)."""
+    del questionnaire_service  # KPI path is fully determined in SQL rollups.
+    from modules.reports.questionnaire_kpi_completion import (
+        questionnaire_kpi_done_users_by_org,
     )
-    enroll_rows = (await db.execute(enroll_q)).all()
-    if not enroll_rows:
-        return {}
 
-    user_ids = list({int(r.user_id) for r in enroll_rows})
-    engagement_ids = list({int(r.engagement_id) for r in enroll_rows})
-
-    all_inst = (
-        await db.execute(
-            select(AssessmentInstance).where(
-                AssessmentInstance.user_id.in_(user_ids),
-                AssessmentInstance.engagement_id.in_(engagement_ids),
-            )
-        )
-    ).scalars().all()
-    grouped: dict[tuple[int, int], list[AssessmentInstance]] = {}
-    for inst in all_inst:
-        grouped.setdefault((int(inst.user_id), int(inst.engagement_id)), []).append(inst)
-
-    package_ids = list(
-        {
-            int(r.assessment_package_id)
-            for r in enroll_rows
-            if r.assessment_package_id is not None
-        }
+    org_by_user = await questionnaire_kpi_done_users_by_org(
+        db,
+        completed_from=completed_from,
+        completed_to=completed_to,
+        all_time=all_time,
     )
-    supershyft_cats_by_package: dict[int, list[int]] = {}
-    if package_ids:
-        cat_rows = (
-            await db.execute(
-                select(
-                    AssessmentPackageCategory.package_id,
-                    QuestionnaireCategory.category_id,
-                )
-                .join(
-                    QuestionnaireCategory,
-                    QuestionnaireCategory.category_id
-                    == AssessmentPackageCategory.category_id,
-                )
-                .where(AssessmentPackageCategory.package_id.in_(package_ids))
-                .where(QuestionnaireCategory.category_of == "supershyft")
-            )
-        ).all()
-        for prow in cat_rows:
-            supershyft_cats_by_package.setdefault(int(prow.package_id), []).append(
-                int(prow.category_id)
-            )
-
-    instance_ids = [int(i.assessment_instance_id) for i in all_inst]
-    progress_by_instance: dict[int, dict[int, str]] = {}
-    if instance_ids:
-        progress_rows = (
-            await db.execute(
-                select(AssessmentCategoryProgress).where(
-                    AssessmentCategoryProgress.assessment_instance_id.in_(instance_ids)
-                )
-            )
-        ).scalars().all()
-        for p in progress_rows:
-            progress_by_instance.setdefault(int(p.assessment_instance_id), {})[
-                int(p.category_id)
-            ] = str(p.status or "")
-
-    # Candidates: (user_id, completed_at, organization_id, instance, cat_ids, progress)
-    candidates: list[tuple[int, datetime | None, int | None, AssessmentInstance, list[int], dict[int, str]]] = []
-    for row in enroll_rows:
-        uid = int(row.user_id)
-        eng_id = int(row.engagement_id)
-        primary = _pick_primary_instance(
-            grouped.get((uid, eng_id), []),
-            row.assessment_package_id,
-        )
-        if primary is None:
-            continue
-        completed_at = primary.completed_at
-        if not all_time:
-            if completed_at is None:
-                continue
-            if completed_from is not None and completed_at < completed_from:
-                continue
-            if completed_to is not None and completed_at > completed_to:
-                continue
-        pkg_id = int(primary.package_id)
-        cat_ids = supershyft_cats_by_package.get(pkg_id, [])
-        progress_map = progress_by_instance.get(int(primary.assessment_instance_id), {})
-        candidates.append(
-            (uid, completed_at, row.organization_id, primary, cat_ids, progress_map)
-        )
-
-    # Ranged: completed_at in bounds is the completion stamp.
-    # All-time: full OR (instance status / supershyft cats / required answered).
-    qualified: list[tuple[int, datetime | None, int | None, int]] = []
-    needs_deep: list[
-        tuple[int, datetime | None, int | None, AssessmentInstance, list[int], dict[int, str]]
-    ] = []
-
-    for uid, completed_at, org_id, primary, cat_ids, progress_map in candidates:
-        iid = int(primary.assessment_instance_id)
-        if not all_time:
-            qualified.append((uid, completed_at, org_id, iid))
-            continue
-        label = _questionnaire_status_label(
-            has_engagement=True,
-            instance_status=str(primary.status or ""),
-            supershyft_category_ids=cat_ids,
-            progress_by_category=progress_map,
-            all_required_answered=None,
-        )
-        if label == "completed":
-            qualified.append((uid, completed_at, org_id, iid))
-        else:
-            needs_deep.append((uid, completed_at, org_id, primary, cat_ids, progress_map))
-
-    if needs_deep and questionnaire_service is not None:
-        for uid, completed_at, org_id, primary, cat_ids, progress_map in needs_deep:
-            if not cat_ids:
-                continue
-            try:
-                ok_all = True
-                for cid in cat_ids:
-                    if (progress_map.get(cid) or "").lower() in ("completed", "complete"):
-                        continue
-                    complete = await questionnaire_service.is_category_complete(
-                        db,
-                        assessment_instance_id=int(primary.assessment_instance_id),
-                        category_id=cid,
-                        user_id=uid,
-                    )
-                    if not complete:
-                        ok_all = False
-                        break
-            except Exception:
-                ok_all = False
-            if ok_all:
-                qualified.append(
-                    (uid, completed_at, org_id, int(primary.assessment_instance_id))
-                )
-
-    # One audience per user: prefer latest completed_at, then highest instance id
-    best: dict[int, tuple[datetime | None, int | None, int]] = {}
-    for uid, completed_at, org_id, instance_id in qualified:
-        prev = best.get(uid)
-        if prev is None:
-            best[uid] = (completed_at, org_id, instance_id)
-            continue
-        prev_ca, _prev_org, prev_iid = prev
-        if completed_at is not None and (prev_ca is None or completed_at > prev_ca):
-            best[uid] = (completed_at, org_id, instance_id)
-        elif completed_at == prev_ca and instance_id > prev_iid:
-            best[uid] = (completed_at, org_id, instance_id)
-
     return {
         uid: _audience_type(has_engagement=True, organization_id=org_id)
-        for uid, (_ca, org_id, _iid) in best.items()
+        for uid, org_id in org_by_user.items()
     }
 
 

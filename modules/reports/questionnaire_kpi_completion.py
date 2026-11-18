@@ -16,7 +16,7 @@ from modules.assessments.models import (
     AssessmentPackage,
     AssessmentPackageCategory,
 )
-from modules.engagements.models import EngagementParticipant
+from modules.engagements.models import Engagement, EngagementParticipant
 from modules.questionnaire.models import (
     QuestionnaireCategory,
     QuestionnaireCategoryQuestion,
@@ -417,3 +417,108 @@ def count_questionnaire_completed_on_day(
         if _ist_date(completed_at) == day:
             count += 1
     return count
+
+
+def _completion_in_period(
+    completed_at: datetime | None,
+    *,
+    completed_from: datetime | None,
+    completed_to: datetime | None,
+    all_time: bool,
+) -> bool:
+    if all_time:
+        return True
+    if completed_at is None:
+        return False
+    if completed_from is not None and completed_at < completed_from:
+        return False
+    if completed_to is not None and completed_at > completed_to:
+        return False
+    return True
+
+
+async def questionnaire_kpi_done_users_by_org(
+    db: AsyncSession,
+    *,
+    completed_from: datetime | None,
+    completed_to: datetime | None,
+    all_time: bool,
+) -> dict[int, int | None]:
+    """Map user_id -> organization_id for users KPI-complete under camp-report rules.
+
+  Ranged periods use the latest required MetSights category ``completed_at``.
+  All-time includes KPI-filled users even when that timestamp is missing.
+  One row per user (latest completion wins).
+    """
+    enroll_rows = (
+        await db.execute(
+            select(
+                EngagementParticipant.user_id,
+                Engagement.engagement_id,
+                Engagement.organization_id,
+            )
+            .select_from(EngagementParticipant)
+            .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
+        )
+    ).all()
+    if not enroll_rows:
+        return {}
+
+    participants_by_eng: dict[int, set[int]] = {}
+    org_by_user_engagement: dict[tuple[int, int], int | None] = {}
+    for row in enroll_rows:
+        uid = int(row.user_id)
+        eid = int(row.engagement_id)
+        participants_by_eng.setdefault(eid, set()).add(uid)
+        org_by_user_engagement[(uid, eid)] = (
+            int(row.organization_id) if row.organization_id is not None else None
+        )
+
+    engagement_ids = list(participants_by_eng.keys())
+    data = await load_kpi_questionnaire_data(
+        db,
+        engagement_ids=engagement_ids,
+        user_ids=None,
+    )
+    if data is None or not data.instance_rows:
+        return {}
+
+    candidates: list[tuple[int, datetime | None, int | None]] = []
+    for eid, scoped_users in participants_by_eng.items():
+        rollup = rollup_questionnaire_kpi_for_engagement(
+            scoped_users=scoped_users,
+            instance_rows=data.instances_by_eng.get(eid, []),
+            data=data,
+        )
+        filled_ids = rollup.get("filled_user_ids") or set()
+        completion_map = rollup.get("filled_completion_at_by_user") or {}
+        for uid in filled_ids:
+            completed_at = completion_map.get(uid)
+            if not _completion_in_period(
+                completed_at,
+                completed_from=completed_from,
+                completed_to=completed_to,
+                all_time=all_time,
+            ):
+                continue
+            org_id = org_by_user_engagement.get((uid, eid))
+            candidates.append((uid, completed_at, org_id))
+
+    best: dict[int, tuple[datetime | None, int | None]] = {}
+    for uid, completed_at, org_id in candidates:
+        prev = best.get(uid)
+        if prev is None:
+            best[uid] = (completed_at, org_id)
+            continue
+        prev_ca, _prev_org = prev
+        if completed_at is not None and (prev_ca is None or completed_at > prev_ca):
+            best[uid] = (completed_at, org_id)
+        elif (
+            completed_at is not None
+            and prev_ca is not None
+            and completed_at == prev_ca
+            and org_id is not None
+        ):
+            best[uid] = (completed_at, org_id)
+
+    return {uid: org_id for uid, (_ca, org_id) in best.items()}
