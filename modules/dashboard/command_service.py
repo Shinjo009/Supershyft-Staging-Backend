@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import func, or_, select
@@ -14,7 +14,7 @@ from modules.assessments.models import (
     AssessmentPackageCategory,
 )
 from core.exceptions import AppError
-from modules.dashboard.command_period import pick_latest_engagement
+from modules.dashboard.command_period import command_today, pick_latest_engagement
 from modules.diagnostics.models import DiagnosticPackage
 from modules.engagements.blood_bookings_repository import current_blood_booking_subquery
 from modules.engagements.dependencies import get_engagements_repository
@@ -42,8 +42,10 @@ def _person_name(first: str | None, last: str | None) -> str:
 
 
 def _is_consultation_type(code: str | None, display_name: str | None) -> bool:
-    blob = f"{code or ''} {display_name or ''}".strip().lower()
-    return "consultation" in blob
+    """True only for consultation-only engagements (no diagnostic package path)."""
+    if (code or "").strip().lower() == "consultation":
+        return True
+    return (display_name or "").strip().lower() == "consultation"
 
 
 def _questionnaire_status_label(
@@ -220,7 +222,7 @@ async def people_registered_page(
     today: date | None = None,
     questionnaire_service: Any | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
-    day = today or datetime.now(timezone.utc).date()
+    day = today or command_today()
     total = await people_registered_count(
         db,
         created_from=created_from,
@@ -697,7 +699,7 @@ async def tests_completed_page(
     today: date | None = None,
     questionnaire_service: Any | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    day = today or datetime.now(timezone.utc).date()
+    day = today or command_today()
     audience = await _tests_completed_audience_by_user(
         db,
         collected_from=collected_from,
@@ -957,7 +959,7 @@ async def questionnaire_done_page(
     today: date | None = None,
     questionnaire_service: Any | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    day = today or datetime.now(timezone.utc).date()
+    day = today or command_today()
     audience = await _questionnaire_done_audience_by_user(
         db,
         completed_from=completed_from,
@@ -1186,7 +1188,7 @@ async def _people_page_for_audience(
     today: date | None = None,
     questionnaire_service: Any | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    day = today or datetime.now(timezone.utc).date()
+    day = today or command_today()
     counts = _audience_split_counts(audience)
     user_ids = sorted(audience.keys(), reverse=True)
     offset = max(0, (page - 1) * limit)
@@ -1734,7 +1736,7 @@ async def _upcoming_collections_audience_by_user(
     today: date | None = None,
 ) -> dict[int, str]:
     """Current PBB: not collected, collection_date >= today, period on collection_date."""
-    day = today or datetime.now(timezone.utc).date()
+    day = today or command_today()
     curr_pbb = current_blood_booking_subquery()
     query = (
         select(
@@ -1841,7 +1843,7 @@ async def _overdue_collections_audience_by_user(
     today: date | None = None,
 ) -> dict[int, str]:
     """Current PBB: past collection_date, not collected, booking_id empty."""
-    day = today or datetime.now(timezone.utc).date()
+    day = today or command_today()
     curr_pbb = current_blood_booking_subquery()
     query = (
         select(

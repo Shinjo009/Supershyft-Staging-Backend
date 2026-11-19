@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from core.exceptions import AppError
+
+IST = ZoneInfo("Asia/Kolkata")
 
 PeriodPreset = Literal[
     "this_week",
@@ -26,6 +29,11 @@ VALID_PERIODS: set[str] = {
     "all_time",
     "custom",
 }
+
+
+def command_today(*, today: date | None = None) -> date:
+    """Business calendar day for command-dashboard metrics (Asia/Kolkata)."""
+    return today or datetime.now(IST).date()
 
 
 def _start_of_week(d: date) -> date:
@@ -58,9 +66,12 @@ def resolve_period_bounds(
 ) -> tuple[datetime | None, datetime | None, str]:
     """Return inclusive UTC datetime bounds and normalized period id.
 
+    Calendar days use Asia/Kolkata; bounds are converted to UTC for
+    comparison against ``timestamptz`` columns.
+
     ``all_time`` returns ``(None, None)`` (no date filter).
     """
-    day = today or datetime.now(timezone.utc).date()
+    day = command_today(today=today)
     preset = (period or "this_week").strip().lower()
     if preset not in VALID_PERIODS:
         raise AppError(
@@ -108,8 +119,10 @@ def resolve_period_bounds(
     else:
         start_d, end_d = _start_of_week(day), _end_of_week(day)
 
-    start_dt = datetime.combine(start_d, time.min, tzinfo=timezone.utc)
-    end_dt = datetime.combine(end_d, time.max.replace(microsecond=999999), tzinfo=timezone.utc)
+    start_dt = datetime.combine(start_d, time.min, tzinfo=IST).astimezone(timezone.utc)
+    end_dt = datetime.combine(
+        end_d, time.max.replace(microsecond=999999), tzinfo=IST
+    ).astimezone(timezone.utc)
     return start_dt, end_dt, preset
 
 

@@ -604,3 +604,118 @@ async def test_command_blood_report_null_stamp_all_time_only(async_client, test_
     assert all_time.json()["meta"]["total"] == 1
     assert all_time.json()["meta"]["b2c"] == 1
     assert len(all_time.json()["data"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_command_people_registered_blood_test_with_consultation_fields(
+    async_client, test_db_session
+):
+    """Composite consultation types must still expose package / blood / lab columns."""
+    from datetime import date, datetime, time, timezone
+
+    from sqlalchemy import text
+
+    from modules.diagnostics.models import DiagnosticPackage
+    from modules.engagements.blood_booking_enums import BloodBookingRelation, BloodBookingStatus
+    from modules.engagements.models import Engagement, EngagementParticipant, ParticipantBloodBooking
+    from modules.users.models import User
+
+    await seed_employee(test_db_session, employee_id=8837, role="admin")
+
+    await test_db_session.execute(
+        text(
+            "INSERT INTO engagement_types (code, display_name, is_active) "
+            "VALUES (:code, :dn, true) "
+            "ON CONFLICT (code) DO UPDATE SET display_name = EXCLUDED.display_name, is_active = true"
+        ),
+        {
+            "code": "blood_test_with_consultation",
+            "dn": "Blood Test with Consultation",
+        },
+    )
+    await test_db_session.flush()
+    type_id = int(
+        (
+            await test_db_session.execute(
+                text(
+                    "SELECT id FROM engagement_types WHERE code = 'blood_test_with_consultation'"
+                )
+            )
+        ).scalar_one()
+    )
+
+    pkg = DiagnosticPackage(
+        diagnostic_package_id=88370,
+        package_name="Super Panel",
+        package_for="public",
+        status="active",
+    )
+    test_db_session.add(pkg)
+    await test_db_session.flush()
+
+    today = date.today()
+    user = User(
+        user_id=88370,
+        first_name="Ada",
+        last_name="Blood",
+        phone="8837000000",
+        age=32,
+        gender="female",
+        status="active",
+        created_at=datetime.now(timezone.utc),
+    )
+    test_db_session.add(user)
+    await test_db_session.flush()
+
+    test_db_session.add(
+        Engagement(
+            engagement_id=88370,
+            engagement_code="BTC-88370",
+            engagement_name="Blood+Consult Camp",
+            organization_id=None,
+            city="Bengaluru",
+            start_date=today,
+            end_date=today,
+            status="running",
+            slot_duration=20,
+            engagement_type=type_id,
+            diagnostic_package_id=88370,
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        EngagementParticipant(
+            engagement_participant_id=88370,
+            engagement_id=88370,
+            user_id=88370,
+            booked_by_user_id=88370,
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        ParticipantBloodBooking(
+            engagement_participant_id=88370,
+            collection_date=today,
+            collection_time=time(9, 30),
+            relation=BloodBookingRelation.primary.value,
+            status=BloodBookingStatus.active.value,
+            collected_at=None,
+            diagnostic_report_url="https://example.com/lab-88370.pdf",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        "/admin/dashboard/command/people-registered",
+        params={"period": "all_time", "include_rows": "true", "limit": 100},
+        headers=employee_auth_header(8837),
+    )
+    assert response.status_code == 200
+    rows = response.json()["data"]
+    row = next(r for r in rows if r["user_id"] == 88370)
+    assert row["engagement"] == "Blood+Consult Camp"
+    assert row["package"] == "Super Panel"
+    assert row["collection"].startswith(today.isoformat())
+    assert "09:30" in row["collection"]
+    assert row["blood_collection"] == "pending"
+    assert row["lab_report"] == "loaded"
