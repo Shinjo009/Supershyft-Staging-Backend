@@ -1065,6 +1065,12 @@ class ReportsService:
 
         await release_request_transaction(db)
 
+        if not await self._metsights_service.is_bioai_report_generated(
+            record_id=record_id,
+            assessment_type_code=assessment_type_code,
+        ):
+            return {}
+
         report_data = await self._metsights_service.get_report(
             record_id=record_id,
             assessment_type_code=assessment_type_code,
@@ -1592,6 +1598,16 @@ class ReportsService:
         sn_assessment_instance_id = assessment_instance.assessment_instance_id
 
         await release_request_transaction(db)
+
+        if not await self._metsights_service.is_bioai_report_generated(
+            record_id=record_id,
+            assessment_type_code=assessment_type_code,
+        ):
+            raise AppError(
+                status_code=404,
+                error_code="REPORT_NOT_FOUND",
+                message="Report not found for this record",
+            )
 
         report_data = await self._metsights_service.get_report(
             record_id=record_id,
@@ -2349,6 +2365,16 @@ class ReportsService:
             sn_assessment_instance_id = assessment_instance.assessment_instance_id
 
             await release_request_transaction(db)
+
+            if not await self._metsights_service.is_bioai_report_generated(
+                record_id=record_id,
+                assessment_type_code="7",
+            ):
+                raise AppError(
+                    status_code=404,
+                    error_code="REPORT_NOT_FOUND",
+                    message="Report not found for this record",
+                )
 
             report_data = await self._metsights_service.get_report(
                 record_id=record_id,

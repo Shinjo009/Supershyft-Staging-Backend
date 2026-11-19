@@ -12,7 +12,7 @@ from core.config import settings
 from modules.assessments.dependencies import get_assessments_service
 from modules.assessments.models import AssessmentCategoryProgress, AssessmentInstance, AssessmentPackageCategory
 from modules.engagements.dependencies import get_engagements_service
-from modules.engagements.models import Engagement, EngagementParticipant
+from modules.engagements.models import Engagement, EngagementParticipant, ParticipantBloodBooking
 from modules.metsights.client import MetsightsClient
 from modules.metsights.service import MetsightsService
 from modules.metsights.sync_service import MetsightsSyncService
@@ -139,15 +139,22 @@ async def _seed_running_participant(
             service_keys=[blood_report_notification],
         )
 
-    test_db_session.add(
-        EngagementParticipant(
-            engagement_id=engagement_id,
-            user_id=user_id,
-            engagement_date=date.today() - timedelta(days=1),
-            slot_start_time=time(9, 0),
-            booking_id=booking_id,
-        )
+    participant = EngagementParticipant(
+        engagement_id=engagement_id,
+        user_id=user_id,
+        booked_by_user_id=user_id,
     )
+    test_db_session.add(participant)
+    await test_db_session.flush()
+    if booking_id is not None:
+        test_db_session.add(
+            ParticipantBloodBooking(
+                engagement_participant_id=participant.engagement_participant_id,
+                collection_date=date.today() - timedelta(days=1),
+                collection_time=time(9, 0),
+                booking_id=booking_id,
+            )
+        )
     test_db_session.add(
         AssessmentInstance(
             assessment_instance_id=assessment_id,
@@ -1348,13 +1355,13 @@ async def test_load_blood_reports_skips_metsights_push_when_bioai_report_generat
     ]
     assert len(skipped) == 1
 
-    ihr = (
+    pbb = (
         await test_db_session.execute(
-            select(IndividualHealthReport).where(IndividualHealthReport.assessment_instance_id == 88002)
+            select(ParticipantBloodBooking).where(ParticipantBloodBooking.booking_id == "BOOK-88001")
         )
     ).scalar_one_or_none()
-    assert ihr is not None
-    assert ihr.blood_parameters is not None
+    assert pbb is not None
+    assert pbb.blood_parameters is not None
 
 
 @pytest.mark.asyncio

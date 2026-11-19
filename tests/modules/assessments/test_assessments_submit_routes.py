@@ -704,6 +704,78 @@ async def test_submit_legacy_pro_pushes_fitprint_sibling_fitness(async_client, t
 
 
 @pytest.mark.asyncio
+async def test_submit_category_does_not_call_metsights_get_report(async_client, test_db_session, monkeypatch):
+    from modules.metsights.client import MetsightsClient
+    from modules.metsights.sync_service import MetsightsSyncService
+
+    await _ensure_test_engagement(test_db_session)
+    monkeypatch.setattr(settings, "METSIGHTS_API_KEY", "test-key")
+
+    get_report_calls = 0
+
+    async def _detail(self, *, record_id: str):
+        return {"id": record_id, "has_report": False}
+
+    async def _get_report(self, *, record_id: str, assessment_type_code: str | None):
+        nonlocal get_report_calls
+        get_report_calls += 1
+        return {"detail": "ok", "data": {}}
+
+    async def _fake_push(self, db, **kwargs):
+        return {"status": "ok", "category": kwargs.get("category_key")}
+
+    monkeypatch.setattr(MetsightsClient, "get_record_detail", _detail)
+    monkeypatch.setattr(MetsightsClient, "get_report", _get_report)
+    monkeypatch.setattr(MetsightsSyncService, "_push_category_to_metsights", _fake_push)
+
+    uid = 55250
+    await _seed_user(test_db_session, user_id=uid)
+    pkg_id = 55551
+    test_db_session.add(
+        AssessmentPackage(
+            package_id=pkg_id,
+            package_code="MET_CAT_GUARD_OK",
+            display_name="Category Submit Guard OK",
+            assessment_type_code="1",
+            status="active",
+        )
+    )
+    test_db_session.add(AssessmentPackageCategory(package_id=pkg_id, category_id=1))
+    await test_db_session.commit()
+
+    aid = 55552
+    test_db_session.add(
+        AssessmentInstance(
+            assessment_instance_id=aid,
+            user_id=uid,
+            package_id=pkg_id,
+            engagement_id=1,
+            status="active",
+            metsights_record_id="MS-CAT-GUARD-OK",
+        )
+    )
+    test_db_session.add(
+        QuestionnaireResponse(
+            assessment_instance_id=aid,
+            question_id=1,
+            category_ids=[1],
+            answer={"value": 175.0, "unit": "0"},
+        )
+    )
+    await test_db_session.commit()
+
+    await _ensure_metsights_physical_category(test_db_session, category_id=1)
+
+    r = await async_client.post(
+        f"/assessments/{aid}/submit",
+        headers=_auth_header(uid),
+        json={"category": "physical-measurement", "category_of": "metsights"},
+    )
+    assert r.status_code == 200
+    assert get_report_calls == 0
+
+
+@pytest.mark.asyncio
 async def test_submit_category_blocked_when_bioai_report_generated(async_client, test_db_session, monkeypatch):
     await _ensure_test_engagement(test_db_session)
     monkeypatch.setattr(settings, "METSIGHTS_API_KEY", "test-key")

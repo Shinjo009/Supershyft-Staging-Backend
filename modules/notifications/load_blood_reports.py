@@ -110,7 +110,7 @@ def _metsights_report_url(*, record_id: str, assessment_type_code: str) -> str:
     from modules.metsights.integration_logging import metsights_api_url
 
     del assessment_type_code
-    return metsights_api_url(f"reports/metsights/{record_id}")
+    return metsights_api_url(f"records/{record_id}")
 
 
 def _blood_report_data_complete(blood_parameters: Any, diagnostic_report_url: Any) -> bool:

@@ -514,7 +514,13 @@ class MetsightsService:
         record_id: str,
         assessment_type_code: str | None,
     ) -> bool:
-        """Return True when Metsights GET report returns 200; False on 404."""
+        """Return True when MetSights record detail has ``has_report``.
+
+        Do not call GET ``reports/metsights/{id}`` here — that endpoint materializes
+        the Bio AI report on MetSights. ``assessment_type_code`` is accepted for
+        caller compatibility only.
+        """
+        del assessment_type_code
         normalized_record_id = (record_id or "").strip()
         if not normalized_record_id:
             raise AppError(status_code=422, error_code="INVALID_STATE", message="Metsights record id is missing")
@@ -526,32 +532,15 @@ class MetsightsService:
             )
 
         try:
-            await self._client.get_report(
-                record_id=normalized_record_id,
-                assessment_type_code=assessment_type_code,
-            )
-            return True
-        except httpx.HTTPStatusError as exc:
-            status_code = exc.response.status_code
-            if status_code == 404:
+            detail = await self.get_record_detail(record_id=normalized_record_id)
+        except AppError as exc:
+            if exc.error_code == "RECORD_NOT_FOUND":
                 return False
-            if status_code == 403:
-                raise AppError(
-                    status_code=503,
-                    error_code="EXTERNAL_SERVICE_UNAVAILABLE",
-                    message="Metsights authorization failed",
-                ) from exc
-            raise AppError(
-                status_code=503,
-                error_code="EXTERNAL_SERVICE_UNAVAILABLE",
-                message="Metsights request failed",
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise AppError(
-                status_code=503,
-                error_code="EXTERNAL_SERVICE_UNAVAILABLE",
-                message="Metsights request failed",
-            ) from exc
+            raise
+
+        if not isinstance(detail, dict):
+            return False
+        return bool(detail.get("has_report"))
 
     async def get_report_pdf(self, *, record_id: str, assessment_type_code: str | None) -> Any:
         normalized_record_id = (record_id or "").strip()

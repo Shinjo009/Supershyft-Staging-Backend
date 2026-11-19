@@ -6,6 +6,9 @@ Upstream source (production):
 
 (FitPrint type ``7`` uses ``/external/reports/fitness/{record_id}/``.)
 
+That GET materializes the report on MetSights; use it only for intentional fetch
+(load Bio AI, regenerate, resolver). Existence checks must use record ``has_report``.
+
 This is step 1 of the Bio-AI pipeline. The engine never accepts assessment
 JSON from the frontend.
 """

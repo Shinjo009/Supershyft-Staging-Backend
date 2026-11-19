@@ -2047,7 +2047,10 @@ class MetsightsSyncService:
         record_id: str,
         assessment_type_code: str | None,
     ) -> None:
-        """Raise when Metsights BioAI report already exists for this record."""
+        """Raise when MetSights record already has a Bio AI report (``has_report``).
+
+        Uses a non-generating record lookup — not GET reports/metsights, which creates the report.
+        """
         if await self._metsights.is_bioai_report_generated(
             record_id=record_id,
             assessment_type_code=assessment_type_code,
