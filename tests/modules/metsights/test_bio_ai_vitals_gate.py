@@ -75,3 +75,32 @@ async def test_ensure_vitals_returns_false_when_push_fails(test_db_session):
     )
 
     assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_ensure_vitals_fails_when_push_skipped_with_no_fields(test_db_session):
+    assessments_service = AsyncMock()
+    assessments_service.is_vitals_blood_pressure_missing = AsyncMock(return_value=False)
+    sync_service = AsyncMock()
+    sync_service._push_category_to_metsights = AsyncMock(
+        return_value={
+            "status": "skipped",
+            "reason": "optional_vitals_empty",
+            "fields_pushed": [],
+        }
+    )
+    details: list[dict] = []
+
+    ok = await ensure_vitals_before_bio_ai_generation(
+        test_db_session,
+        assessments_service=assessments_service,
+        sync_service=sync_service,
+        user_id=10,
+        engagement_id=20,
+        assessment_instance_id=30,
+        type_code="1",
+        details=details,
+    )
+
+    assert ok is False
+    assert any(d["action"] == "skipped" and "no committed answers" in d["reason"] for d in details)

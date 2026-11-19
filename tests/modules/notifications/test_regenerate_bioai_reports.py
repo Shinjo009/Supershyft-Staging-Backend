@@ -240,8 +240,9 @@ async def test_regenerate_updates_reports_without_changing_report_url(test_db_se
     )
     assert result["regenerated"] == 1
     assessments_service.redraft_blood_questionnaire_responses.assert_awaited_once()
-    assessments_service.draft_vitals_blood_pressure_fallbacks.assert_awaited_once()
-    assert sync_service._push_category_to_metsights.await_count == 3
+    # Draft runs in category re-push and again in fetch_metsights_report_json vitals gate.
+    assert assessments_service.draft_vitals_blood_pressure_fallbacks.await_count >= 1
+    assert sync_service._push_category_to_metsights.await_count >= 3
     regenerate_mock.assert_awaited_once()
 
     row = (
@@ -391,7 +392,9 @@ async def test_regenerate_essentials_drafts_vitals_bp_before_push(test_db_sessio
     )
     sync_service = AsyncMock()
     sync_service._push_category_to_metsights = AsyncMock(
-        return_value={"fields_pushed": [], "status": "skipped", "reason": "optional_vitals_empty"}
+        return_value={
+            "fields_pushed": ["systolic_blood_pressure", "diastolic_blood_pressure"],
+        }
     )
 
     async def _fake_blood_params(*, record_id: str):

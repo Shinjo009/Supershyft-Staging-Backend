@@ -63,6 +63,18 @@ async def ensure_vitals_before_bio_ai_generation(
         )
         await db.commit()
         fields_count = len(push_result.get("fields_pushed") or [])
+        push_status = (push_result.get("status") or "").strip().lower()
+        if push_status == "skipped" or fields_count == 0:
+            detail_list.append({
+                "user_id": user_id,
+                "engagement_id": engagement_id,
+                "action": "skipped",
+                "reason": (
+                    "vitals not ready for Bio AI: no committed answers to push "
+                    f"(status={push_status or 'empty'})"
+                ),
+            })
+            return False
         detail_list.append({
             "user_id": user_id,
             "engagement_id": engagement_id,

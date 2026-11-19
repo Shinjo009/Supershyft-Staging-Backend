@@ -1017,7 +1017,7 @@ class AssessmentsService:
                 assessment_instance_id=int(assessment_instance_id),
                 question_id=int(question.question_id),
             )
-            if existing is None:
+            if existing is None or bool(getattr(existing, "is_carried_forward", False)):
                 return True
             existing_answer = existing.answer if isinstance(existing.answer, dict) else {}
             if existing_answer.get("value") is None:
@@ -1088,7 +1088,7 @@ class AssessmentsService:
                 assessment_instance_id=int(instance.assessment_instance_id),
                 question_id=int(question.question_id),
             )
-            if existing is not None:
+            if existing is not None and not bool(getattr(existing, "is_carried_forward", False)):
                 existing_answer = existing.answer if isinstance(existing.answer, dict) else {}
                 if existing_answer.get("value") is not None:
                     continue
@@ -1116,6 +1116,7 @@ class AssessmentsService:
             if existing is not None:
                 existing.answer = answer
                 existing.category_ids = resolved_cat_ids
+                existing.is_carried_forward = False
                 await self._questionnaire.update_response(db, existing)
             else:
                 await self._questionnaire.create_response(
@@ -1125,6 +1126,7 @@ class AssessmentsService:
                         question_id=int(question.question_id),
                         category_ids=resolved_cat_ids,
                         answer=answer,
+                        is_carried_forward=False,
                     ),
                 )
             total_drafted += 1

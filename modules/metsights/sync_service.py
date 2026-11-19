@@ -2155,6 +2155,7 @@ class MetsightsSyncService:
             )
 
         question_ids = [int(q.question_id) for q in questions]
+        # Never push load-prev copies (`is_carried_forward`); only user-committed answers.
         responses = await self._questionnaire.list_responses_for_instances(
             db,
             assessment_instance_ids=source_ids,
