@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import text
 
 from modules.assessments.models import AssessmentInstance
-from modules.engagements.models import Engagement, EngagementParticipant
+from modules.engagements.models import Engagement, EngagementParticipant, ParticipantBloodBooking
 from modules.metsights.client import MetsightsClient
 from modules.metsights.service import MetsightsService
 from modules.notifications.regenerate_bioai_reports import regenerate_bioai_reports
@@ -92,15 +92,22 @@ async def _seed_regenerate_participant(
             )
         )
         await test_db_session.flush()
-    test_db_session.add(
-        EngagementParticipant(
-            engagement_id=engagement_id,
-            user_id=user_id,
-            engagement_date=date.today() - timedelta(days=1),
-            slot_start_time=time(9, 0),
-            booking_id=booking_id,
-        )
+    participant = EngagementParticipant(
+        engagement_id=engagement_id,
+        user_id=user_id,
+        booked_by_user_id=user_id,
     )
+    test_db_session.add(participant)
+    await test_db_session.flush()
+    if booking_id is not None:
+        test_db_session.add(
+            ParticipantBloodBooking(
+                engagement_participant_id=participant.engagement_participant_id,
+                collection_date=date.today() - timedelta(days=1),
+                collection_time=time(9, 0),
+                booking_id=booking_id,
+            )
+        )
     test_db_session.add(
         AssessmentInstance(
             assessment_instance_id=assessment_id,
@@ -348,11 +355,11 @@ async def test_regenerate_retries_vitals_push_after_default_bp_draft(test_db_ses
     )
     assert result["regenerated"] == 1
     assessments_service.draft_vitals_blood_pressure_fallbacks.assert_awaited_once()
-    assert sync_service._push_category_to_metsights.await_count == 2
+    assert sync_service._push_category_to_metsights.await_count >= 2
 
 
 @pytest.mark.asyncio
-async def test_regenerate_essentials_skips_vitals_bp_draft(test_db_session, monkeypatch):
+async def test_regenerate_essentials_drafts_vitals_bp_before_push(test_db_session, monkeypatch):
     await _seed_regenerate_participant(
         test_db_session,
         user_id=88010,
@@ -412,7 +419,7 @@ async def test_regenerate_essentials_skips_vitals_bp_draft(test_db_session, monk
         engagement_id=88010,
     )
     assert result["regenerated"] == 1
-    assessments_service.draft_vitals_blood_pressure_fallbacks.assert_not_called()
+    assessments_service.draft_vitals_blood_pressure_fallbacks.assert_awaited()
 
 
 @pytest.mark.asyncio

@@ -5,9 +5,10 @@ where today >= engagement_date:
 1. Check MetSights blood parameters for is_complete (Pro/Basic only).
    If missing/incomplete, fill internal blood defaults (including LH and FSH),
    mark those categories complete, push them to MetSights, then continue.
-2. If the MetSights report is missing because the record is not complete, push
+2. Before fetching the report, ensure vitals are on MetSights (120/80 BP fallbacks
+   when missing) for Basic and Pro. If the record is still incomplete, push
    physical measurements, vitals, and diet/lifestyle from the local questionnaire
-   and mark those modules complete, then request the report again.
+   and request the report again.
 3. If individual_health_report.reports or report_url is null, fetch from MetSights.
 4. When both reports and report_url are present, send notifications using
    engagement_notifications for bioai_report_ready event (skipping services already sent).
@@ -25,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.exceptions import AppError
 from db.seed.blood_parameters_registry import BLOOD_PARAMETER_CATEGORY_KEY
-from modules.assessments.essentials_vitals import is_metsights_essentials
+from modules.metsights.bio_ai_report_fetch import fetch_metsights_report_json as _fetch_metsights_report_json
 from modules.assessments.models import AssessmentInstance, AssessmentPackage
 from modules.audit.cron_sync_logging import tracked_integration_call
 from modules.bioai_report.pdf_registration import (
@@ -144,61 +145,6 @@ def _extract_report_file_url(report_data: Any) -> str | None:
     return None
 
 
-async def _fetch_metsights_report_json(
-    db: AsyncSession,
-    *,
-    metsights_service: MetsightsService,
-    record_id: str,
-    type_code: str,
-    engagement_id: int,
-    user_id: int,
-) -> tuple[Any | None, bool]:
-    """Return ``(report, record_incomplete)``.
-
-    ``record_incomplete`` is true when MetSights answers 404. That response means
-    the record is missing or not complete, so result generation cannot start.
-    """
-    record_incomplete = False
-
-    async def _load() -> Any:
-        nonlocal record_incomplete
-        try:
-            return await metsights_service.get_report(
-                record_id=record_id,
-                assessment_type_code=type_code,
-            )
-        except AppError as exc:
-            if exc.error_code == "REPORT_NOT_FOUND":
-                record_incomplete = True
-            raise
-
-    report_data = await tracked_integration_call(
-        db,
-        provider="metsights",
-        api_url=_metsights_report_url(
-            record_id=record_id,
-            assessment_type_code=type_code,
-        ),
-        engagement_id=engagement_id,
-        user_id=user_id,
-        request_payload={
-            "record_id": record_id,
-            "assessment_type_code": type_code,
-        },
-        operation=_load,
-        reraise=False,
-    )
-    if report_data is not None and report_data:
-        return report_data, False
-    if report_data is None:
-        logger.warning(
-            "MetSights get_report failed for record=%s incomplete=%s",
-            record_id,
-            record_incomplete,
-        )
-    return None, record_incomplete
-
-
 async def _push_incomplete_report_modules(
     db: AsyncSession,
     *,
@@ -260,56 +206,6 @@ async def _push_incomplete_report_modules(
             + ", ".join(patched or incomplete)
             + " so MetSights can generate the report"
         ),
-    })
-    return True
-
-
-async def _try_recover_missing_vitals_bp(
-    db: AsyncSession,
-    *,
-    assessments_service: "AssessmentsService",
-    sync_service: "MetsightsSyncService",
-    user_id: int,
-    engagement_id: int,
-    instance_id: int,
-    details: list[dict[str, Any]],
-) -> bool:
-    """Draft default BP, push vitals to MetSights. Returns True on success."""
-    if not await assessments_service.is_vitals_blood_pressure_missing(
-        db,
-        assessment_instance_id=instance_id,
-    ):
-        return False
-
-    draft_result = await assessments_service.draft_vitals_blood_pressure_fallbacks(
-        db,
-        user_id=user_id,
-        assessment_instance_id=instance_id,
-    )
-    await db.commit()
-    drafted_count = int(draft_result.get("responses_drafted") or 0)
-    details.append({
-        "user_id": user_id,
-        "engagement_id": engagement_id,
-        "action": "drafted",
-        "reason": (
-            f"applied default BP 120/80 ({drafted_count} vitals responses drafted)"
-        ),
-    })
-
-    push_result = await sync_service._push_category_to_metsights(
-        db,
-        assessment_instance_id=instance_id,
-        user_id=user_id,
-        category_key="vitals",
-    )
-    await db.commit()
-    fields_count = len(push_result.get("fields_pushed") or [])
-    details.append({
-        "user_id": user_id,
-        "engagement_id": engagement_id,
-        "action": "pushed",
-        "reason": f"pushed vitals to MetSights ({fields_count} fields)",
     })
     return True
 
@@ -777,6 +673,10 @@ async def load_bioai_reports(
                             type_code=type_code,
                             engagement_id=engagement_id,
                             user_id=user_id,
+                            assessment_instance_id=instance_id,
+                            assessments_service=assessments_service,
+                            sync_service=sync_service,
+                            details=details,
                         )
                         if (
                             fetched_reports is None
@@ -812,6 +712,10 @@ async def load_bioai_reports(
                                     type_code=type_code,
                                     engagement_id=engagement_id,
                                     user_id=user_id,
+                                    assessment_instance_id=instance_id,
+                                    assessments_service=assessments_service,
+                                    sync_service=sync_service,
+                                    details=details,
                                 )
 
                     if fetched_reports is not None:
@@ -855,65 +759,6 @@ async def load_bioai_reports(
                                 exc,
                             )
                             fetched_url = None
-
-                    if (
-                        fetched_reports is None
-                        and fetched_url is None
-                        and assessments_service is not None
-                        and sync_service is not None
-                        and not is_metsights_essentials(type_code=type_code)
-                    ):
-                        try:
-                            recovered = await _try_recover_missing_vitals_bp(
-                                db,
-                                assessments_service=assessments_service,
-                                sync_service=sync_service,
-                                user_id=user_id,
-                                engagement_id=engagement_id,
-                                instance_id=instance_id,
-                                details=details,
-                            )
-                            if recovered:
-                                if reports is None:
-                                    fetched_reports, _record_incomplete = await _fetch_metsights_report_json(
-                                        db,
-                                        metsights_service=metsights_service,
-                                        record_id=record_id,
-                                        type_code=type_code,
-                                        engagement_id=engagement_id,
-                                        user_id=user_id,
-                                    )
-                                if report_url is None:
-                                    try:
-                                        fetched_url = await register_permanent_bio_ai_report_url(
-                                            db,
-                                            assessment_instance_id=instance_id,
-                                            engagement_id=engagement_id,
-                                            user_id=user_id,
-                                        )
-                                    except Exception as exc:
-                                        logger.warning(
-                                            "bio-ai-reports registration retry failed for instance=%s: %s",
-                                            instance_id,
-                                            exc,
-                                        )
-                                        fetched_url = None
-                        except Exception as exc:
-                            await db.rollback()
-                            logger.warning(
-                                "BioAI vitals BP recovery failed for user=%s instance=%s: %s",
-                                user_id,
-                                instance_id,
-                                exc,
-                            )
-                            skipped += 1
-                            details.append({
-                                "user_id": user_id,
-                                "engagement_id": engagement_id,
-                                "action": "skipped",
-                                "reason": f"vitals BP recovery failed: {str(exc)[:100]}",
-                            })
-                            continue
 
                     if fetched_reports is None and fetched_url is None:
                         skipped += 1

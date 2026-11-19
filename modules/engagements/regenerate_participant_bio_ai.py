@@ -16,8 +16,10 @@ from modules.bioai_report.pdf_registration import (
     resolve_canonical_bio_ai_report_url,
 )
 from modules.engagements.models import Engagement
+from modules.assessments.service import AssessmentsService
 from modules.metsights.service import MetsightsService
-from modules.notifications.load_bioai_reports import _fetch_metsights_report_json
+from modules.metsights.sync_service import MetsightsSyncService
+from modules.metsights.bio_ai_report_fetch import fetch_metsights_report_json
 from modules.reports.models import IndividualHealthReport
 
 _METSIGHTS_PRO_BASIC_TYPE_CODES = ("1", "2")
@@ -27,6 +29,8 @@ async def regenerate_participant_bio_ai_report(
     db: AsyncSession,
     *,
     metsights_service: MetsightsService,
+    assessments_service: AssessmentsService,
+    sync_service: MetsightsSyncService,
     engagement_id: int,
     user_id: int,
 ) -> dict[str, Any]:
@@ -100,13 +104,16 @@ async def regenerate_participant_bio_ai_report(
             message="Participant does not have a permanent bio-ai-reports URL to regenerate",
         )
 
-    fetched_reports, _record_incomplete = await _fetch_metsights_report_json(
+    fetched_reports, _record_incomplete = await fetch_metsights_report_json(
         db,
         metsights_service=metsights_service,
         record_id=record_id,
         type_code=type_code,
         engagement_id=int(engagement_id),
         user_id=int(user_id),
+        assessment_instance_id=instance_id,
+        assessments_service=assessments_service,
+        sync_service=sync_service,
     )
     if fetched_reports is None:
         raise AppError(

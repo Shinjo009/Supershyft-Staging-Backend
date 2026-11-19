@@ -111,6 +111,9 @@ class BioReportService:
         record_id: str,
         assessment_type_code: str | None = None,
         db: AsyncSession | None = None,
+        user_id: int | None = None,
+        engagement_id: int | None = None,
+        assessment_instance_id: int | None = None,
     ) -> BioReport:
         """Record-id pipeline: ``record_id`` → assessment → enrich → BioReport."""
         rid = (record_id or "").strip()
@@ -120,6 +123,10 @@ class BioReportService:
         assessment = await self._assessment_service.fetch_raw(
             record_id=rid,
             assessment_type_code=assessment_type_code,
+            db=db,
+            user_id=user_id,
+            engagement_id=engagement_id,
+            assessment_instance_id=assessment_instance_id,
         )
         return await self.generate_from_assessment_with_enrichment(
             assessment,

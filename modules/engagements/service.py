@@ -3655,9 +3655,14 @@ class EngagementsService:
             regenerate_participant_bio_ai_report,
         )
 
+        from modules.assessments.dependencies import get_assessments_service
+        from modules.metsights.dependencies import get_metsights_sync_service
+
         regen_result = await regenerate_participant_bio_ai_report(
             db,
             metsights_service=self._metsights_service,
+            assessments_service=get_assessments_service(),
+            sync_service=get_metsights_sync_service(),
             engagement_id=engagement_id,
             user_id=user_id,
         )

@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.exceptions import AppError
+
+if TYPE_CHECKING:
+    from modules.assessments.service import AssessmentsService
+    from modules.metsights.sync_service import MetsightsSyncService
 from modules.bioai_report.pdf_registration import (
     is_metsights_hosted_report_url,
     lookup_existing_bio_ai_report_url,
     register_permanent_bio_ai_report_url,
 )
 from modules.metsights.service import MetsightsService
+from modules.metsights.bio_ai_report_fetch import fetch_metsights_report_json
 from modules.reports.blood_booking_reports import require_archived_diagnostic_blood_report
 from modules.reports.models import IndividualHealthReport
 from modules.reports.repository import ReportsRepository
@@ -53,6 +60,8 @@ async def resolve_bio_ai_report_url(
     metsights_service: MetsightsService,
     existing_ihr: IndividualHealthReport | None = None,
     reports_repository: ReportsRepository | None = None,
+    assessments_service: "AssessmentsService | None" = None,
+    sync_service: "MetsightsSyncService | None" = None,
 ) -> str:
     """Return a BioAI report URL, fetching from MetSights and caching when needed."""
     type_code = (assessment_type_code or "").strip()
@@ -109,11 +118,32 @@ async def resolve_bio_ai_report_url(
         engagement_id=engagement_id,
     )
 
-    report_payload = await metsights_service.get_report(
+    if assessments_service is None:
+        from modules.assessments.dependencies import get_assessments_service
+
+        assessments_service = get_assessments_service()
+    if sync_service is None:
+        from modules.metsights.dependencies import get_metsights_sync_service
+
+        sync_service = get_metsights_sync_service()
+
+    fetched_reports, _record_incomplete = await fetch_metsights_report_json(
+        db,
+        metsights_service=metsights_service,
         record_id=record_id,
-        assessment_type_code=type_code,
+        type_code=type_code,
+        engagement_id=engagement_id,
+        user_id=user_id,
+        assessment_instance_id=assessment_instance_id,
+        assessments_service=assessments_service,
+        sync_service=sync_service,
     )
-    fetched_reports = report_payload if isinstance(report_payload, dict) else None
+    if fetched_reports is None:
+        raise AppError(
+            status_code=422,
+            error_code="INVALID_STATE",
+            message="Vitals required for Bio AI; could not fetch MetSights report",
+        )
 
     target = assessment_report or engagement_report or existing_ihr or cached_ihr
     if target is None:

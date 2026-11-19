@@ -25,7 +25,6 @@ from db.seed.blood_parameters_registry import (
     ADVANCED_BLOOD_PARAMETER_CATEGORY_KEY,
     BLOOD_PARAMETER_CATEGORY_KEY,
 )
-from modules.assessments.essentials_vitals import is_metsights_essentials
 from modules.assessments.models import AssessmentInstance, AssessmentPackage
 from modules.assessments.repository import AssessmentsRepository
 from modules.audit.cron_sync_logging import tracked_integration_call
@@ -37,10 +36,8 @@ from modules.bioai_report.pdf_registration import (
 )
 from modules.engagements.models import Engagement, EngagementParticipant
 from modules.metsights.service import MetsightsService
-from modules.notifications.load_bioai_reports import (
-    _fetch_metsights_report_json,
-    _metsights_blood_parameters_url,
-)
+from modules.metsights.bio_ai_report_fetch import fetch_metsights_report_json
+from modules.notifications.load_bioai_reports import _metsights_blood_parameters_url
 from modules.questionnaire.repository import QuestionnaireRepository
 from modules.reports.models import IndividualHealthReport
 from modules.reports.repository import ReportsRepository
@@ -247,10 +244,8 @@ async def _repush_metsights_categories_before_regenerate(
         })
         return False
 
-    essentials = is_metsights_essentials(type_code=assessment_type_code)
-
     for category_key in category_keys:
-        if category_key == "vitals" and not essentials:
+        if category_key == "vitals":
             await _draft_vitals_blood_pressure_if_missing(
                 db,
                 assessments_service=assessments_service,
@@ -278,31 +273,6 @@ async def _repush_metsights_categories_before_regenerate(
                 ),
             })
         except Exception as exc:
-            if (
-                category_key == "vitals"
-                and essentials
-            ):
-                try:
-                    await db.commit()
-                except Exception:
-                    await db.rollback()
-                push_error = getattr(exc, "message", None) or str(exc)
-                logger.warning(
-                    "Skipping optional vitals re-push for Essentials user=%s: %s",
-                    user_id,
-                    exc,
-                )
-                details.append({
-                    "user_id": user_id,
-                    "engagement_id": engagement_id,
-                    "action": "skipped",
-                    "reason": (
-                        f"skipped optional vitals re-push for Essentials: "
-                        f"{str(push_error)[:100]}"
-                    ),
-                })
-                continue
-
             if category_key == "vitals" and _is_vitals_blood_pressure_push_error(exc):
                 try:
                     draft_result = await assessments_service.draft_vitals_blood_pressure_fallbacks(
@@ -576,13 +546,17 @@ async def regenerate_bioai_reports(
                 failed += 1
                 continue
 
-            fetched_reports = await _fetch_metsights_report_json(
+            fetched_reports, _record_incomplete = await fetch_metsights_report_json(
                 db,
                 metsights_service=metsights_service,
                 record_id=record_id,
                 type_code=type_code,
                 engagement_id=row_engagement_id,
                 user_id=user_id,
+                assessment_instance_id=instance_id,
+                assessments_service=assessments_service,
+                sync_service=sync_service,
+                details=details,
             )
             if fetched_reports is None:
                 skipped += 1

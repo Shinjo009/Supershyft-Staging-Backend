@@ -1,4 +1,8 @@
-"""MetSights Essentials (Basic): vitals optional for Bio AI and completion gates."""
+"""MetSights Essentials (Basic): vitals optional for questionnaire completion only.
+
+Bio AI cron, regenerate, and on-demand fetch still require vitals on MetSights
+(120/80 BP fallbacks when missing) before calling GET report.
+"""
 
 from __future__ import annotations
 
