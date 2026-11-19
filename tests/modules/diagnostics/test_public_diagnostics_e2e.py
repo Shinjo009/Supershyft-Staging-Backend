@@ -111,8 +111,8 @@ async def test_public_serviceability_all_providers(async_client):
 
     assert response.status_code == 200
     providers = response.json()["data"]["providers"]
-    assert len(providers) == 2
-    assert {p["provider"] for p in providers} == {"healthians", "orange_health"}
+    assert len(providers) == 3
+    assert {p["provider"] for p in providers} == {"healthians", "orange_health", "redcliffe"}
 
 
 @pytest.mark.asyncio

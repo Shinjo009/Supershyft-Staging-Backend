@@ -35,24 +35,26 @@ async def seed_family_onboard_gift_notification_services(test_db_session: AsyncS
         SENDER_EMAIL_KEY,
         SENDER_WHATSAPP_KEY,
     )
+    from tests.modules.notifications.service_seed import insert_notification_service
 
-    for key, channel, path in (
-        (SENDER_WHATSAPP_KEY, "whatsapp", "/family-onboard-sender-whatsapp-v1"),
-        (SENDER_EMAIL_KEY, "email", "/family-onboard-sender-email-v1"),
-        (RECEIVER_WHATSAPP_KEY, "whatsapp", "/family-onboard-receiver-whatsapp-v1"),
-        (RECEIVER_EMAIL_KEY, "email", "/family-onboard-receiver-email-v1"),
+    for key, channel in (
+        (SENDER_WHATSAPP_KEY, "whatsapp"),
+        (SENDER_EMAIL_KEY, "email"),
+        (RECEIVER_WHATSAPP_KEY, "whatsapp"),
+        (RECEIVER_EMAIL_KEY, "email"),
     ):
+        await insert_notification_service(
+            test_db_session,
+            service_key=key,
+            channel=channel,
+            display_name=key,
+        )
         await test_db_session.execute(
             text(
-                "INSERT INTO notification_services "
-                "(service_key, display_name, channel, webhook_path, is_active, "
-                "require_blood_report_url, require_bio_ai_report_url, require_participant_detail, "
-                "require_otp, require_session_details, require_external_link) "
-                "VALUES (:sk, :sk, :ch, :path, true, false, false, true, false, false, false) "
-                "ON CONFLICT (service_key) DO UPDATE SET "
-                "require_participant_detail = true, is_active = true"
+                "UPDATE notification_services SET require_participant_detail = true "
+                "WHERE service_key = :sk"
             ),
-            {"sk": key, "ch": channel, "path": path},
+            {"sk": key},
         )
     await test_db_session.commit()
 
@@ -63,18 +65,14 @@ async def seed_family_onboard_onboarding_notification_setup(
     employee_id: int = 8801,
 ) -> None:
     """Default OA + onboarding event services so family confirm fires Booking Alert."""
+    from tests.modules.notifications.service_seed import insert_notification_service
+
     service_key = ONBOARDING_ALERT_SERVICE_KEY
-    await test_db_session.execute(
-        text(
-            "INSERT INTO notification_services "
-            "(service_key, display_name, channel, webhook_path, is_active, "
-            "require_blood_report_url, require_bio_ai_report_url, require_participant_detail, "
-            "require_otp, require_session_details, require_external_link) "
-            "VALUES (:sk, 'Booking Alert', 'whatsapp', '/booking-alert-test-v1', true, "
-            "false, false, false, false, false, false) "
-            "ON CONFLICT (service_key) DO UPDATE SET is_active = true"
-        ),
-        {"sk": service_key},
+    await insert_notification_service(
+        test_db_session,
+        service_key=service_key,
+        channel="whatsapp",
+        display_name="Booking Alert",
     )
     await test_db_session.execute(
         text(
