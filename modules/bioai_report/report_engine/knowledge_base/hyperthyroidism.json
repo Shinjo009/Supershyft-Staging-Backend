@@ -2,7 +2,7 @@
   "knowledge_base_version": "1.0",
   "disease_id": "hyperthyroidism",
   "display_name": "Hyperthyroidism",
-  "overview": "Hyperthyroidism occurs when the thyroid gland produces too much thyroid hormone, which speeds up metabolism. It can cause a racing or irregular heartbeat, weight loss, heat intolerance, sweating, tremor, anxiety, poor sleep, and loose stools. Common causes include Graves disease, thyroid nodules, and thyroiditis. It is usually diagnosed with blood tests and is treatable, and untreated cases can affect the heart and bones.",
+  "overview": "Hyperthyroidism occurs when the thyroid gland produces too much thyroid hormone, which speeds up metabolism. It can cause a racing or irregular heartbeat, weight loss, heat intolerance, sweating, tremor, anxiety, poor sleep, and loose stools.",
   "risk_bands": {
     "healthy": {
       "range": "0-25",

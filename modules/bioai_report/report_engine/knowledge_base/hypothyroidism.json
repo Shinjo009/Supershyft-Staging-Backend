@@ -2,7 +2,7 @@
   "knowledge_base_version": "1.0",
   "disease_id": "hypothyroidism",
   "display_name": "Hypothyroidism",
-  "overview": "Hypothyroidism occurs when the thyroid gland produces too little thyroid hormone, which slows metabolism. It can cause tiredness, weight gain, feeling cold, constipation, dry skin, hair thinning, low mood, and a slow heart rate. Common causes include autoimmune thyroiditis (Hashimoto's), iodine imbalance, thyroid surgery, and some medicines. It is usually diagnosed with blood tests and is highly treatable.",
+  "overview": "Hypothyroidism occurs when the thyroid gland produces too little thyroid hormone, which slows metabolism. It can cause tiredness, weight gain, feeling cold, constipation, dry skin, hair thinning, low mood, and a slow heart rate.",
   "risk_bands": {
     "healthy": {
       "range": "0-25",
