@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.dashboard.command_period import command_today
 from modules.dashboard.command_service import (
     _build_people_rows,
     _date_period_clauses,
@@ -59,7 +60,7 @@ async def _page_b2c_users(
         db,
         users=ordered,
         user_ids=[int(u.user_id) for u in ordered],
-        today=today or datetime.now(timezone.utc).date(),
+        today=today or command_today(),
         questionnaire_service=questionnaire_service,
     )
     return rows, total
@@ -150,7 +151,7 @@ async def _collection_tomorrow_user_ids(
     all_time: bool,
     today: date | None = None,
 ) -> list[int]:
-    day = today or datetime.now(timezone.utc).date()
+    day = today or command_today()
     tomorrow = day + timedelta(days=1)
     curr_pbb = current_blood_booking_subquery()
     query = (
@@ -252,7 +253,7 @@ async def b2c_tomorrows_collection_list(
     today: date | None = None,
 ) -> list[dict[str, Any]]:
     """Inline panel rows: collection_time, name, phone, address/city/pincode."""
-    day = today or datetime.now(timezone.utc).date()
+    day = today or command_today()
     tomorrow = day + timedelta(days=1)
     curr_pbb = current_blood_booking_subquery()
     query = (
@@ -905,7 +906,7 @@ async def b2c_summary_counts(
     all_time: bool,
     today: date | None = None,
 ) -> dict[str, Any]:
-    day = today or datetime.now(timezone.utc).date()
+    day = today or command_today()
     total_bookings = await b2c_total_bookings_count(
         db, created_from=start_from, created_to=start_to, all_time=all_time
     )
