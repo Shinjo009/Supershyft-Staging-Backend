@@ -9,6 +9,8 @@ _DISEASE_CODE_ALIASES: dict[str, str] = {
     "diabetes": "type2_diabetes",
     "thyroid": "thyroid_health",
     "thyroid_health": "thyroid_health",
+    "hypothyroidism": "hypothyroidism",
+    "hyperthyroidism": "hyperthyroidism",
     "nafld": "nafld",
     "hypertension": "hypertension",
     "obesity": "obesity",

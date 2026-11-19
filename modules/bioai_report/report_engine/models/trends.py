@@ -16,6 +16,8 @@ TREND_DISEASE_TITLES: dict[str, str] = {
     "hypertension": "Hypertension",
     "obesity": "Obesity",
     "thyroid_health": "Thyroid Health",
+    "hypothyroidism": "Hypothyroidism",
+    "hyperthyroidism": "Hyperthyroidism",
     "type2_diabetes": "Type 2 Diabetes",
     "cardiac_health": "Cardiac Health",
 }
@@ -59,6 +61,8 @@ class BioAITrendsByDisease(BaseModel):
     hypertension: list[BioAITrendPoint] = Field(default_factory=list)
     obesity: list[BioAITrendPoint] = Field(default_factory=list)
     thyroid_health: list[BioAITrendPoint] = Field(default_factory=list)
+    hypothyroidism: list[BioAITrendPoint] = Field(default_factory=list)
+    hyperthyroidism: list[BioAITrendPoint] = Field(default_factory=list)
     type2_diabetes: list[BioAITrendPoint] = Field(default_factory=list)
     cardiac_health: list[BioAITrendPoint] = Field(default_factory=list)
 

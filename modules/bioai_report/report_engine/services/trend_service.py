@@ -47,6 +47,8 @@ TREND_DISEASE_IDS: tuple[str, ...] = (
     "hypertension",
     "obesity",
     "thyroid_health",
+    "hypothyroidism",
+    "hyperthyroidism",
     "type2_diabetes",
     "cardiac_health",
 )

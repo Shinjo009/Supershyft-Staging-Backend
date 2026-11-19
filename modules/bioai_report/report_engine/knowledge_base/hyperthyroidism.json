@@ -1,0 +1,1151 @@
+{
+  "knowledge_base_version": "1.0",
+  "disease_id": "hyperthyroidism",
+  "display_name": "Hyperthyroidism",
+  "overview": "Hyperthyroidism occurs when the thyroid gland produces too much thyroid hormone, which speeds up metabolism. It can cause a racing or irregular heartbeat, weight loss, heat intolerance, sweating, tremor, anxiety, poor sleep, and loose stools. Common causes include Graves disease, thyroid nodules, and thyroiditis. It is usually diagnosed with blood tests and is treatable, and untreated cases can affect the heart and bones.",
+  "risk_bands": {
+    "healthy": {
+      "range": "0-25",
+      "score_bands": {
+        "0_5": {
+          "score_range": "0-5",
+          "risk_interpretation": "Your profile shows very little evidence of overactive thyroid risk. Continue the habits that keep your heart rate, energy, and weight stable.",
+          "lifestyle_tips": [
+            "Keep a regular sleep schedule.",
+            "Stay physically active most days.",
+            "Eat balanced meals.",
+            "Avoid unnecessary thyroid or fat-burner supplements.",
+            "Continue routine health checks."
+          ],
+          "diet_recommendations": [
+            "Use iodized salt in moderation.",
+            "Eat varied whole foods.",
+            "Include protein daily.",
+            "Choose fruits and vegetables regularly.",
+            "Avoid iodine or kelp supplements unless prescribed."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Fish",
+            "Lentils",
+            "Chickpeas",
+            "Oats",
+            "Brown rice",
+            "Leafy greens",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Unregulated thyroid or fat-burner supplements",
+            "Excess caffeine",
+            "Energy drinks",
+            "Highly processed foods",
+            "Excess alcohol",
+            "Extreme diets"
+          ],
+          "exercise_recommendations": [
+            "150 minutes of moderate exercise weekly.",
+            "Strength training twice weekly.",
+            "Include stretching or mobility work.",
+            "Add relaxation practices such as walking or yoga."
+          ],
+          "monitoring_recommendations": [
+            "Continue routine health check-ups.",
+            "Consider a TSH test only if symptoms such as palpitations, tremor, or unexplained weight loss develop.",
+            "Tell your doctor about any supplements you use."
+          ],
+          "clinical_warning": "No specific thyroid concerns are suggested. Seek medical advice only if new symptoms develop.",
+          "positive_takeaway": "Your thyroid health appears well supported by your current lifestyle."
+        },
+        "6_10": {
+          "score_range": "6-10",
+          "risk_interpretation": "Your profile remains healthy. Steady nutrition, sleep, and stress habits help protect normal thyroid function.",
+          "lifestyle_tips": [
+            "Maintain consistent sleep.",
+            "Exercise most days.",
+            "Avoid self-prescribed thyroid products.",
+            "Limit caffeine late in the day.",
+            "Notice persistent racing heart or sweating."
+          ],
+          "diet_recommendations": [
+            "Use iodized salt appropriately.",
+            "Include eggs, dairy, or fish regularly.",
+            "Eat legumes and whole grains.",
+            "Limit processed foods.",
+            "Avoid excessive iodine intake."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Fish",
+            "Lentils",
+            "Chickpeas",
+            "Oats",
+            "Brown rice",
+            "Leafy greens",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Unregulated thyroid or fat-burner supplements",
+            "Excess caffeine",
+            "Energy drinks",
+            "Highly processed foods",
+            "Excess alcohol",
+            "Extreme diets"
+          ],
+          "exercise_recommendations": [
+            "150 minutes of moderate exercise weekly.",
+            "Strength training twice weekly.",
+            "Include stretching or mobility work.",
+            "Add relaxation practices such as walking or yoga."
+          ],
+          "monitoring_recommendations": [
+            "Keep preventive health checks current.",
+            "Discuss TSH testing if symptoms persist beyond a few weeks.",
+            "Mention biotin use before thyroid blood tests."
+          ],
+          "clinical_warning": "Persistent palpitations, tremor, heat intolerance, or unexplained weight loss should be discussed with your healthcare provider.",
+          "positive_takeaway": "Your risk remains low and is well managed through everyday healthy habits."
+        },
+        "11_15": {
+          "score_range": "11-15",
+          "risk_interpretation": "Your profile is within the healthy range. Reinforcing daily habits now can help preserve long-term thyroid balance.",
+          "lifestyle_tips": [
+            "Exercise regularly.",
+            "Keep a steady sleep routine.",
+            "Manage stress with simple daily practices.",
+            "Avoid stimulant supplements.",
+            "Track any lasting changes in weight or heart rate."
+          ],
+          "diet_recommendations": [
+            "Get iodine from normal foods only.",
+            "Include adequate protein.",
+            "Eat vegetables and fruit daily.",
+            "Choose whole grains.",
+            "Limit energy drinks."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Lean poultry",
+            "Lentils",
+            "Beans",
+            "Oats",
+            "Cooked leafy greens",
+            "Nuts and seeds",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Unregulated thyroid or fat-burner supplements",
+            "Excess caffeine",
+            "Energy drinks",
+            "Highly processed foods",
+            "Excess alcohol",
+            "Extreme diets"
+          ],
+          "exercise_recommendations": [
+            "150 minutes of moderate exercise weekly, avoiding extreme heat.",
+            "Strength training twice weekly to protect muscle and bone.",
+            "Include flexibility and relaxation exercises.",
+            "Reduce overtraining and long high-intensity sessions."
+          ],
+          "monitoring_recommendations": [
+            "Watch for persistent symptoms such as a racing heart, tremor, or loose stools.",
+            "Consider thyroid testing if clinically indicated.",
+            "Inform your clinician about supplement use."
+          ],
+          "clinical_warning": "Persistent thyroid-related symptoms should be medically evaluated rather than self-treated.",
+          "positive_takeaway": "Maintaining these habits can help keep your thyroid functioning normally."
+        },
+        "16_20": {
+          "score_range": "16-20",
+          "risk_interpretation": "Your score is still healthy but moving toward the upper end of this range. Strengthening preventive habits now may reduce future risk.",
+          "lifestyle_tips": [
+            "Exercise consistently.",
+            "Prioritize quality sleep.",
+            "Avoid fad diets and stimulants.",
+            "Eat regular balanced meals.",
+            "Discuss lasting symptoms early."
+          ],
+          "diet_recommendations": [
+            "Use iodized salt appropriately.",
+            "Include fish, eggs, and dairy.",
+            "Increase vegetables and legumes.",
+            "Maintain adequate protein.",
+            "Avoid excess iodine supplements."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Lean poultry",
+            "Lentils",
+            "Beans",
+            "Oats",
+            "Cooked leafy greens",
+            "Nuts and seeds",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Unregulated thyroid or fat-burner supplements",
+            "Excess caffeine",
+            "Energy drinks",
+            "Highly processed foods",
+            "Excess alcohol",
+            "Extreme diets"
+          ],
+          "exercise_recommendations": [
+            "150 minutes of moderate exercise weekly, avoiding extreme heat.",
+            "Strength training twice weekly to protect muscle and bone.",
+            "Include flexibility and relaxation exercises.",
+            "Reduce overtraining and long high-intensity sessions."
+          ],
+          "monitoring_recommendations": [
+            "Monitor persistent symptoms and note when they began.",
+            "Consider TSH testing if symptoms continue.",
+            "Mention biotin before thyroid testing."
+          ],
+          "clinical_warning": "Persistent symptoms or unexplained weight loss should be reviewed by a healthcare professional.",
+          "positive_takeaway": "Early lifestyle improvements can help keep your thyroid health on track."
+        },
+        "21_25": {
+          "score_range": "21-25",
+          "risk_interpretation": "Your score remains healthy but is close to the increased-risk range. Acting on healthy habits now may help prevent future thyroid concerns.",
+          "lifestyle_tips": [
+            "Stay physically active.",
+            "Protect sleep and recovery.",
+            "Avoid self-medicating with thyroid supplements.",
+            "Keep meals balanced.",
+            "Track persistent symptoms."
+          ],
+          "diet_recommendations": [
+            "Use iodized salt appropriately.",
+            "Eat eggs, dairy, fish, legumes, and whole grains.",
+            "Increase vegetables and fruits.",
+            "Ensure adequate daily protein.",
+            "Avoid excessive iodine intake."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Fish",
+            "Lentils",
+            "Chickpeas",
+            "Oats",
+            "Brown rice",
+            "Leafy greens",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Unregulated thyroid or fat-burner supplements",
+            "Excess caffeine",
+            "Energy drinks",
+            "Highly processed foods",
+            "Excess alcohol",
+            "Extreme diets"
+          ],
+          "exercise_recommendations": [
+            "150 minutes of moderate exercise weekly, avoiding extreme heat.",
+            "Strength training twice weekly to protect muscle and bone.",
+            "Include flexibility and relaxation exercises.",
+            "Reduce overtraining and long high-intensity sessions."
+          ],
+          "monitoring_recommendations": [
+            "Track symptoms such as palpitations, tremor, sweating, and sleep trouble.",
+            "Discuss TSH testing with your doctor if needed.",
+            "Review any thyroid results with your healthcare provider."
+          ],
+          "clinical_warning": "Persistent symptoms or abnormal thyroid tests should be evaluated rather than managed with supplements alone.",
+          "positive_takeaway": "You remain in the healthy range, and acting now can help maintain normal thyroid function."
+        }
+      }
+    },
+    "increased_risk": {
+      "range": "26-50",
+      "score_bands": {
+        "26_30": {
+          "score_range": "26-30",
+          "risk_interpretation": "Your score suggests an early rise in overactive thyroid risk. This is a good stage to reinforce habits and test if symptoms appear.",
+          "lifestyle_tips": [
+            "Exercise regularly.",
+            "Maintain consistent sleep.",
+            "Limit caffeine.",
+            "Avoid thyroid supplements unless prescribed.",
+            "Monitor persistent symptoms."
+          ],
+          "diet_recommendations": [
+            "Use iodized salt appropriately, without extra iodine products.",
+            "Include eggs, dairy, fish, legumes, and whole grains.",
+            "Eat plenty of vegetables and fruit.",
+            "Maintain adequate protein intake.",
+            "Avoid seaweed and kelp."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Fish",
+            "Lentils",
+            "Chickpeas",
+            "Oats",
+            "Brown rice",
+            "Leafy greens",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Unregulated thyroid or fat-burner supplements",
+            "Excess caffeine",
+            "Energy drinks",
+            "Highly processed foods",
+            "Excess alcohol",
+            "Extreme diets"
+          ],
+          "exercise_recommendations": [
+            "150 minutes of moderate exercise weekly.",
+            "Strength training twice weekly.",
+            "Include stretching or mobility work.",
+            "Add relaxation practices such as walking or yoga."
+          ],
+          "monitoring_recommendations": [
+            "Consider thyroid testing if symptoms occur.",
+            "Mention supplement use before blood tests.",
+            "Arrange follow-up if thyroid tests are abnormal."
+          ],
+          "clinical_warning": "Persistent palpitations, weight loss, heat intolerance, tremor, or neck swelling should be medically evaluated.",
+          "positive_takeaway": "Early attention can help maintain healthy thyroid function."
+        },
+        "31_35": {
+          "score_range": "31-35",
+          "risk_interpretation": "Your score indicates a mild increase in risk. Appropriate testing and steady habits can help find concerns early.",
+          "lifestyle_tips": [
+            "Stay physically active.",
+            "Sleep consistently.",
+            "Avoid unnecessary iodine supplements.",
+            "Reduce caffeine and energy drinks.",
+            "Keep a simple symptom diary."
+          ],
+          "diet_recommendations": [
+            "Eat regular meals to keep weight steady.",
+            "Include protein and calcium-rich foods.",
+            "Eat minimally processed foods.",
+            "Maintain a varied diet.",
+            "Avoid excessive seaweed products."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Lean poultry",
+            "Lentils",
+            "Beans",
+            "Oats",
+            "Cooked leafy greens",
+            "Nuts and seeds",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Unregulated thyroid or fat-burner supplements",
+            "Excess caffeine",
+            "Energy drinks",
+            "Highly processed foods",
+            "Excess alcohol",
+            "Extreme diets"
+          ],
+          "exercise_recommendations": [
+            "150 minutes of moderate exercise weekly, avoiding extreme heat.",
+            "Strength training twice weekly to protect muscle and bone.",
+            "Include flexibility and relaxation exercises.",
+            "Reduce overtraining and long high-intensity sessions."
+          ],
+          "monitoring_recommendations": [
+            "Discuss TSH testing if symptoms persist.",
+            "Repeat testing if clinically advised.",
+            "Inform your doctor about supplements."
+          ],
+          "clinical_warning": "Persistent or worsening symptoms should prompt medical assessment.",
+          "positive_takeaway": "Steady habits and timely evaluation can help reduce future risk."
+        },
+        "36_40": {
+          "score_range": "36-40",
+          "risk_interpretation": "Your score indicates moderate risk. Monitoring symptoms and appropriate laboratory evaluation become more important.",
+          "lifestyle_tips": [
+            "Maintain regular exercise.",
+            "Protect sleep and recovery.",
+            "Avoid self-treating with thyroid supplements.",
+            "Limit caffeine and alcohol.",
+            "Track resting heart rate and weight."
+          ],
+          "diet_recommendations": [
+            "Eat regular balanced meals.",
+            "Include calcium and vitamin D rich foods.",
+            "Increase vegetables and fruits.",
+            "Maintain adequate protein.",
+            "Limit processed foods."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Lean poultry",
+            "Lentils",
+            "Beans",
+            "Oats",
+            "Cooked leafy greens",
+            "Nuts and seeds",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Fat-burner or stimulant supplements",
+            "Energy drinks",
+            "Excess coffee or strong tea",
+            "Excess alcohol",
+            "Smoking and vaping",
+            "Skipping meals"
+          ],
+          "exercise_recommendations": [
+            "150 minutes of moderate exercise weekly, avoiding extreme heat.",
+            "Strength training twice weekly to protect muscle and bone.",
+            "Include flexibility and relaxation exercises.",
+            "Reduce overtraining and long high-intensity sessions."
+          ],
+          "monitoring_recommendations": [
+            "Consider thyroid function testing.",
+            "Review TSH with free T4 and T3 if indicated.",
+            "Repeat abnormal tests as advised."
+          ],
+          "clinical_warning": "Persistent symptoms or abnormal thyroid results deserve medical review.",
+          "positive_takeaway": "Closer monitoring can help identify problems before they progress."
+        },
+        "41_45": {
+          "score_range": "41-45",
+          "risk_interpretation": "Your score is toward the upper end of the increased-risk range. Structured follow-up and thyroid evaluation are recommended.",
+          "lifestyle_tips": [
+            "Exercise consistently without overtraining.",
+            "Prioritize sleep.",
+            "Avoid stimulant and fat-burner products.",
+            "Avoid crash diets.",
+            "Track symptoms over time."
+          ],
+          "diet_recommendations": [
+            "Eat enough calories to keep weight stable.",
+            "Eat protein-rich whole foods.",
+            "Include calcium and vitamin D sources.",
+            "Limit processed foods.",
+            "Avoid excess iodine intake."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Lean poultry",
+            "Lentils",
+            "Beans",
+            "Oats",
+            "Cooked leafy greens",
+            "Nuts and seeds",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Fat-burner or stimulant supplements",
+            "Energy drinks",
+            "Excess coffee or strong tea",
+            "Excess alcohol",
+            "Smoking and vaping",
+            "Skipping meals"
+          ],
+          "exercise_recommendations": [
+            "Choose light to moderate activity such as walking or cycling.",
+            "Do strength training to protect muscle and bone.",
+            "Avoid intense exertion if your heart is racing or you feel unwell.",
+            "Add yoga or breathing exercises for stress."
+          ],
+          "monitoring_recommendations": [
+            "Review TSH, free T4, and T3 when appropriate.",
+            "Consider TSH receptor antibodies if indicated.",
+            "Repeat testing as clinically advised.",
+            "Discuss supplements before testing."
+          ],
+          "clinical_warning": "Persistent symptoms or abnormal thyroid tests should be medically evaluated.",
+          "positive_takeaway": "Appropriate follow-up can provide clarity and support early intervention."
+        },
+        "46_50": {
+          "score_range": "46-50",
+          "risk_interpretation": "Your score is close to the high-risk category. Comprehensive thyroid evaluation and regular follow-up are increasingly important.",
+          "lifestyle_tips": [
+            "Stay active within your ability.",
+            "Prioritize quality sleep.",
+            "Avoid unnecessary thyroid supplements.",
+            "Maintain balanced meals.",
+            "Monitor ongoing symptoms."
+          ],
+          "diet_recommendations": [
+            "Obtain iodine from normal foods only.",
+            "Eat protein-rich whole foods.",
+            "Include calcium-rich foods.",
+            "Reduce processed foods.",
+            "Avoid concentrated iodine products."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Lean poultry",
+            "Lentils",
+            "Beans",
+            "Oats",
+            "Cooked leafy greens",
+            "Nuts and seeds",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Fat-burner or stimulant supplements",
+            "Energy drinks",
+            "Excess coffee or strong tea",
+            "Excess alcohol",
+            "Smoking and vaping",
+            "Skipping meals"
+          ],
+          "exercise_recommendations": [
+            "Choose light to moderate activity such as walking or cycling.",
+            "Do strength training to protect muscle and bone.",
+            "Avoid intense exertion if your heart is racing or you feel unwell.",
+            "Add yoga or breathing exercises for stress."
+          ],
+          "monitoring_recommendations": [
+            "Arrange thyroid function testing.",
+            "Repeat abnormal results as advised.",
+            "Review medications and supplements with your clinician.",
+            "Check resting heart rate."
+          ],
+          "clinical_warning": "Persistent symptoms or abnormal thyroid tests should be assessed promptly.",
+          "positive_takeaway": "Early evaluation and steady habits can help prevent progression to higher risk."
+        }
+      }
+    },
+    "high_risk": {
+      "range": "51-75",
+      "score_bands": {
+        "51_55": {
+          "score_range": "51-55",
+          "risk_interpretation": "Your score falls in the high-risk range. Clinical evaluation is recommended to clarify thyroid function and explain persistent symptoms.",
+          "lifestyle_tips": [
+            "Stay active within your tolerance.",
+            "Maintain adequate sleep.",
+            "Avoid self-prescribed thyroid supplements.",
+            "Limit caffeine.",
+            "Track symptoms and heart rate."
+          ],
+          "diet_recommendations": [
+            "Use only normal dietary iodine.",
+            "Include eggs, dairy, fish, legumes, and whole grains.",
+            "Maintain adequate protein and calories.",
+            "Limit processed foods and sugary drinks.",
+            "Avoid seaweed and iodine products."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Lean poultry",
+            "Lentils",
+            "Beans",
+            "Oats",
+            "Cooked leafy greens",
+            "Nuts and seeds",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Fat-burner or stimulant supplements",
+            "Energy drinks",
+            "Excess coffee or strong tea",
+            "Excess alcohol",
+            "Smoking and vaping",
+            "Skipping meals"
+          ],
+          "exercise_recommendations": [
+            "Choose light to moderate activity such as walking or cycling.",
+            "Do strength training to protect muscle and bone.",
+            "Avoid intense exertion if your heart is racing or you feel unwell.",
+            "Add yoga or breathing exercises for stress."
+          ],
+          "monitoring_recommendations": [
+            "Review TSH, free T4, and T3.",
+            "Consider TSH receptor antibodies if indicated.",
+            "Repeat testing as advised.",
+            "Ask whether an ECG is needed if you have palpitations."
+          ],
+          "clinical_warning": "Persistent symptoms or abnormal thyroid tests require medical review.",
+          "positive_takeaway": "Early evaluation can help identify treatable thyroid concerns."
+        },
+        "56_60": {
+          "score_range": "56-60",
+          "risk_interpretation": "Your score suggests substantial risk and warrants more active clinical follow-up.",
+          "lifestyle_tips": [
+            "Maintain regular, moderate activity.",
+            "Prioritize sleep.",
+            "Avoid stimulants and thyroid supplements.",
+            "Record ongoing symptoms.",
+            "Quit smoking if you smoke."
+          ],
+          "diet_recommendations": [
+            "Eat a varied, balanced diet.",
+            "Obtain iodine from normal foods.",
+            "Include protein and calcium daily.",
+            "Reduce processed foods.",
+            "Avoid excess seaweed."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Lean poultry",
+            "Lentils",
+            "Beans",
+            "Oats",
+            "Cooked leafy greens",
+            "Nuts and seeds",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Fat-burner or stimulant supplements",
+            "Energy drinks",
+            "Excess coffee or strong tea",
+            "Excess alcohol",
+            "Smoking and vaping",
+            "Skipping meals"
+          ],
+          "exercise_recommendations": [
+            "Choose light to moderate activity such as walking or cycling.",
+            "Do strength training to protect muscle and bone.",
+            "Avoid intense exertion if your heart is racing or you feel unwell.",
+            "Add yoga or breathing exercises for stress."
+          ],
+          "monitoring_recommendations": [
+            "Assess TSH, free T4, and T3.",
+            "Repeat testing when appropriate.",
+            "Review symptoms alongside results.",
+            "Discuss bone health if symptoms are long-standing."
+          ],
+          "clinical_warning": "Persistent symptoms or abnormal thyroid results should be evaluated promptly.",
+          "positive_takeaway": "Timely assessment helps guide appropriate management."
+        },
+        "61_65": {
+          "score_range": "61-65",
+          "risk_interpretation": "Your score indicates higher risk requiring structured follow-up and ongoing monitoring.",
+          "lifestyle_tips": [
+            "Exercise within comfortable limits.",
+            "Sleep consistently.",
+            "Avoid self-treatment.",
+            "Maintain balanced nutrition.",
+            "Keep symptom and heart rate records."
+          ],
+          "diet_recommendations": [
+            "Eat enough to maintain healthy weight.",
+            "Eat protein-rich whole foods.",
+            "Include calcium and vitamin D sources.",
+            "Limit processed foods.",
+            "Avoid excess iodine."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Paneer or tofu",
+            "Lean poultry",
+            "Lentils",
+            "Nut butters",
+            "Whole grains",
+            "Avocado",
+            "Cooked vegetables",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Fat-burner or stimulant supplements",
+            "Energy drinks",
+            "Excess coffee or strong tea",
+            "Excess alcohol",
+            "Smoking and vaping",
+            "Skipping meals"
+          ],
+          "exercise_recommendations": [
+            "Choose light to moderate activity such as walking or cycling.",
+            "Do strength training to protect muscle and bone.",
+            "Avoid intense exertion if your heart is racing or you feel unwell.",
+            "Add yoga or breathing exercises for stress."
+          ],
+          "monitoring_recommendations": [
+            "Monitor thyroid function.",
+            "Repeat testing as advised.",
+            "Review medications and supplements.",
+            "Discuss antibody testing and imaging with your clinician."
+          ],
+          "clinical_warning": "Do not delay medical review if symptoms persist or worsen, especially palpitations or unintended weight loss.",
+          "positive_takeaway": "Regular monitoring supports timely treatment when needed."
+        },
+        "66_70": {
+          "score_range": "66-70",
+          "risk_interpretation": "Your score is approaching the upper end of the high-risk range. Close clinical supervision is recommended.",
+          "lifestyle_tips": [
+            "Stay active within your limits.",
+            "Prioritize sleep.",
+            "Avoid thyroid and stimulant supplements.",
+            "Track weight, heart rate, and symptoms.",
+            "Maintain calm daily routines."
+          ],
+          "diet_recommendations": [
+            "Maintain a balanced, calorie-adequate diet.",
+            "Use dietary iodine only.",
+            "Eat protein and fibre daily.",
+            "Reduce processed foods.",
+            "Avoid concentrated iodine products."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Paneer or tofu",
+            "Lean poultry",
+            "Lentils",
+            "Nut butters",
+            "Whole grains",
+            "Avocado",
+            "Cooked vegetables",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Fat-burner or stimulant supplements",
+            "Energy drinks",
+            "Excess coffee or strong tea",
+            "Excess alcohol",
+            "Smoking and vaping",
+            "Skipping meals"
+          ],
+          "exercise_recommendations": [
+            "Keep activity gentle until your doctor reviews your results.",
+            "Short walks are preferred over strenuous workouts.",
+            "Stop exercise if you notice chest discomfort, dizziness, or a pounding heartbeat.",
+            "Resume strength work gradually once cleared."
+          ],
+          "monitoring_recommendations": [
+            "Arrange close thyroid follow-up.",
+            "Monitor TSH, free T4, and T3.",
+            "Review laboratory trends.",
+            "Ask about heart rhythm and bone health checks."
+          ],
+          "clinical_warning": "Persistent symptoms or abnormal thyroid tests should receive prompt medical attention.",
+          "positive_takeaway": "Close follow-up improves early detection and management."
+        },
+        "71_75": {
+          "score_range": "71-75",
+          "risk_interpretation": "Your score is at the upper end of the high-risk range. Comprehensive thyroid evaluation is strongly recommended.",
+          "lifestyle_tips": [
+            "Maintain safe, gentle activity.",
+            "Sleep consistently.",
+            "Avoid self-prescribed thyroid products.",
+            "Continue balanced nutrition.",
+            "Keep detailed symptom records."
+          ],
+          "diet_recommendations": [
+            "Follow a balanced, calorie-adequate diet.",
+            "Use dietary iodine only.",
+            "Maintain protein and calcium intake.",
+            "Reduce processed foods.",
+            "Avoid excess iodine."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Paneer or tofu",
+            "Lean poultry",
+            "Lentils",
+            "Nut butters",
+            "Whole grains",
+            "Avocado",
+            "Cooked vegetables",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Fat-burner or stimulant supplements",
+            "Energy drinks",
+            "Excess coffee or strong tea",
+            "Excess alcohol",
+            "Smoking and vaping",
+            "Skipping meals"
+          ],
+          "exercise_recommendations": [
+            "Keep activity gentle until your doctor reviews your results.",
+            "Short walks are preferred over strenuous workouts.",
+            "Stop exercise if you notice chest discomfort, dizziness, or a pounding heartbeat.",
+            "Resume strength work gradually once cleared."
+          ],
+          "monitoring_recommendations": [
+            "Comprehensive thyroid evaluation.",
+            "Repeat testing as recommended.",
+            "Review all medications and supplements.",
+            "Discuss specialist referral."
+          ],
+          "clinical_warning": "Prioritize medical assessment if symptoms or abnormal thyroid tests are present.",
+          "positive_takeaway": "Careful evaluation and healthy habits can help guide effective treatment."
+        }
+      }
+    },
+    "very_high_risk": {
+      "range": "76-100",
+      "score_bands": {
+        "76_80": {
+          "score_range": "76-80",
+          "risk_interpretation": "Your score is in the very-high-risk range and warrants prompt thyroid evaluation. It is not a diagnosis but signals the need for clinical assessment.",
+          "lifestyle_tips": [
+            "Keep activity gentle.",
+            "Prioritize sleep and recovery.",
+            "Avoid self-prescribed thyroid supplements.",
+            "Maintain regular meals.",
+            "Track symptoms and test results."
+          ],
+          "diet_recommendations": [
+            "Use only normal dietary iodine.",
+            "Include protein, whole grains, vegetables, and fruit.",
+            "Eat enough calories to prevent weight loss.",
+            "Avoid seaweed and iodine products.",
+            "Follow any low-iodine diet your doctor advises."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Paneer or tofu",
+            "Lean poultry",
+            "Lentils",
+            "Nut butters",
+            "Whole grains",
+            "Avocado",
+            "Cooked vegetables",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Fat-burner or stimulant supplements",
+            "Energy drinks",
+            "Excess coffee or strong tea",
+            "Excess alcohol",
+            "Smoking and vaping",
+            "Skipping meals"
+          ],
+          "exercise_recommendations": [
+            "Keep activity gentle until your doctor reviews your results.",
+            "Short walks are preferred over strenuous workouts.",
+            "Stop exercise if you notice chest discomfort, dizziness, or a pounding heartbeat.",
+            "Resume strength work gradually once cleared."
+          ],
+          "monitoring_recommendations": [
+            "Arrange prompt thyroid evaluation.",
+            "Assess TSH, free T4, and T3.",
+            "Consider TSH receptor antibodies.",
+            "Repeat testing as advised."
+          ],
+          "clinical_warning": "Seek prompt assessment for persistent palpitations, tremor, marked weight loss, neck swelling, eye pain or bulging, or difficulty sleeping.",
+          "positive_takeaway": "Timely evaluation can identify the cause and guide effective treatment."
+        },
+        "81_85": {
+          "score_range": "81-85",
+          "risk_interpretation": "Your score indicates marked concern requiring active medical follow-up and interpretation of results alongside symptoms.",
+          "lifestyle_tips": [
+            "Maintain safe activity.",
+            "Protect sleep and recovery.",
+            "Avoid unnecessary iodine or thyroid products.",
+            "Monitor symptoms consistently.",
+            "Follow medical advice."
+          ],
+          "diet_recommendations": [
+            "Maintain a balanced, calorie-adequate diet.",
+            "Obtain iodine from normal foods.",
+            "Include protein and calcium daily.",
+            "Reduce processed foods.",
+            "Avoid concentrated iodine products."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Paneer or tofu",
+            "Lean poultry",
+            "Lentils",
+            "Nut butters",
+            "Whole grains",
+            "Avocado",
+            "Cooked vegetables",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Fat-burner or stimulant supplements",
+            "Energy drinks",
+            "Excess coffee or strong tea",
+            "Excess alcohol",
+            "Smoking and vaping",
+            "Skipping meals"
+          ],
+          "exercise_recommendations": [
+            "Keep activity gentle until your doctor reviews your results.",
+            "Short walks are preferred over strenuous workouts.",
+            "Stop exercise if you notice chest discomfort, dizziness, or a pounding heartbeat.",
+            "Resume strength work gradually once cleared."
+          ],
+          "monitoring_recommendations": [
+            "Review TSH, free T4, and T3.",
+            "Repeat abnormal tests.",
+            "Discuss supplements before testing.",
+            "Review heart rate and rhythm."
+          ],
+          "clinical_warning": "Prompt evaluation is recommended if symptoms or abnormal thyroid tests persist.",
+          "positive_takeaway": "Early follow-up helps create a clear management plan."
+        },
+        "86_90": {
+          "score_range": "86-90",
+          "risk_interpretation": "Your score reflects very high risk requiring close clinical assessment and regular monitoring.",
+          "lifestyle_tips": [
+            "Exercise within your current limits.",
+            "Sleep adequately.",
+            "Avoid self-treatment.",
+            "Keep records of symptoms.",
+            "Follow professional guidance."
+          ],
+          "diet_recommendations": [
+            "Maintain a balanced diet.",
+            "Use natural iodine sources only.",
+            "Eat adequate protein and calories.",
+            "Reduce processed foods.",
+            "Avoid excess iodine."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Paneer or tofu",
+            "Lean poultry",
+            "Lentils",
+            "Nut butters",
+            "Whole grains",
+            "Avocado",
+            "Cooked vegetables",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Fat-burner or stimulant supplements",
+            "Energy drinks",
+            "Excess coffee or strong tea",
+            "Excess alcohol",
+            "Smoking and vaping",
+            "Skipping meals"
+          ],
+          "exercise_recommendations": [
+            "Keep activity gentle until your doctor reviews your results.",
+            "Short walks are preferred over strenuous workouts.",
+            "Stop exercise if you notice chest discomfort, dizziness, or a pounding heartbeat.",
+            "Resume strength work gradually once cleared."
+          ],
+          "monitoring_recommendations": [
+            "Arrange close thyroid follow-up.",
+            "Monitor TSH, free T4, and T3.",
+            "Review medications and supplements.",
+            "Discuss bone health and heart rhythm checks."
+          ],
+          "clinical_warning": "Persistent symptoms or abnormal thyroid tests require prompt clinical review.",
+          "positive_takeaway": "Close monitoring improves decision-making and treatment planning."
+        },
+        "91_95": {
+          "score_range": "91-95",
+          "risk_interpretation": "Your score is near the highest risk level and requires prompt professional evaluation with continued follow-up.",
+          "lifestyle_tips": [
+            "Choose safe daily activity.",
+            "Prioritize sleep and hydration.",
+            "Avoid thyroid and stimulant supplements.",
+            "Maintain balanced nutrition.",
+            "Track symptoms carefully."
+          ],
+          "diet_recommendations": [
+            "Use a balanced, calorie-adequate diet.",
+            "Obtain iodine from foods only.",
+            "Maintain protein intake.",
+            "Limit processed foods.",
+            "Avoid concentrated iodine."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Paneer or tofu",
+            "Lean poultry",
+            "Lentils",
+            "Nut butters",
+            "Whole grains",
+            "Avocado",
+            "Cooked vegetables",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Fat-burner or stimulant supplements",
+            "Energy drinks",
+            "Excess coffee or strong tea",
+            "Excess alcohol",
+            "Smoking and vaping",
+            "Skipping meals"
+          ],
+          "exercise_recommendations": [
+            "Keep activity gentle until your doctor reviews your results.",
+            "Short walks are preferred over strenuous workouts.",
+            "Stop exercise if you notice chest discomfort, dizziness, or a pounding heartbeat.",
+            "Resume strength work gradually once cleared."
+          ],
+          "monitoring_recommendations": [
+            "Prompt thyroid assessment.",
+            "Monitor TSH, free T4, and T3.",
+            "Repeat testing based on specialist advice.",
+            "Consider endocrinology referral."
+          ],
+          "clinical_warning": "Seek prompt medical care for persistent symptoms, neck swelling, a racing or irregular heartbeat, unexplained weight loss, or eye changes.",
+          "positive_takeaway": "Early specialist care provides the best opportunity for appropriate management."
+        },
+        "96_100": {
+          "score_range": "96-100",
+          "risk_interpretation": "This is the highest risk band and calls for comprehensive thyroid assessment with ongoing medical supervision.",
+          "lifestyle_tips": [
+            "Keep activity gentle until evaluated.",
+            "Prioritize sleep and recovery.",
+            "Avoid all unprescribed thyroid products.",
+            "Maintain balanced nutrition.",
+            "Keep detailed symptom records."
+          ],
+          "diet_recommendations": [
+            "Follow a balanced, calorie-adequate diet.",
+            "Use natural iodine sources only.",
+            "Include protein, vegetables, and whole grains.",
+            "Avoid processed foods.",
+            "Avoid excess iodine supplements."
+          ],
+          "foods_to_include": [
+            "Eggs",
+            "Milk",
+            "Plain yogurt",
+            "Paneer or tofu",
+            "Lean poultry",
+            "Lentils",
+            "Nut butters",
+            "Whole grains",
+            "Avocado",
+            "Cooked vegetables",
+            "Fresh fruit"
+          ],
+          "foods_to_avoid": [
+            "Iodine or kelp supplements",
+            "Seaweed and kelp products",
+            "Fat-burner or stimulant supplements",
+            "Energy drinks",
+            "Excess coffee or strong tea",
+            "Excess alcohol",
+            "Smoking and vaping",
+            "Skipping meals"
+          ],
+          "exercise_recommendations": [
+            "Keep activity gentle until your doctor reviews your results.",
+            "Short walks are preferred over strenuous workouts.",
+            "Stop exercise if you notice chest discomfort, dizziness, or a pounding heartbeat.",
+            "Resume strength work gradually once cleared."
+          ],
+          "monitoring_recommendations": [
+            "Prioritize comprehensive thyroid evaluation.",
+            "Monitor TSH, free T4, T3, and additional tests if required.",
+            "Review medications and supplements before interpretation.",
+            "Arrange specialist follow-up."
+          ],
+          "clinical_warning": "Urgent care is needed for chest pain, fainting, a very fast or irregular heartbeat, high fever with agitation or confusion, or severe weakness. Otherwise arrange urgent clinical evaluation for significant symptoms or abnormal results.",
+          "positive_takeaway": "Even at this highest risk level, accurate diagnosis and appropriate treatment can greatly improve long-term health."
+        }
+      }
+    }
+  },
+  "result_factor_sets": {
+    "set_1": {
+      "score_range": "0-20",
+      "factors": [
+        "High caffeine intake",
+        "Inconsistent sleep",
+        "Periodic stress"
+      ]
+    },
+    "set_2": {
+      "score_range": "21-40",
+      "factors": [
+        "Excess iodine intake",
+        "Elevated stress response",
+        "Mild inflammatory activity"
+      ]
+    },
+    "set_3": {
+      "score_range": "41-60",
+      "factors": [
+        "Chronic inflammation",
+        "Elevated stress load",
+        "Inadequate calorie or protein intake"
+      ]
+    },
+    "set_4": {
+      "score_range": "61-80",
+      "factors": [
+        "Chronic inflammation",
+        "Possible autoimmune activity",
+        "Prolonged stress"
+      ]
+    },
+    "set_5": {
+      "score_range": "81-100",
+      "factors": [
+        "Persistent inflammation",
+        "Possible autoimmune activity",
+        "Prolonged stress",
+        "Poor recovery pattern"
+      ]
+    }
+  }
+}
