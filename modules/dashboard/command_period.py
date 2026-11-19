@@ -36,6 +36,18 @@ def command_today(*, today: date | None = None) -> date:
     return today or datetime.now(IST).date()
 
 
+def bound_calendar_date(stamp: datetime) -> date:
+    """Map a UTC (or aware) period bound back to the Asia/Kolkata calendar day.
+
+    ``resolve_period_bounds`` exports IST day edges as UTC timestamptz. Date-column
+    filters must recover the IST calendar day — never ``stamp.date()`` on the UTC
+    value, which shifts the window by one day for times before 05:30 UTC.
+    """
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return stamp.astimezone(IST).date()
+
+
 def _start_of_week(d: date) -> date:
     return d - timedelta(days=d.weekday())  # Monday
 

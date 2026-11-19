@@ -14,7 +14,11 @@ from modules.assessments.models import (
     AssessmentPackageCategory,
 )
 from core.exceptions import AppError
-from modules.dashboard.command_period import command_today, pick_latest_engagement
+from modules.dashboard.command_period import (
+    bound_calendar_date,
+    command_today,
+    pick_latest_engagement,
+)
 from modules.diagnostics.models import DiagnosticPackage
 from modules.engagements.blood_bookings_repository import current_blood_booking_subquery
 from modules.engagements.dependencies import get_engagements_repository
@@ -796,9 +800,9 @@ def _b2b_start_date_filter(
         return None
     clauses = [Engagement.start_date.is_not(None)]
     if start_from is not None:
-        clauses.append(Engagement.start_date >= start_from.date())
+        clauses.append(Engagement.start_date >= bound_calendar_date(start_from))
     if start_to is not None:
-        clauses.append(Engagement.start_date <= start_to.date())
+        clauses.append(Engagement.start_date <= bound_calendar_date(start_to))
     return clauses
 
 
@@ -938,14 +942,14 @@ def _date_period_clauses(
     stamp_to: datetime | None,
     all_time: bool,
 ):
-    """Period filter for Date columns (inclusive calendar-day bounds)."""
+    """Period filter for Date columns (inclusive IST calendar-day bounds)."""
     if all_time:
         return []
     clauses = [column.is_not(None)]
     if stamp_from is not None:
-        clauses.append(column >= stamp_from.date())
+        clauses.append(column >= bound_calendar_date(stamp_from))
     if stamp_to is not None:
-        clauses.append(column <= stamp_to.date())
+        clauses.append(column <= bound_calendar_date(stamp_to))
     return clauses
 
 
