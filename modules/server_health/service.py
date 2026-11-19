@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -13,9 +14,11 @@ from modules.employee.access_control import ensure_admin
 from modules.employee.service import EmployeeContext
 from modules.notifications.schemas import DispatchRequest
 from modules.notifications.service import NotificationsService
+from modules.server_health.api_traffic_repository import ApiTrafficRepository
 from modules.server_health.models import ServerHealthHostState
 from modules.server_health.repository import ServerHealthRepository
 from modules.server_health.schemas import (
+    ApiTrafficRead,
     HealthCheckRead,
     HealthChecksByCategory,
     HealthRunRead,
@@ -93,9 +96,16 @@ class ServerHealthService:
         self,
         repository: ServerHealthRepository | None = None,
         state_repository: ServerHealthStateRepository | None = None,
+        api_traffic_repository: ApiTrafficRepository | None = None,
     ) -> None:
         self._repository = repository or ServerHealthRepository()
         self._state_repository = state_repository or ServerHealthStateRepository()
+        self._api_traffic_repository = api_traffic_repository or ApiTrafficRepository()
+
+    async def get_api_traffic(self, employee: EmployeeContext) -> ApiTrafficRead:
+        ensure_admin(employee)
+        payload = await asyncio.to_thread(self._api_traffic_repository.load_sync)
+        return ApiTrafficRead.model_validate(payload)
 
     async def get_current_status(
         self,

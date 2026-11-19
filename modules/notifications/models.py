@@ -85,6 +85,13 @@ class Notification(Base):
             postgresql_where=text("status = 1 AND dispatched_at IS NOT NULL"),
         ),
         Index("ix_notifications_svc_eng_status", "service_key", "engagement_id", "status"),
+        Index(
+            "ix_notifications_event_eng_status",
+            "event_code",
+            "engagement_id",
+            "status",
+            postgresql_where=text("event_code IS NOT NULL"),
+        ),
         Index("ix_notifications_engagement_id", "engagement_id"),
         Index("ix_notifications_assessment_instance_id", "assessment_instance_id"),
         Index("ix_notifications_queue_id", "queue_id"),
@@ -92,6 +99,7 @@ class Notification(Base):
     )
 
     notification_id = Column(Integer, primary_key=True, autoincrement=True)
+    event_code = Column(String, nullable=True)
     service_key = Column(String, ForeignKey("notification_services.service_key"), nullable=False)
     status = Column(NotificationStatusColumn, nullable=False)
     channel = Column(notification_channel_enum, nullable=False)

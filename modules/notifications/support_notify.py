@@ -14,10 +14,6 @@ from modules.support.models import SupportTicket
 logger = logging.getLogger(__name__)
 
 
-def _parse_service_keys(raw: str | None) -> list[str]:
-    return [k.strip() for k in (raw or "").split(",") if k.strip()]
-
-
 def participant_details_from_support_ticket(
     user,
     *,
@@ -43,16 +39,10 @@ async def notify_default_onboarding_assistants_on_support_query(
     ticket: SupportTicket,
     user,
 ) -> None:
-    """Emit support.ticket_created for default staff assistants."""
+    """Emit support.ticket_created using bindings from Notifications."""
     _ = notifications_service
     _ = notifications_repository
-    platform_settings_repository = platform_settings_repository or PlatformSettingsRepository()
-    settings_row = await platform_settings_repository.get_by_id(db)
-    fallback_keys = _parse_service_keys(
-        getattr(settings_row, "default_support_query_notification", None) if settings_row else None
-    )
-    if not fallback_keys:
-        return
+    _ = platform_settings_repository
 
     details = participant_details_from_support_ticket(user, ticket=ticket)
     try:
@@ -62,7 +52,6 @@ async def notify_default_onboarding_assistants_on_support_query(
             context={
                 "participant_details": details,
                 "user_id": ticket.user_id,
-                "fallback_service_keys": fallback_keys,
             },
         )
     except Exception as exc:

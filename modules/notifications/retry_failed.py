@@ -13,7 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.exceptions import AppError
 from modules.audit.models import IntegrationSyncLog
-from modules.notifications.dedup import should_skip_notification
+from modules.notifications.dedup import (
+    should_skip_notification,
+    should_skip_notification_by_service_key,
+)
 from modules.notifications.models import Notification, NotificationService
 from modules.notifications.repository import NotificationsRepository
 from modules.notifications.schemas import DispatchRequest, SessionDetails
@@ -47,6 +50,7 @@ class RetryCandidate:
 
     notification_id: int
     service_key: str
+    event_code: str | None
     user_id: int
     engagement_id: int | None
     assessment_instance_id: int | None
@@ -69,6 +73,7 @@ def dedupe_failed_notifications(notifications: list[Notification]) -> list[Retry
             candidate = RetryCandidate(
                 notification_id=notification.notification_id,
                 service_key=notification.service_key,
+                event_code=notification.event_code,
                 user_id=user_id,
                 engagement_id=notification.engagement_id,
                 assessment_instance_id=notification.assessment_instance_id,
@@ -94,13 +99,24 @@ async def select_retry_candidates(
             break
         if candidate.engagement_id is None:
             continue
-        skip_reason = await should_skip_notification(
-            db,
-            service_key=candidate.service_key,
-            user_id=candidate.user_id,
-            engagement_id=candidate.engagement_id,
-            repository=repository,
-        )
+        event_code = (candidate.event_code or "").strip()
+        if event_code:
+            skip_reason = await should_skip_notification(
+                db,
+                event_code=event_code,
+                user_id=candidate.user_id,
+                engagement_id=candidate.engagement_id,
+                repository=repository,
+                service_key=candidate.service_key,
+            )
+        else:
+            skip_reason = await should_skip_notification_by_service_key(
+                db,
+                service_key=candidate.service_key,
+                user_id=candidate.user_id,
+                engagement_id=candidate.engagement_id,
+                repository=repository,
+            )
         if skip_reason is None:
             retryable.append(candidate)
     return retryable
@@ -188,6 +204,7 @@ def build_dispatch_request(
     """Build a dispatch payload for retry; return skip reason when required fields are missing."""
     kwargs: dict[str, Any] = {
         "service_key": candidate.service_key,
+        "event_code": candidate.event_code,
         "user_ids": [candidate.user_id],
         "engagement_id": candidate.engagement_id,
         "assessment_instance_id": candidate.assessment_instance_id,
@@ -288,13 +305,24 @@ async def retry_failed_notifications(
         async with session_factory() as session:
             skip_reason = None
             if candidate.engagement_id is not None:
-                skip_reason = await should_skip_notification(
-                    session,
-                    service_key=candidate.service_key,
-                    user_id=candidate.user_id,
-                    engagement_id=candidate.engagement_id,
-                    repository=repo,
-                )
+                event_code = (candidate.event_code or "").strip()
+                if event_code:
+                    skip_reason = await should_skip_notification(
+                        session,
+                        event_code=event_code,
+                        user_id=candidate.user_id,
+                        engagement_id=candidate.engagement_id,
+                        repository=repo,
+                        service_key=candidate.service_key,
+                    )
+                else:
+                    skip_reason = await should_skip_notification_by_service_key(
+                        session,
+                        service_key=candidate.service_key,
+                        user_id=candidate.user_id,
+                        engagement_id=candidate.engagement_id,
+                        repository=repo,
+                    )
 
             if skip_reason:
                 skipped += 1

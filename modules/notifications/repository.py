@@ -10,7 +10,7 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-from sqlalchemy import cast, delete, func, select, type_coerce, update as sql_update
+from sqlalchemy import cast, delete, func, select, text, type_coerce, update as sql_update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -85,6 +85,35 @@ class NotificationsRepository:
             .where(Notification.service_key == service_key)
         )
         return int(result.scalar_one())
+
+    async def list_service_keys_with_notification_logs(
+        self, db: AsyncSession,
+    ) -> set[str]:
+        result = await db.execute(select(Notification.service_key).distinct())
+        return {str(row) for row in result.scalars().all() if row}
+
+    async def list_service_keys_used_in_event_bindings(
+        self, db: AsyncSession,
+    ) -> set[str]:
+        stmt = text(
+            """
+            SELECT DISTINCT elem->>'service_key' AS service_key
+            FROM (
+                SELECT notification_services::jsonb AS services FROM notification_events
+                UNION ALL
+                SELECT notification_services::jsonb AS services FROM engagement_notifications
+            ) AS bindings,
+            LATERAL jsonb_array_elements(
+                CASE
+                    WHEN jsonb_typeof(bindings.services) = 'array' THEN bindings.services
+                    ELSE '[]'::jsonb
+                END
+            ) AS elem
+            WHERE COALESCE(elem->>'service_key', '') <> ''
+            """
+        )
+        result = await db.execute(stmt)
+        return {str(row) for row in result.scalars().all() if row}
 
     # ── Notification CRUD ───────────────────────────────────────────────
 
@@ -215,9 +244,45 @@ class NotificationsRepository:
             .where(Notification.status == "pending")
             .where(Notification.dispatched_at.isnot(None))
             .where(Notification.dispatched_at < dispatched_before)
+            .where(Notification.completed_at.is_(None))
             .order_by(Notification.notification_id.asc())
         )
         return [row[0] for row in result.all()]
+
+    async def list_pending_completed_notification_ids(
+        self,
+        db: AsyncSession,
+        *,
+        dispatched_before: datetime,
+    ) -> list[int]:
+        """Pending rows that already have completed_at (out-of-order webhook downgrade)."""
+        result = await db.execute(
+            select(Notification.notification_id)
+            .where(Notification.status == "pending")
+            .where(Notification.dispatched_at.isnot(None))
+            .where(Notification.dispatched_at < dispatched_before)
+            .where(Notification.completed_at.isnot(None))
+            .order_by(Notification.notification_id.asc())
+        )
+        return [row[0] for row in result.all()]
+
+    async def heal_pending_completed_notifications(
+        self,
+        db: AsyncSession,
+        *,
+        dispatched_before: datetime,
+        message: str,
+    ) -> int:
+        result = await db.execute(
+            sql_update(Notification)
+            .where(Notification.status == "pending")
+            .where(Notification.dispatched_at.isnot(None))
+            .where(Notification.dispatched_at < dispatched_before)
+            .where(Notification.completed_at.isnot(None))
+            .values(status="sent", message=message)
+        )
+        await db.flush()
+        return int(result.rowcount or 0)
 
     async def expire_stale_pending_notifications(
         self,
@@ -231,6 +296,7 @@ class NotificationsRepository:
             .where(Notification.status == "pending")
             .where(Notification.dispatched_at.isnot(None))
             .where(Notification.dispatched_at < dispatched_before)
+            .where(Notification.completed_at.is_(None))
             .values(status="failed", message=message)
         )
         await db.flush()
@@ -240,26 +306,42 @@ class NotificationsRepository:
         self,
         db: AsyncSession,
         *,
-        service_key: str,
+        event_code: str,
         user_id: int,
         engagement_id: int,
         dispatched_after: datetime,
+        service_key: str | None = None,
     ) -> bool:
-        result = await db.execute(
-            select(Notification.notification_id)
-            .where(Notification.service_key == service_key)
-            .where(Notification.engagement_id == engagement_id)
-            .where(Notification.status == "pending")
-            .where(Notification.dispatched_at.isnot(None))
-            .where(Notification.dispatched_at >= dispatched_after)
-            .where(
-                cast(Notification.user, JSONB)["user_ids"].contains(
-                    type_coerce([user_id], JSONB)
-                )
-            )
-            .limit(1)
+        code = (event_code or "").strip()
+        user_filter = cast(Notification.user, JSONB)["user_ids"].contains(
+            type_coerce([user_id], JSONB)
         )
-        return result.scalar_one_or_none() is not None
+        base = [
+            Notification.engagement_id == engagement_id,
+            Notification.status == "pending",
+            Notification.dispatched_at.isnot(None),
+            Notification.dispatched_at >= dispatched_after,
+            user_filter,
+        ]
+        if code:
+            result = await db.execute(
+                select(Notification.notification_id)
+                .where(*base)
+                .where(Notification.event_code == code)
+                .limit(1)
+            )
+            if result.scalar_one_or_none() is not None:
+                return True
+        if service_key:
+            legacy = await db.execute(
+                select(Notification.notification_id)
+                .where(*base)
+                .where(Notification.service_key == service_key)
+                .where(Notification.event_code.is_(None))
+                .limit(1)
+            )
+            return legacy.scalar_one_or_none() is not None
+        return False
 
     async def delete_notification(self, db: AsyncSession, *, notification_id: int) -> int:
         result = await db.execute(
@@ -287,6 +369,7 @@ class NotificationsRepository:
         *,
         statuses: list[str] | None = None,
         service_key: str | None = None,
+        event_code: str | None = None,
         channel: str | None = None,
         user_id: int | None = None,
         engagement_id: int | None = None,
@@ -297,6 +380,8 @@ class NotificationsRepository:
             query = query.where(Notification.status.in_(statuses))
         if service_key:
             query = query.where(Notification.service_key == service_key)
+        if event_code:
+            query = query.where(Notification.event_code == event_code)
         if channel:
             query = query.where(Notification.channel == channel)
         if user_id is not None:
@@ -319,6 +404,7 @@ class NotificationsRepository:
         limit: int,
         statuses: list[str] | None = None,
         service_key: str | None = None,
+        event_code: str | None = None,
         channel: str | None = None,
         user_id: int | None = None,
         engagement_id: int | None = None,
@@ -336,6 +422,7 @@ class NotificationsRepository:
             query,
             statuses=statuses,
             service_key=service_key,
+            event_code=event_code,
             channel=channel,
             user_id=user_id,
             engagement_id=engagement_id,
@@ -351,6 +438,7 @@ class NotificationsRepository:
         *,
         statuses: list[str] | None = None,
         service_key: str | None = None,
+        event_code: str | None = None,
         channel: str | None = None,
         user_id: int | None = None,
         engagement_id: int | None = None,
@@ -362,6 +450,7 @@ class NotificationsRepository:
             query,
             statuses=statuses,
             service_key=service_key,
+            event_code=event_code,
             channel=channel,
             user_id=user_id,
             engagement_id=engagement_id,

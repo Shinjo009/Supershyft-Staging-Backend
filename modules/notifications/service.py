@@ -441,11 +441,16 @@ class NotificationsService:
 
             members.append(member)
 
+        event_code = (payload.event_code or "").strip() or None
+        user_payload: dict = {"user_ids": payload.user_ids}
+        if isinstance(payload.dedup_metadata, dict) and payload.dedup_metadata:
+            user_payload["_dedup"] = payload.dedup_metadata
         notification = Notification(
+            event_code=event_code,
             service_key=svc.service_key,
             status="pending",
             channel=svc.channel,
-            user={"user_ids": payload.user_ids},
+            user=user_payload,
             engagement_id=resolved_engagement_id,
             assessment_instance_id=resolved_assessment_instance_id,
             message="Notification dispatch initiated",
@@ -472,6 +477,7 @@ class NotificationsService:
         contacts: list[dict],
         otp: str | None = None,
         engagement_id: int | None = None,
+        event_code: str | None = None,
         participant_details: dict | None = None,
         session_details: SessionDetails | None = None,
     ) -> dict:
@@ -561,7 +567,9 @@ class NotificationsService:
                 stored["employee_id"] = employee_id
             stored_contacts.append(stored)
 
+        stored_event_code = (event_code or "").strip() or None
         notification = Notification(
+            event_code=stored_event_code,
             service_key=svc.service_key,
             status="pending",
             channel=svc.channel,
@@ -701,6 +709,7 @@ class NotificationsService:
     def _notification_base_dict(n: Notification) -> dict:
         return {
             "notification_id": n.notification_id,
+            "event_code": n.event_code,
             "service_key": n.service_key,
             "status": n.status,
             "channel": n.channel,
@@ -768,11 +777,15 @@ class NotificationsService:
             str(e.phone).strip(): e for e in employees if getattr(e, "phone", None)
         }
 
+        from modules.notifications.events_catalog import get_event
+
         enriched: list[dict] = []
         for n in items:
             row = self._notification_base_dict(n)
             svc = service_by_key.get(n.service_key)
             row["service_display_name"] = svc.display_name if svc else n.service_key
+            ev = get_event(n.event_code) if n.event_code else None
+            row["event_display_name"] = ev.name if ev else None
 
             raw_user = n.user if isinstance(n.user, dict) else {}
             recipient_ids = [
@@ -817,6 +830,7 @@ class NotificationsService:
         limit: int,
         status: str | None = None,
         service_key: str | None = None,
+        event_code: str | None = None,
         channel: str | None = None,
         user_id: int | None = None,
         engagement_id: int | None = None,
@@ -835,9 +849,12 @@ class NotificationsService:
         else:
             channel = None
 
+        normalized_event = (event_code or "").strip() or None
+
         filter_kwargs = {
             "statuses": statuses,
             "service_key": service_key,
+            "event_code": normalized_event,
             "channel": channel,
             "user_id": user_id,
             "engagement_id": engagement_id,
@@ -852,6 +869,22 @@ class NotificationsService:
 
     async def list_services(self, db: AsyncSession) -> list[NotificationService]:
         return await self._repo.list_services(db)
+
+    async def _blocked_service_keys(self, db: AsyncSession) -> set[str]:
+        binding_keys = await self._repo.list_service_keys_used_in_event_bindings(db)
+        log_keys = await self._repo.list_service_keys_with_notification_logs(db)
+        return binding_keys | log_keys
+
+    async def service_can_delete(self, db: AsyncSession, *, service_key: str) -> bool:
+        blocked = await self._blocked_service_keys(db)
+        return service_key not in blocked
+
+    async def list_services_with_delete_flags(
+        self, db: AsyncSession,
+    ) -> list[tuple[NotificationService, bool]]:
+        services = await self._repo.list_services(db)
+        blocked = await self._blocked_service_keys(db)
+        return [(svc, svc.service_key not in blocked) for svc in services]
 
     async def create_service(
         self, db: AsyncSession, *, payload: NotificationServiceCreate
@@ -967,6 +1000,13 @@ class NotificationsService:
         if svc is None:
             raise AppError(
                 status_code=404, error_code="NOT_FOUND", message="Service not found"
+            )
+        binding_keys = await self._repo.list_service_keys_used_in_event_bindings(db)
+        if svc.service_key in binding_keys:
+            raise AppError(
+                status_code=409,
+                error_code="CONFLICT",
+                message="Cannot delete a service that is used in notification events.",
             )
         in_use = await self._repo.count_notifications_for_service_key(
             db, service_key=svc.service_key

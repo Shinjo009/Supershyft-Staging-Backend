@@ -57,6 +57,15 @@ async def list_server_health_history(
     )
 
 
+@router.get("/api-traffic")
+async def get_server_health_api_traffic(
+    employee: EmployeeContext = Depends(get_current_employee),
+    service: ServerHealthService = Depends(get_server_health_service),
+):
+    data = await service.get_api_traffic(employee)
+    return success_response(data.model_dump())
+
+
 @router.get("/overview")
 async def get_server_health_overview(
     limit: int = 50,

@@ -251,6 +251,13 @@ class GenderSuitability(str, enum.Enum):
 class PackageFor(str, enum.Enum):
     public = "public"
     camp = "camp"
+    both = "both"
+
+
+class TestGroupPackageFor(str, enum.Enum):
+    package = "package"
+    public = "public"
+    both = "both"
 
 
 class FilterChipFor(str, enum.Enum):
@@ -446,6 +453,7 @@ blood_booking_provider_status_enum = _pg_enum(
 diagnostic_collection_type_enum = _pg_enum(DiagnosticCollectionType, "diagnostic_collection_type_enum")
 gender_suitability_enum = _pg_enum(GenderSuitability, "gender_suitability_enum")
 package_for_enum = _pg_enum(PackageFor, "package_for_enum")
+test_group_package_for_enum = _pg_enum(TestGroupPackageFor, "test_group_package_for_enum")
 filter_chip_for_enum = _pg_enum(FilterChipFor, "filter_chip_for_enum")
 integration_provider_enum = _pg_enum(IntegrationProvider, "integration_provider_enum")
 user_gender_enum = _pg_enum(UserGender, "user_gender_enum")

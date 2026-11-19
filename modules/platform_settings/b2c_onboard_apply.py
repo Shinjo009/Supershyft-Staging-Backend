@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 from modules.engagements.enums import ConsultationMode, EngagementPaymentType
 from modules.engagements.schemas import _consultations_enabled
 from modules.platform_settings.schemas import B2cOnboardingTypeDefaults
@@ -9,6 +11,11 @@ from modules.platform_settings.schemas import B2cOnboardingTypeDefaults
 
 def _normalize_gender(gender: str | None) -> str:
     return (gender or "").strip().lower()
+
+
+def b2c_engagement_end_date(start: date, duration_days: int) -> date:
+    """Inclusive engagement window: N days means start through start + (N - 1)."""
+    return start + timedelta(days=max(0, int(duration_days) - 1))
 
 
 def resolve_b2c_diagnostic_package_id(

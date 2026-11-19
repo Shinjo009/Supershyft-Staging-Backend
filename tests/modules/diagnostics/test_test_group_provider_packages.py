@@ -29,6 +29,7 @@ async def _seed_group_on_packages(
         group_name="Shared TG",
         group_key=f"shared_tg_{id(session)}",
         diagnostic_provider=group_provider,
+        package_for="both",
     )
     session.add(tg)
     await session.flush()
@@ -63,27 +64,28 @@ async def _seed_group_on_packages(
 
 
 @pytest.mark.asyncio
-async def test_update_test_group_provider_rejected_when_packages_mismatch(async_client, test_db_session):
+async def test_update_test_group_provider_creates_variant_when_packages_mismatch(async_client, test_db_session):
     await seed_employee(test_db_session, employee_id=940, role="admin")
     tg, packages = await _seed_group_on_packages(
         test_db_session,
         group_provider=None,
         packages=[("Healthians pkg", "healthians"), ("Orange pkg", "orange_health")],
     )
-    healthians_pkg, orange_pkg = packages
+    healthians_pkg, _orange_pkg = packages
 
     response = await async_client.put(
         f"/diagnostic-test-groups/{tg.group_id}",
         headers=employee_auth_header(940),
         json={"diagnostic_provider": "healthians"},
     )
-    assert response.status_code == 400
-    body = response.json()
-    assert body["error_code"] == "DIAGNOSTIC_TEST_GROUP_PACKAGE_PROVIDER_MISMATCH"
-    assert "packages" in body
-    mismatch_ids = {p["diagnostic_package_id"] for p in body["packages"]}
-    assert orange_pkg.diagnostic_package_id in mismatch_ids
-    assert healthians_pkg.diagnostic_package_id not in mismatch_ids
+    assert response.status_code == 200
+    body = response.json()["data"]
+    assert body["diagnostic_provider"] is None
+    variant = body.get("created_provider_variant")
+    assert variant is not None
+    assert variant["diagnostic_provider"] == "healthians"
+    reassign_ids = {p["diagnostic_package_id"] for p in body.get("packages_to_reassign", [])}
+    assert healthians_pkg.diagnostic_package_id in reassign_ids
 
 
 @pytest.mark.asyncio

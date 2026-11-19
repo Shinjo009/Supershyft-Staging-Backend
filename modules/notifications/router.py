@@ -45,7 +45,7 @@ from modules.employee.access_control import ensure_internal_employee
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 
-def _service_dict(s) -> dict:
+def _service_dict(s, *, can_delete: bool) -> dict:
     return {
         "notification_service_id": s.notification_service_id,
         "service_key": s.service_key,
@@ -64,6 +64,7 @@ def _service_dict(s) -> dict:
         "email_body": s.email_body,
         "email_html": s.email_html,
         "created_at": s.created_at.isoformat() if s.created_at else None,
+        "can_delete": can_delete,
     }
 
 
@@ -161,6 +162,7 @@ async def list_notifications(
     limit: int = 20,
     status: str | None = None,
     service_key: str | None = None,
+    event_code: str | None = None,
     channel: str | None = None,
     user_id: int | None = None,
     engagement_id: int | None = None,
@@ -178,6 +180,7 @@ async def list_notifications(
         limit=limit,
         status=status,
         service_key=service_key,
+        event_code=event_code,
         channel=channel,
         user_id=user_id,
         engagement_id=engagement_id,
@@ -198,8 +201,8 @@ async def list_services(
     employee: EmployeeContext = Depends(get_current_employee),
     svc: NotificationsService = Depends(get_notifications_service),
 ):
-    services = await svc.list_services(db)
-    return success_response([_service_dict(s) for s in services])
+    rows = await svc.list_services_with_delete_flags(db)
+    return success_response([_service_dict(s, can_delete=can_delete) for s, can_delete in rows])
 
 
 @router.post("/services", status_code=201)
@@ -211,7 +214,8 @@ async def create_service(
 ):
     service = await svc.create_service(db, payload=payload)
     await db.commit()
-    return success_response(_service_dict(service))
+    can_delete = await svc.service_can_delete(db, service_key=service.service_key)
+    return success_response(_service_dict(service, can_delete=can_delete))
 
 
 @router.put("/services/{notification_service_id}")
@@ -226,7 +230,8 @@ async def update_service(
         db, notification_service_id=notification_service_id, payload=payload
     )
     await db.commit()
-    return success_response(_service_dict(service))
+    can_delete = await svc.service_can_delete(db, service_key=service.service_key)
+    return success_response(_service_dict(service, can_delete=can_delete))
 
 
 @router.delete("/services/{notification_service_id}")

@@ -16,6 +16,7 @@ from db.column_types import (
     filter_chip_for_enum,
     gender_suitability_enum,
     package_for_enum,
+    test_group_package_for_enum,
     status_server_default,
     STATUS_ACTIVE_INACTIVE,
 )
@@ -255,10 +256,10 @@ class DiagnosticTestGroup(Base):
     has_cancer_screening = Column(Boolean, nullable=False, default=False, server_default="false")
     gender_suitability = Column(gender_suitability_enum, nullable=True)
     package_for = Column(
-        package_for_enum,
+        test_group_package_for_enum,
         nullable=False,
         default="public",
-        server_default=text("'public'::package_for_enum"),
+        server_default=text("'public'::test_group_package_for_enum"),
     )
     forked_from_group_id = Column(
         Integer,

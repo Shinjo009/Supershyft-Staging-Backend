@@ -100,6 +100,65 @@ async def test_get_b2c_defaults_fallback_when_no_row(async_client, test_db_sessi
     assert data.get("default_engagement_type_code") == "bio_ai"
     assert bio.get("slot_duration") == 20
     assert bio.get("payment_type") == "paid_by_patient"
+    assert bio.get("engagement_duration_days") == 3
+
+
+@pytest.mark.asyncio
+async def test_patch_b2c_defaults_persists_engagement_duration_days(async_client, test_db_session):
+    uid = 9113
+    test_db_session.add(User(user_id=uid, age=30, phone="91130000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(employee_id=9113, name="Employee 9113", phone="0000009113", email="employee9113@test.example", role="admin", status="active")
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
+            "VALUES (1, 'P1', 'One', 1) ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
+            "VALUES (1, 'R1', 'D1', 'healthians', 1) "
+            "ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.patch(
+        "/platform-settings/b2c-onboarding",
+        headers=_auth_header(uid),
+        json={
+            "defaults_by_engagement_type": {
+                "bio_ai": _type_defaults(engagement_duration_days=7),
+            }
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["defaults_by_engagement_type"]["bio_ai"]["engagement_duration_days"] == 7
+
+
+@pytest.mark.asyncio
+async def test_patch_b2c_defaults_rejects_invalid_engagement_duration_days(async_client, test_db_session):
+    uid = 9114
+    test_db_session.add(User(user_id=uid, age=30, phone="91140000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(employee_id=9114, name="Employee 9114", phone="0000009114", email="employee9114@test.example", role="admin", status="active")
+    )
+    await test_db_session.commit()
+
+    response = await async_client.patch(
+        "/platform-settings/b2c-onboarding",
+        headers=_auth_header(uid),
+        json={
+            "defaults_by_engagement_type": {
+                "bio_ai": _type_defaults(engagement_duration_days=0),
+            }
+        },
+    )
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -229,6 +288,88 @@ async def test_patch_b2c_defaults_rejects_fitprint_without_profile_creation(asyn
 
     assert response.status_code == 422
     assert response.json()["error_code"] == "INVALID_B2C_ONBOARDING_DEFAULTS"
+
+
+@pytest.mark.asyncio
+async def test_patch_b2c_defaults_single_type_does_not_validate_other_types(async_client, test_db_session):
+    """Saving one Bio AI type must not fail because another type still has invalid Metsights Pro."""
+    uid = 9111
+    test_db_session.add(User(user_id=uid, age=30, phone="91110000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(employee_id=9111, name="Employee 9111", phone="0000009111", email="employee9111@test.example", role="admin", status="active")
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
+            "(1, 'P1', 'One', 1), (901, 'METSIGHTS_ESSENTIALS', 'Essentials', 1), (902, 'METSIGHTS_PRO', 'Pro', 1) "
+            "ON CONFLICT (package_id) DO UPDATE SET package_code = EXCLUDED.package_code, status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
+            "VALUES (6, 'R6', 'Core', 'healthians', 1), (7, 'R7', 'Core Plus', 'healthians', 1) "
+            "ON CONFLICT (diagnostic_package_id) DO UPDATE SET package_name = EXCLUDED.package_name, status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.commit()
+
+    response_bad = await async_client.patch(
+        "/platform-settings/b2c-onboarding",
+        headers=_auth_header(uid),
+        json={
+            "defaults_by_engagement_type": {
+                "bio_ai_with_consultation": _type_defaults(assessment_package_id=902, diagnostic_package_id=6),
+            }
+        },
+    )
+    assert response_bad.status_code == 400
+
+    response = await async_client.patch(
+        "/platform-settings/b2c-onboarding",
+        headers=_auth_header(uid),
+        json={
+            "defaults_by_engagement_type": {
+                "bio_ai": _type_defaults(assessment_package_id=901, diagnostic_package_id=7),
+            }
+        },
+    )
+    assert response.status_code == 200
+    bio = response.json()["data"]["defaults_by_engagement_type"]["bio_ai"]
+    assert bio["assessment_package_id"] == 901
+
+
+@pytest.mark.asyncio
+async def test_patch_b2c_defaults_default_type_only(async_client, test_db_session):
+    uid = 9112
+    test_db_session.add(User(user_id=uid, age=30, phone="91120000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(employee_id=9112, name="Employee 9112", phone="0000009112", email="employee9112@test.example", role="admin", status="active")
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, status) "
+            "VALUES (1, 'P1', 'One', 1) ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
+            "VALUES (1, 'R1', 'D1', 'p', 1) "
+            "ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.patch(
+        "/platform-settings/b2c-onboarding",
+        headers=_auth_header(uid),
+        json={"default_engagement_type_code": "blood_test"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["default_engagement_type_code"] == "blood_test"
 
 
 @pytest.mark.asyncio
@@ -524,6 +665,79 @@ async def test_patch_geocoding_provider_persists(async_client, test_db_session):
     get_response = await async_client.get("/platform-settings/geocoding-provider", headers=_auth_header(uid))
     assert get_response.status_code == 200
     assert get_response.json()["data"]["geocoding_provider"] == "nominatim"
+
+
+@pytest.mark.asyncio
+async def test_get_notification_resolution_defaults_to_strict(async_client, test_db_session):
+    uid = 9116
+    test_db_session.add(User(user_id=uid, age=30, phone="91160000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=9116,
+            name="Employee 9116",
+            phone="0000009116",
+            email="employee9116@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    await test_db_session.execute(text("DELETE FROM platform_settings"))
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        "/platform-settings/notification-resolution",
+        headers=_auth_header(uid),
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["strict_engagement_notification_bindings"] is True
+
+
+@pytest.mark.asyncio
+async def test_patch_notification_resolution_persists(async_client, test_db_session):
+    uid = 9117
+    test_db_session.add(User(user_id=uid, age=30, phone="91170000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=9117,
+            name="Employee 9117",
+            phone="0000009117",
+            email="employee9117@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO assessment_packages (package_id, package_code, display_name, status) VALUES "
+            "(1, 'P1', 'One', 1) "
+            "ON CONFLICT (package_id) DO UPDATE SET status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO diagnostic_package (diagnostic_package_id, reference_id, package_name, diagnostic_provider, status) "
+            "VALUES (1, 'R1', 'D1', 'healthians', 1) "
+            "ON CONFLICT (diagnostic_package_id) DO UPDATE SET status = EXCLUDED.status"
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.patch(
+        "/platform-settings/notification-resolution",
+        headers=_auth_header(uid),
+        json={"strict_engagement_notification_bindings": False},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["strict_engagement_notification_bindings"] is False
+
+    get_response = await async_client.get(
+        "/platform-settings/notification-resolution",
+        headers=_auth_header(uid),
+    )
+    assert get_response.status_code == 200
+    assert get_response.json()["data"]["strict_engagement_notification_bindings"] is False
 
 
 @pytest.mark.asyncio

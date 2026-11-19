@@ -29,6 +29,8 @@ from modules.platform_settings.schemas import (
     EngagementNotificationDefaultsUpdate,
     GeocodingProviderSettingsRead,
     GeocodingProviderSettingsUpdate,
+    NotificationResolutionSettingsRead,
+    NotificationResolutionSettingsUpdate,
     SupportQueryNotificationRead,
     SupportQueryNotificationUpdate,
 )
@@ -38,6 +40,7 @@ _FALLBACK_B2C_BLOOD_COLLECTION_TYPE: BloodCollectionType | None = None
 _FALLBACK_B2C_CREATE_PROFILE_ON_METSIGHTS = True
 _FALLBACK_B2C_ENROLL_FOR_FITPRINT_FULL = False
 _FALLBACK_B2C_SLOT_DURATION = 20
+_FALLBACK_B2C_ENGAGEMENT_DURATION_DAYS = 3
 _FALLBACK_B2C_PAYMENT_TYPE = EngagementPaymentType.paid_by_patient
 
 
@@ -54,6 +57,7 @@ def _fallback_type_defaults() -> B2cOnboardingTypeDefaults:
         consultation_mode=None,
         auto_booking=False,
         payment_type=_FALLBACK_B2C_PAYMENT_TYPE,
+        engagement_duration_days=_FALLBACK_B2C_ENGAGEMENT_DURATION_DAYS,
     )
 
 
@@ -80,6 +84,7 @@ def _parse_type_defaults(raw: Any) -> B2cOnboardingTypeDefaults | None:
             cleaned = [str(k).strip() for k in keys_raw if str(k).strip()]
             category_keys = cleaned or None
         slot_duration = int(raw.get("slot_duration", _FALLBACK_B2C_SLOT_DURATION))
+        duration_days = int(raw.get("engagement_duration_days", _FALLBACK_B2C_ENGAGEMENT_DURATION_DAYS))
         return B2cOnboardingTypeDefaults(
             assessment_package_id=int(raw["assessment_package_id"]),
             diagnostic_package_id=diagnostic_package_id,
@@ -96,6 +101,7 @@ def _parse_type_defaults(raw: Any) -> B2cOnboardingTypeDefaults | None:
             consultation_mode=consultation,
             auto_booking=bool(raw.get("auto_booking", False)),
             payment_type=payment or _FALLBACK_B2C_PAYMENT_TYPE,
+            engagement_duration_days=max(1, min(90, duration_days)),
         )
     except (KeyError, TypeError, ValueError):
         return None
@@ -119,6 +125,7 @@ def _type_defaults_to_dict(defaults: B2cOnboardingTypeDefaults) -> dict[str, Any
         "consultation_mode": mode.value if isinstance(mode, ConsultationMode) else mode,
         "auto_booking": defaults.auto_booking,
         "payment_type": payment.value if isinstance(payment, EngagementPaymentType) else payment,
+        "engagement_duration_days": defaults.engagement_duration_days,
     }
 
 
@@ -299,11 +306,15 @@ class PlatformSettingsService:
         endpoint: str,
     ) -> B2cOnboardingDefaultsRead:
         provided = {str(code).strip(): entry for code, entry in payload.defaults_by_engagement_type.items()}
-        if not provided:
+        updating_defaults = bool(provided)
+        if not updating_defaults and payload.default_engagement_type_code is None:
             raise AppError(
                 status_code=422,
                 error_code="INVALID_B2C_ONBOARDING_DEFAULTS",
-                message="defaults_by_engagement_type must include at least one engagement type",
+                message=(
+                    "Provide defaults_by_engagement_type with at least one engagement type, "
+                    "or set default_engagement_type_code"
+                ),
             )
 
         active_codes = await self._list_active_engagement_type_codes(db)
@@ -325,38 +336,42 @@ class PlatformSettingsService:
         for code in active_codes:
             complete[code] = provided.get(code) or existing_map.get(code) or _fallback_type_defaults()
 
-        for code, entry in complete.items():
-            await self.ensure_active_b2c_packages(db, entry.assessment_package_id, entry.diagnostic_package_id)
-
-        pro_violations: list[str] = []
-        for code, entry in complete.items():
-            violation = await metsights_pro_b2c_defaults_violation(
-                db,
-                engagement_type_code=code,
-                assessment_package_id=entry.assessment_package_id,
-                diagnostic_package_id=entry.diagnostic_package_id,
-                diagnostic_package_id_male=entry.diagnostic_package_id_male,
-                diagnostic_package_id_female=entry.diagnostic_package_id_female,
-            )
-            if violation:
-                pro_violations.append(violation)
-        if pro_violations:
-            raise AppError(
-                status_code=400,
-                error_code="INVALID_INPUT",
-                message=" ".join(pro_violations),
-            )
-
-        for code, entry in complete.items():
-            if entry.enroll_for_fitprint_full and not entry.create_profile_on_metsights:
-                raise AppError(
-                    status_code=422,
-                    error_code="INVALID_B2C_ONBOARDING_DEFAULTS",
-                    message=(
-                        f"FitPrint Full enrollment requires Metsights profile creation "
-                        f"(engagement_type={code})"
-                    ),
+        if updating_defaults:
+            for code in provided:
+                entry = complete[code]
+                await self.ensure_active_b2c_packages(
+                    db, entry.assessment_package_id, entry.diagnostic_package_id
                 )
+
+            pro_violations: list[str] = []
+            for code, entry in provided.items():
+                violation = await metsights_pro_b2c_defaults_violation(
+                    db,
+                    engagement_type_code=code,
+                    assessment_package_id=entry.assessment_package_id,
+                    diagnostic_package_id=entry.diagnostic_package_id,
+                    diagnostic_package_id_male=entry.diagnostic_package_id_male,
+                    diagnostic_package_id_female=entry.diagnostic_package_id_female,
+                )
+                if violation:
+                    pro_violations.append(violation)
+            if pro_violations:
+                raise AppError(
+                    status_code=400,
+                    error_code="INVALID_INPUT",
+                    message=" ".join(pro_violations),
+                )
+
+            for code, entry in provided.items():
+                if entry.enroll_for_fitprint_full and not entry.create_profile_on_metsights:
+                    raise AppError(
+                        status_code=422,
+                        error_code="INVALID_B2C_ONBOARDING_DEFAULTS",
+                        message=(
+                            f"FitPrint Full enrollment requires Metsights profile creation "
+                            f"(engagement_type={code})"
+                        ),
+                    )
 
         serialized = {code: _type_defaults_to_dict(entry) for code, entry in complete.items()}
         # Preserve configs for inactive codes so reactivating a type keeps settings.
@@ -541,22 +556,62 @@ class PlatformSettingsService:
 
         return await self.get_geocoding_provider(db)
 
+    async def get_notification_resolution(self, db: AsyncSession) -> NotificationResolutionSettingsRead:
+        strict = await self._repository.resolve_strict_engagement_notification_bindings(db)
+        return NotificationResolutionSettingsRead(strict_engagement_notification_bindings=strict)
+
+    async def update_notification_resolution(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        payload: NotificationResolutionSettingsUpdate,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> NotificationResolutionSettingsRead:
+        _ = employee
+        a_id, d_id = await self.resolve_b2c_default_package_ids(db)
+        await self._repository.upsert_strict_engagement_notification_bindings(
+            db,
+            strict_engagement_notification_bindings=payload.strict_engagement_notification_bindings,
+            updated_by_user_id=None,
+            assessment_package_id=a_id,
+            diagnostic_package_id=d_id,
+        )
+
+        if self._audit_service is not None:
+            await self._audit_service.log_event(
+                db,
+                action="EMPLOYEE_UPDATE_NOTIFICATION_RESOLUTION",
+                endpoint=endpoint,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                user_id=None,
+                session_id=None,
+            )
+
+        return await self.get_notification_resolution(db)
+
     async def get_settings_bootstrap(self, db: AsyncSession, *, engagement_types_service) -> dict[str, Any]:
         """Core platform settings reads for admin Settings page initial load."""
         (
             b2c_defaults,
             support_query_notification,
             geocoding_provider,
+            notification_resolution,
             engagement_types,
         ) = await asyncio.gather(
             self.get_b2c_onboarding_defaults(db),
             self.get_support_query_notification(db),
             self.get_geocoding_provider(db),
+            self.get_notification_resolution(db),
             engagement_types_service.list_all(db, is_active=True),
         )
         return {
             "b2c_onboarding": b2c_defaults.model_dump(mode="json"),
             "support_query_notification": support_query_notification.model_dump(),
             "geocoding_provider": geocoding_provider.model_dump(mode="json"),
+            "notification_resolution": notification_resolution.model_dump(),
             "engagement_types": [item.model_dump(mode="json") for item in engagement_types],
         }

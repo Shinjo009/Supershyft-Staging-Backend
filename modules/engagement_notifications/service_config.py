@@ -63,6 +63,40 @@ def normalize_notification_services(raw: list | None) -> list[NotificationServic
     return result
 
 
+def replace_or_merge_service_config(
+    prior: list[NotificationServiceConfigItem],
+    incoming: list[NotificationServiceConfigItem],
+) -> list[NotificationServiceConfigItem]:
+    """Update matching service_key in prior or append incoming entries."""
+    if not incoming:
+        return list(prior)
+    incoming_raw = [
+        item.model_dump(mode="json") if isinstance(item, NotificationServiceConfigItem) else item
+        for item in incoming
+    ]
+    incoming_norm = normalize_notification_services(incoming_raw)
+    if not incoming_norm:
+        return list(prior)
+    prior_norm = [
+        item.model_dump(mode="json") if isinstance(item, NotificationServiceConfigItem) else item
+        for item in prior
+    ]
+    prior_list = normalize_notification_services(prior_norm)
+    out: list[NotificationServiceConfigItem] = []
+    replaced_keys: set[str] = set()
+    for cfg in prior_list:
+        match = next((inc for inc in incoming_norm if inc.service_key == cfg.service_key), None)
+        if match is not None:
+            out.append(match)
+            replaced_keys.add(match.service_key)
+        else:
+            out.append(cfg)
+    for inc in incoming_norm:
+        if inc.service_key not in replaced_keys:
+            out.append(inc)
+    return out
+
+
 def merge_notification_service_configs(
     *groups: list[NotificationServiceConfigItem] | tuple[NotificationServiceConfigItem, ...] | None,
 ) -> list[NotificationServiceConfigItem]:

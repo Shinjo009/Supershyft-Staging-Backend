@@ -54,6 +54,7 @@ from modules.engagements.schemas import (
     RemoveReportsForParticipantsRequest,
     MoveParticipantRequest,
     MoveParticipantsBatchRequest,
+    CreateExpertRequest,
     CreatePhleboRequest,
     OnboardingAssistantsAddRequest,
     ResolveHealthiansZoneRequest,
@@ -1505,6 +1506,33 @@ async def create_phlebo_onboarding_assistant(
         engagement_id=engagement_id,
         name=payload.name,
         phone=payload.phone,
+        confirm_existing=payload.confirm_existing,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response(data)
+
+
+@router.post("/{engagement_id}/onboarding-assistants/create-expert", status_code=201)
+async def create_expert_onboarding_assistant(
+    engagement_id: int,
+    payload: CreateExpertRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    service: OnboardingAssistantsService = Depends(get_onboarding_assistants_service),
+):
+    """Creates (or reuses) an expert partner and assigns them to an engagement."""
+    data = await service.create_and_assign_expert(
+        db,
+        employee=employee,
+        engagement_id=engagement_id,
+        name=payload.name,
+        phone=payload.phone,
+        specialization=payload.specialization,
+        expert_type=payload.expert_type,
         confirm_existing=payload.confirm_existing,
         ip_address=_client_ip(request),
         user_agent=request.headers.get("User-Agent", "unknown"),

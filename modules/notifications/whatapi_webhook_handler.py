@@ -106,10 +106,44 @@ def _status_rank(db_status: str) -> int:
     return 1
 
 
+def _extract_wamid_near_queue(node: dict[str, Any]) -> str | None:
+    """Pull Meta wamid from WhatAPI send acknowledgements when present."""
+    response = node.get("response")
+    if isinstance(response, dict):
+        messages = response.get("messages")
+        if isinstance(messages, list):
+            for item in messages:
+                if not isinstance(item, dict):
+                    continue
+                wamid = item.get("id")
+                if isinstance(wamid, str) and wamid.strip().lower().startswith("wamid."):
+                    return wamid.strip()
+    messages = node.get("messages")
+    if isinstance(messages, list):
+        for item in messages:
+            if not isinstance(item, dict):
+                continue
+            wamid = item.get("id")
+            if isinstance(wamid, str) and wamid.strip().lower().startswith("wamid."):
+                return wamid.strip()
+    for key in ("whatsapp_message_id", "wamid"):
+        val = node.get(key)
+        if isinstance(val, str) and val.strip().lower().startswith("wamid."):
+            return val.strip()
+    return None
+
+
 def _extract_whatapi_queue_events(obj: Any) -> list[WebhookStatusEvent]:
     found: list[WebhookStatusEvent] = []
 
-    def record(queue_id: str, status_raw: Any, detail: str | None, source: dict[str, Any]) -> None:
+    def record(
+        queue_id: str,
+        status_raw: Any,
+        detail: str | None,
+        source: dict[str, Any],
+        *,
+        wamid: str | None = None,
+    ) -> None:
         status = _normalize_status(status_raw if isinstance(status_raw, str) else None)
         if not status:
             return
@@ -120,14 +154,22 @@ def _extract_whatapi_queue_events(obj: Any) -> list[WebhookStatusEvent]:
                 status=status,
                 detail=merged_detail,
                 queue_id=queue_id.strip(),
+                wamid=wamid or _extract_wamid_near_queue(source),
             )
         )
 
-    def visit(node: Any, meta_queue_id: str | None = None) -> None:
+    def visit(
+        node: Any,
+        meta_queue_id: str | None = None,
+        meta_wamid: str | None = None,
+    ) -> None:
         if isinstance(node, dict):
             queue_id = node.get("queue_id") or node.get("queueId")
             if isinstance(queue_id, str) and queue_id.strip():
                 meta_queue_id = queue_id.strip()
+            found_wamid = _extract_wamid_near_queue(node)
+            if found_wamid:
+                meta_wamid = found_wamid
             status_raw = (
                 node.get("message_status")
                 or node.get("messageStatus")
@@ -141,6 +183,7 @@ def _extract_whatapi_queue_events(obj: Any) -> list[WebhookStatusEvent]:
                             status_raw,
                             _error_detail_from_node(node),
                             node,
+                            wamid=meta_wamid,
                         )
 
             statuses = node.get("statuses")
@@ -156,13 +199,14 @@ def _extract_whatapi_queue_events(obj: Any) -> list[WebhookStatusEvent]:
                         st.get("status"),
                         _error_detail_from_node(st),
                         st,
+                        wamid=meta_wamid,
                     )
 
             for value in node.values():
-                visit(value, meta_queue_id)
+                visit(value, meta_queue_id, meta_wamid)
         elif isinstance(node, list):
             for item in node:
-                visit(item, meta_queue_id)
+                visit(item, meta_queue_id, meta_wamid)
 
     visit(obj)
     return found
@@ -234,11 +278,19 @@ def _walk_for_queue_status(obj: Any) -> list[tuple[str, str, str | None]]:
     return pairs
 
 
-def _delivery_message(whatapi_status: str, detail: str | None) -> str | None:
+def _delivery_message(
+    whatapi_status: str,
+    detail: str | None,
+    *,
+    source: Literal["whatapi", "meta"] | None = None,
+) -> str | None:
     status = _normalize_status(whatapi_status)
     if status is None:
         return None
-    if status in _TERMINAL_SENT or status in _META_DELIVERED:
+    # Meta "sent" means accepted by WhatsApp, not device delivery yet.
+    if status == "sent" and source == "meta":
+        return "WhatsApp accepted by provider (awaiting delivery confirmation)"
+    if status in _META_DELIVERED or (status in _TERMINAL_SENT and source != "meta"):
         return f"WhatsApp delivered ({status})"
     if status in _TERMINAL_FAILED:
         base = f"WhatsApp delivery failed ({status})"
@@ -248,6 +300,15 @@ def _delivery_message(whatapi_status: str, detail: str | None) -> str | None:
     if status == "sent":
         return "WhatsApp accepted by provider (awaiting delivery confirmation)"
     return None
+
+
+def _normalize_db_status(raw: Any) -> str:
+    if raw is None:
+        return "pending"
+    if isinstance(raw, int):
+        return {1: "pending", 2: "sent", 3: "failed"}.get(raw, "pending")
+    text = str(raw).strip().lower()
+    return text if text in {"pending", "sent", "failed"} else "pending"
 
 
 class WhatApiWebhookHandler:
@@ -317,11 +378,50 @@ class WhatApiWebhookHandler:
                 continue
 
             nid = int(notification.notification_id)
+            current_status = _normalize_db_status(getattr(notification, "status", None))
+            # Batched updates in this request may already raise the effective status.
+            batched = pending_by_id.get(nid)
+            if batched is not None:
+                current_status = _normalize_db_status(batched.get("status", current_status))
+
+            # Never downgrade across out-of-order Meta/WhatAPI webhooks
+            # (e.g. delivered → sent, then a late Meta "sent" mapping to pending).
+            if _status_rank(db_status) < _status_rank(current_status):
+                soft_values: dict[str, Any] = {}
+                if event.wamid and not getattr(notification, "whatsapp_message_id", None):
+                    soft_values["whatsapp_message_id"] = event.wamid
+                if soft_values:
+                    if batched is None:
+                        pending_by_id[nid] = soft_values
+                    else:
+                        for key, value in soft_values.items():
+                            batched.setdefault(key, value)
+                    logger.info(
+                        "WhatAPI webhook: keeping status=%s for notification_id=%s; "
+                        "ignored downgrade to %s from %s/%s",
+                        current_status,
+                        nid,
+                        db_status,
+                        event.source,
+                        event.status,
+                    )
+                else:
+                    logger.info(
+                        "WhatAPI webhook: ignored status downgrade notification_id=%s "
+                        "%s -> %s (%s/%s)",
+                        nid,
+                        current_status,
+                        db_status,
+                        event.source,
+                        event.status,
+                    )
+                continue
+
             values: dict[str, Any] = {"status": db_status}
             if event.wamid:
                 values["whatsapp_message_id"] = event.wamid
 
-            msg = _delivery_message(event.status, event.detail)
+            msg = _delivery_message(event.status, event.detail, source=event.source)
             if msg and db_status in ("sent", "failed", "pending"):
                 if db_status != "pending" or event.source == "meta":
                     values["message"] = msg
@@ -333,7 +433,7 @@ class WhatApiWebhookHandler:
 
             existing = pending_by_id.get(nid)
             if existing is None or _status_rank(db_status) >= _status_rank(
-                str(existing.get("status") or "pending")
+                _normalize_db_status(existing.get("status") or "pending")
             ):
                 if existing:
                     existing.update(values)

@@ -126,6 +126,30 @@ class EngagementNotificationsRepository:
     async def delete_slot(self, db: AsyncSession, slot_id: int) -> None:
         await db.execute(delete(EngagementNotification).where(EngagementNotification.id == slot_id))
 
+    async def remove_service_from_slot(
+        self,
+        db: AsyncSession,
+        slot_id: int,
+        service_key: str,
+    ) -> bool:
+        """Remove one service_key from a slot; delete the slot if it was the last service."""
+        slot = await self.get_slot_by_id(db, slot_id)
+        if slot is None:
+            return False
+        key = (service_key or "").strip()
+        if not key:
+            return False
+        prior = normalize_notification_services(slot.notification_services)
+        remaining = [cfg for cfg in prior if cfg.service_key != key]
+        if len(remaining) == len(prior):
+            return False
+        if not remaining:
+            await self.delete_slot(db, slot_id)
+            return True
+        slot.notification_services = serialize_for_db(remaining)
+        await db.flush()
+        return True
+
     async def delete_slots_for_event(
         self, db: AsyncSession, *, engagement_id: int, event_code: str
     ) -> None:
@@ -204,9 +228,12 @@ class EngagementNotificationsRepository:
 
                 incoming = normalize_notification_services(notification_services)
                 prior = normalize_notification_services(existing.notification_services)
-                existing.notification_services = serialize_for_db(
-                    merge_notification_service_configs(prior, incoming)
-                )
+                if existing.source_binding_id is None and source_binding_id is not None:
+                    existing.notification_services = serialize_for_db(incoming)
+                else:
+                    existing.notification_services = serialize_for_db(
+                        merge_notification_service_configs(prior, incoming)
+                    )
             else:
                 existing.notification_services = notification_services
             existing.recipient_config = recipient_config
@@ -341,7 +368,7 @@ class EngagementNotificationsRepository:
         existing_slots = await self.list_for_engagement(db, engagement_id)
         def _slot_key(s: EngagementNotification) -> tuple[str, str, str, str]:
             return (
-                s.event_code,
+                map_legacy_event_code(s.event_code),
                 s.recipient_type,
                 (s.delivery_channel or "whatsapp").strip().lower(),
                 s.condition_key or "default",
@@ -350,14 +377,26 @@ class EngagementNotificationsRepository:
         existing_keys = {_slot_key(s) for s in existing_slots}
         existing_legacy = {(s.event_code, s.recipient_type) for s in existing_slots}
 
+        engagement = await db.get(Engagement, engagement_id)
+        type_id: int | None = None
+        if engagement is not None and engagement.engagement_type is not None:
+            type_id = int(engagement.engagement_type)
+
         created: list[EngagementNotification] = []
         for event_code in sorted(codes):
-            global_rows = await self._bindings_repo.list_for_event(
+            candidate_rows = await self._bindings_repo.list_for_event(
                 db, event_code=event_code, engagement_type_id=None
             )
-            for row in global_rows:
-                if row.engagement_type_id is not None:
-                    continue
+            if type_id is not None:
+                candidate_rows = [
+                    *candidate_rows,
+                    *(
+                        await self._bindings_repo.list_for_event(
+                            db, event_code=event_code, engagement_type_id=type_id
+                        )
+                    ),
+                ]
+            for row in candidate_rows:
                 normalized_code = map_legacy_event_code(row.event_code)
                 slot_key = (
                     normalized_code,

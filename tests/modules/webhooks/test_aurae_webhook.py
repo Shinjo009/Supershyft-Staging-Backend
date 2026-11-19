@@ -83,6 +83,57 @@ async def _seed_vifc_package(test_db_session, *, package_id: int = 9901) -> int:
     return package_id
 
 
+async def _ensure_bio_ai_with_consultation_engagement(
+    test_db_session,
+    *,
+    engagement_id: int = 2,
+    engagement_code: str = "CONSULT_BIOAI",
+) -> None:
+    from datetime import date
+
+    from sqlalchemy import select
+    from modules.engagements.models import Engagement, EngagementType
+
+    existing = (
+        await test_db_session.execute(
+            select(Engagement).where(Engagement.engagement_id == engagement_id)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return
+
+    await test_db_session.execute(
+        text(
+            "INSERT INTO engagement_types (code, display_name, is_active) "
+            "VALUES ('bio_ai_with_consultation', 'BioAI with Consultation', true) "
+            "ON CONFLICT (code) DO UPDATE SET display_name = EXCLUDED.display_name, is_active = true"
+        )
+    )
+    type_id = (
+        await test_db_session.execute(
+            select(EngagementType.id).where(EngagementType.code == "bio_ai_with_consultation").limit(1)
+        )
+    ).scalar_one()
+    test_db_session.add(
+        Engagement(
+            engagement_id=engagement_id,
+            engagement_name="Consult BioAI",
+            engagement_code=engagement_code,
+            engagement_type=type_id,
+            assessment_package_id=1,
+            diagnostic_package_id=1,
+            slot_duration=20,
+            city="BLR",
+            start_date=date(2026, 2, 1),
+            end_date=date(2026, 2, 28),
+            status="running",
+            blood_collection_type="camp_collection",
+            consultation_mode="online",
+        )
+    )
+    await test_db_session.commit()
+
+
 async def _seed_vifc_instance(
     test_db_session,
     *,
@@ -454,6 +505,38 @@ async def test_report_webhook_triggers_report_ready_notifications(
     assert body["notifications"][0]["notification_id"] is not None
 
     assert len(webhook_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_report_webhook_skips_face_scan_for_bio_ai_with_consultation(
+    async_client, test_db_session, monkeypatch
+):
+    _configure_webhook_auth(monkeypatch)
+    await _ensure_test_engagement(test_db_session)
+    await _ensure_bio_ai_with_consultation_engagement(test_db_session)
+
+    uid = 99153
+    aid = 99154
+    consult_engagement_id = 2
+    pkg_id = await _seed_vifc_package(test_db_session, package_id=99155)
+    await _seed_vifc_user(test_db_session, user_id=uid)
+    await _seed_vifc_instance(
+        test_db_session,
+        assessment_instance_id=aid,
+        user_id=uid,
+        package_id=pkg_id,
+        engagement_id=consult_engagement_id,
+    )
+
+    payload = _report_payload(api_customer_id=str(aid))
+    response = await async_client.post("/webhooks/aurae", json=payload, headers=_auth_headers())
+    assert response.status_code == 200, response.text
+
+    body = response.json()["data"]
+    assert body["event"] == "report"
+    assert body["notifications"] == [
+        {"action": "skipped", "reason": "not_applicable_engagement_type"}
+    ]
 
 
 @pytest.mark.asyncio

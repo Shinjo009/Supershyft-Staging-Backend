@@ -698,7 +698,13 @@ class DiscountService:
     ) -> list[dict[str, Any]]:
         stmt = select(DiagnosticPackage).where(DiagnosticPackage.status == "active").limit(limit)
         if package_for:
-            stmt = stmt.where(DiagnosticPackage.package_for == package_for)
+            normalized = package_for.strip().lower()
+            if normalized == "public":
+                stmt = stmt.where(DiagnosticPackage.package_for.in_(("public", "both")))
+            elif normalized == "camp":
+                stmt = stmt.where(DiagnosticPackage.package_for.in_(("camp", "both")))
+            else:
+                stmt = stmt.where(DiagnosticPackage.package_for == package_for)
         if search:
             stmt = stmt.where(DiagnosticPackage.package_name.ilike(f"%{search.strip()}%"))
         rows = list((await db.execute(stmt)).scalars().all())

@@ -35,10 +35,16 @@ async def upsert_engagement_notification(
         text(
             """
             DELETE FROM engagement_notifications
-            WHERE engagement_id = :eid AND event_code = :event_code
+            WHERE engagement_id = :eid
+              AND event_code = :event_code
+              AND recipient_type = :recipient
             """
         ),
-        {"eid": engagement_id, "event_code": event_code},
+        {
+            "eid": engagement_id,
+            "event_code": event_code,
+            "recipient": recipient_type,
+        },
     )
 
     for key in keys:

@@ -45,8 +45,11 @@ class HomeCollectionRescheduleRequest(BaseModel):
 
 
 class ConsoleParticipantBookResponse(BaseModel):
-    status: bool
+    status: Optional[bool] = None
+    booking_created: Optional[bool] = None
+    barcode_saved: Optional[bool] = None
     message: Optional[str] = None
+    partner_error: Optional[str] = None
     lead_id: Optional[int] = None
     booking_id: Optional[str] = None
     resCode: Optional[str] = None

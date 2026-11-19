@@ -7,14 +7,17 @@ from datetime import date, datetime, time, timedelta, timezone
 import pytest
 from sqlalchemy import text
 
-from modules.engagements.models import Engagement
 from modules.notifications.dedup import (
     has_notification_been_sent,
+    should_skip_contact_notification,
     should_skip_notification,
     should_skip_notification_on_date,
 )
 from modules.notifications.models import Notification
 from modules.users.models import User
+
+_TEST_EVENT = "test.dedup.event"
+_TEST_EVENT_B = "test.dedup.event_b"
 
 
 async def _seed_service(test_db_session, *, service_key: str) -> None:
@@ -31,19 +34,16 @@ async def _seed_service(test_db_session, *, service_key: str) -> None:
 
 
 async def _seed_engagement(test_db_session, *, engagement_id: int) -> None:
-    test_db_session.add(
-        Engagement(
-            engagement_id=engagement_id,
-            engagement_name="Camp",
-            engagement_code=f"ENG-DEDUP-{engagement_id}",
-            engagement_type="bio_ai",
-            assessment_package_id=1,
-            diagnostic_package_id=1,
-            city="BLR",
-            slot_duration=20,
-            start_date=date(2026, 5, 1),
-            end_date=date(2026, 5, 1),
-            status="active",
+    from tests.modules.notifications.sql_helpers import engagement_status_code
+
+    await test_db_session.execute(
+        text(
+            "INSERT INTO engagements "
+            "(engagement_id, engagement_name, engagement_code, engagement_type, assessment_package_id, "
+            "diagnostic_package_id, city, slot_duration, start_date, end_date, status) "
+            f"VALUES ({engagement_id}, 'Camp', 'ENG-DEDUP-{engagement_id}', "
+            "(SELECT id FROM engagement_types WHERE code = 'bio_ai'), 1, 1, 'BLR', 20, "
+            f"'2026-05-01', '2026-05-01', {engagement_status_code('running')})"
         )
     )
     await test_db_session.commit()
@@ -57,9 +57,11 @@ async def _seed_notification(
     engagement_id: int,
     status: str,
     dispatched_at: datetime | None = None,
+    event_code: str | None = _TEST_EVENT,
 ) -> None:
     test_db_session.add(
         Notification(
+            event_code=event_code,
             service_key=service_key,
             status=status,
             channel="email",
@@ -79,14 +81,14 @@ async def test_should_skip_when_no_prior_notification(test_db_session):
 
     result = await should_skip_notification(
         test_db_session,
-        service_key="dedup-svc-a",
+        event_code=_TEST_EVENT,
         user_id=42,
         engagement_id=9701,
     )
     assert result is None
     assert not await has_notification_been_sent(
         test_db_session,
-        service_key="dedup-svc-a",
+        event_code=_TEST_EVENT,
         user_id=42,
         engagement_id=9701,
     )
@@ -106,17 +108,40 @@ async def test_should_skip_when_prior_sent(test_db_session):
 
     result = await should_skip_notification(
         test_db_session,
-        service_key="dedup-svc-b",
+        event_code=_TEST_EVENT,
         user_id=42,
         engagement_id=9702,
     )
     assert result == "already sent"
     assert await has_notification_been_sent(
         test_db_session,
-        service_key="dedup-svc-b",
+        event_code=_TEST_EVENT,
         user_id=42,
         engagement_id=9702,
     )
+
+
+@pytest.mark.asyncio
+async def test_legacy_service_key_sent_skips_when_event_matches_backfill(test_db_session):
+    await _seed_service(test_db_session, service_key="dedup-svc-legacy")
+    await _seed_engagement(test_db_session, engagement_id=97021)
+    await _seed_notification(
+        test_db_session,
+        service_key="dedup-svc-legacy",
+        user_id=42,
+        engagement_id=97021,
+        status="sent",
+        event_code=None,
+    )
+
+    result = await should_skip_notification(
+        test_db_session,
+        event_code=_TEST_EVENT,
+        user_id=42,
+        engagement_id=97021,
+        service_key="dedup-svc-legacy",
+    )
+    assert result == "already sent"
 
 
 @pytest.mark.asyncio
@@ -133,7 +158,7 @@ async def test_should_not_skip_when_prior_failed(test_db_session):
 
     result = await should_skip_notification(
         test_db_session,
-        service_key="dedup-svc-c",
+        event_code=_TEST_EVENT,
         user_id=42,
         engagement_id=9703,
     )
@@ -155,7 +180,7 @@ async def test_should_skip_when_prior_pending_in_flight(test_db_session):
 
     result = await should_skip_notification(
         test_db_session,
-        service_key="dedup-svc-d",
+        event_code=_TEST_EVENT,
         user_id=42,
         engagement_id=9704,
         pending_timeout_hours=2,
@@ -178,7 +203,7 @@ async def test_should_not_skip_when_prior_pending_is_stale(test_db_session):
 
     result = await should_skip_notification(
         test_db_session,
-        service_key="dedup-svc-d2",
+        event_code=_TEST_EVENT,
         user_id=42,
         engagement_id=97041,
         pending_timeout_hours=2,
@@ -201,7 +226,7 @@ async def test_should_not_skip_for_different_user(test_db_session):
 
     result = await should_skip_notification(
         test_db_session,
-        service_key="dedup-svc-e",
+        event_code=_TEST_EVENT,
         user_id=42,
         engagement_id=9705,
     )
@@ -209,7 +234,7 @@ async def test_should_not_skip_for_different_user(test_db_session):
 
 
 @pytest.mark.asyncio
-async def test_multi_service_independent_dedup(test_db_session):
+async def test_same_event_cross_channel_dedup(test_db_session):
     await _seed_service(test_db_session, service_key="dedup-svc-email")
     await _seed_service(test_db_session, service_key="dedup-svc-whatsapp")
     await _seed_engagement(test_db_session, engagement_id=9706)
@@ -220,58 +245,118 @@ async def test_multi_service_independent_dedup(test_db_session):
         engagement_id=9706,
         status="sent",
     )
+
+    skip = await should_skip_notification(
+        test_db_session,
+        event_code=_TEST_EVENT,
+        user_id=42,
+        engagement_id=9706,
+        service_key="dedup-svc-whatsapp",
+    )
+    assert skip == "already sent"
+
+
+@pytest.mark.asyncio
+async def test_different_events_remain_independent(test_db_session):
+    await _seed_service(test_db_session, service_key="dedup-svc-x")
+    await _seed_engagement(test_db_session, engagement_id=97062)
     await _seed_notification(
         test_db_session,
-        service_key="dedup-svc-whatsapp",
+        service_key="dedup-svc-x",
         user_id=42,
-        engagement_id=9706,
-        status="failed",
+        engagement_id=97062,
+        status="sent",
+        event_code=_TEST_EVENT,
     )
 
-    email_skip = await should_skip_notification(
+    skip = await should_skip_notification(
         test_db_session,
-        service_key="dedup-svc-email",
+        event_code=_TEST_EVENT_B,
         user_id=42,
-        engagement_id=9706,
+        engagement_id=97062,
     )
-    whatsapp_skip = await should_skip_notification(
+    assert skip is None
+
+
+@pytest.mark.asyncio
+async def test_service_rebind_same_event_skips(test_db_session):
+    await _seed_service(test_db_session, service_key="dedup-svc-old")
+    await _seed_service(test_db_session, service_key="dedup-svc-new")
+    await _seed_engagement(test_db_session, engagement_id=97063)
+    await _seed_notification(
         test_db_session,
-        service_key="dedup-svc-whatsapp",
+        service_key="dedup-svc-old",
         user_id=42,
-        engagement_id=9706,
+        engagement_id=97063,
+        status="sent",
+        event_code=_TEST_EVENT,
     )
 
-    assert email_skip == "already sent"
-    assert whatsapp_skip is None
+    skip = await should_skip_notification(
+        test_db_session,
+        event_code=_TEST_EVENT,
+        user_id=42,
+        engagement_id=97063,
+        service_key="dedup-svc-new",
+    )
+    assert skip == "already sent"
+
+
+@pytest.mark.asyncio
+async def test_contact_dedup_same_event(test_db_session):
+    await _seed_service(test_db_session, service_key="dedup-contact")
+    await _seed_engagement(test_db_session, engagement_id=9707)
+    test_db_session.add(
+        Notification(
+            event_code=_TEST_EVENT,
+            service_key="dedup-contact",
+            status="sent",
+            channel="whatsapp",
+            user={"contacts": [{"phone": "9000000001", "partner_id": 1}]},
+            engagement_id=9707,
+            message="sent",
+        )
+    )
+    await test_db_session.commit()
+
+    skip = await should_skip_contact_notification(
+        test_db_session,
+        event_code=_TEST_EVENT,
+        engagement_id=9707,
+        partner_id=1,
+        phone="9000000001",
+        service_key="dedup-contact-other",
+    )
+    assert skip == "already sent"
 
 
 @pytest.mark.asyncio
 async def test_should_skip_notification_on_date_allows_resend_on_next_day(test_db_session):
     await _seed_service(test_db_session, service_key="dedup-on-date-a")
-    await _seed_engagement(test_db_session, engagement_id=9707)
+    await _seed_engagement(test_db_session, engagement_id=97071)
     yesterday = date(2026, 6, 9)
     today = date(2026, 6, 10)
     await _seed_notification(
         test_db_session,
         service_key="dedup-on-date-a",
         user_id=42,
-        engagement_id=9707,
+        engagement_id=97071,
         status="sent",
         dispatched_at=datetime.combine(yesterday, time(12, 0), tzinfo=timezone.utc),
     )
 
     yesterday_skip = await should_skip_notification_on_date(
         test_db_session,
-        service_key="dedup-on-date-a",
+        event_code=_TEST_EVENT,
         user_id=42,
-        engagement_id=9707,
+        engagement_id=97071,
         reference_date=yesterday,
     )
     today_skip = await should_skip_notification_on_date(
         test_db_session,
-        service_key="dedup-on-date-a",
+        event_code=_TEST_EVENT,
         user_id=42,
-        engagement_id=9707,
+        engagement_id=97071,
         reference_date=today,
     )
 
@@ -295,7 +380,7 @@ async def test_should_skip_notification_on_date_blocks_same_day_resend(test_db_s
 
     result = await should_skip_notification_on_date(
         test_db_session,
-        service_key="dedup-on-date-b",
+        event_code=_TEST_EVENT,
         user_id=42,
         engagement_id=9708,
         reference_date=reference_date,

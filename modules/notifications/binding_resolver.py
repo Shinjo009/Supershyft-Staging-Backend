@@ -18,7 +18,8 @@ from modules.engagements.models import Engagement
 from modules.notifications.bindings_repository import NotificationBindingsRepository
 from modules.notifications.emit_condition import matches_condition
 from modules.notifications.event_applicability import engagement_applicability_for_event
-from modules.notifications.events_catalog import get_event
+from modules.notifications.events_catalog import get_event, map_legacy_event_code
+from modules.platform_settings.repository import PlatformSettingsRepository
 
 
 @dataclass(frozen=True)
@@ -82,17 +83,18 @@ class BindingResolver:
         context: dict | None = None,
     ) -> list[ResolvedBinding]:
         ctx = context or {}
-        ev = get_event(event_code)
+        canonical_code = map_legacy_event_code(event_code)
+        ev = get_event(canonical_code)
         if ev is None:
             return []
 
         use_engagement_slots = (
-            engagement_id is not None and not _is_platform_only_event(event_code)
+            engagement_id is not None and not _is_platform_only_event(canonical_code)
         )
 
         if use_engagement_slots:
             slots = await self._en_repo.list_slots_for_event(
-                db, engagement_id=engagement_id, event_code=event_code
+                db, engagement_id=engagement_id, event_code=canonical_code
             )
             if slots:
                 return _resolve_rows(
@@ -100,13 +102,16 @@ class BindingResolver:
                     ctx=ctx,
                     default_event_name=ev.name,
                 )
+            strict = await PlatformSettingsRepository().resolve_strict_engagement_notification_bindings(db)
+            if strict:
+                return []
 
         if engagement_type_id is None and engagement_id is not None:
             engagement_type_id = await self._engagement_type_id(db, engagement_id)
 
         bindings = await self._bindings.list_for_event(
             db,
-            event_code=event_code,
+            event_code=canonical_code,
             engagement_type_id=engagement_type_id,
         )
         has_configured_services = any(

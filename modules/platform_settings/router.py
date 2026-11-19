@@ -17,6 +17,8 @@ from modules.platform_settings.schemas import (
     EngagementsSyncImportPageRequest,
     GeocodingProviderSettingsRead,
     GeocodingProviderSettingsUpdate,
+    NotificationResolutionSettingsRead,
+    NotificationResolutionSettingsUpdate,
     MetsightsProfilesImportPageRequest,
     SupportQueryNotificationRead,
     SupportQueryNotificationUpdate,
@@ -128,6 +130,37 @@ async def get_geocoding_provider(
     _ = employee
     data = await service.get_geocoding_provider(db)
     return success_response(data.model_dump(mode="json"))
+
+
+@router.get("/notification-resolution")
+async def get_notification_resolution(
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    service: PlatformSettingsService = Depends(get_platform_settings_service),
+):
+    _ = employee
+    data = await service.get_notification_resolution(db)
+    return success_response(data.model_dump())
+
+
+@router.patch("/notification-resolution")
+async def patch_notification_resolution(
+    payload: NotificationResolutionSettingsUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    service: PlatformSettingsService = Depends(get_platform_settings_service),
+):
+    data: NotificationResolutionSettingsRead = await service.update_notification_resolution(
+        db,
+        employee=employee,
+        payload=payload,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response(data.model_dump())
 
 
 @router.patch("/geocoding-provider")

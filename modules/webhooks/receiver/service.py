@@ -37,6 +37,10 @@ from modules.engagements.blood_bookings_repository import BloodBookingsRepositor
 from modules.engagements.models import EngagementParticipant
 from modules.engagements.repository import EngagementsRepository
 from modules.notifications.dedup import should_skip_notification
+from modules.notifications.event_applicability import (
+    engagement_notification_applicable,
+    profile_from_engagement,
+)
 from modules.notifications.pretest_reminders import format_blood_collection_slot
 from modules.notifications.schemas import DispatchRequest, SessionDetails
 from modules.notifications.service import NotificationsService
@@ -63,10 +67,10 @@ _PHLEBO_EVENT_SERVICE_KEYS: dict[str, tuple[str, str]] = {
     "phlebo_delay_notification": ("phlebo-delay-whatsapp", "phlebo-delay-email"),
 }
 _PHLEBO_EVENT_CODES: dict[str, str] = {
-    "phlebo_assigned": "bookings.phlebo_assigned",
-    "phlebo_reassigned": "bookings.phlebo_reassigned",
-    "phlebo_enroute": "bookings.phlebo_enroute",
-    "phlebo_delay_notification": "bookings.phlebo_delayed",
+    "phlebo_assigned": "bookings.blood_test.phlebo_assigned",
+    "phlebo_reassigned": "bookings.blood_test.phlebo_reassigned",
+    "phlebo_enroute": "bookings.blood_test.phlebo_enroute",
+    "phlebo_delay_notification": "bookings.blood_test.phlebo_delayed",
 }
 _PHLEBO_EVENTS_WITH_SESSION = frozenset({"phlebo_assigned", "phlebo_reassigned"})
 AuraeEvent = Literal["results", "report"]
@@ -372,7 +376,7 @@ class WebhooksReceiverService:
         try:
             ids = await get_notification_engine().emit(
                 db,
-                event_code="bookings.confirmed",
+                event_code="bookings.blood_test.confirmed",
                 engagement_id=engagement_id,
                 context={
                     "user_id": user_id,
@@ -735,6 +739,13 @@ class WebhooksReceiverService:
         """Dispatch configured report_ready notification services for the engagement."""
         if self._notifications_service is None:
             return []
+
+        engagement = await self._engagements_repository.get_engagement_by_id(db, engagement_id)
+        if engagement is None:
+            return [{"action": "skipped", "reason": "engagement_not_found"}]
+        profile = await profile_from_engagement(db, engagement)
+        if not engagement_notification_applicable("reports.face_scan_ready", profile):
+            return [{"action": "skipped", "reason": "not_applicable_engagement_type"}]
 
         from modules.notifications.engine import get_notification_engine
 

@@ -446,7 +446,7 @@ class UsersRepository:
             .join(User, User.user_id == EngagementParticipant.user_id)
             .where(
                 EngagementParticipant.user_id == user_id,
-                Engagement.status != "draft",
+                Engagement.status.in_(("scheduled", "running")),
                 curr_pbb.c.collection_date.isnot(None),
                 curr_pbb.c.collection_date >= today,
             )

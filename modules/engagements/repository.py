@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time
 import re
+from typing import Any
 
 from sqlalchemy import String, and_, false, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +32,7 @@ from modules.engagements.slot_detail_dates import engagement_collection_date_mat
 from modules.organizations.models import Organization
 from modules.engagement_notifications.service_config import (
     NotificationServiceConfigItem,
+    merge_notification_service_configs,
     normalize_notification_services,
 )
 
@@ -816,6 +818,23 @@ class EngagementsRepository:
             .order_by(curr_pbb.c.collection_date.desc())
         )
         return [row[0].isoformat() for row in result.all() if row[0] is not None]
+
+    async def list_distinct_participant_departments_for_engagement(
+        self,
+        db: AsyncSession,
+        *,
+        engagement_id: int,
+    ) -> list[str]:
+        result = await db.execute(
+            select(func.distinct(EngagementParticipant.participant_department))
+            .where(
+                EngagementParticipant.engagement_id == engagement_id,
+                EngagementParticipant.participant_department.isnot(None),
+                func.trim(EngagementParticipant.participant_department) != "",
+            )
+            .order_by(EngagementParticipant.participant_department.asc())
+        )
+        return [str(row[0]).strip() for row in result.all() if row[0] is not None and str(row[0]).strip()]
 
     async def list_all_participants_by_engagement_id(
         self,
@@ -1611,7 +1630,7 @@ class EngagementsRepository:
         *,
         collection_date: date,
     ) -> list[PretestReminderParticipant]:
-        """Return participants for scheduled/running engagements with blood collection on collection_date."""
+        """Return participants (paid or not) for scheduled/running engagements with blood collection on collection_date."""
         curr_pbb = current_blood_booking_subquery()
         query = (
             select(
@@ -1632,7 +1651,6 @@ class EngagementsRepository:
                 EngagementNotification.engagement_id == Engagement.engagement_id,
             )
             .where(self._scheduled_or_running_engagement_status_filter())
-            .where(EngagementParticipant.paid.is_(True))
             .where(curr_pbb.c.collection_date == collection_date)
             .where(EngagementNotification.event_code == "reminders.pretest")
             .distinct()
@@ -1682,8 +1700,13 @@ class EngagementsRepository:
         db: AsyncSession,
         *,
         collection_date: date,
-    ) -> list[tuple[int, list[NotificationServiceConfigItem]]]:
-        """Return (engagement_id, service_configs) for scheduled/running engagements with collection on collection_date."""
+    ) -> list[int]:
+        """Return engagement_ids for scheduled/running camps with collection on collection_date.
+
+        Engagements must have at least one ``reminders.booking_guide`` slot with
+        configured notification services. Recipient resolution happens later from
+        each slot's recipient_type (phlebo/staff/etc.).
+        """
         query = (
             select(
                 Engagement.engagement_id,
@@ -1701,7 +1724,6 @@ class EngagementsRepository:
             )
             .where(self._scheduled_or_running_engagement_status_filter())
             .where(EngagementNotification.event_code == "reminders.booking_guide")
-            .distinct()
             .order_by(Engagement.engagement_id.asc())
         )
         result = await db.execute(query)
@@ -1709,7 +1731,7 @@ class EngagementsRepository:
         if not rows:
             return []
 
-        engagement_ids = [int(row.engagement_id) for row in rows]
+        candidate_ids = sorted({int(row.engagement_id) for row in rows})
         pbb_result = await db.execute(
             select(EngagementParticipant.engagement_id)
             .join(
@@ -1718,7 +1740,7 @@ class EngagementsRepository:
                 == EngagementParticipant.engagement_participant_id,
             )
             .where(
-                EngagementParticipant.engagement_id.in_(engagement_ids),
+                EngagementParticipant.engagement_id.in_(candidate_ids),
                 ParticipantBloodBooking.collection_date == collection_date,
                 ParticipantBloodBooking.status == "active",
             )
@@ -1726,12 +1748,14 @@ class EngagementsRepository:
         )
         engagements_with_booking_on_date = {int(eid) for (eid,) in pbb_result.all()}
 
-        matches: list[tuple[int, list[NotificationServiceConfigItem]]] = []
+        matches: list[int] = []
+        seen: set[int] = set()
         for row in rows:
-            service_configs = normalize_notification_services(row.notification_services)
-            if not service_configs:
-                continue
             engagement_id = int(row.engagement_id)
+            if engagement_id in seen:
+                continue
+            if not normalize_notification_services(row.notification_services):
+                continue
             if not engagement_collection_date_matches(
                 start_date=row.start_date,
                 slot_detail=row.slot_detail,
@@ -1741,7 +1765,8 @@ class EngagementsRepository:
                 ),
             ):
                 continue
-            matches.append((engagement_id, service_configs))
+            seen.add(engagement_id)
+            matches.append(engagement_id)
         return matches
 
     async def list_participants_for_questionnaire_reminder(
@@ -1968,20 +1993,47 @@ class EngagementsRepository:
                 "status_running": STATUS_ENGAGEMENT["running"],
             },
         )
-        return [
-            ConsultationRemainderParticipant(
-                user_id=int(row.user_id),
-                engagement_id=int(row.engagement_id),
-                service_configs=tuple(normalize_notification_services(row.notification_services)),
-                want=bool(row.want),
-                consultation_date=row.consultation_date,
-                consultation_slot=row.consultation_slot,
-                consultation_cabin=row.consultation_cabin,
-                expert_type=str(row.expert_type),
-                slot_detail=row.slot_detail if isinstance(row.slot_detail, dict) else None,
+        grouped: dict[
+            tuple[int, int, str, date, str | None],
+            dict[str, Any],
+        ] = {}
+        for row in result.all():
+            key = (
+                int(row.user_id),
+                int(row.engagement_id),
+                str(row.expert_type),
+                row.consultation_date,
+                row.consultation_slot,
             )
-            for row in result.all()
-        ]
+            bucket = grouped.get(key)
+            configs = normalize_notification_services(row.notification_services)
+            if bucket is None:
+                grouped[key] = {
+                    "want": bool(row.want),
+                    "consultation_cabin": row.consultation_cabin,
+                    "slot_detail": row.slot_detail if isinstance(row.slot_detail, dict) else None,
+                    "service_configs": list(configs),
+                }
+            else:
+                bucket["service_configs"] = merge_notification_service_configs(
+                    bucket["service_configs"] + list(configs)
+                )
+        participants: list[ConsultationRemainderParticipant] = []
+        for (user_id, engagement_id, expert_type, cdate, cslot), meta in grouped.items():
+            participants.append(
+                ConsultationRemainderParticipant(
+                    user_id=user_id,
+                    engagement_id=engagement_id,
+                    service_configs=tuple(meta["service_configs"]),
+                    want=meta["want"],
+                    consultation_date=cdate,
+                    consultation_slot=cslot,
+                    consultation_cabin=meta["consultation_cabin"],
+                    expert_type=expert_type,
+                    slot_detail=meta["slot_detail"],
+                )
+            )
+        return participants
 
     async def list_engagement_codes_and_cities_by_camp_no(
         self,

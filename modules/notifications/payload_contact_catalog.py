@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Literal
 
-from modules.notifications.events_catalog import TriggerKind, get_event
+from modules.notifications.events_catalog import TriggerKind, get_event, map_legacy_event_code
 
 ContactValueType = Literal["phone", "email"]
 ContactCardinality = Literal["scalar", "array"]
@@ -137,15 +137,15 @@ _EVENT_PAYLOAD_FIELDS: dict[str, tuple[PayloadContactField, ...]] = {
     "auth.otp_sent": _COMMON_ROOT + _AUTH_OTP,
     "users.registered": _COMMON_ROOT + _PARTICIPANT_DETAILS,
     "users.onboarded": _COMMON_ROOT + _PARTICIPANT_DETAILS,
-    "consultations.booked": _COMMON_ROOT + _PARTICIPANT_DETAILS,
-    "consultations.confirmed": _COMMON_ROOT + _PARTICIPANT_DETAILS,
-    "consultations.rescheduled": _COMMON_ROOT + _PARTICIPANT_DETAILS,
-    "consultations.cancelled": _COMMON_ROOT + _PARTICIPANT_DETAILS,
-    "consultations.completed": _COMMON_ROOT + _PARTICIPANT_DETAILS,
+    "bookings.consultation.booked": _COMMON_ROOT + _PARTICIPANT_DETAILS,
+    "bookings.consultation.confirmed": _COMMON_ROOT + _PARTICIPANT_DETAILS,
+    "bookings.consultation.rescheduled": _COMMON_ROOT + _PARTICIPANT_DETAILS,
+    "bookings.consultation.cancelled": _COMMON_ROOT + _PARTICIPANT_DETAILS,
+    "bookings.consultation.completed": _COMMON_ROOT + _PARTICIPANT_DETAILS,
     "support.ticket_created": _SUPPORT,
     "support.ticket_resolved": _SUPPORT,
-    "bookings.rescheduled": _COMMON_ROOT + _PARTICIPANT_DETAILS,
-    "bookings.cancelled": _COMMON_ROOT + _PARTICIPANT_DETAILS,
+    "bookings.blood_test.rescheduled": _COMMON_ROOT + _PARTICIPANT_DETAILS,
+    "bookings.blood_test.cancelled": _COMMON_ROOT + _PARTICIPANT_DETAILS,
     "system.auto_booking_failed": _COMMON_ROOT + _PARTICIPANT_DETAILS,
     "system.error": _COMMON_ROOT + _PARTICIPANT_DETAILS,
 }
@@ -154,16 +154,18 @@ _DEFAULT_HTTP_FIELDS = _COMMON_ROOT + _PARTICIPANT_DETAILS
 
 
 def payload_contact_fields_for_event(event_code: str) -> list[dict[str, str]]:
-    if not allows_payload_recipient(event_code):
+    canonical = map_legacy_event_code(event_code)
+    if not allows_payload_recipient(canonical):
         return []
-    fields = _EVENT_PAYLOAD_FIELDS.get(event_code, _DEFAULT_HTTP_FIELDS)
+    fields = _EVENT_PAYLOAD_FIELDS.get(canonical, _DEFAULT_HTTP_FIELDS)
     return [f.to_dict() for f in fields]
 
 
 def get_payload_contact_field(event_code: str, path: str) -> PayloadContactField | None:
     if not path:
         return None
-    for item in _EVENT_PAYLOAD_FIELDS.get(event_code, _DEFAULT_HTTP_FIELDS):
+    canonical = map_legacy_event_code(event_code)
+    for item in _EVENT_PAYLOAD_FIELDS.get(canonical, _DEFAULT_HTTP_FIELDS):
         if item.path == path:
             return item
     return None

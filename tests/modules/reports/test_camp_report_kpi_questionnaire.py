@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from modules.reports.camp_reports_repository import (
-    _KPI_QUESTIONNAIRE_REQUIRED_CATEGORY_KEYS,
-    _METSIGHTS_CATEGORY_KEYS,
+from modules.reports.questionnaire_kpi_completion import (
+    KPI_QUESTIONNAIRE_REQUIRED_CATEGORY_KEYS as _KPI_QUESTIONNAIRE_REQUIRED_CATEGORY_KEYS,
+    METSIGHTS_CATEGORY_KEYS as _METSIGHTS_CATEGORY_KEYS,
 )
 
 

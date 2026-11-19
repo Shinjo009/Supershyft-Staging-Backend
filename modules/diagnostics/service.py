@@ -59,6 +59,7 @@ from modules.diagnostics.schemas import (
     HealthParameterResponse,
     HealthParameterUpdate,
     PackageForType,
+    TestGroupPackageForType,
     PackageTestsResponse,
     ParameterType,
     ProviderTestDiffCounts,
@@ -98,6 +99,8 @@ _ALLOWED_GENDER_VALUES = {"male", "female", "both"}
 _ALLOWED_STATUS_VALUES = {"active", "inactive"}
 _ALLOWED_CHIP_FOR = {e.value for e in FilterChipForSchema}
 _ALLOWED_PACKAGE_FOR = {e.value for e in PackageForType}
+_ALLOWED_TEST_GROUP_PACKAGE_FOR = {e.value for e in TestGroupPackageForType}
+_PACKAGE_FOR_IN_PACKAGE = frozenset({"package", "both"})
 
 
 def _discount_percent(price: float | None, original_price: float | None) -> int | None:
@@ -193,6 +196,99 @@ class DiagnosticsService:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
         if pf is not None:
             payload["package_for"] = pf
+
+    def _validate_test_group_package_for_field(self, payload: dict) -> None:
+        pf = self._normalize_lower(payload.get("package_for"))
+        if pf is not None and pf not in _ALLOWED_TEST_GROUP_PACKAGE_FOR:
+            raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+        if pf is not None:
+            payload["package_for"] = pf
+
+    @staticmethod
+    def _normalized_provider_bucket(provider: str | None) -> str:
+        if provider is None:
+            return ""
+        if hasattr(provider, "value"):
+            provider = provider.value
+        return str(provider).strip().lower()
+
+    async def _assert_catalog_test_set_uniqueness(
+        self,
+        db,
+        *,
+        group: DiagnosticTestGroup,
+        test_ids: list[int] | None = None,
+    ) -> None:
+        if group.forked_from_group_id is not None:
+            return
+        if test_ids is None:
+            test_ids = await self._repository.get_assigned_test_ids_for_group_ordered(
+                db, group_id=int(group.group_id)
+            )
+        if not test_ids:
+            return
+        provider_bucket = self._normalized_provider_bucket(group.diagnostic_provider)
+        matches = await self._repository.find_catalog_groups_by_test_ids(
+            db,
+            test_ids=test_ids,
+            exclude_group_id=int(group.group_id),
+        )
+        for match in matches:
+            if (
+                group.profile_group_id is not None
+                and match.profile_group_id is not None
+                and int(group.profile_group_id) == int(match.profile_group_id)
+            ):
+                continue
+            match_bucket = self._normalized_provider_bucket(match.diagnostic_provider)
+            if match_bucket == provider_bucket:
+                raise AppError(
+                    status_code=400,
+                    error_code="DIAGNOSTIC_TEST_GROUP_TEST_SET_CONFLICT",
+                    message=(
+                        f"A test group with the same tests and provider already exists "
+                        f"({match.group_name}). Use that group instead of creating a duplicate."
+                    ),
+                    details={
+                        "suggested_group": {
+                            "group_id": int(match.group_id),
+                            "group_name": match.group_name,
+                            "diagnostic_provider": self._provider_enum_key(match.diagnostic_provider),
+                        }
+                    },
+                )
+            raise AppError(
+                status_code=400,
+                error_code="DIAGNOSTIC_TEST_GROUP_TEST_SET_EXISTS",
+                message=(
+                    f"A test group with the same tests exists under a different lab provider "
+                    f"({match.group_name}). Add this as a profile variant instead."
+                ),
+                details={
+                    "recommended_action": "join_variant",
+                    "existing_group_id": int(match.group_id),
+                    "profile_group_id": match.profile_group_id,
+                },
+            )
+
+    def _build_test_group_list_warnings(self, group: DiagnosticTestGroup) -> list[DiagnosticWarning]:
+        pf = self._normalize_lower(
+            group.package_for.value if hasattr(group.package_for, "value") else str(group.package_for)
+        )
+        if pf not in ("public", "both"):
+            return []
+        if group.diagnostic_provider is None:
+            return []
+        code = (group.external_test_group_code or "").strip()
+        if code:
+            return []
+        label = self._provider_display_label(group.diagnostic_provider)
+        return [
+            DiagnosticWarning(
+                code="test_group_provider_code_missing",
+                message=f"{label} profile/code is not set for this test group",
+            )
+        ]
 
     @staticmethod
     def _provider_key(provider: str | None) -> str | None:
@@ -1831,6 +1927,7 @@ class DiagnosticsService:
                     profile_group_id=group.profile_group_id,
                     diagnostic_provider=group.diagnostic_provider,
                     profile_group=self._test_group_profile_map(members),
+                    warnings=self._build_test_group_list_warnings(group),
                 )
             )
         return items, total
@@ -1896,7 +1993,7 @@ class DiagnosticsService:
         if dup is not None:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Group key already exists")
         self._validate_optional_gender_field(payload)
-        self._validate_package_for_field(payload)
+        self._validate_test_group_package_for_field(payload)
         payload.setdefault("package_for", "public")
         if "external_test_group_code" in payload:
             payload["external_test_group_code"] = self._normalize(payload.get("external_test_group_code"))
@@ -1956,6 +2053,11 @@ class DiagnosticsService:
                 source_group_id=source_id,
                 target_group_id=int(created.group_id),
             )
+
+        await self._assert_catalog_test_set_uniqueness(db, group=created)
+
+        if copy_tests_from_group_id is None:
+            await self._assert_catalog_test_set_uniqueness(db, group=created)
 
         await self._require_audit_service().log_event(
             db,
@@ -2046,21 +2148,76 @@ class DiagnosticsService:
             if other is not None and other.group_id != group_id:
                 raise AppError(status_code=400, error_code="INVALID_INPUT", message="Group key already exists")
         self._validate_optional_gender_field(payload)
-        self._validate_package_for_field(payload)
+        self._validate_test_group_package_for_field(payload)
         if "external_test_group_code" in fields_set:
             payload["external_test_group_code"] = self._normalize(data.external_test_group_code)
+
+        created_provider_variant: TestGroupPeerResponse | None = None
+        packages_to_reassign: list[TestGroupPackageListItem] = []
 
         if "diagnostic_provider" in payload and "same_as_group_id" not in fields_set:
             incoming_provider = payload.get("diagnostic_provider")
             incoming_key = self._provider_key(incoming_provider)
             existing_key = self._provider_key(existing.diagnostic_provider)
             if incoming_key is not None and incoming_key != existing_key:
-                await self._ensure_test_group_provider_matches_assigned_packages(
-                    db,
-                    group_id=group_id,
-                    diagnostic_provider=incoming_provider,
-                )
-            if existing.profile_group_id is not None:
+                packages = await self._repository.list_packages_for_test_group(db, group_id=group_id)
+                mismatched_packages = []
+                matching_packages = []
+                for pkg in packages:
+                    package_key = self._provider_key(pkg.diagnostic_provider)
+                    if package_key is None:
+                        continue
+                    if package_key != incoming_key:
+                        mismatched_packages.append(pkg)
+                    else:
+                        matching_packages.append(pkg)
+                if mismatched_packages:
+                    variant_group: DiagnosticTestGroup | None = None
+                    if existing.profile_group_id is not None:
+                        members = await self._repository.list_test_groups_in_profile_group(
+                            db, profile_group_id=int(existing.profile_group_id)
+                        )
+                        for member in members:
+                            if member.group_id == group_id:
+                                continue
+                            if self._provider_key(member.diagnostic_provider) == incoming_key:
+                                variant_group = member
+                                break
+                    if variant_group is None:
+                        ext_code = payload.get("external_test_group_code", existing.external_test_group_code)
+                        variant_pf = "both" if matching_packages else "public"
+                        variant_group = await self._repository.create_profile_provider_variant(
+                            db,
+                            source=existing,
+                            diagnostic_provider=incoming_provider,
+                            external_test_group_code=ext_code,
+                            package_for=variant_pf,
+                        )
+                    created_provider_variant = TestGroupPeerResponse(
+                        group_id=int(variant_group.group_id),
+                        group_name=variant_group.group_name,
+                        diagnostic_provider=self._provider_enum_key(variant_group.diagnostic_provider),
+                        price=float(variant_group.price) if variant_group.price is not None else None,
+                        is_default_for_group=bool(variant_group.is_default_for_group),
+                    )
+                    packages_to_reassign = [
+                        TestGroupPackageListItem(
+                            diagnostic_package_id=int(pkg.diagnostic_package_id),
+                            package_name=pkg.package_name,
+                            diagnostic_provider=self._provider_enum_key(pkg.diagnostic_provider),
+                            status=pkg.status,
+                        )
+                        for pkg in matching_packages
+                    ]
+                    payload.pop("diagnostic_provider", None)
+                    payload.pop("external_test_group_code", None)
+                else:
+                    await self._ensure_test_group_provider_matches_assigned_packages(
+                        db,
+                        group_id=group_id,
+                        diagnostic_provider=incoming_provider,
+                    )
+            if existing.profile_group_id is not None and payload.get("diagnostic_provider") is not None:
                 provider_key = self._provider_key(payload.get("diagnostic_provider"))
                 members = await self._repository.list_test_groups_in_profile_group(
                     db, profile_group_id=int(existing.profile_group_id)
@@ -2124,7 +2281,16 @@ class DiagnosticsService:
                 db, profile_group_id=int(updated.profile_group_id)
             )
             same_test_groups = self._test_group_peer_responses(updated, members)
-        return self._to_group_response(updated, tests=tests, same_test_groups=same_test_groups)
+        await self._assert_catalog_test_set_uniqueness(db, group=updated)
+        response = self._to_group_response(updated, tests=tests, same_test_groups=same_test_groups)
+        if created_provider_variant is not None:
+            response = response.model_copy(
+                update={
+                    "created_provider_variant": created_provider_variant,
+                    "packages_to_reassign": packages_to_reassign,
+                }
+            )
+        return response
 
     async def delete_group(
         self,
@@ -2197,6 +2363,9 @@ class DiagnosticsService:
             group_id=group_id,
             test_ids=data.test_ids,
         )
+        refreshed = await self._repository.get_group_by_id(db, group_id=group_id)
+        if refreshed is not None:
+            await self._assert_catalog_test_set_uniqueness(db, group=refreshed)
         await self._require_audit_service().log_event(
             db,
             action="EMPLOYEE_ASSIGN_DIAGNOSTIC_TESTS_TO_GROUP",
@@ -2231,6 +2400,9 @@ class DiagnosticsService:
         if test is None:
             raise AppError(status_code=404, error_code="DIAGNOSTIC_TEST_NOT_FOUND", message="Test does not exist")
         deleted = await self._repository.remove_test_from_group(db, group_id=group_id, test_id=test_id)
+        refreshed = await self._repository.get_group_by_id(db, group_id=group_id)
+        if refreshed is not None:
+            await self._assert_catalog_test_set_uniqueness(db, group=refreshed)
         if not deleted:
             raise AppError(
                 status_code=404,
@@ -2306,11 +2478,18 @@ class DiagnosticsService:
 
         invalid_ids: list[int] = []
         mismatch_ids: list[int] = []
+        audience_blocked_ids: list[int] = []
         package_provider_key = self._provider_key(package.diagnostic_provider)
         for group_id in data.group_ids:
             row = await self._repository.get_group_by_id(db, group_id=group_id)
             if row is None:
                 invalid_ids.append(group_id)
+                continue
+            pf = self._normalize_lower(
+                row.package_for.value if hasattr(row.package_for, "value") else str(row.package_for)
+            )
+            if pf not in _PACKAGE_FOR_IN_PACKAGE:
+                audience_blocked_ids.append(group_id)
                 continue
             group_provider_key = self._provider_key(row.diagnostic_provider)
             if (
@@ -2324,6 +2503,16 @@ class DiagnosticsService:
                 status_code=400,
                 error_code="INVALID_INPUT",
                 message=f"The following group_ids do not exist: {invalid_ids}",
+            )
+        if audience_blocked_ids:
+            raise AppError(
+                status_code=400,
+                error_code="DIAGNOSTIC_TEST_GROUP_PACKAGE_FOR_NOT_ALLOWED",
+                message=(
+                    "Only test groups with package audience package or both can be assigned to a package. "
+                    f"Blocked group_ids: {audience_blocked_ids}"
+                ),
+                details={"group_ids": audience_blocked_ids},
             )
         if mismatch_ids:
             raise AppError(

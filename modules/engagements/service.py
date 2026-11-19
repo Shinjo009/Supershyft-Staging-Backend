@@ -1891,6 +1891,16 @@ class EngagementsService:
                 diagnostic_package_id_female=None,
             )
 
+        from modules.platform_settings.b2c_onboard_apply import b2c_engagement_end_date
+        from modules.platform_settings.service import PlatformSettingsService
+
+        type_code = await self._engagement_type_code(db, engagement_type)
+        settings_service = PlatformSettingsService(self._platform_settings_repository)
+        onboarding_defaults = await settings_service.resolve_b2c_onboarding_defaults(db, type_code)
+        b2c_end_date = b2c_engagement_end_date(
+            engagement_date, onboarding_defaults.engagement_duration_days
+        )
+
         engagement = Engagement(
             engagement_name=engagement_name,
             metsights_engagement_id=None,
@@ -1913,7 +1923,7 @@ class EngagementsService:
             longitude=location.get("longitude"),
             slot_duration=slot_duration,
             start_date=engagement_date,
-            end_date=engagement_date,
+            end_date=b2c_end_date,
             status="running" if engagement_date <= date.today() else "scheduled",
             consultation_mode=(
                 consultation_mode
@@ -2211,14 +2221,22 @@ class EngagementsService:
     ) -> None:
         """After Healthians /book finalize: dates, B2C clinical bootstrap, notification defaults, OAs, notify.
 
-        start_date = blood collection date; end_date = start_date + 3 days.
+        start_date = blood collection date; end_date from B2C onboarding engagement_duration_days.
 
         Legacy engagements created before this bootstrap may still have null assessment_package_id;
         repair via admin (set package + Metsights profile + ensure assessment instances).
         """
         if collection_date is not None:
+            from modules.platform_settings.b2c_onboard_apply import b2c_engagement_end_date
+            from modules.platform_settings.service import PlatformSettingsService
+
             engagement.start_date = collection_date
-            engagement.end_date = collection_date + timedelta(days=3)
+            type_code = await self._engagement_type_code(db, engagement.engagement_type)
+            settings_service = PlatformSettingsService(self._platform_settings_repository)
+            onboarding_defaults = await settings_service.resolve_b2c_onboarding_defaults(db, type_code)
+            engagement.end_date = b2c_engagement_end_date(
+                collection_date, onboarding_defaults.engagement_duration_days
+            )
             name_part = (user.first_name or "user").strip() or "user"
             current_name = (engagement.engagement_name or "").strip()
             if current_name.endswith("-draft"):

@@ -99,6 +99,13 @@ class Settings:
         "HEALTH_CHECK_DB_PATH",
         "/var/www/health-check-db/health.db" if _IS_PRODUCTION else "./health.db",
     )
+    # Nginx access-log rollup (cron writes JSON; API reads for admin dashboard)
+    API_TRAFFIC_JSON_PATH: str = os.getenv(
+        "API_TRAFFIC_JSON_PATH",
+        "/var/lib/supershyft/api-traffic/latest.json"
+        if _IS_PRODUCTION
+        else "./api-traffic/latest.json",
+    )
     # Bearer token for POST /server-health/metrics (health_check.sh).
     HEALTH_API_TOKEN: str = os.getenv("HEALTH_API_TOKEN", "")
     CPU_ALERT_THRESHOLD_PCT: float = float(os.getenv("CPU_ALERT_THRESHOLD_PCT", "75"))

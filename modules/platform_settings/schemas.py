@@ -24,6 +24,7 @@ class B2cOnboardingTypeDefaults(BaseModel):
     consultation_mode: ConsultationMode | None = None
     auto_booking: bool = False
     payment_type: EngagementPaymentType = EngagementPaymentType.paid_by_patient
+    engagement_duration_days: int = Field(default=3, ge=1, le=90)
 
 
 class B2cOnboardingDefaultsRead(BaseModel):
@@ -34,9 +35,9 @@ class B2cOnboardingDefaultsRead(BaseModel):
 
 
 class B2cOnboardingDefaultsUpdate(BaseModel):
-    """Keyed by engagement_types.code (must be active)."""
+    """Keyed by engagement_types.code (must be active). Omit types to change only the fallback."""
 
-    defaults_by_engagement_type: dict[str, B2cOnboardingTypeDefaults]
+    defaults_by_engagement_type: dict[str, B2cOnboardingTypeDefaults] = Field(default_factory=dict)
     default_engagement_type_code: str | None = None
 
 
@@ -85,3 +86,11 @@ class GeocodingProviderSettingsRead(BaseModel):
 
 class GeocodingProviderSettingsUpdate(BaseModel):
     geocoding_provider: GeocodingProvider
+
+
+class NotificationResolutionSettingsRead(BaseModel):
+    strict_engagement_notification_bindings: bool = True
+
+
+class NotificationResolutionSettingsUpdate(BaseModel):
+    strict_engagement_notification_bindings: bool

@@ -24,6 +24,7 @@ async def send_report_notifications(
     user_id: int,
     engagement_id: int,
     assessment_instance_id: int,
+    event_code: str,
     details: list[dict[str, Any]],
     repository: NotificationsRepository | None = None,
 ) -> int:
@@ -53,23 +54,25 @@ async def send_report_notifications(
             engagement_id=engagement_id,
         )
 
+    code = (event_code or "").strip()
+    skip_reason = await should_skip_notification(
+        db,
+        event_code=code,
+        user_id=user_id,
+        engagement_id=engagement_id,
+        repository=repo,
+    )
+    if skip_reason:
+        details.append({
+            "user_id": user_id,
+            "engagement_id": engagement_id,
+            "action": "skipped",
+            "reason": f"notification '{code}' {skip_reason}",
+        })
+        return sent_count
+
     for cfg in service_configs:
         sk = cfg.service_key
-        skip_reason = await should_skip_notification(
-            db,
-            service_key=sk,
-            user_id=user_id,
-            engagement_id=engagement_id,
-            repository=repo,
-        )
-        if skip_reason:
-            details.append({
-                "user_id": user_id,
-                "engagement_id": engagement_id,
-                "action": "skipped",
-                "reason": f"notification '{sk}' {skip_reason}",
-            })
-            continue
 
         svc = service_cache.get(sk)
         if svc is not None and svc.require_blood_report_url:
@@ -87,6 +90,7 @@ async def send_report_notifications(
                 db,
                 payload=DispatchRequest(
                     service_key=sk,
+                    event_code=code or None,
                     user_ids=[user_id],
                     engagement_id=engagement_id,
                     assessment_instance_id=assessment_instance_id,

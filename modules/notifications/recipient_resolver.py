@@ -110,21 +110,34 @@ class RecipientResolver:
                 return DispatchTarget(contacts=preset)
             if engagement_id is None:
                 return DispatchTarget()
+            # Staff assistants are employees assigned to the engagement (admin /
+            # inferior_admin). Partner roles never include "staff".
+            if rt == "assistants.staff":
+                contacts = await self._engagements.list_onboarding_assistant_employee_contacts(
+                    db,
+                    engagement_id=int(engagement_id),
+                )
+                return DispatchTarget(contacts=contacts)
+
             include_employees = rt == "assistants"
             role_filter = None
             if rt == "assistants.phlebo":
                 role_filter = "phlebo"
             elif rt == "assistants.expert":
                 role_filter = "expert"
-            elif rt == "assistants.staff":
-                role_filter = "staff"
             contacts = await self._engagements.list_onboarding_assistant_notify_contacts(
                 db,
                 engagement_id=int(engagement_id),
                 include_employees=include_employees,
             )
             if role_filter:
-                contacts = [c for c in contacts if (c.get("role") or "") == role_filter]
+                from modules.partners.role_utils import partner_role_value
+
+                contacts = [
+                    c
+                    for c in contacts
+                    if partner_role_value(c.get("role")) == role_filter
+                ]
             return DispatchTarget(contacts=contacts)
 
         dept = department_for_recipient_type(rt)

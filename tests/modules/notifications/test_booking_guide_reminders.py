@@ -12,11 +12,12 @@ from modules.engagements.repository import EngagementsRepository
 from modules.notifications.booking_guide_reminders import dispatch_booking_guide_reminders
 from modules.notifications.repository import NotificationsRepository
 from modules.notifications.service import NotificationsService
-
+from tests.helpers.auth import seed_employee, seed_partner
 from tests.modules.notifications.dispatch_mocks import patch_service_direct_deliver
+from tests.modules.notifications.notification_event_seed import upsert_engagement_notification
 from tests.modules.notifications.sql_helpers import engagement_status_code
 
-BOOKING_GUIDE_WHATSAPP_KEY = "phlebo-booking-guide-whatsapp"
+BOOKING_GUIDE_WHATSAPP_KEY = "reminders-booking-guide-whatsapp-1"
 BOOKING_GUIDE_EMAIL_KEY = "booking-guide-email"
 DEFAULT_BOOKING_GUIDE_KEYS = f"{BOOKING_GUIDE_WHATSAPP_KEY},{BOOKING_GUIDE_EMAIL_KEY}"
 
@@ -46,7 +47,14 @@ async def _seed_dependencies(test_db_session) -> None:
                 "VALUES (:sk, :dn, :ch, :template_name, :email_subject, :email_body, true, false, false, false) "
                 "ON CONFLICT (service_key) DO UPDATE SET is_active = true"
             ),
-            {"sk": service_key, "dn": service_key, "ch": channel, "template_name": template_label, "email_subject": "Test", "email_body": "Test"},
+            {
+                "sk": service_key,
+                "dn": service_key,
+                "ch": channel,
+                "template_name": template_label,
+                "email_subject": "Test",
+                "email_body": "Test",
+            },
         )
     await test_db_session.execute(
         text(
@@ -55,12 +63,6 @@ async def _seed_dependencies(test_db_session) -> None:
             "ON CONFLICT (code) DO UPDATE SET is_active = true"
         )
     )
-    type_row = (
-        await test_db_session.execute(
-            text("SELECT id FROM engagement_types WHERE code = 'bio_ai'")
-        )
-    ).one()
-    type_id = int(type_row[0])
     await test_db_session.commit()
 
 
@@ -69,15 +71,16 @@ async def _bind_booking_guide_services(
     *,
     engagement_id: int,
     service_keys: str = DEFAULT_BOOKING_GUIDE_KEYS,
+    recipient_types: tuple[str, ...] = ("assistants.phlebo",),
 ) -> None:
-    from tests.modules.notifications.notification_event_seed import upsert_engagement_notification
-
-    await upsert_engagement_notification(
-        test_db_session,
-        engagement_id=engagement_id,
-        event_code="reminders.booking_guide",
-        service_keys=service_keys,
-    )
+    for recipient_type in recipient_types:
+        await upsert_engagement_notification(
+            test_db_session,
+            engagement_id=engagement_id,
+            event_code="reminders.booking_guide",
+            service_keys=service_keys,
+            recipient_type=recipient_type,
+        )
 
 
 async def _insert_engagement(
@@ -91,6 +94,7 @@ async def _insert_engagement(
     slot_detail_id: int | None = None,
     bind_services: bool = True,
     service_keys: str = DEFAULT_BOOKING_GUIDE_KEYS,
+    recipient_types: tuple[str, ...] = ("assistants.phlebo",),
 ) -> None:
     slot_value = "NULL" if slot_detail_id is None else str(slot_detail_id)
     await test_db_session.execute(
@@ -98,7 +102,8 @@ async def _insert_engagement(
             "INSERT INTO engagements "
             "(engagement_id, engagement_name, engagement_code, engagement_type, assessment_package_id, "
             "diagnostic_package_id, city, slot_duration, start_date, end_date, status, organization_id, slot_detail_id) "
-            f"VALUES ({engagement_id}, 'Camp {engagement_id}', '{engagement_code}', 'bio_ai', 1, 1, 'BLR', 20, "
+            f"VALUES ({engagement_id}, 'Camp {engagement_id}', '{engagement_code}', "
+            "(SELECT id FROM engagement_types WHERE code = 'bio_ai'), 1, 1, 'BLR', 20, "
             f"'{start_date}', '{end_date}', {engagement_status_code(status)}, NULL, {slot_value})"
         )
     )
@@ -107,6 +112,7 @@ async def _insert_engagement(
             test_db_session,
             engagement_id=engagement_id,
             service_keys=service_keys,
+            recipient_types=recipient_types,
         )
 
 
@@ -125,35 +131,54 @@ async def _insert_slot_detail(
     )
 
 
-async def _insert_assistant(
+async def _assign_partner(
     test_db_session,
     *,
-    employee_id: int,
-    user_id: int,
-    role: str,
+    partner_id: int,
     engagement_id: int,
+    role: str = "phlebo",
+    phone: str | None = None,
 ) -> None:
-    await test_db_session.execute(
-        text(
-            "INSERT INTO users (user_id, age, phone, status) "
-            f"VALUES ({user_id}, 30, '{user_id}000000000', 1) "
-            "ON CONFLICT (user_id) DO NOTHING"
-        )
+    await seed_partner(
+        test_db_session,
+        partner_id=partner_id,
+        role=role,
+        name=f"Partner {partner_id}",
+        phone=phone or f"9{partner_id:09d}"[:15],
+        commit=False,
     )
     await test_db_session.execute(
         text(
-            "INSERT INTO employee (employee_id, user_id, role, status) "
-            f"VALUES ({employee_id}, {user_id}, '{role}', 1) "
-            "ON CONFLICT (employee_id) DO NOTHING"
-        )
+            "INSERT INTO onboarding_assistant_assignment (partner_id, engagement_id) "
+            "VALUES (:pid, :eid)"
+        ),
+        {"pid": partner_id, "eid": engagement_id},
+    )
+
+
+async def _assign_staff(
+    test_db_session,
+    *,
+    employee_id: int,
+    engagement_id: int,
+    role: str = "admin",
+    phone: str | None = None,
+) -> None:
+    await seed_employee(
+        test_db_session,
+        employee_id=employee_id,
+        role=role,
+        name=f"Staff {employee_id}",
+        phone=phone or f"8{employee_id:09d}"[:15],
+        commit=False,
     )
     await test_db_session.execute(
         text(
             "INSERT INTO onboarding_assistant_assignment (employee_id, engagement_id) "
-            f"VALUES ({employee_id}, {engagement_id})"
-        )
+            "VALUES (:eid_emp, :eid)"
+        ),
+        {"eid_emp": employee_id, "eid": engagement_id},
     )
-
 
 
 def _services():
@@ -165,7 +190,7 @@ def _services():
 
 
 @pytest.mark.asyncio
-async def test_booking_guide_reminders_dispatch_to_admin_and_onboarding_assistant(
+async def test_booking_guide_reminders_dispatch_to_phlebo_and_staff(
     test_db_session, monkeypatch
 ):
     await _seed_dependencies(test_db_session)
@@ -183,21 +208,13 @@ async def test_booking_guide_reminders_dispatch_to_admin_and_onboarding_assistan
         engagement_code="ENG9701",
         status="running",
         slot_detail_id=9701,
+        recipient_types=("assistants.phlebo", "assistants.staff"),
     )
-    await _insert_assistant(
-        test_db_session,
-        employee_id=701,
-        user_id=97011,
-        role="admin",
-        engagement_id=9701,
+    await _assign_partner(test_db_session, partner_id=701, engagement_id=9701)
+    await _assign_partner(
+        test_db_session, partner_id=702, engagement_id=9701, role="expert"
     )
-    await _insert_assistant(
-        test_db_session,
-        employee_id=702,
-        user_id=97012,
-        role="onboarding_assistant",
-        engagement_id=9701,
-    )
+    await _assign_staff(test_db_session, employee_id=801, engagement_id=9701)
     await test_db_session.commit()
 
     deliver_calls: list[dict] = []
@@ -213,11 +230,14 @@ async def test_booking_guide_reminders_dispatch_to_admin_and_onboarding_assistan
     )
     await test_db_session.commit()
 
+    # 1 phlebo + 1 staff; expert excluded. Each gets whatsapp + email.
     assert result["matched"] == 2
     assert result["sent"] == 2
     assert result["skipped"] == 0
     assert result["failed"] == 0
     assert len(deliver_calls) == 4
+    recipient_types = {d.get("recipient_type") for d in result["details"]}
+    assert recipient_types == {"assistants.phlebo", "assistants.staff"}
 
 
 @pytest.mark.asyncio
@@ -233,13 +253,7 @@ async def test_booking_guide_reminders_falls_back_to_start_date(test_db_session,
         end_date="2026-06-02",
         slot_detail_id=None,
     )
-    await _insert_assistant(
-        test_db_session,
-        employee_id=703,
-        user_id=97021,
-        role="onboarding_assistant",
-        engagement_id=9702,
-    )
+    await _assign_partner(test_db_session, partner_id=703, engagement_id=9702)
     await test_db_session.commit()
 
     deliver_calls: list[dict] = []
@@ -272,13 +286,7 @@ async def test_booking_guide_reminders_excludes_completed_engagements(test_db_se
         start_date="2026-06-02",
         end_date="2026-06-02",
     )
-    await _insert_assistant(
-        test_db_session,
-        employee_id=704,
-        user_id=97031,
-        role="admin",
-        engagement_id=9703,
-    )
+    await _assign_partner(test_db_session, partner_id=704, engagement_id=9703)
     await test_db_session.commit()
 
     deliver_calls: list[dict] = []
@@ -316,13 +324,7 @@ async def test_booking_guide_reminders_skips_wrong_collection_date(test_db_sessi
         start_date="2026-06-05",
         slot_detail_id=9704,
     )
-    await _insert_assistant(
-        test_db_session,
-        employee_id=705,
-        user_id=97041,
-        role="admin",
-        engagement_id=9704,
-    )
+    await _assign_partner(test_db_session, partner_id=705, engagement_id=9704)
     await test_db_session.commit()
 
     deliver_calls: list[dict] = []
@@ -353,13 +355,7 @@ async def test_booking_guide_reminders_dry_run_does_not_dispatch(test_db_session
         status="running",
         start_date="2026-06-02",
     )
-    await _insert_assistant(
-        test_db_session,
-        employee_id=706,
-        user_id=97051,
-        role="admin",
-        engagement_id=9705,
-    )
+    await _assign_partner(test_db_session, partner_id=706, engagement_id=9705)
     await test_db_session.commit()
 
     deliver_calls: list[dict] = []
@@ -381,7 +377,9 @@ async def test_booking_guide_reminders_dry_run_does_not_dispatch(test_db_session
 
 
 @pytest.mark.asyncio
-async def test_booking_guide_reminders_dedup_skips_already_sent(test_db_session, monkeypatch):
+async def test_booking_guide_reminders_dedup_skips_already_sent_per_recipient(
+    test_db_session, monkeypatch
+):
     await _seed_dependencies(test_db_session)
     as_of = date(2026, 6, 1)
     await _insert_engagement(
@@ -390,21 +388,18 @@ async def test_booking_guide_reminders_dedup_skips_already_sent(test_db_session,
         engagement_code="ENG9706",
         status="running",
         start_date="2026-06-02",
+        recipient_types=("assistants.phlebo", "assistants.staff"),
+        service_keys=BOOKING_GUIDE_WHATSAPP_KEY,
     )
-    await _insert_assistant(
-        test_db_session,
-        employee_id=707,
-        user_id=97061,
-        role="onboarding_assistant",
-        engagement_id=9706,
-    )
+    await _assign_partner(test_db_session, partner_id=707, engagement_id=9706)
+    await _assign_staff(test_db_session, employee_id=807, engagement_id=9706)
     await test_db_session.commit()
 
     deliver_calls: list[dict] = []
     patch_service_direct_deliver(monkeypatch, deliver_calls)
 
     notifications_service, engagements_repository = _services()
-    await dispatch_booking_guide_reminders(
+    first = await dispatch_booking_guide_reminders(
         test_db_session,
         notifications_service=notifications_service,
         engagements_repository=engagements_repository,
@@ -413,10 +408,43 @@ async def test_booking_guide_reminders_dedup_skips_already_sent(test_db_session,
     )
     await test_db_session.commit()
 
-    first_call_count = len(deliver_calls)
-    assert first_call_count == 2
+    assert first["sent"] == 2
+    assert len(deliver_calls) == 2
 
-    await dispatch_booking_guide_reminders(
+    # Mark phlebo notification as sent; leave staff as failed so it retries.
+    await test_db_session.execute(
+        text(
+            """
+            UPDATE notifications
+            SET status = 2
+            WHERE engagement_id = 9706
+              AND service_key = :sk
+              AND ("user"::jsonb -> 'contacts' @> CAST(:partner AS jsonb))
+            """
+        ),
+        {
+            "sk": BOOKING_GUIDE_WHATSAPP_KEY,
+            "partner": json.dumps([{"partner_id": 707}]),
+        },
+    )
+    await test_db_session.execute(
+        text(
+            """
+            UPDATE notifications
+            SET status = 3
+            WHERE engagement_id = 9706
+              AND service_key = :sk
+              AND ("user"::jsonb -> 'contacts' @> CAST(:employee AS jsonb))
+            """
+        ),
+        {
+            "sk": BOOKING_GUIDE_WHATSAPP_KEY,
+            "employee": json.dumps([{"employee_id": 807}]),
+        },
+    )
+    await test_db_session.commit()
+
+    second = await dispatch_booking_guide_reminders(
         test_db_session,
         notifications_service=notifications_service,
         engagements_repository=engagements_repository,
@@ -425,7 +453,11 @@ async def test_booking_guide_reminders_dedup_skips_already_sent(test_db_session,
     )
     await test_db_session.commit()
 
-    assert len(deliver_calls) == first_call_count
+    assert second["sent"] == 1
+    assert second["skipped"] == 1
+    assert len(deliver_calls) == 3  # only staff retried
+    skip_details = [d for d in second["details"] if d["action"] == "skipped"]
+    assert any(d.get("partner_id") == 707 for d in skip_details)
 
 
 @pytest.mark.asyncio
@@ -440,13 +472,10 @@ async def test_booking_guide_reminders_does_not_notify_expert_only_assignees(
         engagement_code="ENG9707",
         status="running",
         start_date="2026-06-02",
+        recipient_types=("assistants.phlebo",),
     )
-    await _insert_assistant(
-        test_db_session,
-        employee_id=708,
-        user_id=97071,
-        role="expert",
-        engagement_id=9707,
+    await _assign_partner(
+        test_db_session, partner_id=708, engagement_id=9707, role="expert"
     )
     await test_db_session.commit()
 
@@ -465,3 +494,40 @@ async def test_booking_guide_reminders_does_not_notify_expert_only_assignees(
 
     assert result["matched"] == 0
     assert len(deliver_calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_booking_guide_reminders_staff_only_binding(test_db_session, monkeypatch):
+    await _seed_dependencies(test_db_session)
+    as_of = date(2026, 6, 1)
+    await _insert_engagement(
+        test_db_session,
+        engagement_id=9708,
+        engagement_code="ENG9708",
+        status="running",
+        start_date="2026-06-02",
+        recipient_types=("assistants.staff",),
+        service_keys=BOOKING_GUIDE_WHATSAPP_KEY,
+    )
+    await _assign_partner(test_db_session, partner_id=709, engagement_id=9708)
+    await _assign_staff(test_db_session, employee_id=809, engagement_id=9708)
+    await test_db_session.commit()
+
+    deliver_calls: list[dict] = []
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
+
+    notifications_service, engagements_repository = _services()
+    result = await dispatch_booking_guide_reminders(
+        test_db_session,
+        notifications_service=notifications_service,
+        engagements_repository=engagements_repository,
+        as_of=as_of,
+        dry_run=False,
+    )
+    await test_db_session.commit()
+
+    assert result["matched"] == 1
+    assert result["sent"] == 1
+    assert len(deliver_calls) == 1
+    assert result["details"][0]["employee_id"] == 809
+    assert result["details"][0]["recipient_type"] == "assistants.staff"

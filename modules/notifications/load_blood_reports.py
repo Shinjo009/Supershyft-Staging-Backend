@@ -1264,6 +1264,7 @@ async def load_blood_reports(
                         user_id=user_id,
                         engagement_id=engagement_id,
                         assessment_instance_id=instance_id,
+                        event_code="reports.blood_ready",
                         details=details,
                     )
                     await db.commit()

@@ -108,6 +108,32 @@ async def seed_engagement_notifications_from_defaults(
     return success_response({"seeded_slots": len(rows), **setup})
 
 
+@router.delete(
+    "/engagements/{engagement_id}/notifications/bindings/{binding_id}/services/{service_key}"
+)
+async def delete_engagement_notification_binding_service(
+    engagement_id: int,
+    binding_id: int,
+    service_key: str,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    repo: EngagementNotificationsRepository = Depends(_get_repository),
+):
+    _ = employee
+    slot = await repo.get_slot_by_id(db, binding_id)
+    if slot is None or slot.engagement_id != engagement_id:
+        raise AppError(status_code=404, error_code="NOT_FOUND", message="Binding not found")
+    removed = await repo.remove_service_from_slot(db, binding_id, service_key)
+    if not removed:
+        raise AppError(
+            status_code=404,
+            error_code="NOT_FOUND",
+            message="Notification service not found on this binding",
+        )
+    await db.commit()
+    return success_response({"binding_id": binding_id, "service_key": service_key, "removed": True})
+
+
 @router.delete("/engagements/{engagement_id}/notifications/bindings/{binding_id}")
 async def delete_engagement_notification_binding(
     engagement_id: int,

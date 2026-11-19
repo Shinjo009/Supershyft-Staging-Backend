@@ -981,6 +981,7 @@ async def load_bioai_reports(
                         user_id=user_id,
                         engagement_id=engagement_id,
                         assessment_instance_id=instance_id,
+                        event_code="reports.bioai_ready",
                         details=details,
                     )
                     await db.commit()

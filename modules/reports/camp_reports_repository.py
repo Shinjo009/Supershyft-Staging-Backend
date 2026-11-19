@@ -48,6 +48,12 @@ from modules.notifications.models import Notification
 from modules.reports.blood_report_archival import is_persistable_blood_report_url
 from modules.reports.models import CampReport, IndividualHealthReport
 from modules.users.models import User
+from modules.reports.questionnaire_kpi_completion import (
+    KPI_QUESTIONNAIRE_REQUIRED_CATEGORY_KEYS as _KPI_QUESTIONNAIRE_REQUIRED_CATEGORY_KEYS,
+    METSIGHTS_CATEGORY_KEYS as _METSIGHTS_CATEGORY_KEYS,
+    load_kpi_questionnaire_data,
+    rollup_questionnaire_kpi_for_engagement,
+)
 
 _MALE_GENDERS = ("male", "m", "1")
 _FEMALE_GENDERS = ("female", "f", "2")
@@ -59,19 +65,6 @@ def _normalized_gender(column):
 
 
 _METSIGHTS_PRO_BASIC_TYPE_CODES = ("1", "2")
-_METSIGHTS_CATEGORY_KEYS = (
-    "physical-measurement",
-    "diet-lifestyle-parameters",
-    "vitals",
-    "fitness-parameters",
-)
-# KPI questionnaire_completed requires these Metsights categories when assigned.
-# Vitals is camp-day data and is intentionally excluded from this set.
-_KPI_QUESTIONNAIRE_REQUIRED_CATEGORY_KEYS = (
-    "physical-measurement",
-    "diet-lifestyle-parameters",
-    "fitness-parameters",
-)
 
 
 def _person_name(first_name: str | None, last_name: str | None) -> str:
@@ -1303,23 +1296,12 @@ class CampReportsRepository:
         for eid, uid in (await db.execute(participant_query)).all():
             participants_by_eng.setdefault(int(eid), set()).add(int(uid))
 
-        instances_query = (
-            select(
-                AssessmentInstance.assessment_instance_id,
-                AssessmentInstance.user_id,
-                AssessmentInstance.package_id,
-                AssessmentInstance.engagement_id,
-            )
-            .join(
-                AssessmentPackage,
-                AssessmentPackage.package_id == AssessmentInstance.package_id,
-            )
-            .where(AssessmentInstance.engagement_id.in_(engagement_ids))
-            .where(AssessmentInstance.user_id.in_(enrolled_user_ids))
-            .where(AssessmentPackage.assessment_type_code.in_(("1", "2")))
+        data = await load_kpi_questionnaire_data(
+            db,
+            engagement_ids=engagement_ids,
+            user_ids=enrolled_user_ids,
         )
-        instance_rows = (await db.execute(instances_query)).all()
-        if not instance_rows:
+        if data is None or not data.instance_rows:
             by_engagement = []
             for eid in engagement_ids:
                 scoped = participants_by_eng.get(eid) or set()
@@ -1341,209 +1323,22 @@ class CampReportsRepository:
                 "sum_filled_cards": 0,
             }
 
-        instance_ids = [int(r[0]) for r in instance_rows]
-        package_ids = list({int(r[2]) for r in instance_rows})
-
-        progress_query = (
-            select(
-                AssessmentCategoryProgress.assessment_instance_id,
-                AssessmentCategoryProgress.category_id,
-                AssessmentCategoryProgress.status,
-                AssessmentCategoryProgress.is_submitted,
-                QuestionnaireCategory.category_key,
-            )
-            .join(
-                QuestionnaireCategory,
-                QuestionnaireCategory.category_id == AssessmentCategoryProgress.category_id,
-            )
-            .where(AssessmentCategoryProgress.assessment_instance_id.in_(instance_ids))
-        )
-        progress_map: dict[int, dict[str, dict]] = {}
-        for p in (await db.execute(progress_query)).all():
-            ck = p.category_key
-            if ck is None:
-                continue
-            progress_map.setdefault(int(p.assessment_instance_id), {})[ck] = {
-                "status": p.status,
-                "is_submitted": bool(p.is_submitted),
-            }
-
-        resp_count_query = (
-            select(
-                QuestionnaireResponse.assessment_instance_id,
-                func.count(QuestionnaireResponse.response_id),
-            )
-            .where(QuestionnaireResponse.assessment_instance_id.in_(instance_ids))
-            .group_by(QuestionnaireResponse.assessment_instance_id)
-        )
-        resp_counts = {
-            int(r[0]): int(r[1]) for r in (await db.execute(resp_count_query)).all()
-        }
-
-        pkg_cat_query = (
-            select(
-                AssessmentPackageCategory.package_id,
-                QuestionnaireCategory.category_key,
-            )
-            .join(
-                QuestionnaireCategory,
-                QuestionnaireCategory.category_id == AssessmentPackageCategory.category_id,
-            )
-            .where(AssessmentPackageCategory.package_id.in_(package_ids))
-            .where(QuestionnaireCategory.category_of == "metsights")
-        )
-        pkg_categories: dict[int, set[str]] = {}
-        for pc in (await db.execute(pkg_cat_query)).all():
-            pkg_categories.setdefault(int(pc.package_id), set()).add(pc.category_key)
-
-        cat_key_to_id: dict[str, int] = {}
-        for ck in _METSIGHTS_CATEGORY_KEYS:
-            cat_row = await db.execute(
-                select(QuestionnaireCategory.category_id)
-                .where(QuestionnaireCategory.category_key == ck)
-                .where(QuestionnaireCategory.category_of == "metsights")
-                .limit(1)
-            )
-            cid = cat_row.scalar_one_or_none()
-            if cid is not None:
-                cat_key_to_id[ck] = int(cid)
-
-        cat_resp_map: dict[int, dict[str, bool]] = {iid: {} for iid in instance_ids}
-        for ck, cid in cat_key_to_id.items():
-            has_resp_query = (
-                select(
-                    QuestionnaireResponse.assessment_instance_id,
-                    func.count(QuestionnaireResponse.response_id),
-                )
-                .where(QuestionnaireResponse.assessment_instance_id.in_(instance_ids))
-                .where(QuestionnaireResponse.category_ids.any(cid))
-                .group_by(QuestionnaireResponse.assessment_instance_id)
-            )
-            for r in (await db.execute(has_resp_query)).all():
-                cat_resp_map.setdefault(int(r[0]), {})[ck] = int(r[1]) > 0
-
-        unanswered_map: dict[int, dict[str, list[dict]]] = {}
-        for ck, cid in cat_key_to_id.items():
-            unanswered_query = (
-                select(
-                    AssessmentInstance.assessment_instance_id,
-                    QuestionnaireDefinition.question_id,
-                    QuestionnaireDefinition.question_text,
-                )
-                .select_from(AssessmentInstance)
-                .join(
-                    AssessmentPackageCategory,
-                    AssessmentPackageCategory.package_id == AssessmentInstance.package_id,
-                )
-                .join(
-                    QuestionnaireCategoryQuestion,
-                    QuestionnaireCategoryQuestion.category_id
-                    == AssessmentPackageCategory.category_id,
-                )
-                .join(
-                    QuestionnaireDefinition,
-                    QuestionnaireDefinition.question_id
-                    == QuestionnaireCategoryQuestion.question_id,
-                )
-                .outerjoin(
-                    QuestionnaireResponse,
-                    (QuestionnaireResponse.assessment_instance_id
-                     == AssessmentInstance.assessment_instance_id)
-                    & (QuestionnaireResponse.question_id == QuestionnaireDefinition.question_id)
-                    & (QuestionnaireResponse.category_ids.any(cid)),
-                )
-                .where(AssessmentInstance.assessment_instance_id.in_(instance_ids))
-                .where(AssessmentPackageCategory.category_id == cid)
-                .where(QuestionnaireDefinition.is_required.is_(True))
-                .where(QuestionnaireResponse.response_id.is_(None))
-                .order_by(
-                    AssessmentInstance.assessment_instance_id.asc(),
-                    QuestionnaireDefinition.question_id.asc(),
-                )
-            )
-            for r in (await db.execute(unanswered_query)).all():
-                unanswered_map.setdefault(int(r.assessment_instance_id), {}).setdefault(
-                    ck, []
-                ).append(
-                    {
-                        "question_id": int(r.question_id),
-                        "question_text": r.question_text,
-                    }
-                )
-
-        # Per engagement + unique user rollup
         user_global: dict[int, dict[str, Any]] = {}
         by_engagement: list[dict[str, Any]] = []
         sum_filled_cards = 0
 
-        instances_by_eng: dict[int, list[tuple]] = {eid: [] for eid in engagement_ids}
-        for row in instance_rows:
-            instances_by_eng.setdefault(int(row[3]), []).append(row)
-
         for eid in engagement_ids:
             scoped_users = participants_by_eng.get(eid) or set()
-            user_data: dict[int, dict[str, Any]] = {}
-            for row in instances_by_eng.get(eid) or []:
-                iid = int(row[0])
-                uid = int(row[1])
-                pid = int(row[2])
-                if uid not in scoped_users:
-                    continue
-                assigned_cats = pkg_categories.get(pid, set())
-                entry = user_data.setdefault(
-                    uid,
-                    {
-                        "assigned_cats": set(),
-                        "has_any_responses": False,
-                        "all_assigned_complete": True,
-                        "unanswered_questions": [],
-                    },
-                )
-                entry["assigned_cats"].update(assigned_cats)
-                if resp_counts.get(iid, 0) > 0:
-                    entry["has_any_responses"] = True
-                inst_progress = progress_map.get(iid, {})
-                for ck in _KPI_QUESTIONNAIRE_REQUIRED_CATEGORY_KEYS:
-                    if ck not in assigned_cats:
-                        continue
-                    prog = inst_progress.get(ck, {})
-                    has_resp = cat_resp_map.get(iid, {}).get(ck, False)
-                    cat_status = prog.get("status", "incomplete")
-                    unanswered = unanswered_map.get(iid, {}).get(ck, [])
-                    if cat_status != "complete" and has_resp and not unanswered:
-                        cat_status = "complete"
-                    if cat_status != "complete":
-                        entry["all_assigned_complete"] = False
-                        for q in unanswered:
-                            text = str(q.get("question_text") or "").strip()
-                            if text and text not in entry["unanswered_questions"]:
-                                entry["unanswered_questions"].append(text)
-            # Users enrolled in engagement but without a primary assessment instance
-            for uid in scoped_users:
-                if uid not in user_data:
-                    user_data[uid] = {
-                        "assigned_cats": set(),
-                        "has_any_responses": False,
-                        "all_assigned_complete": True,
-                        "unanswered_questions": [],
-                    }
+            rollup = rollup_questionnaire_kpi_for_engagement(
+                scoped_users=scoped_users,
+                instance_rows=data.instances_by_eng.get(eid, []),
+                data=data,
+            )
+            filled = int(rollup["filled"])
+            partial = int(rollup["partially_filled"])
+            not_started = int(rollup["not_started"])
 
-            filled = partial = not_started = 0
-            for uid, entry in user_data.items():
-                assigned = entry["assigned_cats"]
-                if not assigned:
-                    state = "not_started"
-                    not_started += 1
-                elif entry["all_assigned_complete"]:
-                    state = "filled"
-                    filled += 1
-                elif entry["has_any_responses"]:
-                    state = "partially_filled"
-                    partial += 1
-                else:
-                    state = "not_started"
-                    not_started += 1
-
+            for uid, texts in (rollup.get("unanswered_by_user") or {}).items():
                 global_entry = user_global.setdefault(
                     uid,
                     {
@@ -1551,11 +1346,19 @@ class CampReportsRepository:
                         "unanswered_questions": [],
                     },
                 )
-                if state == "filled":
-                    global_entry["filled"] = True
-                for text in entry["unanswered_questions"]:
+                for text in texts:
                     if text not in global_entry["unanswered_questions"]:
                         global_entry["unanswered_questions"].append(text)
+
+            for uid in rollup.get("filled_user_ids") or set():
+                global_entry = user_global.setdefault(
+                    uid,
+                    {
+                        "filled": False,
+                        "unanswered_questions": [],
+                    },
+                )
+                global_entry["filled"] = True
 
             sum_filled_cards += filled
             by_engagement.append(

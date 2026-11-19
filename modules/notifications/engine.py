@@ -12,7 +12,7 @@ from modules.engagement_notifications.service_config import (
 )
 from modules.notifications.binding_resolver import BindingResolver
 from modules.notifications.deliverable_contact import is_deliverable_email
-from modules.notifications.events_catalog import get_event
+from modules.notifications.events_catalog import get_event, map_legacy_event_code
 from modules.notifications.recipient_resolver import RecipientResolver
 from modules.notifications.repository import NotificationsRepository
 from modules.notifications.schemas import DispatchRequest, SessionDetails
@@ -45,13 +45,14 @@ class NotificationEngine:
         engagement_id: int | None = None,
         recipient_types: list[str] | None = None,
     ) -> list[int]:
-        if get_event(event_code) is None:
+        canonical_code = map_legacy_event_code(event_code)
+        if get_event(canonical_code) is None:
             logger.warning("Notification emit skipped: unknown event_code=%s", event_code)
             return []
 
         bindings = await self._binding_resolver.resolve(
             db,
-            event_code=event_code,
+            event_code=canonical_code,
             engagement_id=engagement_id,
             context=context,
         )
@@ -157,6 +158,7 @@ class NotificationEngine:
                     if target.user_ids and not force_contacts_only:
                         payload = DispatchRequest(
                             service_key=service_key,
+                            event_code=canonical_code,
                             user_ids=target.user_ids,
                             engagement_id=engagement_id,
                             participant_details=participant_details,
@@ -188,6 +190,7 @@ class NotificationEngine:
                             contacts=target.contacts,
                             otp=str(otp) if otp is not None else None,
                             engagement_id=engagement_id,
+                            event_code=canonical_code,
                             participant_details=participant_details,
                             session_details=(
                                 session_details

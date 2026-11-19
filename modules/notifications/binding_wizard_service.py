@@ -367,7 +367,19 @@ class NotificationBindingWizardService:
         recipient_type = payload.recipient_type.strip()
         delivery_channel = payload.service.channel.strip().lower()
         svc = await self._ensure_service(db, event_code=payload.event_code, spec=payload.service)
-        configs = serialize_for_db([NotificationServiceConfigItem(service_key=svc.service_key)])
+        incoming = [NotificationServiceConfigItem(service_key=svc.service_key)]
+        configs = serialize_for_db(incoming)
+        if payload.engagement_binding_id:
+            from modules.engagement_notifications.service_config import (
+                normalize_notification_services,
+                replace_or_merge_service_config,
+            )
+
+            existing = await self._en_repo.get_slot_by_id(db, payload.engagement_binding_id)
+            if existing is not None and existing.engagement_id == engagement_id:
+                prior = normalize_notification_services(existing.notification_services)
+                merged = replace_or_merge_service_config(prior, incoming)
+                configs = serialize_for_db(merged)
         row = await self._en_repo.upsert_binding_slot(
             db,
             engagement_id=engagement_id,

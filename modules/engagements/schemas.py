@@ -493,6 +493,16 @@ class CreatePhleboRequest(BaseModel):
     confirm_existing: bool = False
 
 
+class CreateExpertRequest(BaseModel):
+    """Create (or reuse) an expert partner and assign to an engagement."""
+
+    name: SafeDisplayName
+    phone: PhoneStr
+    specialization: SafeDisplayName
+    expert_type: SlugKey
+    confirm_existing: bool = False
+
+
 class EngagementAssessmentPackageAddRequest(BaseModel):
     """Request to add an additional assessment package to an engagement."""
 

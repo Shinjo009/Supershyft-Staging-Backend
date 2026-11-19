@@ -39,6 +39,13 @@ _ALL_KEYS: tuple[str, ...] = (
     RECEIVER_EMAIL_KEY,
 )
 
+_EVENT_BY_SERVICE_KEY: dict[str, str] = {
+    SENDER_WHATSAPP_KEY: "family.gift_sent",
+    SENDER_EMAIL_KEY: "family.gift_sent",
+    RECEIVER_WHATSAPP_KEY: "family.gift_received",
+    RECEIVER_EMAIL_KEY: "family.gift_received",
+}
+
 
 def _display_name(user: User) -> str:
     first = (getattr(user, "first_name", None) or "").strip()
@@ -174,12 +181,14 @@ async def _dispatch_one(
             )
             return
 
+        gift_event = _EVENT_BY_SERVICE_KEY.get(service_key, "family.gift_sent")
         skip_reason = await should_skip_notification(
             db,
-            service_key=service_key,
+            event_code=gift_event,
             user_id=user_id,
             engagement_id=engagement_id,
             repository=notifications_repository,
+            service_key=service_key,
         )
         if skip_reason:
             logger.info(
@@ -195,6 +204,7 @@ async def _dispatch_one(
             db,
             payload=DispatchRequest(
                 service_key=service_key,
+                event_code=gift_event,
                 user_ids=[user_id],
                 engagement_id=engagement_id,
                 participant_details=participant_details,

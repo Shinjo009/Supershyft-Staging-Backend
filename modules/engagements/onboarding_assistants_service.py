@@ -19,7 +19,7 @@ from modules.engagements.repository import EngagementsRepository
 from modules.partners.models import Partner, PartnerRole
 from modules.partners.role_utils import partner_role_value
 from modules.partners.repository import PartnersRepository
-from modules.partners.schemas import PartnerCreateRequest
+from modules.partners.schemas import PartnerCreateRequest, PartnerExpertProfileIn
 from modules.partners.service import PartnersService
 
 
@@ -308,6 +308,98 @@ class OnboardingAssistantsService:
                     phone=phone,
                     role=PartnerRole.phlebo,
                     status="active",
+                ),
+                ip_address=ip_address,
+                user_agent=user_agent,
+                endpoint=endpoint,
+            )
+            partner_created = True
+            result_status = "created"
+
+        assign_result = await self.assign_onboarding_assistants_to_engagement(
+            db,
+            employee=employee,
+            engagement_id=engagement_id,
+            partner_ids=[partner.partner_id],
+            ip_address=ip_address,
+            user_agent=user_agent,
+            endpoint=endpoint,
+        )
+
+        return {
+            "status": result_status,
+            "partner_id": partner.partner_id,
+            "partner_created": partner_created,
+            "engagement_id": engagement_id,
+            "added_partner_ids": assign_result["added_partner_ids"],
+            "skipped_partner_ids": assign_result["skipped_partner_ids"],
+            **{k: v for k, v in _partner_payload(partner).items() if k != "kind"},
+        }
+
+    async def create_and_assign_expert(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        engagement_id: int,
+        name: str,
+        phone: str,
+        specialization: str,
+        expert_type: str,
+        confirm_existing: bool,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> dict:
+        """Create or reuse an expert partner and assign them to an engagement."""
+        ensure_admin(employee)
+
+        engagement_id = _normalize_int(engagement_id)
+
+        engagement = await self._repository.get_engagement_by_id(db, engagement_id=engagement_id)
+        if engagement is None:
+            raise AppError(
+                status_code=404,
+                error_code="ENGAGEMENT_NOT_FOUND",
+                message="Engagement does not exist",
+            )
+
+        existing_partner = await self._partners_repository.get_by_phone(db, phone)
+        if existing_partner is not None and not confirm_existing:
+            return _existing_partner_payload(existing_partner)
+
+        partner_created = False
+        partners_service = self._require_partners_service()
+
+        if existing_partner is not None:
+            partner = existing_partner
+            role_value = partner_role_value(partner.role)
+            if role_value != PartnerRole.expert.value:
+                raise AppError(
+                    status_code=400,
+                    error_code="INVALID_INPUT",
+                    message="Partner role cannot be assigned as an onboarding assistant",
+                )
+            if (partner.status or "").lower() != "active":
+                raise AppError(
+                    status_code=422,
+                    error_code="INVALID_STATE",
+                    message="Partner is not active",
+                )
+            result_status = "assigned"
+        else:
+            partner, _expert_id = await partners_service.create_partner(
+                db,
+                employee=employee,
+                payload=PartnerCreateRequest(
+                    name=name.strip(),
+                    phone=phone,
+                    role=PartnerRole.expert,
+                    status="active",
+                    expert_profile=PartnerExpertProfileIn(
+                        expert_type=expert_type,
+                        specialization=specialization.strip(),
+                    ),
                 ),
                 ip_address=ip_address,
                 user_agent=user_agent,

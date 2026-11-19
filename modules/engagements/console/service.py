@@ -45,6 +45,10 @@ from modules.assessments.package_questions_service import AssessmentPackageCateg
 from modules.assessments.repository import AssessmentsRepository
 from modules.assessments.service import AssessmentsService
 from modules.engagements.models import BloodCollectionType, Engagement, EngagementParticipant
+from modules.engagements.participant_list_filters import (
+    ParticipantListFilters,
+    filters_are_active,
+)
 from modules.engagements.repository import EngagementsRepository
 from modules.engagements.service import _participant_enrollment_to_dict
 from db.transaction import release_request_transaction
@@ -58,6 +62,52 @@ from modules.bookings import service as booking_service
 logger = logging.getLogger(__name__)
 
 _IST = ZoneInfo("Asia/Kolkata")
+
+_BARCODE_COLLECTED_MESSAGE = (
+    "Barcode collected. You can proceed with the next booking."
+)
+
+
+def _raise_console_book_partner_error_after_barcode_saved(
+    message: str,
+    *,
+    error_code: str,
+    barcode: str,
+    status_code: int = 422,
+) -> None:
+    raise AppError(
+        status_code=status_code,
+        error_code=error_code,
+        message=message,
+        details={"barcode_saved": True, "barcode": barcode},
+    )
+
+
+def _console_book_barcode_soft_success(
+    *,
+    engagement_participant_id: int,
+    user_id: int,
+    barcode: str,
+    internal_reason: str | None = None,
+) -> dict[str, Any]:
+    """Internal/transport failure after barcode was committed; phlebo can continue."""
+    if internal_reason:
+        logger.warning(
+            "Console book internal failure after barcode save user_id=%s: %s",
+            user_id,
+            internal_reason,
+        )
+    return {
+        "status": False,
+        "booking_created": False,
+        "barcode_saved": True,
+        "internal_failure": True,
+        "message": _BARCODE_COLLECTED_MESSAGE,
+        "booking_id": None,
+        "barcode": barcode,
+        "engagement_participant_id": engagement_participant_id,
+        "user_id": user_id,
+    }
 
 _CONSOLE_PARTICIPANT_FIELDS = (
     "engagement_participant_id",
@@ -473,6 +523,25 @@ class ConsoleService:
             db, engagement, participant_count=participant_count
         )
 
+    async def get_console_filter_facets(
+        self,
+        db: AsyncSession,
+        *,
+        employee: EmployeeContext,
+        partner=None,
+        engagement_id: int,
+    ) -> dict[str, list[str]]:
+        await ensure_console_access(db, engagement_id, repository=self._repository, employee=employee, partner=partner)
+        collection_dates = await self._repository.list_distinct_engagement_dates_for_engagement(
+            db,
+            engagement_id=engagement_id,
+        )
+        departments = await self._repository.list_distinct_participant_departments_for_engagement(
+            db,
+            engagement_id=engagement_id,
+        )
+        return {"collection_dates": collection_dates, "departments": departments}
+
     async def list_participants_for_console(
         self,
         db: AsyncSession,
@@ -482,6 +551,7 @@ class ConsoleService:
         engagement_id: int,
         page: int,
         limit: int,
+        filters: ParticipantListFilters | None = None,
     ) -> tuple[list[dict], int]:
         await ensure_console_access(db, engagement_id, repository=self._repository, employee=employee, partner=partner)
 
@@ -499,17 +569,21 @@ class ConsoleService:
             engagement=engagement,
         )
 
+        active_filters = filters if filters is not None and filters_are_active(filters) else None
+
         participants = await self._repository.list_participants_by_engagement_id(
             db,
             engagement_id=engagement_id,
             page=page,
             limit=limit,
             participant_department_slugs=department_slugs,
+            filters=active_filters,
         )
         total = await self._repository.count_distinct_participants_for_engagement(
             db,
             engagement_id=engagement_id,
             participant_department_slugs=department_slugs,
+            filters=active_filters,
         )
 
         ep_ids = [int(row[0]) for row in participants if row[0] is not None]
@@ -699,7 +773,21 @@ class ConsoleService:
         )
         await release_request_transaction(db)
 
-        access_token = await healthians_client.get_access_token()
+        try:
+            access_token = await healthians_client.get_access_token()
+        except Exception as exc:
+            logger.warning(
+                "Console book: Healthians token failed after barcode save engagement_id=%s user_id=%s: %s",
+                engagement_id,
+                user_id,
+                exc,
+            )
+            return _console_book_barcode_soft_success(
+                engagement_participant_id=engagement_participant_id,
+                user_id=user_id,
+                barcode=trimmed_barcode,
+                internal_reason=str(exc),
+            )
 
         serviceability_url = f"{settings.HEALTHIANS_BASE_URL}/toast4health/checkServiceabilityByLocation_v2"
         serviceability_payload = {
@@ -736,27 +824,29 @@ class ConsoleService:
                 status="failed",
                 error_message=str(exc),
             )
-            raise AppError(
-                status_code=502,
-                error_code="HEALTHIANS_SERVICEABILITY_FAILED",
-                message=str(exc),
-            ) from exc
+            return _console_book_barcode_soft_success(
+                engagement_participant_id=engagement_participant_id,
+                user_id=user_id,
+                barcode=trimmed_barcode,
+                internal_reason=str(exc),
+            )
 
         if not serviceability_response.get("status"):
             message = serviceability_response.get("message") or "Location is not serviceable"
-            raise AppError(
-                status_code=422,
+            _raise_console_book_partner_error_after_barcode_saved(
+                message,
                 error_code="LOCATION_NOT_SERVICEABLE",
-                message=message,
+                barcode=trimmed_barcode,
             )
 
         zone_data = serviceability_response.get("data") or {}
         zone_id_raw = zone_data.get("zone_id")
         if zone_id_raw is None:
-            raise AppError(
-                status_code=422,
+            _raise_console_book_partner_error_after_barcode_saved(
+                "Serviceability response did not include zone_id",
                 error_code="LOCATION_NOT_SERVICEABLE",
-                message="Serviceability response did not include zone_id",
+                barcode=trimmed_barcode,
+                status_code=502,
             )
         zone_id = int(zone_id_raw)
 
@@ -818,10 +908,10 @@ class ConsoleService:
                     response_payload=booking_response,
                     error_message=booking_response.get("message"),
                 )
-                raise AppError(
-                    status_code=422,
+                _raise_console_book_partner_error_after_barcode_saved(
+                    booking_response.get("message") or "Healthians booking failed",
                     error_code="HEALTHIANS_BOOKING_FAILED",
-                    message=booking_response.get("message") or "Healthians booking failed",
+                    barcode=trimmed_barcode,
                 )
 
             healthians_booking_id = booking_response.get("booking_id")
@@ -832,10 +922,11 @@ class ConsoleService:
                     response_payload=booking_response,
                     error_message="Missing booking_id in Healthians response",
                 )
-                raise AppError(
-                    status_code=502,
+                _raise_console_book_partner_error_after_barcode_saved(
+                    "Healthians response did not include booking_id",
                     error_code="HEALTHIANS_BOOKING_FAILED",
-                    message="Healthians response did not include booking_id",
+                    barcode=trimmed_barcode,
+                    status_code=502,
                 )
 
             await finalize_healthians_sync_log_isolated(
@@ -851,11 +942,12 @@ class ConsoleService:
                 status="failed",
                 error_message=str(exc),
             )
-            raise AppError(
-                status_code=502,
-                error_code="HEALTHIANS_BOOKING_FAILED",
-                message=str(exc),
-            ) from exc
+            return _console_book_barcode_soft_success(
+                engagement_participant_id=engagement_participant_id,
+                user_id=user_id,
+                barcode=trimmed_barcode,
+                internal_reason=str(exc),
+            )
 
         if sync_collection_to_now is None:
             effective_sync_collection = (
@@ -875,6 +967,8 @@ class ConsoleService:
 
         result = {
             "status": booking_response.get("status"),
+            "booking_created": True,
+            "barcode_saved": True,
             "message": booking_response.get("message"),
             "lead_id": booking_response.get("lead_id"),
             "booking_id": str(healthians_booking_id),

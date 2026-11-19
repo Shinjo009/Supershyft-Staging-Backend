@@ -316,7 +316,9 @@ def engagement_notification_applicable(
     event_code: str,
     profile: EngagementNotificationProfile,
 ) -> bool:
-    meta = EVENT_CATALOG_META.get(event_code)
+    from modules.notifications.events_catalog import map_legacy_event_code
+
+    meta = EVENT_CATALOG_META.get(map_legacy_event_code(event_code))
     if meta is None:
         return False
     rule: EngagementApplicability | None = meta.get("applicability")
@@ -357,14 +359,18 @@ def engagement_notification_applicable(
 
 
 def catalog_groups_for_event(event_code: str) -> tuple[str, ...]:
-    meta = EVENT_CATALOG_META.get(event_code)
+    from modules.notifications.events_catalog import map_legacy_event_code
+
+    meta = EVENT_CATALOG_META.get(map_legacy_event_code(event_code))
     if not meta:
         return ("Platform",)
     return meta.get("groups") or ("Platform",)
 
 
 def engagement_applicability_for_event(event_code: str) -> EngagementApplicability | None:
-    meta = EVENT_CATALOG_META.get(event_code)
+    from modules.notifications.events_catalog import map_legacy_event_code
+
+    meta = EVENT_CATALOG_META.get(map_legacy_event_code(event_code))
     if not meta:
         return None
     return meta.get("applicability")
@@ -387,6 +393,7 @@ def list_applicable_event_codes(profile: EngagementNotificationProfile) -> list[
 
 _BLOOD_KINDS = ("bio_ai", "blood_test", "blood_test_with_consultation", "bio_ai_with_consultation")
 _BIO_AI_KINDS = ("bio_ai", "bio_ai_with_consultation")
+_FACE_SCAN_KINDS = ("bio_ai",)
 _CONSULT_KINDS = ("consultation", "blood_test_with_consultation", "bio_ai_with_consultation")
 _ALL_ENGAGEMENT_KINDS = _BLOOD_KINDS + ("consultation",)
 
@@ -434,55 +441,55 @@ EVENT_CATALOG_META: dict[str, dict[str, Any]] = {
         "groups": ("Payments & checkout",),
         "applicability": EngagementApplicability(platform_only=True),
     },
-    "bookings.confirmed": {
+    "bookings.blood_test.confirmed": {
         "groups": ("Home blood booking",),
         "applicability": _eng(kinds=_BLOOD_KINDS, blood="home_collection", auto="true"),
     },
-    "bookings.rescheduled": {
+    "bookings.blood_test.rescheduled": {
         "groups": ("Home blood booking", "Camp & enrollment"),
         "applicability": _eng(kinds=_BLOOD_KINDS),
     },
-    "bookings.cancelled": {
+    "bookings.blood_test.cancelled": {
         "groups": ("Home blood booking", "Camp & enrollment"),
         "applicability": _eng(kinds=_BLOOD_KINDS),
     },
-    "bookings.phlebo_assigned": {
+    "bookings.blood_test.phlebo_assigned": {
         "groups": ("Home blood booking",),
         "applicability": _eng(kinds=_BLOOD_KINDS, blood="home_collection"),
     },
-    "bookings.phlebo_reassigned": {
+    "bookings.blood_test.phlebo_reassigned": {
         "groups": ("Home blood booking",),
         "applicability": _eng(kinds=_BLOOD_KINDS, blood="home_collection"),
     },
-    "bookings.phlebo_enroute": {
+    "bookings.blood_test.phlebo_enroute": {
         "groups": ("Home blood booking",),
         "applicability": _eng(kinds=_BLOOD_KINDS, blood="home_collection"),
     },
-    "bookings.phlebo_delayed": {
+    "bookings.blood_test.phlebo_delayed": {
         "groups": ("Home blood booking",),
         "applicability": _eng(kinds=_BLOOD_KINDS, blood="home_collection"),
     },
-    "bookings.sample_collected": {
+    "bookings.blood_test.sample_collected": {
         "groups": ("Home blood booking", "Camp & enrollment"),
         "applicability": _eng(kinds=_BLOOD_KINDS),
     },
-    "consultations.booked": {
+    "bookings.consultation.booked": {
         "groups": ("Consultations",),
         "applicability": _eng(kinds=_CONSULT_KINDS, requires_consultation_type=True),
     },
-    "consultations.confirmed": {
+    "bookings.consultation.confirmed": {
         "groups": ("Consultations",),
         "applicability": _eng(kinds=_CONSULT_KINDS, requires_consultation_type=True),
     },
-    "consultations.rescheduled": {
+    "bookings.consultation.rescheduled": {
         "groups": ("Consultations",),
         "applicability": _eng(kinds=_CONSULT_KINDS, requires_consultation_type=True),
     },
-    "consultations.cancelled": {
+    "bookings.consultation.cancelled": {
         "groups": ("Consultations",),
         "applicability": _eng(kinds=_CONSULT_KINDS, requires_consultation_type=True),
     },
-    "consultations.completed": {
+    "bookings.consultation.completed": {
         "groups": ("Consultations",),
         "applicability": _eng(kinds=_CONSULT_KINDS, requires_consultation_type=True),
     },
@@ -496,7 +503,7 @@ EVENT_CATALOG_META: dict[str, dict[str, Any]] = {
     },
     "reports.face_scan_ready": {
         "groups": ("Reports & reminders",),
-        "applicability": _eng(kinds=_BIO_AI_KINDS),
+        "applicability": _eng(kinds=_FACE_SCAN_KINDS),
     },
     "reminders.pretest": {
         "groups": ("Camp & enrollment", "Reports & reminders"),
