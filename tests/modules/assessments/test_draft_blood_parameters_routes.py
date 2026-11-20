@@ -729,8 +729,7 @@ async def test_draft_blood_parameters_falls_back_to_engagement_report(async_clie
 
 
 @pytest.mark.asyncio
-async def test_draft_blood_parameters_employee_can_draft_for_participant(test_db_session):
-    """HTTP route requires a user JWT; employee admin path is covered at service layer."""
+async def test_draft_blood_parameters_employee_can_draft_for_participant(async_client, test_db_session):
     await _seed_basic_setup(
         test_db_session,
         user_id=66012,
@@ -751,22 +750,53 @@ async def test_draft_blood_parameters_employee_can_draft_for_participant(test_db
     )
     await _seed_employee(test_db_session, user_id=66013, employee_id=66013)
 
-    from modules.assessments.dependencies import get_assessments_service
-
-    service = get_assessments_service()
-    result = await service.draft_blood_parameters_from_report(
-        test_db_session,
-        user_id=66013,
-        assessment_instance_id=66012,
-        employee_ok=True,
+    response = await async_client.post(
+        "/assessments/66012/metsights/draft-blood-parameters",
+        headers=_employee_auth_header(66013),
     )
-    assert result["responses_drafted"] == 1
+    assert response.status_code == 200
+    assert response.json()["data"]["responses_drafted"] == 1
 
     result = await test_db_session.execute(
         select(QuestionnaireResponse).where(QuestionnaireResponse.assessment_instance_id == 66012)
     )
     row = result.scalar_one()
     assert row.answer == {"value": 82.0, "unit": "0"}
+
+
+@pytest.mark.asyncio
+async def test_draft_blood_parameters_employee_allows_completed(async_client, test_db_session):
+    await _seed_basic_setup(
+        test_db_session,
+        user_id=66016,
+        package_id=66016,
+        assessment_id=66016,
+        category_id=77016,
+        question_id=77016,
+        option_id=77016,
+        mapping_id=77016,
+        report_id=77016,
+        blood_parameters=[
+            {
+                "group_name": "Metabolic",
+                "test_count": 1,
+                "tests": [{"parameter_key": "glucose_fasting", "value": 88.0, "unit": "mg/dL"}],
+            }
+        ],
+    )
+    from modules.assessments.models import AssessmentInstance
+
+    inst = await test_db_session.get(AssessmentInstance, 66016)
+    inst.status = "completed"
+    await test_db_session.commit()
+    await _seed_employee(test_db_session, user_id=66017, employee_id=66017)
+
+    response = await async_client.post(
+        "/assessments/66016/metsights/draft-blood-parameters",
+        headers=_employee_auth_header(66017),
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["responses_drafted"] == 1
 
 
 @pytest.mark.asyncio

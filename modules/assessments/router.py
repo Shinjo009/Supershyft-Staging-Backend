@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.responses import success_response
 from core.exceptions import AppError
-from core.dependencies import get_current_user
+from core.dependencies import get_current_user, get_optional_user
 from db.session import get_db
 from modules.assessments.dependencies import (
     get_assessment_package_categories_service,
@@ -241,17 +241,35 @@ async def import_metsights_questionnaire_answers_batch(
 async def draft_blood_parameters_from_report(
     assessment_instance_id: int,
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(get_optional_user),
     employee=Depends(get_optional_employee),
     assessments_service: AssessmentsService = Depends(get_assessments_service),
 ):
-    """Draft blood-parameter questionnaire answers from individual_health_report.blood_parameters."""
+    """Draft blood-parameter questionnaire answers from the participant's Healthians blood booking."""
+
+    employee_ok = _employee_can_admin_assessments(employee)
+    if user is not None:
+        user_id = int(user.user_id)
+    elif employee_ok:
+        instance = await assessments_service.get_instance_by_id(
+            db, assessment_instance_id=assessment_instance_id
+        )
+        if instance is None:
+            raise AppError(
+                status_code=404,
+                error_code="ASSESSMENT_NOT_FOUND",
+                message="Assessment does not exist",
+            )
+        user_id = int(instance.user_id)
+    else:
+        raise AppError(status_code=401, error_code="AUTH_FAILED", message="Authentication failed")
 
     result = await assessments_service.draft_blood_parameters_from_report(
         db,
-        user_id=user.user_id,
+        user_id=user_id,
         assessment_instance_id=assessment_instance_id,
-        employee_ok=_employee_can_admin_assessments(employee),
+        employee_ok=employee_ok,
+        allow_completed=employee_ok,
     )
     await db.commit()
     return success_response(result)
