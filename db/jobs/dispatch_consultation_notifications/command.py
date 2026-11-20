@@ -10,6 +10,10 @@ Production example (Linux cron):
     */30 * * * * cd /path/to/dev-api && /path/to/venv/bin/python -m db.jobs.dispatch_consultation_notifications --yes >> /var/log/supershyft/consultation-notifications.log 2>&1
 
 Entrypoint: ``python -m db.jobs.dispatch_consultation_notifications --yes``
+
+Optional single-engagement run::
+
+    python -m db.jobs.dispatch_consultation_notifications --yes --engagement-id 123 --dry-run
 """
 
 from __future__ import annotations
@@ -33,6 +37,7 @@ async def run_dispatch_consultation_notifications(
     yes: bool,
     dry_run: bool,
     as_of: date | None,
+    engagement_id: int | None,
 ) -> dict:
     settings.validate()
 
@@ -48,6 +53,12 @@ async def run_dispatch_consultation_notifications(
     notifications_service = NotificationsService(NotificationsRepository())
     engagements_repository = EngagementsRepository()
 
+    if engagement_id is not None:
+        print(
+            f"Dispatching consultation readiness notifications for engagement_id={engagement_id}...",
+            flush=True,
+        )
+
     async with session_factory() as session:
         async with session.begin():
             result = await dispatch_consultation_notifications(
@@ -56,6 +67,7 @@ async def run_dispatch_consultation_notifications(
                 engagements_repository=engagements_repository,
                 as_of=as_of,
                 dry_run=dry_run,
+                engagement_id=engagement_id,
             )
 
     await engine.dispose()
@@ -94,6 +106,13 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="YYYY-MM-DD",
         help="Reference date stamped into the result payload (default: today in IST). Useful for testing.",
     )
+    parser.add_argument(
+        "--engagement-id",
+        type=int,
+        default=None,
+        metavar="ID",
+        help="Optional: limit to one engagement_id.",
+    )
     return parser
 
 
@@ -104,12 +123,16 @@ def main(argv: list[str] | None = None) -> int:
             yes=args.yes,
             dry_run=args.dry_run,
             as_of=args.as_of,
+            engagement_id=args.engagement_id,
         )
     )
     mode = "dry-run" if result["dry_run"] else "applied"
+    engagement_suffix = (
+        f", engagement_id={args.engagement_id}" if args.engagement_id is not None else ""
+    )
     print(
         f"Dispatch consultation notifications ({mode}): "
-        f"as_of={result['as_of']}, matched={result['matched']}, sent={result['sent']}, "
+        f"as_of={result['as_of']}{engagement_suffix}, matched={result['matched']}, sent={result['sent']}, "
         f"skipped={result['skipped']}, failed={result['failed']}"
     )
     return 0

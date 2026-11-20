@@ -1861,6 +1861,8 @@ class EngagementsRepository:
     async def list_participants_for_consultation_notification(
         self,
         db: AsyncSession,
+        *,
+        engagement_id: int | None = None,
     ) -> list[tuple[int, int, list[NotificationServiceConfigItem]]]:
         """Return (user_id, engagement_id, service_configs) for eligible participants.
 
@@ -1877,8 +1879,7 @@ class EngagementsRepository:
         blood_url_pattern = (
             f"^{re.escape(blood_base)}/[A-Za-z0-9]{{16}}\\.pdf$" if blood_base else r"a^"
         )
-        query = text(
-            """
+        sql = """
             SELECT DISTINCT
                 ep.user_id,
                 ep.engagement_id,
@@ -1929,15 +1930,22 @@ class EngagementsRepository:
                               )
                       )
               )
-            ORDER BY ep.engagement_id ASC, ep.user_id ASC
-            """
-        )
+        """
+        if engagement_id is not None:
+            sql += "\n              AND e.engagement_id = :engagement_id"
+        sql += "\n            ORDER BY ep.engagement_id ASC, ep.user_id ASC"
+        query = text(sql)
         result = await db.execute(
             query,
             {
                 "blood_url_pattern": blood_url_pattern,
                 "status_scheduled": STATUS_ENGAGEMENT["scheduled"],
                 "status_running": STATUS_ENGAGEMENT["running"],
+                **(
+                    {"engagement_id": int(engagement_id)}
+                    if engagement_id is not None
+                    else {}
+                ),
             },
         )
         return [

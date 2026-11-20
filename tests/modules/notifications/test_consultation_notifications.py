@@ -270,6 +270,43 @@ async def test_consultation_notifications_blood_ready_with_no_bookings(test_db_s
 
 
 @pytest.mark.asyncio
+async def test_consultation_notifications_engagement_id_filter(test_db_session, monkeypatch):
+    await _seed_dependencies(test_db_session)
+    for engagement_id, user_id in ((9720, 97201), (9721, 97211)):
+        await _insert_engagement(
+            test_db_session,
+            engagement_id=engagement_id,
+            engagement_code=f"ENG{engagement_id}",
+            status="running",
+            engagement_type="bio_ai_with_consultation",
+            consultations={"doctor": True},
+        )
+        await _insert_participant(test_db_session, engagement_id=engagement_id, user_id=user_id)
+        await _insert_blood_ihr(
+            test_db_session, report_id=engagement_id, user_id=user_id, engagement_id=engagement_id, ready=True
+        )
+    await test_db_session.commit()
+
+    deliver_calls: list[dict] = []
+    patch_service_direct_deliver(monkeypatch, deliver_calls)
+
+    notifications_service, engagements_repository = _services()
+    result = await dispatch_consultation_notifications(
+        test_db_session,
+        notifications_service=notifications_service,
+        engagements_repository=engagements_repository,
+        dry_run=False,
+        engagement_id=9720,
+    )
+    await test_db_session.commit()
+
+    assert result["matched"] == 1
+    assert result["sent"] == 1
+    assert result["failed"] == 0
+    assert len(deliver_calls) == 2
+
+
+@pytest.mark.asyncio
 async def test_consultation_notifications_blood_ready_for_camp_collection(test_db_session, monkeypatch):
     await _seed_dependencies(test_db_session)
     await _insert_engagement(
