@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, time, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -18,15 +18,46 @@ from modules.questionnaire.models import (
     QuestionnaireOption,
     QuestionnaireResponse,
 )
+from modules.engagements.models import EngagementParticipant, ParticipantBloodBooking
 from modules.reports.blood_parameters_read_service import build_parameter_value_map
-from modules.reports.models import IndividualHealthReport
 from modules.users.models import User
 from tests.modules.questionnaire.test_questionnaire_user_routes import _ensure_test_engagement, _seed_user
 
 
-def _auth_header(employee_id: int) -> dict[str, str]:
+def _auth_header(user_id: int) -> dict[str, str]:
+    from tests.helpers.auth import user_auth_header
+    return user_auth_header(user_id)
+
+
+def _employee_auth_header(employee_id: int) -> dict[str, str]:
     from tests.helpers.auth import employee_auth_header
     return employee_auth_header(employee_id)
+
+
+async def _seed_participant_blood(
+    test_db_session,
+    *,
+    user_id: int,
+    engagement_id: int = 1,
+    blood_parameters: object,
+    booking_id: str | None = None,
+) -> None:
+    participant = EngagementParticipant(
+        engagement_id=engagement_id,
+        user_id=user_id,
+        booked_by_user_id=user_id,
+    )
+    test_db_session.add(participant)
+    await test_db_session.flush()
+    test_db_session.add(
+        ParticipantBloodBooking(
+            engagement_participant_id=participant.engagement_participant_id,
+            collection_date=date.today(),
+            collection_time=time(9, 0),
+            booking_id=booking_id or f"BOOK-DRAFT-{user_id}",
+            blood_parameters=blood_parameters,
+        )
+    )
 
 
 async def _seed_employee(test_db_session, *, user_id: int, employee_id: int):
@@ -107,6 +138,7 @@ async def _seed_basic_setup(
     question_id: int = 77001,
     option_id: int = 77001,
     mapping_id: int = 77001,
+    question_key: str = "glucose_fasting",
     package_code: str = "METSIGHTS_BASIC",
     metsights_record_id: str | None = "MS-DRAFT-01",
     status: str = "active",
@@ -122,7 +154,11 @@ async def _seed_basic_setup(
             package_id=package_id,
             package_code=package_code,
             display_name=package_code,
-            assessment_type_code="1" if package_code == "METSIGHTS_BASIC" else "2",
+            assessment_type_code=(
+                "1"
+                if package_code in ("METSIGHTS_BASIC", "METSIGHTS_ESSENTIALS")
+                else "2"
+            ),
             status="active",
         )
     )
@@ -133,11 +169,11 @@ async def _seed_basic_setup(
         category_id=category_id,
         category_key="blood-parameters",
         question_id=question_id,
-        question_key="glucose_fasting",
+        question_key=question_key,
         option_id=option_id,
         mapping_id=mapping_id,
-        unit_code="0",
-        unit_display="mg/dL",
+        unit_code="0" if question_key == "glucose_fasting" else "1",
+        unit_display="mg/dL" if question_key == "glucose_fasting" else "ng/mL",
     )
 
     if link_blood_category:
@@ -156,14 +192,12 @@ async def _seed_basic_setup(
     await test_db_session.flush()
 
     if blood_parameters is not None:
-        test_db_session.add(
-            IndividualHealthReport(
-                report_id=report_id,
-                user_id=user_id,
-                engagement_id=1,
-                assessment_instance_id=assessment_id,
-                blood_parameters=blood_parameters,
-            )
+        await _seed_participant_blood(
+            test_db_session,
+            user_id=user_id,
+            engagement_id=1,
+            blood_parameters=blood_parameters,
+            booking_id=f"BOOK-DRAFT-{assessment_id}",
         )
     await test_db_session.commit()
 
@@ -394,8 +428,6 @@ async def test_draft_blood_parameters_allow_completed_for_internal_cron(test_db_
         )
     ).scalars().all()
     assert len(rows) == 1
-    assert rows[0].submitted_at is None
-
 
 @pytest.mark.asyncio
 async def test_draft_blood_parameters_basic_writes_draft_responses(async_client, test_db_session):
@@ -442,10 +474,76 @@ async def test_draft_blood_parameters_basic_writes_draft_responses(async_client,
     )
     rows = list(result.scalars().all())
     assert len(rows) == 1
-    assert rows[0].category_id == 77008
     assert rows[0].question_id == 77008
     assert rows[0].answer == {"value": 91.5, "unit": "0"}
-    assert rows[0].submitted_at is None
+    assert 77008 in (rows[0].category_ids or [])
+
+
+@pytest.mark.asyncio
+async def test_draft_blood_parameters_essentials_package_writes_healthians_values(
+    test_db_session,
+    monkeypatch,
+):
+    """Prod package_code METSIGHTS_ESSENTIALS must draft from Healthians like Basic."""
+    from types import SimpleNamespace
+
+    from modules.assessments.dependencies import get_assessments_service
+
+    blood_blob = [
+        {
+            "group_name": "Thyroid",
+            "test_count": 1,
+            "tests": [
+                {
+                    "test_id": 1,
+                    "parameter_key": "triiodothyronine",
+                    "value": 1.15,
+                    "unit": "ng/ml",
+                }
+            ],
+        }
+    ]
+
+    async def _fake_get_current_report_root(db, *, user_id, engagement_id):
+        return SimpleNamespace(blood_parameters=blood_blob)
+
+    monkeypatch.setattr(
+        "modules.assessments.service.get_current_report_root",
+        _fake_get_current_report_root,
+    )
+
+    await _seed_basic_setup(
+        test_db_session,
+        user_id=66108,
+        package_id=66108,
+        assessment_id=66108,
+        category_id=77108,
+        question_id=77110,
+        option_id=77111,
+        mapping_id=77112,
+        report_id=77108,
+        question_key="triiodothyronine",
+        package_code="METSIGHTS_ESSENTIALS",
+        blood_parameters=None,
+    )
+    await test_db_session.commit()
+
+    service = get_assessments_service()
+    result = await service.draft_blood_parameters_from_report(
+        test_db_session,
+        user_id=66108,
+        assessment_instance_id=66108,
+        allow_completed=True,
+    )
+    assert result["package_code"] == "METSIGHTS_ESSENTIALS"
+    assert result["responses_drafted"] >= 1
+
+    result = await test_db_session.execute(
+        select(QuestionnaireResponse).where(QuestionnaireResponse.assessment_instance_id == 66108)
+    )
+    rows = list(result.scalars().all())
+    assert len(rows) == 1
+    assert rows[0].answer == {"value": 1.15, "unit": "1"}
 
 
 @pytest.mark.asyncio
@@ -468,15 +566,12 @@ async def test_draft_blood_parameters_overwrites_existing_as_draft(async_client,
             }
         ],
     )
-    from datetime import datetime, timezone
-
     test_db_session.add(
         QuestionnaireResponse(
             assessment_instance_id=66009,
             question_id=77009,
-            category_id=77009,
+            category_ids=[77009],
             answer={"value": 50.0, "unit": "0"},
-            submitted_at=datetime.now(timezone.utc),
         )
     )
     await test_db_session.commit()
@@ -493,7 +588,6 @@ async def test_draft_blood_parameters_overwrites_existing_as_draft(async_client,
     )
     row = result.scalar_one()
     assert row.answer == {"value": 100.0, "unit": "0"}
-    assert row.submitted_at is None
 
 
 @pytest.mark.asyncio
@@ -551,23 +645,21 @@ async def test_draft_blood_parameters_pro_drafts_both_categories(async_client, t
             metsights_record_id="MS-PRO-DRAFT",
         )
     )
-    test_db_session.add(
-        IndividualHealthReport(
-            report_id=77010,
-            user_id=uid,
-            engagement_id=1,
-            assessment_instance_id=aid,
-            blood_parameters=[
-                {
-                    "group_name": "Labs",
-                    "test_count": 2,
-                    "tests": [
-                        {"parameter_key": "glucose_fasting", "value": 95.0, "unit": "mg/dL"},
-                        {"parameter_key": "vitamin_d", "value": 32.0, "unit": "ng/mL"},
-                    ],
-                }
-            ],
-        )
+    await _seed_participant_blood(
+        test_db_session,
+        user_id=uid,
+        engagement_id=1,
+        blood_parameters=[
+            {
+                "group_name": "Labs",
+                "test_count": 2,
+                "tests": [
+                    {"parameter_key": "glucose_fasting", "value": 95.0, "unit": "mg/dL"},
+                    {"parameter_key": "vitamin_d", "value": 32.0, "unit": "ng/mL"},
+                ],
+            }
+        ],
+        booking_id=f"BOOK-PRO-DRAFT-{aid}",
     )
     await test_db_session.commit()
 
@@ -591,11 +683,9 @@ async def test_draft_blood_parameters_pro_drafts_both_categories(async_client, t
     assert len(rows) == 2
     by_qid = {int(r.question_id): r for r in rows}
     assert by_qid[blood_qid].answer == {"value": 95.0, "unit": "0"}
-    assert by_qid[blood_qid].category_id == blood_cat_id
-    assert by_qid[blood_qid].submitted_at is None
+    assert blood_cat_id in (by_qid[blood_qid].category_ids or [])
     assert by_qid[adv_qid].answer == {"value": 32.0, "unit": "0"}
-    assert by_qid[adv_qid].category_id == adv_cat_id
-    assert by_qid[adv_qid].submitted_at is None
+    assert adv_cat_id in (by_qid[adv_qid].category_ids or [])
 
 
 @pytest.mark.asyncio
@@ -611,18 +701,16 @@ async def test_draft_blood_parameters_falls_back_to_engagement_report(async_clie
         mapping_id=77012,
         blood_parameters=None,
     )
-    test_db_session.add(
-        IndividualHealthReport(
-            report_id=77012,
-            user_id=66011,
-            engagement_id=1,
-            assessment_instance_id=None,
-            blood_parameters={
-                "source": "healthians",
-                "ingested_at": "2026-01-01",
-                "parameters": {"glucose_fasting": {"value": 77.0, "unit": "mg/dL"}},
-            },
-        )
+    await _seed_participant_blood(
+        test_db_session,
+        user_id=66011,
+        engagement_id=1,
+        blood_parameters={
+            "source": "healthians",
+            "ingested_at": "2026-01-01",
+            "parameters": {"glucose_fasting": {"value": 77.0, "unit": "mg/dL"}},
+        },
+        booking_id="BOOK-DRAFT-66011-FALLBACK",
     )
     await test_db_session.commit()
 
@@ -641,7 +729,8 @@ async def test_draft_blood_parameters_falls_back_to_engagement_report(async_clie
 
 
 @pytest.mark.asyncio
-async def test_draft_blood_parameters_employee_can_draft_for_participant(async_client, test_db_session):
+async def test_draft_blood_parameters_employee_can_draft_for_participant(test_db_session):
+    """HTTP route requires a user JWT; employee admin path is covered at service layer."""
     await _seed_basic_setup(
         test_db_session,
         user_id=66012,
@@ -662,19 +751,22 @@ async def test_draft_blood_parameters_employee_can_draft_for_participant(async_c
     )
     await _seed_employee(test_db_session, user_id=66013, employee_id=66013)
 
-    response = await async_client.post(
-        "/assessments/66012/metsights/draft-blood-parameters",
-        headers=_auth_header(66013),
+    from modules.assessments.dependencies import get_assessments_service
+
+    service = get_assessments_service()
+    result = await service.draft_blood_parameters_from_report(
+        test_db_session,
+        user_id=66013,
+        assessment_instance_id=66012,
+        employee_ok=True,
     )
-    assert response.status_code == 200
-    assert response.json()["data"]["responses_drafted"] == 1
+    assert result["responses_drafted"] == 1
 
     result = await test_db_session.execute(
         select(QuestionnaireResponse).where(QuestionnaireResponse.assessment_instance_id == 66012)
     )
     row = result.scalar_one()
     assert row.answer == {"value": 82.0, "unit": "0"}
-    assert row.submitted_at is None
 
 
 @pytest.mark.asyncio
@@ -701,7 +793,7 @@ async def test_list_engagement_assessment_instances(async_client, test_db_sessio
 
     response = await async_client.get(
         "/engagements/1/assessment-instances",
-        headers=_auth_header(66015),
+        headers=_employee_auth_header(66015),
     )
     assert response.status_code == 200
     rows = response.json()["data"]
@@ -712,7 +804,7 @@ async def test_list_engagement_assessment_instances(async_client, test_db_sessio
 
     filtered = await async_client.get(
         "/engagements/1/assessment-instances",
-        headers=_auth_header(66015),
+        headers=_employee_auth_header(66015),
         params={"package_id": 66014},
     )
     assert filtered.status_code == 200

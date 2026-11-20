@@ -28,12 +28,15 @@ from modules.questionnaire.models import (
 )
 from modules.questionnaire.repository import QuestionnaireRepository
 
-_BLOOD_PACKAGE_CODES = ("METSIGHTS_BASIC", "METSIGHTS_PRO")
+_BLOOD_PACKAGE_CODES = ("METSIGHTS_BASIC", "METSIGHTS_ESSENTIALS", "METSIGHTS_PRO")
 
 _PACKAGE_BLOOD_CATEGORY_KEYS: dict[str, tuple[str, ...]] = {
     "METSIGHTS_BASIC": (BLOOD_PARAMETER_CATEGORY_KEY,),
+    "METSIGHTS_ESSENTIALS": (BLOOD_PARAMETER_CATEGORY_KEY,),
     "METSIGHTS_PRO": (BLOOD_PARAMETER_CATEGORY_KEY, ADVANCED_BLOOD_PARAMETER_CATEGORY_KEY),
 }
+
+_ESSENTIALS_BLOOD_PACKAGE_CODES = frozenset({"METSIGHTS_BASIC", "METSIGHTS_ESSENTIALS"})
 
 
 async def reload_blood_parameters_questions(db: AsyncSession) -> dict[str, Any]:
@@ -175,7 +178,7 @@ async def reload_blood_parameters_questions(db: AsyncSession) -> dict[str, Any]:
             if category_key not in base_categories:
                 base_categories.append(category_key)
 
-        if package_code == "METSIGHTS_BASIC":
+        if package_code in _ESSENTIALS_BLOOD_PACKAGE_CODES:
             advanced_category_id = category_id_by_key.get(ADVANCED_BLOOD_PARAMETER_CATEGORY_KEY)
             if advanced_category_id is not None:
                 await assessments_repo.delete_package_category_link(

@@ -10,6 +10,7 @@ from collections.abc import Iterable
 
 METSIGHTS_ESSENTIALS_TYPE_CODE = "1"
 METSIGHTS_ESSENTIALS_PACKAGE_CODE = "METSIGHTS_BASIC"
+METSIGHTS_ESSENTIALS_PACKAGE_CODES = frozenset({"METSIGHTS_BASIC", "METSIGHTS_ESSENTIALS"})
 
 OPTIONAL_VITALS_CATEGORY_KEYS = frozenset({"vitals", "health_vitals"})
 
@@ -24,7 +25,7 @@ def is_metsights_essentials(
     if tc == METSIGHTS_ESSENTIALS_TYPE_CODE:
         return True
     pc = (package_code or "").strip().upper()
-    return pc == METSIGHTS_ESSENTIALS_PACKAGE_CODE
+    return pc in METSIGHTS_ESSENTIALS_PACKAGE_CODES
 
 
 def category_optional_for_essentials_completion(category_key: str | None) -> bool:

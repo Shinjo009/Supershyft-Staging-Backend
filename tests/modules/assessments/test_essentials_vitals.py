@@ -11,6 +11,7 @@ from modules.assessments.essentials_vitals import (
 def test_is_metsights_essentials_by_type_and_code():
     assert is_metsights_essentials(type_code="1")
     assert is_metsights_essentials(package_code="METSIGHTS_BASIC")
+    assert is_metsights_essentials(package_code="METSIGHTS_ESSENTIALS")
     assert not is_metsights_essentials(type_code="2")
     assert not is_metsights_essentials(package_code="METSIGHTS_PRO")
 
@@ -26,6 +27,11 @@ def test_filter_incomplete_for_essentials():
     assert filter_incomplete_for_essentials_completion(
         ["vitals", "physical-measurement"],
         type_code="1",
+    ) == {"physical-measurement"}
+    assert filter_incomplete_for_essentials_completion(
+        ["vitals", "physical-measurement"],
+        type_code="1",
+        package_code="METSIGHTS_ESSENTIALS",
     ) == {"physical-measurement"}
     assert filter_incomplete_for_essentials_completion(
         ["vitals"],
