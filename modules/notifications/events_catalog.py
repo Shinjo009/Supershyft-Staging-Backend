@@ -326,6 +326,15 @@ EVENTS: tuple[EventDefinition, ...] = (
         trigger_kind="cron",
     ),
     EventDefinition(
+        code="reminders.consultation_guide",
+        name="Consultation guide for experts",
+        status="current",
+        variable_groups=("engagement", "session"),
+        default_recipients=("assistants.expert",),
+        trigger_notes="Cron day-before camp consultation dates",
+        trigger_kind="cron",
+    ),
+    EventDefinition(
         code="support.ticket_created",
         name="Support ticket created",
         status="current",

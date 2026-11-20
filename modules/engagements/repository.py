@@ -28,7 +28,10 @@ from modules.engagements.models import (
 )
 from modules.engagements.participant_list_filters import ParticipantListFilters
 from modules.experts.models import ConsultationBooking
-from modules.engagements.slot_detail_dates import engagement_collection_date_matches
+from modules.engagements.slot_detail_dates import (
+    consultation_dates_include,
+    engagement_collection_date_matches,
+)
 from modules.organizations.models import Organization
 from modules.engagement_notifications.service_config import (
     NotificationServiceConfigItem,
@@ -1764,6 +1767,55 @@ class EngagementsRepository:
                     engagement_id in engagements_with_booking_on_date
                 ),
             ):
+                continue
+            seen.add(engagement_id)
+            matches.append(engagement_id)
+        return matches
+
+    async def list_engagements_for_consultation_guide_reminder(
+        self,
+        db: AsyncSession,
+        *,
+        consultation_date: date,
+    ) -> list[int]:
+        """Return engagement_ids for scheduled/running camps with consultation on consultation_date.
+
+        Engagements must have at least one ``reminders.consultation_guide`` slot with
+        configured notification services and an enabled ``slot_detail.consultation`` date
+        equal to consultation_date. No start_date or booking fallbacks.
+        """
+        query = (
+            select(
+                Engagement.engagement_id,
+                EngagementSlotInfo.slot_detail,
+                EngagementNotification.notification_services,
+            )
+            .join(
+                EngagementNotification,
+                EngagementNotification.engagement_id == Engagement.engagement_id,
+            )
+            .outerjoin(
+                EngagementSlotInfo,
+                EngagementSlotInfo.slot_detail_id == Engagement.slot_detail_id,
+            )
+            .where(self._scheduled_or_running_engagement_status_filter())
+            .where(EngagementNotification.event_code == "reminders.consultation_guide")
+            .order_by(Engagement.engagement_id.asc())
+        )
+        result = await db.execute(query)
+        rows = list(result.all())
+        if not rows:
+            return []
+
+        matches: list[int] = []
+        seen: set[int] = set()
+        for row in rows:
+            engagement_id = int(row.engagement_id)
+            if engagement_id in seen:
+                continue
+            if not normalize_notification_services(row.notification_services):
+                continue
+            if not consultation_dates_include(row.slot_detail, consultation_date):
                 continue
             seen.add(engagement_id)
             matches.append(engagement_id)

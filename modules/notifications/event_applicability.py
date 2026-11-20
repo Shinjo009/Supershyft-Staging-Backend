@@ -529,6 +529,10 @@ EVENT_CATALOG_META: dict[str, dict[str, Any]] = {
         "groups": ("Consultations", "Reports & reminders"),
         "applicability": _eng(kinds=_CONSULT_KINDS, requires_consultation_type=True),
     },
+    "reminders.consultation_guide": {
+        "groups": ("Consultations",),
+        "applicability": _eng(kinds=_CONSULT_KINDS, requires_consultation_type=True),
+    },
     "support.ticket_created": {
         "groups": ("Platform",),
         "applicability": EngagementApplicability(platform_only=True),

@@ -67,6 +67,14 @@ def blood_collection_dates_include(
     return target in enabled_blood_collection_dates(slot_detail)
 
 
+def consultation_dates_include(
+    slot_detail: dict[str, Any] | None,
+    target: date,
+) -> bool:
+    """Return True when an enabled consultation date key equals target."""
+    return target in enabled_consultation_dates(slot_detail)
+
+
 def engagement_collection_date_matches(
     *,
     start_date: date | None,

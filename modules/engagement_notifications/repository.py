@@ -29,6 +29,7 @@ _ENGAGEMENT_SCOPED_EVENT_CODES = frozenset(
         "reminders.questionnaire_before",
         "reminders.questionnaire_after",
         "reminders.booking_guide",
+        "reminders.consultation_guide",
         "reminders.consultation_ready_to_book",
         "reminders.consultation_reminder",
         "reports.blood_ready",
