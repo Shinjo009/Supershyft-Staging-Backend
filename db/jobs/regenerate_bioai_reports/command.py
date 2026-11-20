@@ -1,4 +1,4 @@
-"""Regenerate BioAI PDFs for eligible female booked participants.
+"""Regenerate BioAI PDFs for eligible booked participants.
 
 Re-drafts blood ``questionnaire_responses`` from IHR lab values (updated units) and
 internal defaults for missing keys, re-pushes all Metsights categories on the
@@ -109,11 +109,11 @@ async def run_regenerate(
 
     if engagement_id is not None:
         print(
-            f"Finding eligible female booked participants for engagement_id={engagement_id}...",
+            f"Finding eligible booked participants for engagement_id={engagement_id}...",
             flush=True,
         )
     else:
-        print("Finding eligible female booked participants in running engagements...", flush=True)
+        print("Finding eligible booked participants in running engagements...", flush=True)
 
     async with session_factory() as session:
         result = await regenerate_bioai_reports(
@@ -143,7 +143,7 @@ def _parse_as_of(value: str) -> date:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Regenerate BioAI PDFs at existing slugs for female booked participants. "
+            "Regenerate BioAI PDFs at existing slugs for booked participants. "
             "Without --engagement-id, only running engagements are processed."
         )
     )

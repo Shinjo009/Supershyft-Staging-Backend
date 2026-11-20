@@ -1,4 +1,4 @@
-"""Regenerate BioAI PDFs for eligible female booked participants.
+"""Regenerate BioAI PDFs for eligible booked participants.
 
 For participants in running engagements (or any status when ``engagement_id`` is
 set) with a Healthians booking_id and an existing bio-ai-reports permanent URL
@@ -18,7 +18,7 @@ from collections.abc import Callable
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import String, cast, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.seed.blood_parameters_registry import (
@@ -41,8 +41,6 @@ from modules.notifications.load_bioai_reports import _metsights_blood_parameters
 from modules.questionnaire.repository import QuestionnaireRepository
 from modules.reports.models import IndividualHealthReport
 from modules.reports.repository import ReportsRepository
-from modules.users.models import User
-
 if TYPE_CHECKING:
     from modules.assessments.service import AssessmentsService
     from modules.metsights.sync_service import MetsightsSyncService
@@ -51,7 +49,6 @@ logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[int, int, int, int, int], None]
 
-_FEMALE_GENDERS = ("female", "f", "2")
 _METSIGHTS_CATEGORY_PUSH_ORDER = (
     "physical-measurement",
     "vitals",
@@ -67,7 +64,7 @@ async def _get_regenerate_candidates(
     *,
     engagement_id: int | None = None,
 ) -> list[tuple]:
-    """Female booked participants on primary assessment with an existing report_url."""
+    """Booked participants on primary assessment with an existing report_url."""
     from modules.engagements.blood_bookings_repository import current_blood_booking_subquery
 
     canonical_ihr = ReportsRepository.canonical_individual_health_report_subquery()
@@ -85,7 +82,6 @@ async def _get_regenerate_candidates(
             canonical_ihr.c.report_url,
         )
         .join(Engagement, Engagement.engagement_id == EngagementParticipant.engagement_id)
-        .join(User, User.user_id == EngagementParticipant.user_id)
         .join(
             AssessmentInstance,
             (AssessmentInstance.engagement_id == EngagementParticipant.engagement_id)
@@ -106,7 +102,6 @@ async def _get_regenerate_candidates(
         .where(Engagement.assessment_package_id.isnot(None))
         .where(curr_pbb.c.booking_id.isnot(None))
         .where(func.trim(curr_pbb.c.booking_id) != "")
-        .where(func.lower(func.trim(cast(User.gender, String))).in_(_FEMALE_GENDERS))
         .where(AssessmentInstance.metsights_record_id.isnot(None))
         .where(AssessmentInstance.metsights_record_id != "")
         .where(canonical_ihr.c.report_url.isnot(None))

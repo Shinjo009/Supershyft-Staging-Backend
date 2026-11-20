@@ -137,7 +137,7 @@ async def _seed_regenerate_participant(
 
 
 @pytest.mark.asyncio
-async def test_regenerate_candidates_include_female_with_booking_and_report_url(test_db_session):
+async def test_regenerate_candidates_include_all_genders_with_booking_and_report_url(test_db_session):
     await _seed_regenerate_participant(
         test_db_session,
         user_id=88001,
@@ -162,9 +162,10 @@ async def test_regenerate_candidates_include_female_with_booking_and_report_url(
         dry_run=True,
         engagement_id=88001,
     )
-    assert result["matched"] == 1
-    assert result["details"][0]["user_id"] == 88001
-    assert result["details"][0]["action"] == "dry_run"
+    assert result["matched"] == 2
+    matched_user_ids = {d["user_id"] for d in result["details"]}
+    assert matched_user_ids == {88001, 88002}
+    assert all(d["action"] == "dry_run" for d in result["details"])
 
 
 @pytest.mark.asyncio
