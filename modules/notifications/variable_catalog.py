@@ -38,6 +38,7 @@ VARIABLE_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "engagement.engagement_name",
         "engagement.engagement_type",
         "engagement.cabin_name",
+        "engagement.consultation_types",
     ),
     "session": ("session.date", "session.time", "session.cabin"),
     "booking": (

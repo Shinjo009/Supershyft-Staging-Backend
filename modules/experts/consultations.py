@@ -88,6 +88,40 @@ def preference_wants(value: Any) -> bool:
     return bool(normalize_preference(value).get("want"))
 
 
+def consultation_type_enabled(value: Any) -> bool:
+    """Whether an engagement consultations map entry is an offered type."""
+    if isinstance(value, dict):
+        return bool(value.get("want"))
+    return bool(value)
+
+
+def enabled_consultation_type_keys(raw: dict[str, Any] | None) -> set[str]:
+    data = raw if isinstance(raw, dict) else {}
+    return {str(key) for key, value in data.items() if consultation_type_enabled(value)}
+
+
+def format_consultation_types_list(
+    consultations: dict[str, Any] | None,
+    *,
+    type_keys_order: list[str] | None = None,
+) -> str:
+    """Human list for templates: ``doctor``, ``doctor and nutrition``, ``doctor, nutrition and ayurveda``."""
+    enabled = enabled_consultation_type_keys(consultations)
+    if not enabled:
+        return ""
+    if type_keys_order:
+        labels = [key for key in type_keys_order if key in enabled]
+        extras = sorted(enabled.difference(labels))
+        labels.extend(extras)
+    else:
+        labels = sorted(enabled)
+    if len(labels) == 1:
+        return labels[0]
+    if len(labels) == 2:
+        return f"{labels[0]} and {labels[1]}"
+    return f"{', '.join(labels[:-1])} and {labels[-1]}"
+
+
 def validate_requested_consultations(
     requested: dict[str, Any] | None,
     allowed: dict[str, bool] | None,

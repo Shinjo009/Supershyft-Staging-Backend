@@ -30,6 +30,10 @@ from modules.notifications.schemas import (
 from modules.notifications.delivery_scheduler import PendingDeliverJob, get_delivery_scheduler
 from modules.notifications.direct_dispatch import DirectNotificationDispatch, get_direct_dispatch
 from modules.notifications.dispatch_routing import validate_direct_service_config
+from modules.notifications.engagement_template_meta import (
+    load_engagement_template_meta,
+    merge_engagement_member_block,
+)
 from modules.notifications.report_prepare import prepare_user_report_urls
 from modules.reports.bio_ai_report_resolver import resolve_bio_ai_report_url
 from modules.reports.blood_booking_reports import (
@@ -276,15 +280,7 @@ class NotificationsService:
         resolved_engagement_id: int | None = payload.engagement_id
         engagement_meta: dict[str, str] | None = None
         if resolved_engagement_id is not None:
-            from modules.engagements.models import Engagement
-
-            engagement_row = await db.get(Engagement, resolved_engagement_id)
-            if engagement_row is not None:
-                engagement_meta = {
-                    "engagement_id": str(engagement_row.engagement_id),
-                    "engagement_code": str(engagement_row.engagement_code or "").strip(),
-                    "engagement_name": str(engagement_row.engagement_name or "").strip(),
-                }
+            engagement_meta = await load_engagement_template_meta(db, resolved_engagement_id)
 
         for user in users:
             instance = None
@@ -523,12 +519,14 @@ class NotificationsService:
 
         members: list[dict] = []
         stored_contacts: list[dict] = []
+        engagement_meta: dict[str, str] | None = None
+        if engagement_id is not None:
+            engagement_meta = await load_engagement_template_meta(db, engagement_id)
         _optional_member_keys = (
             "blood_report_url",
             "bio_ai_report_url",
             "face_scan_report_url",
             "external_link",
-            "engagement",
             "consultation",
             "booking",
         )
@@ -545,6 +543,13 @@ class NotificationsService:
                 member["participant_details"] = participant_details
             if session_details is not None:
                 member["session_details"] = session_details.model_dump(mode="json", exclude_none=True)
+            if engagement_meta is not None:
+                member["engagement"] = merge_engagement_member_block(
+                    engagement_meta,
+                    contact.get("engagement"),
+                )
+            elif contact.get("engagement") not in (None, ""):
+                member["engagement"] = contact["engagement"]
             for key in _optional_member_keys:
                 if key in contact and contact.get(key) not in (None, ""):
                     member[key] = contact[key]
