@@ -15,13 +15,14 @@ from common.phone import to_healthians_mobile
 from core.config import settings
 from core.exceptions import AppError
 from db.transaction import release_request_transaction
-from modules.bookings import orange_health_flow
+from modules.bookings import orange_health_flow, redcliffe_flow
 from modules.diagnostics.external_codes import healthians_package_deal_id
 from modules.diagnostics.healthians import client as healthians_client
 from modules.diagnostics.healthians.sync_log import log_healthians_call
 from modules.diagnostics.models import DiagnosticPackage
 from modules.discounts.schemas import CartLine, CheckoutContext
 from modules.diagnostics.orange_health.booking_helpers import is_orange_health
+from modules.diagnostics.redcliffe.booking_helpers import is_redcliffe
 from modules.engagements.blood_bookings_access import (
     apply_schedule,
     current_booking_id,
@@ -66,6 +67,14 @@ def _is_healthians(pkg: DiagnosticPackage) -> bool:
 
 def _is_orange_health(pkg: DiagnosticPackage) -> bool:
     return is_orange_health(pkg)
+
+
+def _is_redcliffe(pkg: DiagnosticPackage) -> bool:
+    return is_redcliffe(pkg)
+
+
+def _is_supported_home_collection_provider(pkg: DiagnosticPackage) -> bool:
+    return _is_healthians(pkg) or _is_orange_health(pkg) or _is_redcliffe(pkg)
 
 
 async def _get_diagnostic_package(db: AsyncSession, package_id: int) -> DiagnosticPackage:
@@ -256,7 +265,7 @@ async def check_service_availability(
         pincode = member["pincode"]
 
         pkg = await _get_diagnostic_package(db, diagnostic_package_id)
-        if not (_is_healthians(pkg) or _is_orange_health(pkg)):
+        if not _is_supported_home_collection_provider(pkg):
             results.append({"user_id": user_id, "status": "error", "message": "Diagnostic provider is not supported"})
             continue
 
@@ -360,6 +369,33 @@ async def check_service_availability(
                 "engagement_id": engagement.engagement_id,
                 "status": "success",
                 "message": oh_result.get("message", "Serviceable"),
+            })
+            continue
+
+        if _is_redcliffe(pkg):
+            await db.commit()
+            rc_result = await redcliffe_flow.check_serviceability_at_location(
+                db,
+                latitude=float(latitude),
+                longitude=float(longitude),
+                engagement_id=int(engagement.engagement_id),
+            )
+            if rc_result.get("status") != "success":
+                engagement.status = "cancelled"
+                await db.flush()
+                await db.commit()
+                results.append({
+                    "user_id": user_id,
+                    "engagement_id": engagement.engagement_id,
+                    "status": "error",
+                    "message": rc_result.get("message", "Location is not serviceable"),
+                })
+                continue
+            results.append({
+                "user_id": user_id,
+                "engagement_id": engagement.engagement_id,
+                "status": "success",
+                "message": rc_result.get("message", "Serviceable"),
             })
             continue
 
@@ -511,6 +547,44 @@ async def get_available_slots(
                 latitude=float(loc["lat"]),
                 longitude=float(loc["long"]),
                 engagement_id=engagement_id,
+            )
+            if slot_resp.get("status") != "success":
+                results.append({
+                    "user_id": user_id,
+                    "engagement_id": engagement_id,
+                    "status": "error",
+                    "message": slot_resp.get("message", "Failed to fetch slots"),
+                })
+                continue
+            results.append({
+                "user_id": user_id,
+                "engagement_id": engagement_id,
+                "status": "success",
+                "slots": slot_resp.get("slots") or [],
+            })
+            continue
+        if _is_redcliffe(pkg):
+            loc = _healthians_location_for_slots(engagement, participant)
+            if not loc["lat"] or not loc["long"]:
+                results.append({
+                    "user_id": user_id,
+                    "engagement_id": engagement_id,
+                    "status": "error",
+                    "message": "Missing location on engagement",
+                })
+                continue
+            user_result = await db.execute(select(User).where(User.user_id == user_id))
+            user = user_result.scalar_one_or_none()
+            customer_gender = None
+            if user and (user.gender or "").strip():
+                customer_gender = (user.gender or "").strip().lower()
+            slot_resp = await redcliffe_flow.fetch_slots_for_location(
+                db,
+                blood_collection_date=blood_collection_date,
+                latitude=float(loc["lat"]),
+                longitude=float(loc["long"]),
+                engagement_id=engagement_id,
+                customer_gender=customer_gender,
             )
             if slot_resp.get("status") != "success":
                 results.append({
@@ -691,6 +765,25 @@ async def lock_slots(
                 "message": "Slot confirmed",
             })
             continue
+        if _is_redcliffe(pkg):
+            try:
+                await redcliffe_flow.lock_slot_local(
+                    db,
+                    participant=participant,
+                    blood_collection_date=blood_collection_date,
+                    slot_id=slot_id,
+                    slot_time_label=blood_collection_time_slot,
+                )
+            except Exception as exc:
+                results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": str(exc)})
+                continue
+            results.append({
+                "user_id": user_id,
+                "engagement_id": engagement_id,
+                "status": "success",
+                "message": "Slot confirmed",
+            })
+            continue
         if not _is_healthians(pkg):
             results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": "Not a supported package"})
             continue
@@ -813,7 +906,7 @@ async def _validate_locked_draft_for_pay(
         raise AppError(status_code=422, error_code="SLOT_NOT_LOCKED", message="Blood collection time is not set")
 
     pkg = await _get_diagnostic_package(db, engagement.diagnostic_package_id)
-    if not (_is_healthians(pkg) or _is_orange_health(pkg)):
+    if not _is_supported_home_collection_provider(pkg):
         raise AppError(status_code=422, error_code="INVALID_PROVIDER", message="Not a supported diagnostic package")
     if (pkg.status or "").strip().lower() != "active":
         raise AppError(status_code=422, error_code="PACKAGE_INACTIVE", message="Diagnostic package is not active")
@@ -974,7 +1067,7 @@ async def _validate_engagement_participant_for_code_pay(
     if package_id is None:
         raise AppError(status_code=422, error_code="INVALID_STATE", message="No diagnostic package on engagement")
     pkg = await _get_diagnostic_package(db, package_id)
-    if not (_is_healthians(pkg) or _is_orange_health(pkg)):
+    if not _is_supported_home_collection_provider(pkg):
         raise AppError(status_code=422, error_code="INVALID_PROVIDER", message="Not a supported diagnostic package")
     if (pkg.status or "").strip().lower() != "active":
         raise AppError(status_code=422, error_code="PACKAGE_INACTIVE", message="Diagnostic package is not active")
@@ -1512,6 +1605,38 @@ async def create_healthians_booking_after_payment(
                 await db.flush()
             results.append(oh_result)
             continue
+        if _is_redcliffe(pkg):
+            rc_result = await redcliffe_flow.create_booking_for_member(
+                db,
+                engagement_id=engagement_id,
+                user_id=user_id,
+                participant=participant,
+                engagement=engagement,
+                user=user,
+                pkg=pkg,
+                partner_notes="",
+                is_credit=True,
+            )
+            if rc_result.get("status") == "success":
+                participant.paid = True
+                db.add(participant)
+                base_type_id = await _resolve_engagement_type_id(db, engagement_type_code) if engagement_type_code else None
+                await _apply_complementary_consultation(db, engagement, pkg, base_type_id)
+                if not preserve_engagement_status:
+                    engagement.status = "scheduled"
+                if engagements_service is not None and engagement.organization_id is None:
+                    coll_row = await get_current_row(db, participant)
+                    sched_after = read_schedule_from_row(coll_row)
+                    await engagements_service.apply_b2c_defaults_and_notify_after_booking(
+                        db,
+                        engagement=engagement,
+                        user=user,
+                        collection_date=sched_after.get("engagement_date"),
+                        collection_time=sched_after.get("slot_start_time"),
+                    )
+                await db.flush()
+            results.append(rc_result)
+            continue
         if not _is_healthians(pkg):
             results.append({"user_id": user_id, "engagement_id": engagement_id, "status": "error", "message": "Not a supported package"})
             continue
@@ -1724,6 +1849,12 @@ async def _get_healthians_package_for_engagement(
             status_code=422,
             error_code="UNSUPPORTED_PROVIDER",
             message="Cancel and reschedule are not supported for Orange Health bookings yet",
+        )
+    if _is_redcliffe(pkg):
+        raise AppError(
+            status_code=422,
+            error_code="UNSUPPORTED_PROVIDER",
+            message="Cancel and reschedule are not supported for Redcliffe bookings yet",
         )
     if not _is_healthians(pkg):
         raise AppError(

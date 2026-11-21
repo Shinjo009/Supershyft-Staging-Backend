@@ -23,7 +23,8 @@ from modules.diagnostics.healthians.sync_log import (
 )
 from modules.diagnostics.models import DiagnosticPackage
 from modules.diagnostics.orange_health.booking_helpers import is_orange_health
-from modules.engagements.console import home_collection_orange
+from modules.diagnostics.redcliffe.booking_helpers import is_redcliffe
+from modules.engagements.console import home_collection_orange, home_collection_redcliffe
 from modules.metsights.service import outbound_last_name
 from modules.engagements.diagnostic_package_resolution import (
     engagement_has_diagnostic_package,
@@ -1220,7 +1221,7 @@ class ConsoleService:
                 message="Diagnostic package does not exist",
             )
         provider = (pkg.diagnostic_provider or "").strip().lower()
-        if provider not in ("healthians", "orange_health"):
+        if provider not in ("healthians", "orange_health", "redcliffe"):
             raise AppError(
                 status_code=422,
                 error_code="INVALID_DIAGNOSTIC_PROVIDER",
@@ -1364,6 +1365,17 @@ class ConsoleService:
                 longitude=float(longitude),
             )
 
+        if is_redcliffe(pkg):
+            participant = await self._reload_participant(db, engagement_participant_id)
+            return await home_collection_redcliffe.check_serviceability(
+                db,
+                engagement_id=engagement_id,
+                user_id=user_id,
+                participant=participant,
+                latitude=float(latitude),
+                longitude=float(longitude),
+            )
+
         lat = str(latitude)
         lng = str(longitude)
         zipcode = pincode.strip()
@@ -1447,6 +1459,19 @@ class ConsoleService:
                 user_id=user_id,
                 participant=participant,
                 blood_collection_date=blood_collection_date,
+            )
+
+        if is_redcliffe(pkg):
+            user_result = await db.execute(select(User).where(User.user_id == user_id))
+            user = user_result.scalar_one_or_none()
+            customer_gender = (user.gender or "").strip().lower() if user and user.gender else None
+            return await home_collection_redcliffe.fetch_slots(
+                db,
+                engagement_id=engagement_id,
+                user_id=user_id,
+                participant=participant,
+                blood_collection_date=blood_collection_date,
+                customer_gender=customer_gender,
             )
 
         user_result = await db.execute(select(User).where(User.user_id == user_id))
@@ -1551,6 +1576,17 @@ class ConsoleService:
 
         if is_orange_health(pkg):
             return await home_collection_orange.lock_slot(
+                db,
+                participant=participant,
+                blood_collection_date=blood_collection_date,
+                blood_collection_time_slot_id=blood_collection_time_slot_id,
+                blood_collection_time_slot=blood_collection_time_slot,
+                engagement_id=engagement_id,
+                user_id=user_id,
+            )
+
+        if is_redcliffe(pkg):
+            return await home_collection_redcliffe.lock_slot(
                 db,
                 participant=participant,
                 blood_collection_date=blood_collection_date,
@@ -1683,6 +1719,26 @@ class ConsoleService:
                 user=user,
                 pkg=pkg,
                 partner_notes=partner_notes or "",
+            )
+
+        if is_redcliffe(pkg):
+            await self._ensure_assessment_instances_for_participant(
+                db,
+                engagement=engagement,
+                user_id=user_id,
+                ip_address="",
+                user_agent="engagement-console",
+                endpoint=f"/engagements/{engagement_id}/console/participants/{user_id}/book-home-collection/book",
+            )
+            return await home_collection_redcliffe.create_booking(
+                db,
+                engagement_id=engagement_id,
+                user_id=user_id,
+                participant=participant,
+                user=user,
+                pkg=pkg,
+                partner_notes=partner_notes or "",
+                is_credit=True,
             )
 
         if not settings.HEALTHIANS_CHECKSUM_KEY:

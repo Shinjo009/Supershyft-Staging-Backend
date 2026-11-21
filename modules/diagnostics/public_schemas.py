@@ -14,7 +14,7 @@ from common.validation import (
     PositiveIntId,
 )
 
-_SUPPORTED_SLOT_PROVIDERS = frozenset({"healthians", "orange_health"})
+_SUPPORTED_SLOT_PROVIDERS = frozenset({"healthians", "orange_health", "redcliffe"})
 _SUPPORTED_ADDRESS_SERVICEABILITY_PROVIDERS = frozenset({"healthians", "orange_health", "redcliffe"})
 
 

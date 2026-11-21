@@ -165,6 +165,29 @@ async def test_public_available_slots_provider_package_mismatch(async_client, te
 
 
 @pytest.mark.asyncio
+async def test_public_available_slots_redcliffe(async_client):
+    with patch(
+        "modules.diagnostics.public_service.redcliffe_flow.fetch_slots_for_location",
+        new_callable=AsyncMock,
+        return_value={"status": "success", "slots": [{"stm_id": "27", "slot_time": "03:30 PM"}]},
+    ):
+        response = await async_client.post(
+            "/diagnostics/public/available-slots",
+            json={
+                "provider": "redcliffe",
+                "slot_date": "2026-04-15",
+                "latitude": 28.4595,
+                "longitude": 77.0266,
+            },
+        )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["provider"] == "redcliffe"
+    assert data["slots"][0]["stm_id"] == "27"
+
+
+@pytest.mark.asyncio
 async def test_public_available_slots_orange_without_package(async_client):
     with patch(
         "modules.diagnostics.public_service.orange_health_flow.fetch_slots_for_location",

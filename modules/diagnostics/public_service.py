@@ -16,7 +16,7 @@ from modules.bookings.service import (
     _is_healthians,
     _slim_healthians_slot,
 )
-from modules.bookings import orange_health_flow
+from modules.bookings import orange_health_flow, redcliffe_flow
 from modules.diagnostics.external_codes import healthians_package_deal_id
 from modules.diagnostics.healthians import client as healthians_client
 from modules.diagnostics.orange_health import client as orange_health_client
@@ -467,6 +467,24 @@ async def public_available_slots(
             latitude=float(latitude),
             longitude=float(longitude),
             engagement_id=None,
+        )
+        if slot_resp.get("status") != "success":
+            raise AppError(
+                status_code=422,
+                error_code="SLOTS_UNAVAILABLE",
+                message=slot_resp.get("message", "Failed to fetch slots"),
+            )
+        return {"provider": prov, "slots": slot_resp.get("slots") or []}
+
+    if prov == "redcliffe":
+        customer_gender = "female" if has_female_patient else "male"
+        slot_resp = await redcliffe_flow.fetch_slots_for_location(
+            db,
+            blood_collection_date=slot_date,
+            latitude=float(latitude),
+            longitude=float(longitude),
+            engagement_id=None,
+            customer_gender=customer_gender,
         )
         if slot_resp.get("status") != "success":
             raise AppError(
