@@ -269,14 +269,37 @@ async def check_service_availability(
             results.append({"user_id": user_id, "status": "error", "message": "Diagnostic provider is not supported"})
             continue
 
-        geocoded = await _geocode_for_booking(
-            db,
-            address_line=address_line,
-            landmark=landmark,
-            city=city,
-            pincode=pincode,
-            user_id=user_id,
-        )
+        if _is_redcliffe(pkg):
+            from modules.diagnostics.redcliffe import service as redcliffe_location_service
+
+            async def _fallback_geocode() -> dict[str, Any]:
+                return await _geocode_for_booking(
+                    db,
+                    address_line=address_line,
+                    landmark=landmark,
+                    city=city,
+                    pincode=pincode,
+                    user_id=user_id,
+                )
+
+            geocoded = await redcliffe_location_service.resolve_coordinates_for_booking(
+                db,
+                address_line=address_line,
+                landmark=landmark,
+                city=city,
+                pincode=pincode,
+                user_id=user_id,
+                fallback_geocode=_fallback_geocode,
+            )
+        else:
+            geocoded = await _geocode_for_booking(
+                db,
+                address_line=address_line,
+                landmark=landmark,
+                city=city,
+                pincode=pincode,
+                user_id=user_id,
+            )
         latitude = geocoded.get("latitude")
         longitude = geocoded.get("longitude")
         if latitude is None or longitude is None:

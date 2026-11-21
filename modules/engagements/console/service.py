@@ -1334,8 +1334,43 @@ class ConsoleService:
 
         await release_request_transaction(db)
 
-        results = await search_places(f"{city.strip()} {pincode.strip()}", limit=1, primary=primary)
-        geocoded = results[0] if results else {}
+        if is_redcliffe(pkg):
+            from modules.diagnostics.redcliffe import service as redcliffe_location_service
+            from modules.geocoding.client import search_places_for_booking
+
+            async def _fallback_geocode() -> dict[str, Any]:
+                rows = await search_places_for_booking(
+                    address_line=address_line,
+                    landmark=landmark,
+                    city=city,
+                    pincode=pincode,
+                    primary=primary,
+                    limit=1,
+                    engagement_id=engagement_id,
+                    user_id=user_id,
+                )
+                return rows[0] if rows else {}
+
+            geocoded = await redcliffe_location_service.resolve_coordinates_for_booking(
+                db,
+                address_line=address_line,
+                landmark=landmark,
+                city=city,
+                pincode=pincode,
+                engagement_id=engagement_id,
+                user_id=user_id,
+                fallback_geocode=_fallback_geocode,
+            )
+        else:
+            results = await search_places(
+                f"{city.strip()} {pincode.strip()}",
+                limit=1,
+                primary=primary,
+                engagement_id=engagement_id,
+                user_id=user_id,
+            )
+            geocoded = results[0] if results else {}
+
         latitude = geocoded.get("latitude")
         longitude = geocoded.get("longitude")
         if latitude is None or longitude is None:

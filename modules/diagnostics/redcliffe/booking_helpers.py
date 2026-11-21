@@ -17,6 +17,23 @@ def is_redcliffe_provider(provider: str | None) -> bool:
     return (provider or "").strip().lower() == "redcliffe"
 
 
+def build_redcliffe_place_query(
+    *,
+    address_line: str | None,
+    landmark: str | None,
+    city: str | None,
+    pincode: str | None,
+) -> str:
+    """Build Redcliffe area-search query from booking address parts (full address preferred)."""
+    parts = [
+        (address_line or "").strip(),
+        (landmark or "").strip(),
+        (city or "").strip(),
+        (pincode or "").strip(),
+    ]
+    return ", ".join(part for part in parts if part)
+
+
 def redcliffe_gender(user_gender: str | None) -> str:
     g = (user_gender or "").strip().lower()
     if g in ("male", "m"):
