@@ -35,8 +35,17 @@ from common.validation import (
     validate_nested_strings,
 )
 from modules.questionnaire.schemas import ResponseItem
+from modules.users.age_policy import MAXIMUM_ACCOUNT_AGE, MINIMUM_ACCOUNT_AGE, MINIMUM_AGE_MESSAGE
 
 _ALLOWED_DIET_PREFERENCES = {"veg", "non_veg", "vegan", "jain", "eggetarian", "keto"}
+
+
+def _validate_new_user_age(v: int) -> int:
+    if v < MINIMUM_ACCOUNT_AGE or v > MAXIMUM_ACCOUNT_AGE:
+        if v < MINIMUM_ACCOUNT_AGE:
+            raise ValueError(MINIMUM_AGE_MESSAGE)
+        raise ValueError(f"Age must be between {MINIMUM_ACCOUNT_AGE} and {MAXIMUM_ACCOUNT_AGE}")
+    return v
 _ALLOWED_ALLERGIES = {"peanuts", "dairy", "eggs", "fish", "soy", "wheat", "sesame", "mustard", "corn", "other"}
 
 
@@ -55,6 +64,7 @@ class UserProfileResponse(BaseModel):
     email: Optional[EmailStr] = None
     profile_photo: Optional[str] = None
     date_of_birth: Optional[date] = None
+    dob_provenance: Optional[str] = None
     gender: Optional[str] = None
     address: Optional[str] = None
     pin_code: Optional[str] = None
@@ -214,9 +224,7 @@ class SubProfileCreate(BaseModel):
 
     @validator("age")
     def age_must_be_valid(cls, v):
-        if v < 1 or v > 120:
-            raise ValueError("Age must be between 1 and 120")
-        return v
+        return _validate_new_user_age(v)
 
 
 class SubProfileUpdate(BaseModel):
@@ -358,8 +366,7 @@ class PublicUserOnboardRequest(BaseModel):
             raise ValueError("phone is required when user_id is not provided")
         if self.age is None:
             raise ValueError("age is required when user_id is not provided")
-        if self.age < 1 or self.age > 120:
-            raise ValueError("Age must be between 1 and 120")
+        _validate_new_user_age(int(self.age))
         return self
 
     @model_validator(mode="after")
@@ -466,9 +473,7 @@ class EngagementUserOnboardRequest(BaseModel):
 
     @validator("age")
     def age_must_be_valid(cls, v):
-        if v < 1 or v > 120:
-            raise ValueError("Age must be between 1 and 120")
-        return v
+        return _validate_new_user_age(v)
 
 
 class UserOnboardResponse(BaseModel):
@@ -501,6 +506,11 @@ class FamilyOnboardBookerPayload(BaseModel):
     name: ShortSafeText
     phone: PhoneStr
     email: EmailStr
+    age: int
+
+    @validator("age")
+    def age_must_be_valid(cls, v):
+        return _validate_new_user_age(v)
 
 
 class FamilyOnboardMemberPayload(BaseModel):
@@ -525,9 +535,7 @@ class FamilyOnboardMemberPayload(BaseModel):
 
     @validator("age")
     def age_must_be_valid(cls, v):
-        if v < 1 or v > 120:
-            raise ValueError("Age must be between 1 and 120")
-        return v
+        return _validate_new_user_age(v)
 
     @model_validator(mode="after")
     def require_blood_fields_unless_vifc(self):
@@ -625,8 +633,7 @@ class VifcQuickStartRequest(BaseModel):
             raise ValueError("phone is required when user_id is not provided")
         if self.age is None:
             raise ValueError("age is required when user_id is not provided")
-        if self.age < 1 or self.age > 120:
-            raise ValueError("Age must be between 1 and 120")
+        _validate_new_user_age(int(self.age))
         return self
 
     @model_validator(mode="after")
@@ -694,9 +701,13 @@ class EmployeeCreateUserRequest(BaseModel):
     def age_must_be_valid(cls, v):
         if v is None:
             return v
-        if v < 1 or v > 120:
-            raise ValueError("Age must be between 1 and 120")
-        return v
+        return _validate_new_user_age(int(v))
+
+    @model_validator(mode="after")
+    def require_age_or_dob_for_create(self):
+        if self.age is None and self.date_of_birth is None:
+            raise ValueError("age is required when date_of_birth is not provided")
+        return self
 
 
 class UpdateMetsightsProfileIdRequest(BaseModel):

@@ -62,7 +62,7 @@ async def test_create_user_does_not_require_employee(async_client, test_db_sessi
 
     payload = {"phone": "1234567891", "first_name": "Public", "age": 28}
     from tests.helpers.auth import user_auth_header
-    response = await async_client.post("/users", headers=useruser_auth_header(9001), json=payload)
+    response = await async_client.post("/users", headers=_auth_header(9001), json=payload)
     assert response.status_code == 200
     user_id = response.json()["data"]["user_id"]
     created = await test_db_session.get(User, user_id)
@@ -90,7 +90,7 @@ async def test_employee_create_user_creates_user(async_client, test_db_session):
 
 
 @pytest.mark.asyncio
-async def test_employee_create_user_without_age(async_client, test_db_session):
+async def test_employee_create_user_without_age_rejected(async_client, test_db_session):
     test_db_session.add(User(age=30, user_id=9002, phone="9002000000", status="active"))
     await test_db_session.flush()
     test_db_session.add(Employee(employee_id=10001, name="Employee 10001", phone="0000010001", email="employee10001@test.example", role="admin", status="active"))
@@ -99,14 +99,26 @@ async def test_employee_create_user_without_age(async_client, test_db_session):
     payload = {"phone": "5550000999", "first_name": "A", "status": "active"}
     response = await async_client.post("/users", headers=_auth_header(10001), json=payload)
 
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_employee_create_user_age_18_derives_jan_first_dob(async_client, test_db_session):
+    test_db_session.add(User(age=30, user_id=9003, phone="9002000001", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(Employee(employee_id=10002, name="Employee 10002", phone="0000010002", email="employee10002@test.example", role="admin", status="active"))
+    await test_db_session.commit()
+
+    payload = {"phone": "5550001888", "first_name": "Adult", "status": "active", "age": 18}
+    response = await async_client.post("/users", headers=_auth_header(10002), json=payload)
+
     assert response.status_code == 200
     user_id = response.json()["data"]["user_id"]
-
     created = await test_db_session.get(User, user_id)
     assert created is not None
-    assert created.phone == "5550000999"
-    assert created.first_name == "A"
-    assert created.age is None
+    assert created.date_of_birth is not None
+    assert created.date_of_birth.month == 1 and created.date_of_birth.day == 1
+    assert created.dob_provenance == "estimated_from_age"
 
 
 @pytest.mark.asyncio
@@ -137,11 +149,7 @@ async def test_employee_create_user_treats_zero_age_as_missing(async_client, tes
     payload = {"phone": "5550000888", "first_name": "B", "status": "active", "age": 0}
     response = await async_client.post("/users", headers=_auth_header(10001), json=payload)
 
-    assert response.status_code == 200
-    user_id = response.json()["data"]["user_id"]
-    created = await test_db_session.get(User, user_id)
-    assert created is not None
-    assert created.age is None
+    assert response.status_code == 400
 
 
 @pytest.mark.asyncio

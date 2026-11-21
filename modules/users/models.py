@@ -37,6 +37,8 @@ class User(Base):
     metsights_profile_id = Column(String, nullable=True)
     profile_photo = Column(String)
     date_of_birth = Column(Date, nullable=True)
+    dob_provenance = Column(String(32), nullable=True)
+    dob_estimate_reference_year = Column(Integer, nullable=True)
     gender = Column(user_gender_enum, nullable=True)
     address = Column(String)
     pin_code = Column(String)

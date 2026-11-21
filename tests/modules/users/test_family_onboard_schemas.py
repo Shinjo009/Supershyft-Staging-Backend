@@ -8,13 +8,13 @@ from modules.users.schemas import FamilyOnboardStartRequest, FamilyOnboardVerify
 
 def test_family_onboard_requires_unique_member_phones():
     payload = {
-        "booker": {"name": "Adi", "phone": "9000000001", "email": "a@example.com"},
+        "booker": {"name": "Adi", "phone": "9000000001", "email": "a@example.com", "age": 35},
         "members": [
             {
                 "name": "M1",
                 "phone": "9000000002",
                 "relation": "child",
-                "age": 10,
+                "age": 28,
                 "blood_collection_date": "2026-01-01",
                 "blood_collection_time_slot": "09:00",
             },
@@ -34,13 +34,32 @@ def test_family_onboard_requires_unique_member_phones():
 
 def test_family_onboard_requires_blood_fields_for_bio_ai():
     payload = {
-        "booker": {"name": "Adi", "phone": "9000000001", "email": "a@example.com"},
+        "booker": {"name": "Adi", "phone": "9000000001", "email": "a@example.com", "age": 35},
+        "members": [
+            {
+                "name": "M1",
+                "phone": "9000000002",
+                "relation": "child",
+                "age": 28,
+                "engagement_type": "bio_ai",
+            },
+        ],
+    }
+    with pytest.raises(ValidationError):
+        FamilyOnboardStartRequest.model_validate(payload)
+
+
+def test_family_onboard_rejects_underage_member():
+    payload = {
+        "booker": {"name": "Adi Kumar", "phone": "9000000001", "email": "a@example.com", "age": 35},
         "members": [
             {
                 "name": "M1",
                 "phone": "9000000002",
                 "relation": "child",
                 "age": 10,
+                "blood_collection_date": "2026-01-01",
+                "blood_collection_time_slot": "09:00",
             },
         ],
     }
@@ -50,13 +69,14 @@ def test_family_onboard_requires_blood_fields_for_bio_ai():
 
 def test_family_onboard_accepts_valid_payload():
     payload = {
-        "booker": {"name": "Adi Kumar", "phone": "9000000001", "email": "a@example.com"},
+        "booker": {"name": "Adi Kumar", "phone": "9000000001", "email": "a@example.com", "age": 35},
         "members": [
             {
                 "name": "M1",
                 "phone": "9000000002",
                 "relation": "child",
-                "age": 10,
+                "age": 28,
+                "engagement_type": "bio_ai",
                 "blood_collection_date": "2026-01-01",
                 "blood_collection_time_slot": "09:00",
             },

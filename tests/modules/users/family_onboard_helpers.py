@@ -296,6 +296,7 @@ def family_onboard_start_payload(
             "name": "Adi Kumar",
             "phone": booker_phone,
             "email": booker_email,
+            "age": 35,
         },
         "members": members,
     }

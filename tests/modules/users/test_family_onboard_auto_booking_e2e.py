@@ -24,6 +24,7 @@ _FAMILY_ONBOARD_WITH_SLOT = {
         "name": "Adi Kumar",
         "phone": "9000100301",
         "email": "adi.auto@example.com",
+        "age": 35,
     },
     "members": [
         {

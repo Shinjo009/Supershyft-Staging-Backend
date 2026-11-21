@@ -344,41 +344,19 @@ async def _backfill_cohort(
                 action["resolved_by"] = "email"
 
         if user is None:
-            phone_store = _normalize_phone_for_store(row.phone)
             if dry_run:
-                result.users_created += 1
-                action["user"] = "would_create"
-                action["channels"] = list(_remap_row_channels(row, concept_to_key).keys())
-                action["notifications"] = "would_insert_after_create"
+                action["user"] = "would_skip_create"
+                action["error"] = "cannot create user without age or date_of_birth under 18+ policy"
                 result.actions.append(action)
                 continue
 
-            user = User(
-                first_name=row.first_name,
-                last_name=row.last_name,
-                phone=phone_store,
-                email=email_val,
-                referred_by=referred_by,
-                is_participant=True,
-                status="active",
+            result.errors.append(
+                {
+                    **action,
+                    "error": "cannot create user without age or date_of_birth under 18+ policy",
+                }
             )
-            try:
-                user = await users_repo.create_user(db, user)
-            except IntegrityError as exc:
-                result.errors.append(
-                    {
-                        **action,
-                        "error": (
-                            f"create user failed: "
-                            f"{exc.orig if getattr(exc, 'orig', None) else exc}"
-                        ),
-                    }
-                )
-                continue
-            created_user = True
-            result.users_created += 1
-            action["user_created"] = True
-            action["user_id"] = int(user.user_id)
+            continue
         else:
             result.users_found += 1
             action["user_id"] = int(user.user_id)

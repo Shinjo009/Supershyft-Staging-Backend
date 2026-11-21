@@ -375,6 +375,8 @@ class UsersRepository:
             phone=data.get("phone") or parent_user.phone,
             email=data.get("email"),
             date_of_birth=data.get("date_of_birth"),
+            dob_provenance=data.get("dob_provenance"),
+            dob_estimate_reference_year=data.get("dob_estimate_reference_year"),
             gender=data.get("gender"),
             city=data.get("city"),
             status="active",

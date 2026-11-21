@@ -81,8 +81,9 @@ def _normalize_gender(raw: str | None) -> str:
 
 
 def _dob_from_age(age: int, *, ref_year: int = 2026) -> date:
-    y = max(ref_year - int(age), 1900)
-    return date(y, 1, 1)
+    from modules.users.age_policy import estimate_dob_from_age
+
+    return estimate_dob_from_age(age=int(age), business_date=date(ref_year, 1, 1))
 
 
 def _parse_time_slot(raw: str) -> time:
@@ -157,7 +158,7 @@ async def _resolve_user(session: AsyncSession, blob: dict[str, Any]) -> User:
 
     first_name = str(u.get("first_name") or "").strip() or "User"
     last_name = str(u.get("last_name") or "").strip()
-    age_val = max(int(u.get("age") or 0), 1)
+    age_val = max(int(u.get("age") or 0), 18)
     gender_val = _normalize_gender(u.get("gender"))
     is_participant = bool(u.get("is_participant", True))
     status_val = str(u.get("status") or "active").strip().lower() or "active"
@@ -180,6 +181,8 @@ async def _resolve_user(session: AsyncSession, blob: dict[str, Any]) -> User:
             status=status_val,
             relationship=relationship,
             date_of_birth=dob,
+            dob_provenance="estimated_from_age",
+            dob_estimate_reference_year=2026,
         )
         session.add(existing)
         await session.flush()

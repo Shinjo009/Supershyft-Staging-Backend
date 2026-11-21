@@ -131,6 +131,7 @@ async def test_family_onboard_confirm_payment_freezes_when_auto_booking(
                 "name": "Adi Kumar",
                 "phone": booker_phone,
                 "email": "adi.freeze@example.com",
+                "age": 35,
             },
             "members": [
                 {
@@ -245,6 +246,7 @@ async def test_family_onboard_confirm_payment_skips_healthians_when_settings_aut
                 "name": "Adi Kumar",
                 "phone": booker_phone,
                 "email": "adi.noauto@example.com",
+                "age": 35,
             },
             "members": [
                 {

@@ -37,6 +37,11 @@ from modules.platform_settings.b2c_onboard_apply import (
     resolve_b2c_diagnostic_package_id,
 )
 from modules.platform_settings.service import PlatformSettingsService
+from modules.users.age_policy import (
+    AgePolicyValidationError,
+    policy_result_as_user_attrs,
+    resolve_new_user_age_and_dob,
+)
 from modules.users.models import User, UserAddress, UserPreference
 from modules.users.repository import UsersRepository
 from modules.engagements.blood_bookings_access import current_booking_id
@@ -209,6 +214,44 @@ def _validate_requested_consultations(
     from modules.experts.consultations import validate_requested_consultations
 
     return validate_requested_consultations(requested, allowed)
+
+def _app_error_from_age_policy(exc: AgePolicyValidationError) -> AppError:
+    return AppError(status_code=400, error_code=exc.error_code, message=exc.message)
+
+
+def normalize_new_user_create_dict(create_data: dict[str, Any]) -> dict[str, Any]:
+    """Apply shared 18+ policy for a brand-new User insert."""
+    try:
+        result = resolve_new_user_age_and_dob(
+            age=create_data.get("age"),
+            dob=create_data.get("date_of_birth"),
+            date_of_birth=create_data.get("date_of_birth"),
+        )
+    except AgePolicyValidationError as exc:
+        raise _app_error_from_age_policy(exc) from exc
+    merged = dict(create_data)
+    merged.update(policy_result_as_user_attrs(result))
+    return merged
+
+
+def build_sub_profile_create_dict(
+    *,
+    age: int | None,
+    date_of_birth: date | None,
+    **fields: Any,
+) -> dict[str, Any]:
+    data = dict(fields)
+    try:
+        result = resolve_new_user_age_and_dob(
+            age=age,
+            dob=date_of_birth,
+            date_of_birth=date_of_birth,
+        )
+    except AgePolicyValidationError as exc:
+        raise _app_error_from_age_policy(exc) from exc
+    data.update(policy_result_as_user_attrs(result))
+    return data
+
 
 class UsersService:
     def _normalize_phone_for_metsights(self, raw: str | None) -> str | None:
@@ -638,21 +681,18 @@ class UsersService:
         if email_to_use is None:
             raise AppError(status_code=409, error_code="CONFLICT", message="Unable to create profile")
 
-        created = await self._repository.create_sub_profile(
-            db,
-            current_user,
-            {
-                "first_name": data.first_name,
-                "last_name": data.last_name,
-                "age": data.age,
-                "date_of_birth": data.date_of_birth,
-                "gender": data.gender,
-                "relationship": data.relationship,
-                "city": data.city,
-                "phone": phone_to_use,
-                "email": email_to_use,
-            },
+        sub_data = build_sub_profile_create_dict(
+            age=data.age,
+            date_of_birth=data.date_of_birth,
+            first_name=data.first_name,
+            last_name=data.last_name,
+            gender=data.gender,
+            relationship=data.relationship,
+            city=data.city,
+            phone=phone_to_use,
+            email=email_to_use,
         )
+        created = await self._repository.create_sub_profile(db, current_user, sub_data)
         if created is None:
             raise AppError(status_code=409, error_code="CONFLICT", message="Unable to create profile")
 
@@ -1851,24 +1891,27 @@ class UsersService:
                     details={"user_id": int(existing_email.user_id)},
                 )
 
-        user = User(
-            first_name=payload.first_name,
-            last_name=payload.last_name,
-            age=payload.age,
-            phone=payload.phone,
-            email=str(payload.email) if payload.email is not None else None,
-            profile_photo=payload.profile_photo,
-            date_of_birth=payload.date_of_birth,
-            gender=payload.gender,
-            address=payload.address,
-            pin_code=payload.pin_code,
-            city=payload.city,
-            state=payload.state,
-            country=payload.country,
-            referred_by=payload.referred_by,
-            is_participant=payload.is_participant,
-            status=(payload.status or "active"),
+        create_data = normalize_new_user_create_dict(
+            {
+                "first_name": payload.first_name,
+                "last_name": payload.last_name,
+                "age": payload.age,
+                "phone": payload.phone,
+                "email": str(payload.email) if payload.email is not None else None,
+                "profile_photo": payload.profile_photo,
+                "date_of_birth": payload.date_of_birth,
+                "gender": payload.gender,
+                "address": payload.address,
+                "pin_code": payload.pin_code,
+                "city": payload.city,
+                "state": payload.state,
+                "country": payload.country,
+                "referred_by": payload.referred_by,
+                "is_participant": payload.is_participant,
+                "status": (payload.status or "active"),
+            }
         )
+        user = User(**create_data)
 
         created = await self._repository.create_user(db, user)
         await self._ensure_metsights_profile_id(db, user=created)
@@ -2438,7 +2481,7 @@ class UsersService:
             existing = await self._repository.get_user_by_email(db, email)
 
         if existing is None:
-            user = User(**create_data)
+            user = User(**normalize_new_user_create_dict(create_data))
             user = await self._repository.create_user(db, user)
             return user, True
 
@@ -3685,21 +3728,18 @@ class UsersService:
                 raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
             email_to_use = await self._allocate_plus_alias_email(db, booker.email)
 
-        created_user = await self._repository.create_sub_profile(
-            db,
-            booker,
-            {
-                "first_name": first_name,
-                "last_name": last_name,
-                "age": member.age,
-                "date_of_birth": member.dob,
-                "gender": member.gender,
-                "relationship": member.relation,
-                "city": member.city,
-                "phone": phone,
-                "email": email_to_use,
-            },
+        sub_data = build_sub_profile_create_dict(
+            age=member.age,
+            date_of_birth=member.dob,
+            first_name=first_name,
+            last_name=last_name,
+            gender=member.gender,
+            relationship=member.relation,
+            city=member.city,
+            phone=phone,
+            email=email_to_use,
         )
+        created_user = await self._repository.create_sub_profile(db, booker, sub_data)
         if created_user is None:
             raise AppError(status_code=409, error_code="CONFLICT", message="Unable to create profile")
         created_user.is_participant = True
@@ -3865,6 +3905,16 @@ class UsersService:
         if self._engagements_service is None or self._platform_settings_service is None:
             raise RuntimeError("Engagements and platform settings services are required")
 
+        for member in payload.members:
+            try:
+                resolve_new_user_age_and_dob(age=member.age, dob=member.dob)
+            except AgePolicyValidationError as exc:
+                raise _app_error_from_age_policy(exc) from exc
+        try:
+            resolve_new_user_age_and_dob(age=payload.booker.age)
+        except AgePolicyValidationError as exc:
+            raise _app_error_from_age_policy(exc) from exc
+
         booker_first, booker_last = self._split_csv_name(payload.booker.name)
         booker_email = str(payload.booker.email)
         booker_phone = str(payload.booker.phone)
@@ -3884,6 +3934,7 @@ class UsersService:
                 "last_name": booker_last,
                 "phone": booker_phone,
                 "email": booker_email,
+                "age": payload.booker.age,
                 "referred_by": None,
                 "is_participant": True,
                 "status": "active",
@@ -4460,12 +4511,6 @@ class UsersService:
             last_name = last_name or csv_last
         gender = self._normalize_gender_label(str(profile_data.get("gender") or "").strip()) or None
         age_value = profile_data.get("age")
-        try:
-            age = int(age_value) if age_value is not None else 30
-        except (TypeError, ValueError):
-            age = 30
-        if age < 1 or age > 120:
-            age = 30
 
         dob_value = profile_data.get("date_of_birth")
         dob = None
@@ -4474,6 +4519,8 @@ class UsersService:
                 dob = date.fromisoformat(dob_value.strip())
             except ValueError:
                 dob = None
+        elif isinstance(dob_value, date):
+            dob = dob_value
 
         normalized_csv_phone = _normalize_import_phone(csv_phone)
         normalized_phone = profile_phone or normalized_csv_phone
@@ -4493,18 +4540,23 @@ class UsersService:
             else:
                 existing = await self._repository.get_user_by_email(db, profile_email)
 
-        patch_data: dict[str, Any] = {
-            "first_name": first_name,
-            "last_name": last_name,
-            "age": age,
-            "date_of_birth": dob,
-            "gender": gender,
-            "referred_by": engagement_code or None,
-            "is_participant": True,
-            "metsights_profile_id": profile_id,
-        }
-
         if existing is None:
+            try:
+                policy_fields = policy_result_as_user_attrs(
+                    resolve_new_user_age_and_dob(age=age_value, dob=dob)
+                )
+            except AgePolicyValidationError as exc:
+                raise _app_error_from_age_policy(exc) from exc
+
+            patch_data: dict[str, Any] = {
+                "first_name": first_name,
+                "last_name": last_name,
+                "gender": gender,
+                "referred_by": engagement_code or None,
+                "is_participant": True,
+                "metsights_profile_id": profile_id,
+                **policy_fields,
+            }
             create_email = profile_email
             if profile_email is not None:
                 owner_id = (email_owners or {}).get(profile_email.strip().lower())
@@ -4517,6 +4569,15 @@ class UsersService:
                 status="active",
             )
             return await self._repository.create_user(db, user)
+
+        patch_data = {
+            "first_name": first_name,
+            "last_name": last_name,
+            "gender": gender,
+            "referred_by": engagement_code or None,
+            "is_participant": True,
+            "metsights_profile_id": profile_id,
+        }
 
         safe_email: str | None = None
         if profile_email:
@@ -4541,19 +4602,17 @@ class UsersService:
                 metsights_profile_id=profile_id,
                 email_owners=email_owners,
             )
-            sub = await self._repository.create_sub_profile(
-                db,
-                parent_user,
-                {
-                    "first_name": first_name,
-                    "last_name": last_name,
-                    "age": age,
-                    "date_of_birth": dob,
-                    "gender": gender,
-                    "phone": parent_user.phone,
-                    "email": sub_email,
-                },
+            sub_data = build_sub_profile_create_dict(
+                age=age_value,
+                date_of_birth=dob,
+                first_name=first_name,
+                last_name=last_name,
+                gender=gender,
+                phone=parent_user.phone,
+                email=sub_email,
+                relationship="other",
             )
+            sub = await self._repository.create_sub_profile(db, parent_user, sub_data)
             # Sub-profile email is set at create time; do not overwrite with the parent's Metsights email.
             sub_patch = {k: v for k, v in patch_data.items() if k != "email"}
             updated = await self._repository.update_user_partial(db, sub.user_id, sub_patch)
