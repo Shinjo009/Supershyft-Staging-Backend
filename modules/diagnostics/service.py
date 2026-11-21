@@ -308,6 +308,8 @@ class DiagnosticsService:
             return "Orange Health"
         if key == "healthlabs":
             return "HealthLabs"
+        if key == "redcliffe":
+            return "Redcliffe"
         if key in ("healthians",):
             return "Healthians"
         text = (provider or "").strip()
