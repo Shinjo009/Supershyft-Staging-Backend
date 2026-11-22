@@ -15,6 +15,10 @@ from modules.dashboard.command_service import (
     _person_name,
     _stamp_period_clauses,
 )
+from modules.dashboard.report_sent_kpi import (
+    EVENT_BLOOD_READY,
+    b2c_report_sent_user_ids,
+)
 from modules.diagnostics.models import DiagnosticPackage
 from modules.discounts.models import DiscountCode, DiscountUsage
 from modules.engagements.blood_bookings_repository import current_blood_booking_subquery
@@ -623,6 +627,52 @@ async def b2c_consultation_done_page(
     )
 
 
+async def b2c_lab_report_delivered_count(
+    db: AsyncSession,
+    *,
+    dispatched_from: datetime | None,
+    dispatched_to: datetime | None,
+    all_time: bool,
+) -> int:
+    return len(
+        await b2c_report_sent_user_ids(
+            db,
+            event_code=EVENT_BLOOD_READY,
+            dispatched_from=dispatched_from,
+            dispatched_to=dispatched_to,
+            all_time=all_time,
+        )
+    )
+
+
+async def b2c_lab_report_delivered_page(
+    db: AsyncSession,
+    *,
+    dispatched_from: datetime | None,
+    dispatched_to: datetime | None,
+    all_time: bool,
+    page: int,
+    limit: int,
+    today: date | None = None,
+    questionnaire_service: Any | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    ids = await b2c_report_sent_user_ids(
+        db,
+        event_code=EVENT_BLOOD_READY,
+        dispatched_from=dispatched_from,
+        dispatched_to=dispatched_to,
+        all_time=all_time,
+    )
+    return await _page_b2c_users(
+        db,
+        user_ids=ids,
+        page=page,
+        limit=limit,
+        today=today,
+        questionnaire_service=questionnaire_service,
+    )
+
+
 def _resolve_dx_package_id(row: Any) -> int | None:
     gender = str(getattr(row, "gender", None) or "").lower()
     dx_id = getattr(row, "diagnostic_package_id", None)
@@ -920,6 +970,9 @@ async def b2c_summary_counts(
     tests_completed = await b2c_tests_completed_count(
         db, collected_from=start_from, collected_to=start_to, all_time=all_time
     )
+    lab_report_delivered = await b2c_lab_report_delivered_count(
+        db, dispatched_from=start_from, dispatched_to=start_to, all_time=all_time
+    )
     bio_ai_reports = await b2c_bioai_reports_count(
         db, received_from=start_from, received_to=start_to, all_time=all_time
     )
@@ -943,6 +996,7 @@ async def b2c_summary_counts(
         "total_bookings": total_bookings,
         "collection_tomorrow": collection_tomorrow,
         "tests_completed": tests_completed,
+        "lab_report_delivered": lab_report_delivered,
         "bio_ai_reports": bio_ai_reports,
         "consultation_done": consultation_done,
         "packages": packages,

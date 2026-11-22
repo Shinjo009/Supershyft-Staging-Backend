@@ -19,6 +19,8 @@ from modules.dashboard.b2c_command_service import (
     b2c_consultation_done_page,
     b2c_coupon_usage,
     b2c_coupon_users_page,
+    b2c_lab_report_delivered_count,
+    b2c_lab_report_delivered_page,
     b2c_package_performance,
     b2c_package_users_page,
     b2c_summary_counts,
@@ -1058,6 +1060,42 @@ async def get_command_b2c_tests_completed(
         db,
         collected_from=start,
         collected_to=end,
+        all_time=all_time,
+        page=page,
+        limit=limit,
+        questionnaire_service=questionnaire_service,
+    )
+    return success_response(rows, meta=_b2c_period_meta(preset, page, limit, total))
+
+
+@router.get("/command/b2c/lab-report-delivered")
+async def get_command_b2c_lab_report_delivered(
+    period: str = Query("this_week"),
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    include_rows: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    questionnaire_service: QuestionnaireService = Depends(
+        get_questionnaire_management_service
+    ),
+):
+    del employee
+    start, end, preset = resolve_period_bounds(
+        period=period, from_date=from_date, to_date=to_date
+    )
+    all_time = preset == "all_time"
+    if not include_rows:
+        total = await b2c_lab_report_delivered_count(
+            db, dispatched_from=start, dispatched_to=end, all_time=all_time
+        )
+        return success_response([], meta=_b2c_period_meta(preset, page, limit, total))
+    rows, total = await b2c_lab_report_delivered_page(
+        db,
+        dispatched_from=start,
+        dispatched_to=end,
         all_time=all_time,
         page=page,
         limit=limit,

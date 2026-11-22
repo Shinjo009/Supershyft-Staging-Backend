@@ -81,9 +81,16 @@ def _questionnaire_status_label(
     return "pending"
 
 
-def _lab_status(*, has_engagement: bool, diagnostic_report_url: str | None) -> str:
+def _lab_status(
+    *,
+    has_engagement: bool,
+    diagnostic_report_url: str | None,
+    report_sent: bool = False,
+) -> str:
     if not has_engagement:
         return "empty"
+    if report_sent:
+        return "sent"
     if diagnostic_report_url and str(diagnostic_report_url).strip():
         return "loaded"
     return "pending"
@@ -399,6 +406,17 @@ async def _build_people_rows(
                 continue
             bio_by_instance[int(ihr.assessment_instance_id)] = ihr.report_url
 
+    from modules.dashboard.report_sent_kpi import blood_report_sent_pairs
+
+    blood_sent_pairs = await blood_report_sent_pairs(
+        db,
+        user_engagement_pairs=[
+            (uid, int(r.engagement_id))
+            for uid, r in latest_by_user.items()
+            if r is not None
+        ],
+    )
+
     # Diagnostic package names + providers
     dx_ids: set[int] = set()
     for r in latest_by_user.values():
@@ -455,6 +473,8 @@ async def _build_people_rows(
             audience = _audience_type(
                 has_engagement=True, organization_id=eng.organization_id
             )
+            eng_id = int(eng.engagement_id)
+            report_sent = (uid, eng_id) in blood_sent_pairs
 
             if not is_consult:
                 gender = str(getattr(eng, "gender", None) or getattr(user, "gender", None) or "").lower()
@@ -483,10 +503,18 @@ async def _build_people_rows(
                     collected_at = getattr(blood_row, "collected_at", None)
                     blood = "done" if collected_at is not None else "pending"
                     report_url = getattr(blood_row, "diagnostic_report_url", None)
-                    lab = _lab_status(has_engagement=True, diagnostic_report_url=report_url)
+                    lab = _lab_status(
+                        has_engagement=True,
+                        diagnostic_report_url=report_url,
+                        report_sent=report_sent,
+                    )
                 else:
                     blood = "pending"
-                    lab = "pending"
+                    lab = _lab_status(
+                        has_engagement=True,
+                        diagnostic_report_url=None,
+                        report_sent=report_sent,
+                    )
             else:
                 blood = ""
                 lab = ""

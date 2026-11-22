@@ -151,6 +151,22 @@ def test_status_helpers():
     assert _lab_status(has_engagement=False, diagnostic_report_url=None) == "empty"
     assert _lab_status(has_engagement=True, diagnostic_report_url=None) == "pending"
     assert _lab_status(has_engagement=True, diagnostic_report_url="https://x") == "loaded"
+    assert (
+        _lab_status(
+            has_engagement=True,
+            diagnostic_report_url="https://x",
+            report_sent=True,
+        )
+        == "sent"
+    )
+    assert (
+        _lab_status(
+            has_engagement=True,
+            diagnostic_report_url=None,
+            report_sent=True,
+        )
+        == "sent"
+    )
     assert _bio_ai_status(has_engagement=True, report_url="") == "pending"
     assert _consult_status(has_engagement=True, want=True, done=True) == "Attended"
     assert _consult_status(has_engagement=True, want=True, done=False) == "Booked"

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 import pytest
+from sqlalchemy import text
 
 from modules.assessments.models import (
     AssessmentCategoryProgress,
@@ -20,6 +21,7 @@ from modules.engagements.models import (
     ParticipantBloodBooking,
 )
 from modules.experts.models import ConsultationBooking
+from modules.notifications.models import Notification
 from modules.questionnaire.models import QuestionnaireCategory
 from modules.users.models import User
 from tests.helpers.auth import employee_auth_header, seed_employee
@@ -431,3 +433,152 @@ async def test_progress_report_questionnaire_filled_uses_camp_kpi_rules(
     data = res.json()["data"]
     assert data["total_registered"] == 2
     assert data["questionnaire_filled"] == 1
+
+
+async def _ensure_notification_service(
+    test_db_session,
+    *,
+    service_key: str,
+    channel: str,
+) -> None:
+    await test_db_session.execute(
+        text(
+            "INSERT INTO notification_services "
+            "(service_key, display_name, channel, template_name, email_subject, email_body, "
+            "is_active, require_blood_report_url, require_bio_ai_report_url, require_participant_detail) "
+            "VALUES (:sk, :sk, :channel, 'test-hook', 'Test', 'Test', true, false, false, false) "
+            "ON CONFLICT (service_key) DO NOTHING"
+        ),
+        {"sk": service_key, "channel": channel},
+    )
+
+
+@pytest.mark.asyncio
+async def test_progress_report_blood_and_bioai_report_sent(
+    async_client, test_db_session
+):
+    await seed_employee(test_db_session, employee_id=8820)
+    await _seed_engagement(test_db_session, engagement_id=88201, with_slots=False)
+
+    await _add_participant(
+        test_db_session,
+        engagement_id=88201,
+        user_id=88211,
+        engagement_participant_id=882101,
+    )
+    await _add_participant(
+        test_db_session,
+        engagement_id=88201,
+        user_id=88212,
+        engagement_participant_id=882102,
+    )
+    await _add_participant(
+        test_db_session,
+        engagement_id=88201,
+        user_id=88213,
+        engagement_participant_id=882103,
+    )
+
+    await _ensure_notification_service(
+        test_db_session, service_key="camp-blood-email", channel="email"
+    )
+    await _ensure_notification_service(
+        test_db_session, service_key="camp-blood-wa", channel="whatsapp"
+    )
+    await _ensure_notification_service(
+        test_db_session, service_key="camp-bioai-email", channel="email"
+    )
+
+    now = datetime.now(timezone.utc)
+    test_db_session.add_all(
+        [
+            # User 88211: blood sent via email
+            Notification(
+                event_code="reports.blood_ready",
+                service_key="camp-blood-email",
+                status="sent",
+                channel="email",
+                user={"user_ids": [88211]},
+                engagement_id=88201,
+                message="blood email",
+                dispatched_at=now,
+            ),
+            # Same user also blood via whatsapp — still one distinct user
+            Notification(
+                event_code="reports.blood_ready",
+                service_key="camp-blood-wa",
+                status="sent",
+                channel="whatsapp",
+                user={"user_ids": [88211]},
+                engagement_id=88201,
+                message="blood wa",
+                dispatched_at=now,
+            ),
+            # User 88212: bio-ai sent
+            Notification(
+                event_code="reports.bioai_ready",
+                service_key="camp-bioai-email",
+                status="sent",
+                channel="email",
+                user={"user_ids": [88212]},
+                engagement_id=88201,
+                message="bioai email",
+                dispatched_at=now,
+            ),
+            # User 88213: blood failed — must not count
+            Notification(
+                event_code="reports.blood_ready",
+                service_key="camp-blood-email",
+                status="failed",
+                channel="email",
+                user={"user_ids": [88213]},
+                engagement_id=88201,
+                message="blood failed",
+                dispatched_at=now,
+            ),
+            # Non-enrolled user in payload — must not count
+            Notification(
+                event_code="reports.blood_ready",
+                service_key="camp-blood-email",
+                status="sent",
+                channel="email",
+                user={"user_ids": [99999]},
+                engagement_id=88201,
+                message="not enrolled",
+                dispatched_at=now,
+            ),
+            # Pending status — must not count
+            Notification(
+                event_code="reports.blood_ready",
+                service_key="camp-blood-email",
+                status="pending",
+                channel="email",
+                user={"user_ids": [88213]},
+                engagement_id=88201,
+                message="blood pending",
+                dispatched_at=now,
+            ),
+            # Unrelated event_code — must not count
+            Notification(
+                event_code="users.registered",
+                service_key="camp-blood-email",
+                status="sent",
+                channel="email",
+                user={"user_ids": [88213]},
+                engagement_id=88201,
+                message="unrelated event",
+                dispatched_at=now,
+            ),
+        ]
+    )
+    await test_db_session.commit()
+
+    res = await async_client.get(
+        "/engagements/88201/progress-report",
+        headers=_auth_header(8820),
+    )
+    assert res.status_code == 200
+    data = res.json()["data"]
+    assert data["total_registered"] == 3
+    assert data["blood_report_sent"] == 1
+    assert data["bio_ai_report_sent"] == 1
