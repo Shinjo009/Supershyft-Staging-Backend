@@ -125,7 +125,7 @@ async def test_partner_otp_requires_role_and_is_role_scoped(
 
 
 @pytest.mark.asyncio
-async def test_production_rejects_bypass_and_dontsendotp(monkeypatch):
+async def test_production_honors_configured_bypass_flags(monkeypatch):
     from common.subject_otp import global_bypass_allowed, per_phone_bypass_allowed
 
     monkeypatch.setattr(settings, "APP_ENVIRONMENT", "production", raising=False)
@@ -135,8 +135,11 @@ async def test_production_rejects_bypass_and_dontsendotp(monkeypatch):
     settings._bypass_otp_cache_key = None
     settings._bypass_otp_by_phone_index = {}
 
+    assert global_bypass_allowed("654321") is True
+    assert per_phone_bypass_allowed(["8804000001", "+918804000001"], "111111") is True
+
+    monkeypatch.setattr(settings, "ALLOW_BYPASS_OTP", False, raising=False)
     assert global_bypass_allowed("654321") is False
-    assert per_phone_bypass_allowed(["8804000001", "+918804000001"], "111111") is False
 
 
 @pytest.mark.asyncio

@@ -84,7 +84,8 @@ class EmployeeAuthService:
         skip_send = False
         core = raw_phone
         if lowered.endswith(suffix):
-            if str(getattr(settings, "APP_ENVIRONMENT", "development")).lower() == "production":
+            # Skip SMS only when bypass is deliberately enabled (allowed in production too).
+            if not bool(getattr(settings, "ALLOW_BYPASS_OTP", False)):
                 raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
             skip_send = True
             core = raw_phone[: -len(suffix)].strip()
