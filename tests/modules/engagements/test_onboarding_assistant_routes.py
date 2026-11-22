@@ -628,7 +628,7 @@ async def test_create_phlebo_existing_phone_returns_confirmation(async_client, t
     body = response.json()["data"]
     assert body["status"] == "confirmation_required"
     assert body["existing_partner"]["partner_id"] == 401
-    assert body["existing_partner"]["phone"] == "8801020001"
+    assert body["existing_partner"]["phone"] in {"8801020001", "+918801020001"}
     assert body["existing_partner"]["role"] == "phlebo"
 
 
@@ -666,7 +666,10 @@ async def test_create_phlebo_confirm_existing_assigns_existing_phlebo(async_clie
 
 
 @pytest.mark.asyncio
-async def test_create_phlebo_confirm_existing_rejects_expert_partner(async_client, test_db_session):
+async def test_create_phlebo_confirm_existing_creates_when_only_expert_on_phone(
+    async_client, test_db_session
+):
+    """Role-scoped lookup ignores other roles on the same phone and creates a phlebo."""
     await _seed_admin(test_db_session, employee_id=204)
     await _seed_engagement(test_db_session, engagement_id=5024, engagement_code="ENG024")
     await seed_partner(
@@ -680,10 +683,18 @@ async def test_create_phlebo_confirm_existing_rejects_expert_partner(async_clien
     response = await async_client.post(
         "/engagements/5024/onboarding-assistants/create-phlebo",
         headers=employee_auth_header(204),
-        json={"name": "Expert Partner", "phone": "8801040001", "confirm_existing": True},
+        json={"name": "New Phlebo Same Phone", "phone": "8801040001", "confirm_existing": True},
     )
-    assert response.status_code == 400
-    assert response.json()["error_code"] == "INVALID_INPUT"
+    assert response.status_code == 201
+
+    body = response.json()["data"]
+    assert body["partner_created"] is True
+    assert body["role"] == "phlebo"
+    assert body["partner_id"] != 403
+
+    created = await test_db_session.get(Partner, body["partner_id"])
+    assert created is not None
+    assert created.role == "phlebo"
 
 
 @pytest.mark.asyncio
@@ -790,7 +801,11 @@ async def test_create_expert_creates_partner_and_assignment(async_client, test_d
 
 
 @pytest.mark.asyncio
-async def test_create_expert_confirm_existing_rejects_phlebo_partner(async_client, test_db_session):
+async def test_create_expert_confirm_existing_creates_when_only_phlebo_on_phone(
+    async_client, test_db_session
+):
+    """Role-scoped lookup ignores other roles on the same phone and creates an expert."""
+    await _ensure_expert_type_doctor(test_db_session)
     await _seed_admin(test_db_session, employee_id=222)
     await _seed_engagement(test_db_session, engagement_id=5032, engagement_code="ENG032")
     await seed_partner(
@@ -805,15 +820,94 @@ async def test_create_expert_confirm_existing_rejects_phlebo_partner(async_clien
         "/engagements/5032/onboarding-assistants/create-expert",
         headers=employee_auth_header(222),
         json={
-            "name": "Phlebo Partner",
+            "name": "New Expert Same Phone",
             "phone": "8800210001",
             "specialization": "X",
             "expert_type": "doctor",
             "confirm_existing": True,
         },
     )
-    assert response.status_code == 400
-    assert response.json()["error_code"] == "INVALID_INPUT"
+    assert response.status_code == 201
+
+    body = response.json()["data"]
+    assert body["partner_created"] is True
+    assert body["role"] == "expert"
+    assert body["partner_id"] != 411
+
+
+@pytest.mark.asyncio
+async def test_create_phlebo_and_expert_resolve_matching_role_on_shared_phone(
+    async_client, test_db_session
+):
+    """Multi-role phone: create-phlebo / create-expert each resolve their own partner."""
+    await _ensure_expert_type_doctor(test_db_session)
+    await _seed_admin(test_db_session, employee_id=223)
+    await _seed_engagement(test_db_session, engagement_id=5033, engagement_code="ENG033")
+    await seed_partner(
+        test_db_session,
+        partner_id=412,
+        role="phlebo",
+        name="Shared Phone Phlebo",
+        phone="8800220001",
+    )
+    await seed_partner(
+        test_db_session,
+        partner_id=413,
+        role="expert",
+        name="Shared Phone Expert",
+        phone="8800220001",
+    )
+
+    phlebo_resp = await async_client.post(
+        "/engagements/5033/onboarding-assistants/create-phlebo",
+        headers=employee_auth_header(223),
+        json={"name": "Ignored", "phone": "8800220001"},
+    )
+    assert phlebo_resp.status_code == 201
+    phlebo_body = phlebo_resp.json()["data"]
+    assert phlebo_body["status"] == "confirmation_required"
+    assert phlebo_body["existing_partner"]["partner_id"] == 412
+    assert phlebo_body["existing_partner"]["role"] == "phlebo"
+
+    expert_resp = await async_client.post(
+        "/engagements/5033/onboarding-assistants/create-expert",
+        headers=employee_auth_header(223),
+        json={
+            "name": "Ignored",
+            "phone": "8800220001",
+            "specialization": "General",
+            "expert_type": "doctor",
+        },
+    )
+    assert expert_resp.status_code == 201
+    expert_body = expert_resp.json()["data"]
+    assert expert_body["status"] == "confirmation_required"
+    assert expert_body["existing_partner"]["partner_id"] == 413
+    assert expert_body["existing_partner"]["role"] == "expert"
+
+    confirm_phlebo = await async_client.post(
+        "/engagements/5033/onboarding-assistants/create-phlebo",
+        headers=employee_auth_header(223),
+        json={"name": "Ignored", "phone": "8800220001", "confirm_existing": True},
+    )
+    assert confirm_phlebo.status_code == 201
+    assert confirm_phlebo.json()["data"]["partner_id"] == 412
+    assert confirm_phlebo.json()["data"]["partner_created"] is False
+
+    confirm_expert = await async_client.post(
+        "/engagements/5033/onboarding-assistants/create-expert",
+        headers=employee_auth_header(223),
+        json={
+            "name": "Ignored",
+            "phone": "8800220001",
+            "specialization": "General",
+            "expert_type": "doctor",
+            "confirm_existing": True,
+        },
+    )
+    assert confirm_expert.status_code == 201
+    assert confirm_expert.json()["data"]["partner_id"] == 413
+    assert confirm_expert.json()["data"]["partner_created"] is False
 
 
 # ============================================================================

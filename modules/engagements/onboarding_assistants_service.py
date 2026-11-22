@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.phone import normalize_phone_for_storage, phone_lookup_candidates
 from core.exceptions import AppError
 from modules.audit.service import AuditService
 from modules.employee.access_control import (
@@ -28,6 +29,28 @@ def _normalize_int(value: int) -> int:
     if not isinstance(value, int) or value <= 0:
         raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
     return value
+
+
+async def _find_partner_by_phone_and_role(
+    repository: PartnersRepository,
+    db: AsyncSession,
+    phone: str,
+    role: str,
+) -> Partner | None:
+    """Resolve an active-role partner using normalized phone variants."""
+    candidates = phone_lookup_candidates(phone, strict=False)
+    canonical = normalize_phone_for_storage(phone, strict=False)
+    if canonical and canonical not in candidates:
+        candidates = [canonical, *candidates]
+    tried: set[str] = set()
+    for candidate in candidates:
+        if not candidate or candidate in tried:
+            continue
+        tried.add(candidate)
+        row = await repository.get_by_phone_and_role(db, candidate, role)
+        if row is not None:
+            return row
+    return None
 
 
 def _partner_payload(partner: Partner) -> dict:
@@ -276,7 +299,9 @@ class OnboardingAssistantsService:
                 message="Engagement does not exist",
             )
 
-        existing_partner = await self._partners_repository.get_by_phone(db, phone)
+        existing_partner = await _find_partner_by_phone_and_role(
+            self._partners_repository, db, phone, PartnerRole.phlebo.value
+        )
         if existing_partner is not None and not confirm_existing:
             return _existing_partner_payload(existing_partner)
 
@@ -364,7 +389,9 @@ class OnboardingAssistantsService:
                 message="Engagement does not exist",
             )
 
-        existing_partner = await self._partners_repository.get_by_phone(db, phone)
+        existing_partner = await _find_partner_by_phone_and_role(
+            self._partners_repository, db, phone, PartnerRole.expert.value
+        )
         if existing_partner is not None and not confirm_existing:
             return _existing_partner_payload(existing_partner)
 
