@@ -4,14 +4,37 @@ from __future__ import annotations
 
 import pytest
 
-from common.phone import phone_lookup_candidates, to_healthians_mobile
+from common.phone import (
+    normalize_phone_for_storage,
+    phone_lookup_candidates,
+    to_healthians_mobile,
+)
 from core.exceptions import AppError
+
+
+def test_normalize_phone_for_storage_india_variants():
+    assert normalize_phone_for_storage("8103946120") == "+918103946120"
+    assert normalize_phone_for_storage("+918103946120") == "+918103946120"
+    assert normalize_phone_for_storage("918103946120") == "+918103946120"
+    assert normalize_phone_for_storage("08103946120") == "+918103946120"
+    assert normalize_phone_for_storage(" 810 394 6120 ") == "+918103946120"
+
+
+def test_normalize_phone_for_storage_international():
+    assert normalize_phone_for_storage("+66961275268") == "+66961275268"
+    assert normalize_phone_for_storage("66961275268") == "+66961275268"
+
+
+def test_normalize_phone_for_storage_empty():
+    assert normalize_phone_for_storage(None) is None
+    assert normalize_phone_for_storage("") is None
+    assert normalize_phone_for_storage("   ") is None
 
 
 def test_phone_lookup_candidates_india_ten_digit():
     assert phone_lookup_candidates("8103946120") == [
-        "8103946120",
         "+918103946120",
+        "8103946120",
         "918103946120",
     ]
 

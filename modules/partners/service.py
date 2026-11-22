@@ -5,10 +5,10 @@ from __future__ import annotations
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.phone import normalize_phone_for_storage
 from core.exceptions import AppError
 from modules.audit.service import AuditService
 from modules.employee.access_control import ensure_admin
-from modules.employee.repository import EmployeeRepository
 from modules.employee.service import EmployeeContext
 from modules.experts.models import Expert
 from modules.experts.repository import ExpertsRepository
@@ -46,8 +46,17 @@ def _normalize_email(value: str | None) -> str | None:
 def _normalize_phone(value: str | None) -> str | None:
     if value is None:
         return None
-    normalized = value.strip()
-    return normalized or None
+    return normalize_phone_for_storage(value, strict=False)
+
+
+def _role_display_name(role: str) -> str:
+    labels = {
+        PartnerRole.phlebo.value: "Phlebo",
+        PartnerRole.expert.value: "Expert",
+        PartnerRole.organization_manager.value: "Organization Manager",
+        PartnerRole.author.value: "Author",
+    }
+    return labels.get(role, role)
 
 
 class PartnersService:
@@ -55,13 +64,11 @@ class PartnersService:
         self,
         repository: PartnersRepository,
         audit_service: AuditService | None = None,
-        employee_repository: EmployeeRepository | None = None,
         experts_repository: ExpertsRepository | None = None,
         expert_types_service: ExpertTypesService | None = None,
     ):
         self._repository = repository
         self._audit_service = audit_service
-        self._employee_repository = employee_repository or EmployeeRepository()
         self._experts_repository = experts_repository or ExpertsRepository()
         self._expert_types_service = expert_types_service
 
@@ -69,30 +76,6 @@ class PartnersService:
         if self._audit_service is None:
             raise RuntimeError("Audit service is required")
         return self._audit_service
-
-    async def _reject_if_employee_identifier_exists(
-        self,
-        db: AsyncSession,
-        *,
-        phone: str | None,
-        email: str | None,
-    ) -> None:
-        if phone:
-            existing = await self._employee_repository.get_by_phone(db, phone)
-            if existing is not None:
-                raise AppError(
-                    status_code=409,
-                    error_code="IDENTIFIER_ALREADY_EXISTS",
-                    message="Phone or email already exists on an employee",
-                )
-        if email:
-            existing = await self._employee_repository.get_by_email(db, email)
-            if existing is not None:
-                raise AppError(
-                    status_code=409,
-                    error_code="IDENTIFIER_ALREADY_EXISTS",
-                    message="Phone or email already exists on an employee",
-                )
 
     def _role_value(self, role: PartnerRole | str) -> str:
         return role.value if isinstance(role, PartnerRole) else str(role)
@@ -154,17 +137,24 @@ class PartnersService:
         phone = _normalize_phone(payload.phone)
         email = _normalize_email(str(payload.email) if payload.email else None)
         role = payload.role.value if isinstance(payload.role, PartnerRole) else str(payload.role)
-
-        await self._reject_if_employee_identifier_exists(db, phone=phone, email=email)
+        role_label = _role_display_name(role)
 
         if phone:
-            existing = await self._repository.get_by_phone(db, phone)
+            existing = await self._repository.get_by_phone_and_role(db, phone, role)
             if existing is not None:
-                raise AppError(status_code=409, error_code="PARTNER_ALREADY_EXISTS", message="Partner already exists")
+                raise AppError(
+                    status_code=409,
+                    error_code="PARTNER_ALREADY_EXISTS",
+                    message=f"Phone already exists for {role_label} partner",
+                )
         if email:
             existing = await self._repository.get_by_email(db, email)
             if existing is not None:
-                raise AppError(status_code=409, error_code="PARTNER_ALREADY_EXISTS", message="Partner already exists")
+                raise AppError(
+                    status_code=409,
+                    error_code="PARTNER_ALREADY_EXISTS",
+                    message=f"Email already exists for a partner",
+                )
 
         row = Partner(
             name=payload.name.strip(),
@@ -179,7 +169,7 @@ class PartnersService:
             raise AppError(
                 status_code=409,
                 error_code="PARTNER_ALREADY_EXISTS",
-                message="Partner already exists",
+                message=f"Phone or email already exists for {role_label} partner",
             ) from exc
 
         await ensure_author_profile(db, row)
@@ -284,6 +274,7 @@ class PartnersService:
         phone = _normalize_phone(payload.phone)
         email = _normalize_email(str(payload.email) if payload.email else None)
         role = self._role_value(payload.role)
+        role_label = _role_display_name(role)
 
         existing_expert = await self._experts_repository.get_by_partner_id(db, partner_id)
         current_role = partner_role_value(row.role)
@@ -307,16 +298,22 @@ class PartnersService:
         elif payload.expert_profile is not None:
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
 
-        await self._reject_if_employee_identifier_exists(db, phone=phone, email=email)
-
         if phone:
-            existing = await self._repository.get_by_phone(db, phone)
+            existing = await self._repository.get_by_phone_and_role(db, phone, role)
             if existing is not None and existing.partner_id != row.partner_id:
-                raise AppError(status_code=409, error_code="PARTNER_ALREADY_EXISTS", message="Partner already exists")
+                raise AppError(
+                    status_code=409,
+                    error_code="PARTNER_ALREADY_EXISTS",
+                    message=f"Phone already exists for {role_label} partner",
+                )
         if email:
             existing = await self._repository.get_by_email(db, email)
             if existing is not None and existing.partner_id != row.partner_id:
-                raise AppError(status_code=409, error_code="PARTNER_ALREADY_EXISTS", message="Partner already exists")
+                raise AppError(
+                    status_code=409,
+                    error_code="PARTNER_ALREADY_EXISTS",
+                    message="Email already exists for a partner",
+                )
 
         row.name = payload.name.strip()
         row.phone = phone
@@ -328,7 +325,7 @@ class PartnersService:
             raise AppError(
                 status_code=409,
                 error_code="PARTNER_ALREADY_EXISTS",
-                message="Partner already exists",
+                message=f"Phone or email already exists for {role_label} partner",
             ) from exc
 
         await ensure_author_profile(db, row)

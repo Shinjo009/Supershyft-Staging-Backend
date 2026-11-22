@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from common.phone import normalize_phone_for_storage
 from core.subject_auth import JwtSubjectTyp, create_access_token
 from modules.employee.models import Employee
 from modules.partners.models import Partner
@@ -24,6 +25,12 @@ def user_auth_header(user_id: int) -> dict[str, str]:
     return auth_header(user_id, "user")
 
 
+def _seed_phone(phone: str | None) -> str | None:
+    if phone is None:
+        return None
+    return normalize_phone_for_storage(phone, strict=False) or phone
+
+
 def make_employee(
     *,
     employee_id: int,
@@ -34,10 +41,11 @@ def make_employee(
     email: str | None = None,
 ) -> Employee:
     """Build an Employee row (no users linkage)."""
+    default_phone = normalize_phone_for_storage(f"{employee_id:010d}"[:15], strict=False)
     return Employee(
         employee_id=employee_id,
         name=name or f"Employee {employee_id}",
-        phone=phone if phone is not None else f"{employee_id:010d}"[:15],
+        phone=_seed_phone(phone) if phone is not None else default_phone,
         email=email if email is not None else f"employee{employee_id}@test.example",
         role=role,
         status=status,
@@ -56,7 +64,7 @@ def make_partner(
     """Build a Partner row. Omit partner_id to let the DB assign one."""
     kwargs: dict = {
         "name": name or f"Partner {role}",
-        "phone": phone if phone is not None else None,
+        "phone": _seed_phone(phone),
         "email": email if email is not None else None,
         "role": role,
         "status": status,
@@ -65,7 +73,7 @@ def make_partner(
         kwargs["partner_id"] = partner_id
     if kwargs["phone"] is None and kwargs["email"] is None:
         pid = partner_id or 0
-        kwargs["phone"] = f"9{pid:09d}"[:15]
+        kwargs["phone"] = _seed_phone(f"9{pid:09d}"[:15])
     return Partner(**kwargs)
 
 
@@ -84,9 +92,9 @@ async def seed_employee(
     if existing is not None:
         existing.name = name or existing.name or f"Employee {employee_id}"
         if phone is not None:
-            existing.phone = phone
+            existing.phone = _seed_phone(phone)
         elif not existing.phone:
-            existing.phone = f"{employee_id:010d}"[:15]
+            existing.phone = _seed_phone(f"{employee_id:010d}"[:15])
         if email is not None:
             existing.email = email
         elif not existing.email:
@@ -127,11 +135,11 @@ async def seed_partner(
         if existing is not None:
             existing.name = name or existing.name or f"Partner {role}"
             if phone is not None:
-                existing.phone = phone
+                existing.phone = _seed_phone(phone)
             if email is not None:
                 existing.email = email
             if existing.phone is None and existing.email is None:
-                existing.phone = f"9{partner_id:09d}"[:15]
+                existing.phone = _seed_phone(f"9{partner_id:09d}"[:15])
             existing.role = role
             existing.status = status
             partner = existing

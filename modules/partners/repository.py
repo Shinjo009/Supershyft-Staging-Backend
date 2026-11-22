@@ -54,7 +54,15 @@ class PartnersRepository:
         return result.scalar_one_or_none()
 
     async def get_by_phone(self, db: AsyncSession, phone: str) -> Optional[Partner]:
-        result = await db.execute(select(Partner).where(Partner.phone == phone))
+        result = await db.execute(select(Partner).where(Partner.phone == phone).limit(1))
+        return result.scalar_one_or_none()
+
+    async def get_by_phone_and_role(
+        self, db: AsyncSession, phone: str, role: str
+    ) -> Optional[Partner]:
+        result = await db.execute(
+            select(Partner).where(Partner.phone == phone, Partner.role == role)
+        )
         return result.scalar_one_or_none()
 
     async def get_by_email(self, db: AsyncSession, email: str) -> Optional[Partner]:
@@ -66,6 +74,17 @@ class PartnersRepository:
 
     async def list_by_phone(self, db: AsyncSession, phone: str) -> list[Partner]:
         result = await db.execute(select(Partner).where(Partner.phone == phone))
+        return list(result.scalars().all())
+
+    async def list_active_by_phones(self, db: AsyncSession, phones: list[str]) -> list[Partner]:
+        if not phones:
+            return []
+        result = await db.execute(
+            select(Partner).where(
+                Partner.phone.in_(phones),
+                Partner.status == "active",
+            )
+        )
         return list(result.scalars().all())
 
     async def count_partners(

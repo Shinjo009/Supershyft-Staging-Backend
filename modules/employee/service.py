@@ -38,7 +38,6 @@ from modules.employee.schemas import (
     EmployeeDepartmentsUpdate,
     EmployeeUpdateRequest,
 )
-from modules.partners.repository import PartnersRepository
 
 
 @dataclass(frozen=True)
@@ -82,8 +81,9 @@ def _normalize_email(value: str | None) -> str | None:
 def _normalize_phone(value: str | None) -> str | None:
     if value is None:
         return None
-    normalized = value.strip()
-    return normalized or None
+    from common.phone import normalize_phone_for_storage
+
+    return normalize_phone_for_storage(value, strict=False)
 
 
 def _parse_staff_role(role) -> EmployeeRole:
@@ -114,11 +114,9 @@ class EmployeeService:
         self,
         repository: EmployeeRepository,
         audit_service: AuditService | None = None,
-        partners_repository: PartnersRepository | None = None,
     ):
         self._repository = repository
         self._audit_service = audit_service
-        self._partners_repository = partners_repository or PartnersRepository()
 
     def _ensure_employee_access(self, employee: EmployeeContext | None) -> None:
         if employee is None:
@@ -152,30 +150,6 @@ class EmployeeService:
         if self._audit_service is None:
             raise RuntimeError("Audit service is required")
         return self._audit_service
-
-    async def _reject_if_partner_identifier_exists(
-        self,
-        db: AsyncSession,
-        *,
-        phone: str | None,
-        email: str | None,
-    ) -> None:
-        if phone:
-            existing = await self._partners_repository.get_by_phone(db, phone)
-            if existing is not None:
-                raise AppError(
-                    status_code=409,
-                    error_code="IDENTIFIER_ALREADY_EXISTS",
-                    message="Phone or email already exists on a partner",
-                )
-        if email:
-            existing = await self._partners_repository.get_by_email(db, email)
-            if existing is not None:
-                raise AppError(
-                    status_code=409,
-                    error_code="IDENTIFIER_ALREADY_EXISTS",
-                    message="Phone or email already exists on a partner",
-                )
 
     async def get_active_employee_by_id(
         self,
@@ -424,15 +398,13 @@ class EmployeeService:
         phone = _normalize_phone(payload.phone)
         email = _normalize_email(str(payload.email) if payload.email else None)
 
-        await self._reject_if_partner_identifier_exists(db, phone=phone, email=email)
-
         if phone:
             existing = await self._repository.get_by_phone(db, phone)
             if existing is not None:
                 raise AppError(
                     status_code=409,
                     error_code="EMPLOYEE_ALREADY_EXISTS",
-                    message="Employee already exists",
+                    message="Phone already exists for an employee",
                 )
         if email:
             existing = await self._repository.get_by_email(db, email)
@@ -440,7 +412,7 @@ class EmployeeService:
                 raise AppError(
                     status_code=409,
                     error_code="EMPLOYEE_ALREADY_EXISTS",
-                    message="Employee already exists",
+                    message="Email already exists for an employee",
                 )
 
         row = Employee(
@@ -620,15 +592,13 @@ class EmployeeService:
                     message="The last active administrator is protected",
                 )
 
-        await self._reject_if_partner_identifier_exists(db, phone=phone, email=email)
-
         if phone and phone != row.phone:
             existing = await self._repository.get_by_phone(db, phone)
             if existing is not None and existing.employee_id != row.employee_id:
                 raise AppError(
                     status_code=409,
                     error_code="EMPLOYEE_ALREADY_EXISTS",
-                    message="Employee already exists",
+                    message="Phone already exists for an employee",
                 )
         if email and email != row.email:
             existing = await self._repository.get_by_email(db, email)
@@ -636,7 +606,7 @@ class EmployeeService:
                 raise AppError(
                     status_code=409,
                     error_code="EMPLOYEE_ALREADY_EXISTS",
-                    message="Employee already exists",
+                    message="Email already exists for an employee",
                 )
 
         row.name = payload.name.strip()

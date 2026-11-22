@@ -88,6 +88,7 @@ from modules.users.router import router as users_router
 from modules.users.superclub_router import router as superclub_router
 from modules.employee.router import router as employees_router
 from modules.partners.router import router as partners_router
+from modules.staff_auth.router import router as staff_auth_router
 from modules.assessments.router import router as assessments_router
 from modules.assessments.packages_router import router as assessment_packages_router
 from modules.questionnaire.router import router as questionnaire_router
@@ -499,6 +500,7 @@ async def fastapi_app(
     app.include_router(export_logs_router)
     app.include_router(employees_router)
     app.include_router(partners_router)
+    app.include_router(staff_auth_router)
     app.include_router(assessments_router)
     app.include_router(assessment_packages_router)
     app.include_router(questionnaire_router)

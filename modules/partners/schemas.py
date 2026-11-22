@@ -93,6 +93,7 @@ class PartnerDetailsResponse(PartnerListItem):
 class PartnerSendOtpRequest(BaseModel):
     phone: OptionalPhoneStr = None
     email: EmailStr | None = Field(default=None, max_length=254)
+    role: PartnerRole | None = None
 
     @model_validator(mode="after")
     def exactly_one_identifier(self) -> PartnerSendOtpRequest:
@@ -100,12 +101,17 @@ class PartnerSendOtpRequest(BaseModel):
         has_email = self.email is not None and str(self.email).strip() != ""
         if has_phone == has_email:
             raise ValueError("Provide exactly one of phone or email")
+        if has_phone and self.role is None:
+            raise ValueError("role is required when phone is provided")
+        if has_email and self.role is not None:
+            raise ValueError("role is only allowed with phone login")
         return self
 
 
 class PartnerVerifyOtpRequest(BaseModel):
     phone: OptionalPhoneStr = None
     email: EmailStr | None = Field(default=None, max_length=254)
+    role: PartnerRole | None = None
     otp: OtpCode
 
     @model_validator(mode="after")
@@ -114,6 +120,10 @@ class PartnerVerifyOtpRequest(BaseModel):
         has_email = self.email is not None and str(self.email).strip() != ""
         if has_phone == has_email:
             raise ValueError("Provide exactly one of phone or email")
+        if has_phone and self.role is None:
+            raise ValueError("role is required when phone is provided")
+        if has_email and self.role is not None:
+            raise ValueError("role is only allowed with phone login")
         return self
 
 

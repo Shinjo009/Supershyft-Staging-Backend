@@ -84,6 +84,8 @@ class EmployeeAuthService:
         skip_send = False
         core = raw_phone
         if lowered.endswith(suffix):
+            if str(getattr(settings, "APP_ENVIRONMENT", "development")).lower() == "production":
+                raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
             skip_send = True
             core = raw_phone[: -len(suffix)].strip()
         elif suffix in lowered:

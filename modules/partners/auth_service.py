@@ -10,7 +10,7 @@ from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from common.phone import phone_lookup_candidates
+from common.phone import normalize_phone_for_storage, phone_lookup_candidates
 from common.subject_otp import (
     global_bypass_allowed,
     hash_otp,
@@ -24,8 +24,9 @@ from core.security import generate_secure_token
 from core.subject_auth import create_access_token
 from modules.audit.service import AuditService
 from modules.notifications.service import NotificationsService
-from modules.partners.models import Partner, PartnerAuthOtpSession, PartnerAuthToken
+from modules.partners.models import Partner, PartnerAuthOtpSession, PartnerAuthToken, PartnerRole
 from modules.partners.repository import PartnersRepository
+from modules.partners.role_utils import partner_role_value
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,11 @@ class PartnerAuthService:
     def _phone_lookup_candidates(self, phone: str) -> list[str]:
         return phone_lookup_candidates(phone, strict=True)
 
+    def _role_value(self, role: PartnerRole | str | None) -> str | None:
+        if role is None:
+            return None
+        return role.value if isinstance(role, PartnerRole) else str(role)
+
     def _split_send_otp_phone(self, phone: str) -> tuple[list[str], bool]:
         raw_phone = (phone or "").strip()
         suffix = self._DONTSENDOTP_SUFFIX
@@ -84,6 +90,8 @@ class PartnerAuthService:
         skip_send = False
         core = raw_phone
         if lowered.endswith(suffix):
+            if str(getattr(settings, "APP_ENVIRONMENT", "development")).lower() == "production":
+                raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
             skip_send = True
             core = raw_phone[: -len(suffix)].strip()
         elif suffix in lowered:
@@ -92,8 +100,24 @@ class PartnerAuthService:
         return self._phone_lookup_candidates(core), skip_send
 
     async def _resolve_partner_by_phone(
-        self, db: AsyncSession, phone_candidates: list[str]
+        self,
+        db: AsyncSession,
+        phone_candidates: list[str],
+        *,
+        role: str | None,
     ) -> Optional[Partner]:
+        if role:
+            tried: set[str] = set()
+            for phone in phone_candidates:
+                for candidate in (phone, normalize_phone_for_storage(phone, strict=False)):
+                    if not candidate or candidate in tried:
+                        continue
+                    tried.add(candidate)
+                    row = await self._repository.get_by_phone_and_role(db, candidate, role)
+                    if row is not None:
+                        return row
+            return None
+
         matches: dict[int, Partner] = {}
         for phone in phone_candidates:
             for row in await self._repository.list_by_phone(db, phone):
@@ -144,16 +168,20 @@ class PartnerAuthService:
         *,
         phone: str | None = None,
         email: str | None = None,
+        role: PartnerRole | str | None = None,
         ip_address: str,
         user_agent: str,
         endpoint: str,
     ) -> tuple[int, PartnerOtpDelivery | None]:
         skip_send = False
         service_key: str | None = None
+        role_value = self._role_value(role)
 
         if phone is not None:
             phone_candidates, skip_send = self._split_send_otp_phone(phone)
-            partner = await self._resolve_partner_by_phone(db, phone_candidates)
+            partner = await self._resolve_partner_by_phone(
+                db, phone_candidates, role=role_value
+            )
             if not skip_send:
                 service_key = settings.OTP_PHONE_SERVICE_KEY
         else:
@@ -165,6 +193,8 @@ class PartnerAuthService:
             raise AppError(status_code=404, error_code="PARTNER_NOT_FOUND", message="Partner does not exist")
         if (partner.status or "").lower() != "active":
             raise AppError(status_code=403, error_code="FORBIDDEN", message="Partner is not active")
+        if role_value and partner_role_value(partner.role) != role_value:
+            raise AppError(status_code=404, error_code="PARTNER_NOT_FOUND", message="Partner does not exist")
 
         otp = str(secrets.randbelow(1_000_000)).zfill(6)
         otp_hash = hash_otp(otp, self._otp_secret())
@@ -237,19 +267,25 @@ class PartnerAuthService:
         *,
         phone: str | None = None,
         email: str | None = None,
+        role: PartnerRole | str | None = None,
         otp: str,
         ip_address: str,
         user_agent: str,
         endpoint: str,
     ) -> tuple[Partner, PartnerTokenPair]:
+        role_value = self._role_value(role)
         if phone is not None:
             phone_candidates = self._phone_lookup_candidates(phone)
-            partner = await self._resolve_partner_by_phone(db, phone_candidates)
+            partner = await self._resolve_partner_by_phone(
+                db, phone_candidates, role=role_value
+            )
         else:
             phone_candidates = []
             partner = await self._resolve_partner_by_email(db, email or "")
 
         if partner is None or (partner.status or "").lower() != "active":
+            raise AppError(status_code=401, error_code="AUTH_FAILED", message="Authentication failed")
+        if role_value and partner_role_value(partner.role) != role_value:
             raise AppError(status_code=401, error_code="AUTH_FAILED", message="Authentication failed")
 
         session = await self._repository.get_latest_otp_session(db, partner.partner_id)

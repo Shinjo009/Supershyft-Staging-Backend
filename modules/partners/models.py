@@ -29,7 +29,7 @@ class Partner(Base):
             "(phone IS NOT NULL AND btrim(phone) <> '') OR (email IS NOT NULL AND btrim(email) <> '')",
             name="ck_partners_phone_or_email",
         ),
-        Index("ix_partners_phone", "phone", unique=True),
+        Index("ix_partners_phone_role", "phone", "role", unique=True),
         Index("ix_partners_email", "email", unique=True),
         Index("ix_partners_role", "role"),
         Index("ix_partners_status", "status"),

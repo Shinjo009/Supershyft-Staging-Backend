@@ -16,7 +16,19 @@ def verify_otp(otp: str, otp_hash: str, secret: str) -> bool:
     return hmac.compare_digest(hash_otp(otp, secret), otp_hash)
 
 
+def _bypass_hooks_enabled() -> bool:
+    """Test/dev bypass hooks are inert in production.
+
+    Uses the settings instance attribute so test monkeypatches of
+    ``settings.APP_ENVIRONMENT`` are respected (classmethod ``is_production``
+    reads the class attribute and would miss instance patches).
+    """
+    return str(getattr(settings, "APP_ENVIRONMENT", "development")).lower() != "production"
+
+
 def per_phone_bypass_allowed(phone_candidates: list[str], otp: str) -> bool:
+    if not _bypass_hooks_enabled():
+        return False
     index = settings.get_bypass_otp_by_phone()
     if not index:
         return False
@@ -28,6 +40,8 @@ def per_phone_bypass_allowed(phone_candidates: list[str], otp: str) -> bool:
 
 
 def global_bypass_allowed(otp: str) -> bool:
+    if not _bypass_hooks_enabled():
+        return False
     return bool(
         settings.ALLOW_BYPASS_OTP
         and settings.BYPASS_OTP

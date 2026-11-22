@@ -86,6 +86,17 @@ class EmployeeRepository:
         result = await db.execute(select(Employee).where(Employee.phone == phone))
         return list(result.scalars().all())
 
+    async def list_active_by_phones(self, db: AsyncSession, phones: list[str]) -> list[Employee]:
+        if not phones:
+            return []
+        result = await db.execute(
+            select(Employee).where(
+                Employee.phone.in_(phones),
+                Employee.status == "active",
+            )
+        )
+        return list(result.scalars().all())
+
     async def list_permissions(
         self, db: AsyncSession, employee_id: int
     ) -> list[EmployeeCategoryPermission]:

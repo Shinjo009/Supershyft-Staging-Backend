@@ -630,7 +630,11 @@ def classify_operation(route_template: str, method: str) -> RouteCapability | No
         category = "reports"
     elif path.startswith("/employees/users"):
         category = "users"
-    elif path.startswith("/employees/auth") or path.startswith("/partners/auth"):
+    elif (
+        path.startswith("/employees/auth")
+        or path.startswith("/partners/auth")
+        or path.startswith("/staff/auth")
+    ):
         return None
     elif path.startswith("/employees"):
         category = "employees"
