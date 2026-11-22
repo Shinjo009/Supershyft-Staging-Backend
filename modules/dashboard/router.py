@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.listing import sanitize_list_search
 from common.responses import success_response
 from db.session import get_db
 from modules.dashboard.b2c_command_service import (
@@ -153,11 +154,13 @@ async def get_command_notification_health_failed(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
     notifications_service: NotificationsService = Depends(get_notifications_service),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -168,6 +171,8 @@ async def get_command_notification_health_failed(
         dispatched_to=end,
         page=page,
         limit=limit,
+    
+        search=search,
     )
     return success_response(
         rows,
@@ -182,6 +187,7 @@ async def get_command_people_registered(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     include_rows: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
@@ -190,6 +196,7 @@ async def get_command_people_registered(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -210,6 +217,8 @@ async def get_command_people_registered(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(
         rows,
@@ -224,6 +233,7 @@ async def get_command_tests_completed(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     include_rows: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
@@ -232,6 +242,7 @@ async def get_command_tests_completed(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -262,6 +273,8 @@ async def get_command_tests_completed(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(
         rows,
@@ -283,6 +296,7 @@ async def get_command_questionnaire_done(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     include_rows: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
@@ -291,6 +305,7 @@ async def get_command_questionnaire_done(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -322,6 +337,8 @@ async def get_command_questionnaire_done(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(
         rows,
@@ -343,6 +360,7 @@ async def get_command_blood_report_generated(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     include_rows: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
@@ -351,6 +369,7 @@ async def get_command_blood_report_generated(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -381,6 +400,8 @@ async def get_command_blood_report_generated(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(
         rows,
@@ -402,6 +423,7 @@ async def get_command_bioai_report_generated(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     include_rows: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
@@ -410,6 +432,7 @@ async def get_command_bioai_report_generated(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -440,6 +463,8 @@ async def get_command_bioai_report_generated(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(
         rows,
@@ -461,6 +486,7 @@ async def get_command_consultation_done(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     include_rows: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
@@ -469,6 +495,7 @@ async def get_command_consultation_done(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -499,6 +526,8 @@ async def get_command_consultation_done(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(
         rows,
@@ -575,11 +604,13 @@ async def get_command_tickets(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     include_rows: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -609,6 +640,8 @@ async def get_command_tickets(
         all_time=all_time,
         page=page,
         limit=limit,
+    
+        search=search,
     )
     return success_response(
         rows,
@@ -641,6 +674,7 @@ async def get_command_upcoming_collections(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     include_rows: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
@@ -649,6 +683,7 @@ async def get_command_upcoming_collections(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -669,6 +704,8 @@ async def get_command_upcoming_collections(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(rows, meta=_audience_meta(preset, page, limit, counts))
 
@@ -680,6 +717,7 @@ async def get_command_overdue_collections(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     include_rows: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
@@ -688,6 +726,7 @@ async def get_command_overdue_collections(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -708,6 +747,8 @@ async def get_command_overdue_collections(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(rows, meta=_audience_meta(preset, page, limit, counts))
 
@@ -719,6 +760,7 @@ async def get_command_questionnaire_pending(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     include_rows: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
@@ -727,6 +769,7 @@ async def get_command_questionnaire_pending(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -748,6 +791,8 @@ async def get_command_questionnaire_pending(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(rows, meta=_audience_meta(preset, page, limit, counts))
 
@@ -759,6 +804,7 @@ async def get_command_blood_reports_pending(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     include_rows: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
@@ -767,6 +813,7 @@ async def get_command_blood_reports_pending(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -787,6 +834,8 @@ async def get_command_blood_reports_pending(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(rows, meta=_audience_meta(preset, page, limit, counts))
 
@@ -798,6 +847,7 @@ async def get_command_bioai_pending(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     include_rows: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
@@ -806,6 +856,7 @@ async def get_command_bioai_pending(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -827,6 +878,8 @@ async def get_command_bioai_pending(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(rows, meta=_audience_meta(preset, page, limit, counts))
 
@@ -838,6 +891,7 @@ async def get_command_consultation_pending(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     include_rows: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
@@ -846,6 +900,7 @@ async def get_command_consultation_pending(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -866,6 +921,8 @@ async def get_command_consultation_pending(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(rows, meta=_audience_meta(preset, page, limit, counts))
 
@@ -964,6 +1021,7 @@ async def get_command_b2c_total_bookings(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     include_rows: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
@@ -972,6 +1030,7 @@ async def get_command_b2c_total_bookings(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -989,6 +1048,8 @@ async def get_command_b2c_total_bookings(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(rows, meta=_b2c_period_meta(preset, page, limit, total))
 
@@ -1000,6 +1061,7 @@ async def get_command_b2c_collection_tomorrow(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     include_rows: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
@@ -1008,6 +1070,7 @@ async def get_command_b2c_collection_tomorrow(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -1028,6 +1091,8 @@ async def get_command_b2c_collection_tomorrow(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(rows, meta=_b2c_period_meta(preset, page, limit, total))
 
@@ -1039,6 +1104,7 @@ async def get_command_b2c_tests_completed(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     include_rows: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
@@ -1047,6 +1113,7 @@ async def get_command_b2c_tests_completed(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -1064,6 +1131,8 @@ async def get_command_b2c_tests_completed(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(rows, meta=_b2c_period_meta(preset, page, limit, total))
 
@@ -1075,6 +1144,7 @@ async def get_command_b2c_lab_report_delivered(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     include_rows: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
@@ -1083,6 +1153,7 @@ async def get_command_b2c_lab_report_delivered(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -1100,6 +1171,8 @@ async def get_command_b2c_lab_report_delivered(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(rows, meta=_b2c_period_meta(preset, page, limit, total))
 
@@ -1111,6 +1184,7 @@ async def get_command_b2c_bio_ai_reports(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     include_rows: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
@@ -1119,6 +1193,7 @@ async def get_command_b2c_bio_ai_reports(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -1136,6 +1211,8 @@ async def get_command_b2c_bio_ai_reports(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(rows, meta=_b2c_period_meta(preset, page, limit, total))
 
@@ -1147,6 +1224,7 @@ async def get_command_b2c_consultation_done(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     include_rows: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
@@ -1155,6 +1233,7 @@ async def get_command_b2c_consultation_done(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -1172,6 +1251,8 @@ async def get_command_b2c_consultation_done(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(rows, meta=_b2c_period_meta(preset, page, limit, total))
 
@@ -1205,6 +1286,7 @@ async def get_command_b2c_package_users(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
     questionnaire_service: QuestionnaireService = Depends(
@@ -1212,6 +1294,7 @@ async def get_command_b2c_package_users(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -1224,6 +1307,8 @@ async def get_command_b2c_package_users(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(
         rows,
@@ -1263,6 +1348,7 @@ async def get_command_b2c_coupon_users(
     to_date: date | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
     questionnaire_service: QuestionnaireService = Depends(
@@ -1270,6 +1356,7 @@ async def get_command_b2c_coupon_users(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     start, end, preset = resolve_period_bounds(
         period=period, from_date=from_date, to_date=to_date
     )
@@ -1282,6 +1369,8 @@ async def get_command_b2c_coupon_users(
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(
         rows,
@@ -1296,6 +1385,7 @@ async def get_command_b2c_coupon_users(
 async def get_command_b2c_users(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
     questionnaire_service: QuestionnaireService = Depends(
@@ -1303,11 +1393,14 @@ async def get_command_b2c_users(
     ),
 ):
     del employee
+    search = sanitize_list_search(search)
     rows, total = await b2c_users_page(
         db,
         page=page,
         limit=limit,
         questionnaire_service=questionnaire_service,
+    
+        search=search,
     )
     return success_response(
         rows,
