@@ -2668,6 +2668,20 @@ class EngagementsService:
             )
             response["consultations"] = bookings_to_consultations_map(bookings)
 
+        if "paid" in updates:
+            payment_type = getattr(engagement, "payment_type", None)
+            payment_type_value = (
+                payment_type.value if hasattr(payment_type, "value") else str(payment_type) if payment_type else None
+            )
+            if payment_type_value != EngagementPaymentType.paid_by_patient.value:
+                raise AppError(
+                    status_code=400,
+                    error_code="PAID_UPDATE_NOT_ALLOWED",
+                    message="Paid status can only be updated for paid_by_patient engagements",
+                )
+            participant.paid = bool(updates["paid"])
+            response["paid"] = participant.paid
+
         from modules.engagements.blood_bookings_access import (
             apply_schedule,
             get_current_row,
