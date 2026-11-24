@@ -21,7 +21,10 @@ from modules.diagnostics.healthians import client as healthians_client
 from modules.diagnostics.healthians.sync_log import log_healthians_call
 from modules.diagnostics.models import DiagnosticPackage
 from modules.discounts.schemas import CartLine, CheckoutContext
-from modules.diagnostics.orange_health.booking_helpers import is_orange_health
+from modules.diagnostics.orange_health import client as orange_health_client
+from modules.diagnostics.orange_health.booking_helpers import is_orange_health, parse_orange_slot_time
+from modules.diagnostics.orange_health.client import OrangeHealthApiError, reschedule_api_url
+from modules.diagnostics.orange_health.sync_log import log_orange_health_call
 from modules.diagnostics.redcliffe.booking_helpers import is_redcliffe
 from modules.engagements.blood_bookings_access import (
     apply_schedule,
@@ -75,6 +78,21 @@ def _is_redcliffe(pkg: DiagnosticPackage) -> bool:
 
 def _is_supported_home_collection_provider(pkg: DiagnosticPackage) -> bool:
     return _is_healthians(pkg) or _is_orange_health(pkg) or _is_redcliffe(pkg)
+
+
+async def _get_diagnostic_package_for_user_engagement(
+    db: AsyncSession,
+    *,
+    engagement: Engagement,
+    user_id: int,
+) -> DiagnosticPackage:
+    user_result = await db.execute(select(User).where(User.user_id == user_id))
+    user = user_result.scalar_one_or_none()
+    package_id = resolve_diagnostic_package_id(
+        engagement,
+        user_gender=user.gender if user is not None else None,
+    )
+    return await _get_diagnostic_package(db, package_id)
 
 
 async def _get_diagnostic_package(db: AsyncSession, package_id: int) -> DiagnosticPackage:
@@ -2130,6 +2148,231 @@ async def reschedule_healthians_participant_booking(
     }
 
 
+def _orange_reschedule_success(resp: dict) -> bool:
+    result = resp.get("result")
+    return isinstance(result, str) and result.strip().lower() == "ok"
+
+
+async def reschedule_orange_participant_booking(
+    db: AsyncSession,
+    *,
+    participant: EngagementParticipant,
+    engagement: Engagement,
+    blood_collection_date: date,
+    blood_collection_time_slot_id: str,
+    blood_collection_time_slot: str,
+    reschedule_reason: str,
+) -> dict[str, Any]:
+    """Reschedule an Orange Health home-collection booking and update local participant fields."""
+    blood_repo = BloodBookingsRepository()
+    current = await blood_repo.get_current_collection(
+        db, engagement_participant_id=participant.engagement_participant_id
+    )
+    if current is None:
+        raise AppError(
+            status_code=422,
+            error_code="NO_BOOKING",
+            message="No Orange Health booking exists for this participant",
+        )
+
+    request_id = (current.request_id or current.booking_id or "").strip()
+    token = (current.token or "").strip()
+    if not request_id or not token:
+        raise AppError(
+            status_code=422,
+            error_code="NO_BOOKING",
+            message="No Orange Health booking exists for this participant",
+        )
+
+    slot_id = (blood_collection_time_slot_id or "").strip()
+    if not slot_id:
+        raise AppError(
+            status_code=422,
+            error_code="SLOT_NOT_LOCKED",
+            message="Blood collection slot has not been locked",
+        )
+
+    locked_id = (current.collection_time_slot_id or "").strip()
+    if not locked_id:
+        raise AppError(
+            status_code=422,
+            error_code="SLOT_NOT_LOCKED",
+            message="Blood collection slot has not been locked",
+        )
+    if locked_id != slot_id:
+        raise AppError(
+            status_code=422,
+            error_code="SLOT_MISMATCH",
+            message="Locked slot does not match the requested slot",
+        )
+
+    if engagement.blood_collection_type != BloodCollectionType.home_collection:
+        raise AppError(
+            status_code=422,
+            error_code="NOT_HOME_COLLECTION",
+            message="Reschedule is only allowed for home collection engagements",
+        )
+
+    pkg = await _get_diagnostic_package_for_user_engagement(
+        db, engagement=engagement, user_id=participant.user_id
+    )
+    if not _is_orange_health(pkg):
+        raise AppError(
+            status_code=422,
+            error_code="INVALID_DIAGNOSTIC_PROVIDER",
+            message="Diagnostic provider is not Orange Health",
+        )
+
+    reason = reschedule_reason.strip()
+    if not reason:
+        raise AppError(
+            status_code=422,
+            error_code="INVALID_RESCHEDULE_REASON",
+            message="Reschedule reason is required",
+        )
+
+    try:
+        slot_start_time = parse_orange_slot_time(slot_id)
+    except ValueError:
+        try:
+            slot_start_time = _parse_slot_time(blood_collection_time_slot)
+        except ValueError as exc:
+            raise AppError(status_code=422, error_code="INVALID_SLOT_TIME", message=str(exc)) from exc
+
+    reschedule_payload = {
+        "requested_slot_time": slot_id,
+        "reschedule_reason": reason,
+        "reschedule_explanation": reason,
+    }
+    api_url = reschedule_api_url(request_id)
+
+    await release_request_transaction(db)
+
+    try:
+        resp = await orange_health_client.reschedule_order(
+            request_id=request_id,
+            token=token,
+            payload=reschedule_payload,
+        )
+    except OrangeHealthApiError as exc:
+        logger.exception(
+            "Orange Health reschedule failed for participant %s",
+            participant.engagement_participant_id,
+        )
+        await log_orange_health_call(
+            db,
+            engagement_id=engagement.engagement_id,
+            user_id=participant.user_id,
+            api_url=api_url,
+            request_payload=reschedule_payload,
+            response_payload=exc.body if isinstance(exc.body, dict) else None,
+            status="failed",
+            error_message=str(exc),
+        )
+        status_code = 422 if exc.status_code == 400 else 502
+        raise AppError(
+            status_code=status_code,
+            error_code="ORANGE_HEALTH_RESCHEDULE_FAILED",
+            message=str(exc),
+        ) from exc
+    except Exception as exc:
+        logger.exception(
+            "Orange Health reschedule failed for participant %s",
+            participant.engagement_participant_id,
+        )
+        await log_orange_health_call(
+            db,
+            engagement_id=engagement.engagement_id,
+            user_id=participant.user_id,
+            api_url=api_url,
+            request_payload=reschedule_payload,
+            status="failed",
+            error_message=str(exc),
+        )
+        raise AppError(
+            status_code=502,
+            error_code="ORANGE_HEALTH_RESCHEDULE_FAILED",
+            message=str(exc),
+        ) from exc
+
+    await log_orange_health_call(
+        db,
+        engagement_id=engagement.engagement_id,
+        user_id=participant.user_id,
+        api_url=api_url,
+        request_payload=reschedule_payload,
+        response_payload=resp,
+        status="success" if _orange_reschedule_success(resp) else "failed",
+    )
+
+    if not _orange_reschedule_success(resp):
+        raise AppError(
+            status_code=422,
+            error_code="ORANGE_HEALTH_RESCHEDULE_FAILED",
+            message=resp.get("status", "Booking reschedule failed"),
+        )
+
+    booking_id = request_id
+    await blood_repo.record_reschedule(
+        db,
+        current=current,
+        new_booking_id=booking_id,
+        collection_date=blood_collection_date,
+        collection_time=slot_start_time,
+        collection_time_slot_id=slot_id,
+    )
+
+    return {
+        "status": True,
+        "message": "Orange Health booking rescheduled",
+        "booking_id": booking_id,
+        "previous_booking_id": booking_id,
+        "blood_collection_date": blood_collection_date.isoformat(),
+        "blood_collection_time_slot_id": slot_id,
+        "slot_start_time": slot_start_time.isoformat(),
+    }
+
+
+async def reschedule_home_collection_participant_booking(
+    db: AsyncSession,
+    *,
+    participant: EngagementParticipant,
+    engagement: Engagement,
+    blood_collection_date: date,
+    blood_collection_time_slot_id: str,
+    blood_collection_time_slot: str,
+    reschedule_reason: str,
+) -> dict[str, Any]:
+    pkg = await _get_diagnostic_package_for_user_engagement(
+        db, engagement=engagement, user_id=participant.user_id
+    )
+    if _is_orange_health(pkg):
+        return await reschedule_orange_participant_booking(
+            db,
+            participant=participant,
+            engagement=engagement,
+            blood_collection_date=blood_collection_date,
+            blood_collection_time_slot_id=blood_collection_time_slot_id,
+            blood_collection_time_slot=blood_collection_time_slot,
+            reschedule_reason=reschedule_reason,
+        )
+    if _is_redcliffe(pkg):
+        raise AppError(
+            status_code=422,
+            error_code="UNSUPPORTED_PROVIDER",
+            message="Cancel and reschedule are not supported for Redcliffe bookings yet",
+        )
+    return await reschedule_healthians_participant_booking(
+        db,
+        participant=participant,
+        engagement=engagement,
+        blood_collection_date=blood_collection_date,
+        blood_collection_time_slot_id=blood_collection_time_slot_id,
+        blood_collection_time_slot=blood_collection_time_slot,
+        reschedule_reason=reschedule_reason,
+    )
+
+
 async def reschedule_healthians_bookings_batch(
     db: AsyncSession,
     *,
@@ -2187,7 +2430,7 @@ async def reschedule_healthians_bookings_batch(
             continue
 
         try:
-            reschedule_result = await reschedule_healthians_participant_booking(
+            reschedule_result = await reschedule_home_collection_participant_booking(
                 db,
                 participant=participant,
                 engagement=engagement,

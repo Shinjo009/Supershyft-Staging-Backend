@@ -37,6 +37,11 @@ def order_api_url() -> str:
     return f"{_base_url()}/v1/partner/order"
 
 
+def reschedule_api_url(request_id: str) -> str:
+    rid = (request_id or "").strip()
+    return f"{_base_url()}/v1/partner/{rid}/reschedule"
+
+
 def _coord(value: float) -> float:
     """Partner docs recommend >= 4 decimal places for serviceability."""
     return round(float(value), 6)
@@ -145,6 +150,38 @@ async def create_order(payload: dict[str, Any]) -> dict[str, Any]:
         raise OrangeHealthApiError(
             _format_api_error(data, "Order request failed"),
             status_code=resp.status_code,
+            body=data,
+        )
+    resp.raise_for_status()
+    return resp.json()
+
+
+async def reschedule_order(
+    *,
+    request_id: str,
+    token: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """PATCH /v1/partner/{request_id}/reschedule?token=..."""
+    url = reschedule_api_url(request_id)
+    params = {"token": (token or "").strip()}
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.patch(
+            url,
+            params=params,
+            json=payload,
+            headers={**_headers(), "Content-Type": "application/json"},
+        )
+    if resp.status_code == 401:
+        raise OrangeHealthApiError("Unauthorized", status_code=401, body=resp.text)
+    if resp.status_code == 400:
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"status": resp.text}
+        raise OrangeHealthApiError(
+            _format_api_error(data, "Reschedule request failed"),
+            status_code=400,
             body=data,
         )
     resp.raise_for_status()

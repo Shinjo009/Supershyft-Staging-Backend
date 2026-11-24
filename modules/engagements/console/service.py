@@ -1319,7 +1319,7 @@ class ConsoleService:
                 raise AppError(
                     status_code=422,
                     error_code="NO_BOOKING",
-                    message="No Healthians booking exists for this participant",
+                    message="No booking exists for this participant",
                 )
         elif await has_active_booking(db, participant):
             raise AppError(status_code=409, error_code="BOOKING_ALREADY_EXISTS", message="A booking already exists for this participant")
@@ -1952,7 +1952,7 @@ class ConsoleService:
         if participant is None:
             raise AppError(status_code=404, error_code="PARTICIPANT_NOT_FOUND", message="Participant is not enrolled in this engagement")
 
-        result = await booking_service.reschedule_healthians_participant_booking(
+        result = await booking_service.reschedule_home_collection_participant_booking(
             db,
             participant=participant,
             engagement=engagement,
