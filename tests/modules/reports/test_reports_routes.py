@@ -1573,14 +1573,15 @@ async def test_get_grouped_blood_parameter_trends_parity_with_flat_endpoint(
     flat_data = flat_response.json()["data"]
     grouped_data = grouped_response.json()["data"]
     assert len(flat_data) == len(grouped_data) == 1
-    assert _flatten_grouped_trend_parameters(grouped_data[0]) == flat_data[0]["data_points"]
+    grouped_params = _flatten_grouped_trend_parameters(grouped_data[0])
+    flat_keys = {row["parameter_key"] for row in flat_data[0]["data_points"]}
+    assert {row["parameter_key"] for row in grouped_params}.issubset(flat_keys)
+    assert "orphan_marker" not in {row["parameter_key"] for row in grouped_params}
     assert grouped_data[0]["diagnostic_package_id"] == package_id
     assert grouped_data[0]["diagnostic_package_name"] == "Trend Group Package"
     group_keys = [row["test_group_key"] for row in grouped_data[0]["test_groups"]]
-    assert group_keys == [f"lipid_profile_{package_id}", f"metabolic_{package_id}", "other"]
-    other_group = grouped_data[0]["test_groups"][-1]
-    assert other_group["test_group_name"] == "Other"
-    assert other_group["parameters"][0]["parameter_key"] == "orphan_marker"
+    assert group_keys == [f"lipid_profile_{package_id}", f"metabolic_{package_id}"]
+    assert "other" not in group_keys
 
 
 @pytest.mark.asyncio
@@ -1708,7 +1709,7 @@ async def test_get_grouped_blood_parameter_trends_two_packages_per_date(
 
 
 @pytest.mark.asyncio
-async def test_get_grouped_blood_parameter_trends_no_package_all_other(
+async def test_get_grouped_blood_parameter_trends_no_package_empty_groups(
     async_client,
     test_db_session,
 ):
@@ -1776,8 +1777,95 @@ async def test_get_grouped_blood_parameter_trends_no_package_all_other(
     assert response.status_code == 200
     row = response.json()["data"][0]
     assert row["diagnostic_package_id"] is None
+    assert row["test_groups"] == []
+
+
+@pytest.mark.asyncio
+async def test_get_grouped_blood_parameter_trends_maps_metsights_alias_into_package_group(
+    async_client,
+    test_db_session,
+):
+    user_id = 38617
+    package_id = 9617
+    await _seed_diagnostic_package_with_groups(
+        test_db_session,
+        package_id=package_id,
+        package_name="Liver Alias Package",
+        groups=[
+            (
+                "Liver Profile",
+                f"liver_profile_{package_id}",
+                [
+                    ("SGPT/ALT", "sgpt_alt", "U/L"),
+                ],
+            ),
+        ],
+    )
+    test_db_session.add(User(user_id=user_id, phone="3861700000", age=30, status="active"))
+    test_db_session.add(
+        AssessmentPackage(
+            package_id=8617,
+            package_code="P8617",
+            display_name="Package 8617",
+            status="active",
+            assessment_type_code="2",
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        Engagement(
+            engagement_id=48617,
+            engagement_code="ENG48617",
+            assessment_package_id=8617,
+            diagnostic_package_id=package_id,
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        AssessmentInstance(
+            assessment_instance_id=980617,
+            user_id=user_id,
+            package_id=8617,
+            engagement_id=48617,
+            status="completed",
+            metsights_record_id="GRPTREND6",
+            assigned_at=datetime.now(timezone.utc),
+            completed_at=datetime(2026, 7, 9, tzinfo=timezone.utc),
+        )
+    )
+    test_db_session.add(
+        IndividualHealthReport(
+            report_id=706171,
+            user_id=user_id,
+            engagement_id=48617,
+            assessment_instance_id=980617,
+        )
+    )
+    await _seed_participant_blood_params(
+        test_db_session,
+        engagement_participant_id=938617,
+        engagement_id=48617,
+        user_id=user_id,
+        blood_parameters={"alt_value": 19.1, "alt_value_unit": "U/L"},
+    )
+    test_db_session.add(
+        ReportsUserSyncState(
+            user_id=user_id,
+            last_synced_assessment_instance_id=980617,
+            sync_status="idle",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        "/reports/trends/blood-parameters/grouped",
+        headers=_auth_header(user_id),
+    )
+    assert response.status_code == 200
+    row = response.json()["data"][0]
     assert len(row["test_groups"]) == 1
-    assert row["test_groups"][0]["test_group_key"] == "other"
+    assert row["test_groups"][0]["test_group_key"] == f"liver_profile_{package_id}"
+    assert row["test_groups"][0]["parameters"][0]["parameter_key"] == "alt_value"
 
 
 @pytest.mark.asyncio

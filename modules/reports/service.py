@@ -61,6 +61,11 @@ from modules.reports.healthians_report_fields import (
     customer_display_name,
     parse_booking_report_entry,
 )
+from db.seed.blood_parameter_key_aliases import (
+    HEALTHIANS_TO_METSIGHTS_PARAMETER_KEY,
+    METSIGHTS_TO_HEALTHIANS_PARAMETER_KEYS,
+    resolve_metsights_parameter_key,
+)
 from db.seed.blood_parameters_registry import (
     ADVANCED_BLOOD_PARAMETER_CATEGORY_KEY,
     BLOOD_PARAMETER_CATEGORY_KEY,
@@ -109,8 +114,18 @@ _SYNC_IDLE = "idle"
 _SYNC_IN_PROGRESS = "in_progress"
 _SYNC_FAILED = "failed"
 
-_OTHER_TREND_GROUP_NAME = "Other"
-_OTHER_TREND_GROUP_KEY = "other"
+# Extra synonym keys for trend grouping (catalog key vs Metsights/blob key).
+_TREND_GROUPING_EQUIVALENT_KEYS: dict[str, tuple[str, ...]] = {
+    "esr_automated": ("esr_value", "esr"),
+    "esr_value": ("esr_automated", "esr"),
+    "esr": ("esr_automated", "esr_value"),
+    "alkaline_phosphatase": ("alp",),
+    "alp": ("alkaline_phosphatase",),
+    "hba1c": ("glycated_haemoglobin",),
+    "glycated_haemoglobin": ("hba1c",),
+    "fasting_sugar": ("glucose_fasting",),
+    "glucose_fasting": ("fasting_sugar",),
+}
 
 _blood_parameter_refresh_in_progress: set[int] = set()
 
@@ -3020,6 +3035,85 @@ class ReportsService:
     def _normalize_trend_parameter_lookup_key(key: str | None) -> str:
         return (key or "").strip().lower()
 
+    def _register_trend_group_lookup_key(
+        self,
+        key_to_group_id: dict[str, int],
+        *,
+        raw_key: str | None,
+        group_id: int,
+    ) -> None:
+        lookup_key = self._normalize_trend_parameter_lookup_key(raw_key)
+        if not lookup_key:
+            return
+        existing = key_to_group_id.get(lookup_key)
+        if existing is None or group_id < existing:
+            key_to_group_id[lookup_key] = group_id
+
+    def _catalog_keys_for_trend_grouping(self, test: Any) -> set[str]:
+        keys: set[str] = set()
+        for raw in (
+            getattr(test, "parameter_key", None),
+            getattr(test, "healthians_parameter_key", None),
+            getattr(test, "orangehealth_parameter_key", None),
+        ):
+            if raw is None:
+                continue
+            normalized = str(raw).strip()
+            if not normalized:
+                continue
+            keys.add(normalized)
+            mets_key = resolve_metsights_parameter_key(normalized)
+            if mets_key:
+                keys.add(mets_key)
+            mets_lookup = self._normalize_trend_parameter_lookup_key(mets_key)
+            for healthians_key in METSIGHTS_TO_HEALTHIANS_PARAMETER_KEYS.get(mets_lookup, ()):
+                keys.add(healthians_key)
+            normalized_lookup = self._normalize_trend_parameter_lookup_key(normalized)
+            for src, dst in HEALTHIANS_TO_METSIGHTS_PARAMETER_KEY.items():
+                src_n = self._normalize_trend_parameter_lookup_key(src)
+                dst_n = self._normalize_trend_parameter_lookup_key(dst)
+                if normalized_lookup in (src_n, dst_n):
+                    keys.update((src, dst, mets_key))
+            for equivalent in _TREND_GROUPING_EQUIVALENT_KEYS.get(normalized_lookup, ()):
+                keys.add(equivalent)
+        return keys
+
+    def _resolve_trend_group_id(
+        self,
+        key_to_group_id: dict[str, int],
+        parameter_key: str | None,
+    ) -> int | None:
+        candidates: list[str] = []
+        if parameter_key:
+            candidates.append(str(parameter_key).strip())
+        normalized = self._normalize_trend_parameter_lookup_key(parameter_key)
+        if normalized:
+            candidates.append(normalized)
+        mets_key = resolve_metsights_parameter_key(parameter_key or "")
+        mets_normalized = self._normalize_trend_parameter_lookup_key(mets_key)
+        if mets_key:
+            candidates.append(mets_key)
+        for healthians_key in METSIGHTS_TO_HEALTHIANS_PARAMETER_KEYS.get(mets_normalized, ()):
+            candidates.append(healthians_key)
+        for src, dst in HEALTHIANS_TO_METSIGHTS_PARAMETER_KEY.items():
+            src_n = self._normalize_trend_parameter_lookup_key(src)
+            dst_n = self._normalize_trend_parameter_lookup_key(dst)
+            if normalized and normalized in (src_n, dst_n):
+                candidates.extend([src, dst])
+        for equivalent in _TREND_GROUPING_EQUIVALENT_KEYS.get(normalized or "", ()):
+            candidates.append(equivalent)
+
+        seen: set[str] = set()
+        for raw in candidates:
+            lookup = self._normalize_trend_parameter_lookup_key(raw)
+            if not lookup or lookup in seen:
+                continue
+            seen.add(lookup)
+            group_id = key_to_group_id.get(lookup)
+            if group_id is not None:
+                return group_id
+        return None
+
     async def _engagements_by_id(
         self,
         db: AsyncSession,
@@ -3070,14 +3164,14 @@ class ReportsService:
                     "group_key": group.group_key,
                 }
             )
+            group_id = int(group.group_id)
             for test in group.tests:
-                lookup_key = self._normalize_trend_parameter_lookup_key(test.parameter_key)
-                if not lookup_key:
-                    continue
-                group_id = int(group.group_id)
-                existing = key_to_group_id.get(lookup_key)
-                if existing is None or group_id < existing:
-                    key_to_group_id[lookup_key] = group_id
+                for catalog_key in self._catalog_keys_for_trend_grouping(test):
+                    self._register_trend_group_lookup_key(
+                        key_to_group_id,
+                        raw_key=catalog_key,
+                        group_id=group_id,
+                    )
 
         layout = {
             "package_name": package.package_name if package is not None else None,
@@ -3121,24 +3215,13 @@ class ReportsService:
             )
 
             if diagnostic_package_id is None:
-                test_groups = (
-                    [
-                        {
-                            "test_group_name": _OTHER_TREND_GROUP_NAME,
-                            "test_group_key": _OTHER_TREND_GROUP_KEY,
-                            "parameters": sorted(data_points, key=lambda row: row.get("parameter_key") or ""),
-                        }
-                    ]
-                    if data_points
-                    else []
-                )
                 grouped.append(
                     {
                         "date": item["date"],
                         "engagement_id": engagement_id,
                         "diagnostic_package_id": None,
                         "diagnostic_package_name": None,
-                        "test_groups": test_groups,
+                        "test_groups": [],
                     }
                 )
                 continue
@@ -3154,14 +3237,13 @@ class ReportsService:
             buckets: dict[int, list[dict[str, Any]]] = {
                 int(group["group_id"]): [] for group in layout["groups"]
             }
-            other_parameters: list[dict[str, Any]] = []
             for point in data_points:
-                lookup_key = self._normalize_trend_parameter_lookup_key(point.get("parameter_key"))
-                group_id = layout["key_to_group_id"].get(lookup_key) if lookup_key else None
+                group_id = self._resolve_trend_group_id(
+                    layout["key_to_group_id"],
+                    str(point.get("parameter_key") or ""),
+                )
                 if group_id is not None and group_id in buckets:
                     buckets[group_id].append(point)
-                else:
-                    other_parameters.append(point)
 
             test_groups: list[dict[str, Any]] = []
             for group in layout["groups"]:
@@ -3173,17 +3255,6 @@ class ReportsService:
                         "test_group_name": group["group_name"],
                         "test_group_key": group["group_key"],
                         "parameters": sorted(parameters, key=lambda row: row.get("parameter_key") or ""),
-                    }
-                )
-            if other_parameters:
-                test_groups.append(
-                    {
-                        "test_group_name": _OTHER_TREND_GROUP_NAME,
-                        "test_group_key": _OTHER_TREND_GROUP_KEY,
-                        "parameters": sorted(
-                            other_parameters,
-                            key=lambda row: row.get("parameter_key") or "",
-                        ),
                     }
                 )
 
