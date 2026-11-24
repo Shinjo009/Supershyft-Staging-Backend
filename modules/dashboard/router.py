@@ -203,7 +203,11 @@ async def get_command_people_registered(
     all_time = preset == "all_time"
     if not include_rows:
         total = await people_registered_count(
-            db, created_from=start, created_to=end, all_time=all_time
+            db,
+            created_from=start,
+            created_to=end,
+            all_time=all_time,
+            search=search,
         )
         return success_response(
             [],

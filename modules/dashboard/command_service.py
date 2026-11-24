@@ -98,9 +98,16 @@ def _lab_status(
     return "pending"
 
 
-def _bio_ai_status(*, has_engagement: bool, report_url: str | None) -> str:
+def _bio_ai_status(
+    *,
+    has_engagement: bool,
+    report_url: str | None,
+    report_sent: bool = False,
+) -> str:
     if not has_engagement:
         return "empty"
+    if report_sent:
+        return "sent"
     if report_url and str(report_url).strip():
         return "loaded"
     return "pending"
@@ -547,15 +554,23 @@ async def _build_people_rows(
                 continue
             bio_by_instance[int(ihr.assessment_instance_id)] = ihr.report_url
 
-    from modules.dashboard.report_sent_kpi import blood_report_sent_pairs
+    from modules.dashboard.report_sent_kpi import (
+        bioai_report_sent_pairs,
+        blood_report_sent_pairs,
+    )
 
+    # Check all enrollments (not only latest) so multi-engagement users still
+    # show lab_report/bio_ai "sent" when the notification was on an older camp.
+    all_user_engagement_pairs = [
+        (int(row.user_id), int(row.engagement_id)) for row in enroll_rows
+    ]
     blood_sent_pairs = await blood_report_sent_pairs(
         db,
-        user_engagement_pairs=[
-            (uid, int(r.engagement_id))
-            for uid, r in latest_by_user.items()
-            if r is not None
-        ],
+        user_engagement_pairs=all_user_engagement_pairs,
+    )
+    bioai_sent_pairs = await bioai_report_sent_pairs(
+        db,
+        user_engagement_pairs=all_user_engagement_pairs,
     )
 
     # Diagnostic package names + providers
@@ -615,7 +630,16 @@ async def _build_people_rows(
                 has_engagement=True, organization_id=eng.organization_id
             )
             eng_id = int(eng.engagement_id)
-            report_sent = (uid, eng_id) in blood_sent_pairs
+            # Prefer any enrollment with a sent notification so KPI detail rows
+            # stay consistent for users with multiple engagements.
+            report_sent = any(
+                (uid, int(r.engagement_id)) in blood_sent_pairs
+                for r in by_user.get(uid, [])
+            )
+            bioai_sent = any(
+                (uid, int(r.engagement_id)) in bioai_sent_pairs
+                for r in by_user.get(uid, [])
+            )
 
             if not is_consult:
                 gender = str(getattr(eng, "gender", None) or getattr(user, "gender", None) or "").lower()
@@ -666,7 +690,11 @@ async def _build_people_rows(
             eng_id = int(eng.engagement_id)
             if ai is None:
                 questionnaire = "pending"
-                bio_ai = "pending"
+                bio_ai = _bio_ai_status(
+                    has_engagement=True,
+                    report_url=None,
+                    report_sent=bioai_sent,
+                )
             else:
                 if user_engagement_kpi_filled(
                     rollups_by_engagement=kpi_rollups,
@@ -679,6 +707,7 @@ async def _build_people_rows(
                 bio_ai = _bio_ai_status(
                     has_engagement=True,
                     report_url=bio_by_instance.get(int(ai.assessment_instance_id)),
+                    report_sent=bioai_sent,
                 )
 
             # consult aggregate across expert types: Attended > Booked > Not Booked

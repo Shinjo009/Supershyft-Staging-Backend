@@ -168,6 +168,14 @@ def test_status_helpers():
         == "sent"
     )
     assert _bio_ai_status(has_engagement=True, report_url="") == "pending"
+    assert (
+        _bio_ai_status(
+            has_engagement=True,
+            report_url=None,
+            report_sent=True,
+        )
+        == "sent"
+    )
     assert _consult_status(has_engagement=True, want=True, done=True) == "Attended"
     assert _consult_status(has_engagement=True, want=True, done=False) == "Booked"
     assert _consult_status(has_engagement=True, want=False, done=False) == "Not Booked"

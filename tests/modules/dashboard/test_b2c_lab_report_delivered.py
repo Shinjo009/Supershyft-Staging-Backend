@@ -224,3 +224,77 @@ async def test_b2c_lab_report_delivered_summary_and_list(async_client, test_db_s
     assert "lab_partner" in row
     assert "bio_ai" in row
     assert "consult" in row
+
+
+@pytest.mark.asyncio
+async def test_lab_report_sent_survives_newer_engagement(async_client, test_db_session):
+    """Sent on an older engagement must still show lab_report=sent after a newer enroll."""
+    await seed_employee(test_db_session, employee_id=8850, role="admin")
+    await _ensure_notification_service(
+        test_db_session, service_key="b2c-blood-email-multi", channel="email"
+    )
+
+    now = datetime.now(timezone.utc)
+    today = date.today()
+    older = today - timedelta(days=20)
+
+    await _seed_b2c_user_engagement(
+        test_db_session,
+        user_id=88501,
+        engagement_id=88501,
+        engagement_participant_id=8850101,
+        organization_id=None,
+    )
+    # Older engagement that actually received the blood-ready send
+    eng_old = await test_db_session.get(Engagement, 88501)
+    assert eng_old is not None
+    eng_old.start_date = older
+    eng_old.end_date = older
+
+    # Newer engagement becomes "latest" for row building
+    test_db_session.add(
+        Engagement(
+            engagement_id=88502,
+            engagement_code="LAB-88502",
+            engagement_name="Lab Eng 88502 newer",
+            organization_id=None,
+            city="Bengaluru",
+            start_date=today,
+            end_date=today,
+            status="running",
+            slot_duration=20,
+            diagnostic_package_id=1,
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        EngagementParticipant(
+            engagement_participant_id=8850201,
+            engagement_id=88502,
+            user_id=88501,
+        )
+    )
+    test_db_session.add(
+        Notification(
+            event_code="reports.blood_ready",
+            service_key="b2c-blood-email-multi",
+            status="sent",
+            channel="email",
+            user={"user_ids": [88501]},
+            engagement_id=88501,
+            message="sent on older eng",
+            dispatched_at=now,
+        )
+    )
+    await test_db_session.commit()
+
+    headers = employee_auth_header(8850)
+    resp = await async_client.get(
+        "/admin/dashboard/command/b2c/lab-report-delivered",
+        params={"period": "all_time", "include_rows": "true"},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    row = next(r for r in body["data"] if r["user_id"] == 88501)
+    assert row["lab_report"] == "sent"

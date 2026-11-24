@@ -170,12 +170,13 @@ async def b2c_report_sent_user_ids(
     return sorted(best.keys(), reverse=True)
 
 
-async def blood_report_sent_pairs(
+async def _report_sent_pairs(
     db: AsyncSession,
     *,
     user_engagement_pairs: Iterable[tuple[int, int]],
+    event_code: str,
 ) -> set[tuple[int, int]]:
-    """Return (user_id, engagement_id) pairs with blood report sent notification."""
+    """Return (user_id, engagement_id) pairs with a matching sent report notification."""
     pairs = {(int(uid), int(eid)) for uid, eid in user_engagement_pairs}
     if not pairs:
         return set()
@@ -190,7 +191,7 @@ async def blood_report_sent_pairs(
                 Notification.user,
             ).where(
                 Notification.engagement_id.in_(list(engagement_ids)),
-                Notification.event_code == EVENT_BLOOD_READY,
+                Notification.event_code == event_code,
                 Notification.channel.in_(REPORT_SENT_CHANNELS),
                 Notification.status == "sent",
             )
@@ -204,3 +205,29 @@ async def blood_report_sent_pairs(
             if uid in user_ids and (uid, eid) in pairs:
                 matched.add((uid, eid))
     return matched
+
+
+async def blood_report_sent_pairs(
+    db: AsyncSession,
+    *,
+    user_engagement_pairs: Iterable[tuple[int, int]],
+) -> set[tuple[int, int]]:
+    """Return (user_id, engagement_id) pairs with blood report sent notification."""
+    return await _report_sent_pairs(
+        db,
+        user_engagement_pairs=user_engagement_pairs,
+        event_code=EVENT_BLOOD_READY,
+    )
+
+
+async def bioai_report_sent_pairs(
+    db: AsyncSession,
+    *,
+    user_engagement_pairs: Iterable[tuple[int, int]],
+) -> set[tuple[int, int]]:
+    """Return (user_id, engagement_id) pairs with Bio-AI report sent notification."""
+    return await _report_sent_pairs(
+        db,
+        user_engagement_pairs=user_engagement_pairs,
+        event_code=EVENT_BIOAI_READY,
+    )
