@@ -26,6 +26,7 @@ from modules.diagnostics.orange_health.booking_helpers import is_orange_health, 
 from modules.diagnostics.orange_health.client import OrangeHealthApiError, reschedule_api_url
 from modules.diagnostics.orange_health.reschedule_helpers import (
     build_orange_reschedule_partner_body,
+    build_orange_reschedule_query_log,
     build_reschedule_internal_metadata,
     revalidate_orange_reschedule_slot,
 )
@@ -2265,7 +2266,7 @@ async def reschedule_orange_participant_booking(
         api_url=api_url,
         http_method="PATCH",
         path={"request_id": request_id},
-        query={"token": "[redacted]"},
+        query=build_orange_reschedule_query_log(token),
         body=partner_body,
         internal=build_reschedule_internal_metadata(
             request_id=request_id,

@@ -6,13 +6,13 @@ from datetime import date, datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-IST = ZoneInfo("Asia/Kolkata")
-
 from core.exceptions import AppError
 from modules.diagnostics.orange_health import client as orange_health_client
 from modules.diagnostics.orange_health.booking_helpers import slim_orange_health_slots
 from modules.diagnostics.orange_health.client import OrangeHealthApiError
 from modules.engagements.models import EngagementParticipant
+
+IST = ZoneInfo("Asia/Kolkata")
 
 ORANGE_RESCHEDULE_PARTNER_KEYS = frozenset(
     {"requested_slot_time", "reschedule_reason", "reschedule_explanation"}
@@ -155,10 +155,7 @@ async def revalidate_orange_reschedule_slot(
     locked_slot_id: str,
     blood_collection_time_slot: str,
 ) -> tuple[str, dict[str, Any]]:
-    """
-  Reload serviceability and confirm locked slot is still offered.
-    Returns canonical partner requested_slot_time and internal revalidation metadata.
-    """
+    """Reload serviceability and confirm the locked slot is still offered."""
     lat = participant.latitude
     lng = participant.longitude
     if lat is None or lng is None:
@@ -193,9 +190,7 @@ async def revalidate_orange_reschedule_slot(
     revalidation: dict[str, Any] = {
         "status": "matched" if matched else "not_found",
         "request_date": request_date,
-        "partner_slot_key": locked,
         "raw_slot_id_from_client": locked,
-        "requested_slot_time_display_ist": locked,
     }
     if not matched:
         raise AppError(
@@ -205,6 +200,9 @@ async def revalidate_orange_reschedule_slot(
         )
 
     partner_slot = str(matched.get("slot_datetime") or matched.get("stm_id") or locked)
+    map_key = str(matched.get("partner_map_key") or "").strip() or None
+    revalidation["partner_map_key"] = map_key
+    revalidation["partner_slot_sent"] = partner_slot
     revalidation["matched_slot"] = {
         k: matched.get(k)
         for k in (
@@ -213,10 +211,10 @@ async def revalidate_orange_reschedule_slot(
             "is_afternoon_slot",
             "is_evening_slot",
             "slot_time",
+            "partner_slot_datetime_raw",
         )
         if matched.get(k) is not None
     }
-    revalidation["partner_slot_raw"] = partner_slot
 
     internal_slot = {
         "blood_collection_date": request_date,
@@ -233,6 +231,15 @@ def token_suffix(token: str | None) -> str | None:
     if len(text) < 8:
         return None
     return text[-8:]
+
+
+def build_orange_reschedule_query_log(token: str | None) -> dict[str, str]:
+    """Query string as stored in integration logs (real token is sent on the wire only)."""
+    out: dict[str, str] = {"token": "[redacted]"}
+    suffix = token_suffix(token)
+    if suffix:
+        out["token_suffix"] = suffix
+    return out
 
 
 def build_reschedule_internal_metadata(

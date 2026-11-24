@@ -8,10 +8,17 @@ from core.exceptions import AppError
 from modules.diagnostics.orange_health.reschedule_helpers import (
     ORANGE_RESCHEDULE_PARTNER_KEYS,
     build_orange_reschedule_partner_body,
+    build_orange_reschedule_query_log,
     sanitize_orange_reschedule_patch_body,
     _find_matched_slot,
 )
 from modules.diagnostics.orange_health.sync_log_payload import extract_partner_body_from_log
+
+
+def test_build_orange_reschedule_query_log_redacts_token():
+    query = build_orange_reschedule_query_log("a5bbdc9b-fe5a-4ab6-8915-26a0925249a0")
+    assert query["token"] == "[redacted]"
+    assert query["token_suffix"] == "925249a0"
 
 
 def test_build_orange_reschedule_partner_body_exact_keys():

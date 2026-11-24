@@ -49,15 +49,6 @@ def extract_internal_from_log(payload: dict[str, Any] | None) -> dict[str, Any] 
     return None
 
 
-def extract_path_from_log(payload: dict[str, Any] | None) -> dict[str, Any] | None:
-    if not isinstance(payload, dict):
-        return None
-    path = payload.get("path")
-    if isinstance(path, dict):
-        return path
-    return None
-
-
 def build_orange_health_sync_request_payload(
     *,
     api_url: str,
