@@ -29,7 +29,10 @@ from modules.diagnostics.orange_health.reschedule_helpers import (
     build_reschedule_internal_metadata,
     revalidate_orange_reschedule_slot,
 )
-from modules.diagnostics.orange_health.sync_log import log_orange_health_call
+from modules.diagnostics.orange_health.sync_log import (
+    finalize_orange_health_sync_log_isolated,
+    persist_orange_health_sync_log_isolated,
+)
 from modules.diagnostics.orange_health.sync_log_payload import build_orange_health_sync_request_payload
 from modules.diagnostics.redcliffe.booking_helpers import is_redcliffe
 from modules.engagements.blood_bookings_access import (
@@ -2274,6 +2277,13 @@ async def reschedule_orange_participant_booking(
 
     await release_request_transaction(db)
 
+    sync_log_id = await persist_orange_health_sync_log_isolated(
+        engagement_id=engagement.engagement_id,
+        user_id=participant.user_id,
+        api_url=api_url,
+        request_payload=sync_request_payload,
+        status="pending",
+    )
     try:
         resp = await orange_health_client.reschedule_order(
             request_id=request_id,
@@ -2285,14 +2295,10 @@ async def reschedule_orange_participant_booking(
             "Orange Health reschedule failed for participant %s",
             participant.engagement_participant_id,
         )
-        await log_orange_health_call(
-            db,
-            engagement_id=engagement.engagement_id,
-            user_id=participant.user_id,
-            api_url=api_url,
-            request_payload=sync_request_payload,
-            response_payload=exc.body if isinstance(exc.body, dict) else None,
+        await finalize_orange_health_sync_log_isolated(
+            sync_log_id=sync_log_id,
             status="failed",
+            response_payload=exc.body if isinstance(exc.body, dict) else None,
             error_message=str(exc),
         )
         status_code = 422 if exc.status_code == 400 else 502
@@ -2306,12 +2312,8 @@ async def reschedule_orange_participant_booking(
             "Orange Health reschedule failed for participant %s",
             participant.engagement_participant_id,
         )
-        await log_orange_health_call(
-            db,
-            engagement_id=engagement.engagement_id,
-            user_id=participant.user_id,
-            api_url=api_url,
-            request_payload=sync_request_payload,
+        await finalize_orange_health_sync_log_isolated(
+            sync_log_id=sync_log_id,
             status="failed",
             error_message=str(exc),
         )
@@ -2321,14 +2323,11 @@ async def reschedule_orange_participant_booking(
             message=str(exc),
         ) from exc
 
-    await log_orange_health_call(
-        db,
-        engagement_id=engagement.engagement_id,
-        user_id=participant.user_id,
-        api_url=api_url,
-        request_payload=sync_request_payload,
-        response_payload=resp,
+    await finalize_orange_health_sync_log_isolated(
+        sync_log_id=sync_log_id,
         status="success" if _orange_reschedule_success(resp) else "failed",
+        response_payload=resp,
+        error_message=None if _orange_reschedule_success(resp) else resp.get("status"),
     )
 
     if not _orange_reschedule_success(resp):

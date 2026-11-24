@@ -45,6 +45,20 @@ def test_sanitize_strips_extra_keys():
     assert clean["reschedule_reason"] == "r"
 
 
+def test_find_matched_slot_ist_lock_matches_utc_partner_key():
+    from modules.diagnostics.orange_health.reschedule_helpers import _find_matched_slot
+
+    slots = {
+        "2026-11-27T03:30:00": {
+            "slot_datetime": "2026-11-27T03:30:00",
+            "is_morning_slot": True,
+        }
+    }
+    matched = _find_matched_slot(slots, "2026-11-27T09:00:00")
+    assert matched is not None
+    assert matched["slot_datetime"] == "2026-11-27T03:30:00"
+
+
 def test_find_matched_slot_by_key():
     slots = {
         "2026-11-27T09:00:00": {

@@ -199,6 +199,61 @@ async def test_orange_reschedule_success_logs_and_updates_row(test_db_session):
 
 
 @pytest.mark.asyncio
+async def test_orange_reschedule_failure_persists_isolated_sync_log(test_db_session):
+    engagement_id, user_id, participant_id, coll_date, slot_id = await _seed_orange_reschedule_fixture(
+        test_db_session
+    )
+
+    participant = await test_db_session.get(EngagementParticipant, participant_id)
+    engagement = await test_db_session.get(Engagement, engagement_id)
+
+    from modules.bookings import service as booking_service
+    from modules.diagnostics.orange_health.client import OrangeHealthApiError
+
+    mock_serviceability = AsyncMock(
+        return_value={
+            "slots": {
+                slot_id: {"slot_datetime": slot_id, "is_morning_slot": True},
+            }
+        }
+    )
+    mock_reschedule = AsyncMock(
+        side_effect=OrangeHealthApiError("slot gone", status_code=400, body={"status": "slot gone"})
+    )
+    with patch(
+        "modules.diagnostics.orange_health.reschedule_helpers.orange_health_client.check_serviceability",
+        mock_serviceability,
+    ), patch(
+        "modules.bookings.service.orange_health_client.reschedule_order",
+        mock_reschedule,
+    ):
+        with pytest.raises(Exception):
+            await booking_service.reschedule_orange_participant_booking(
+                test_db_session,
+                participant=participant,
+                engagement=engagement,
+                blood_collection_date=coll_date,
+                blood_collection_time_slot_id=slot_id,
+                blood_collection_time_slot="06:00 AM",
+                reschedule_reason="Patient not available",
+            )
+
+    logs = (
+        await test_db_session.execute(
+            select(IntegrationSyncLog).where(
+                IntegrationSyncLog.engagement_id == engagement_id,
+                IntegrationSyncLog.provider == "orange_health",
+                IntegrationSyncLog.status == "failed",
+            )
+        )
+    ).scalars().all()
+    assert len(logs) >= 1
+    failed = logs[-1]
+    assert failed.request_payload.get("body", {}).get("requested_slot_time") == slot_id
+    assert failed.error_message
+
+
+@pytest.mark.asyncio
 async def test_orange_reschedule_skips_patch_when_slot_unavailable(test_db_session):
     engagement_id, user_id, participant_id, coll_date, slot_id = await _seed_orange_reschedule_fixture(
         test_db_session

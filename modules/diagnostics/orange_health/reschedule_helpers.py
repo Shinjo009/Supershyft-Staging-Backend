@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
 
 from core.exceptions import AppError
 from modules.diagnostics.orange_health import client as orange_health_client
@@ -66,25 +69,82 @@ def _slot_id_matches_partner(partner_slot: str, requested: str) -> bool:
         return False
     if a == b:
         return True
-    return a.replace(" ", "") == b.replace(" ", "")
+    if a.replace(" ", "") == b.replace(" ", ""):
+        return True
+    return bool(_expand_slot_id_equivalents(a) & _expand_slot_id_equivalents(b))
+
+
+def _expand_slot_id_equivalents(slot_id: str) -> set[str]:
+    """IST wall-clock ids from the console may differ from UTC-ish partner map keys."""
+    out: set[str] = set()
+    text = (slot_id or "").strip()
+    if not text:
+        return out
+    out.add(text)
+    out.add(text.replace(" ", ""))
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return out
+    if parsed.tzinfo is None:
+        as_ist = parsed.replace(tzinfo=IST)
+        utc_naive = as_ist.astimezone(timezone.utc).replace(tzinfo=None)
+        ist_naive = parsed
+        out.add(ist_naive.isoformat(sep="T", timespec="seconds"))
+        out.add(utc_naive.isoformat(sep="T", timespec="seconds"))
+    else:
+        utc_naive = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        ist_naive = parsed.astimezone(IST).replace(tzinfo=None)
+        out.add(utc_naive.isoformat(sep="T", timespec="seconds"))
+        out.add(ist_naive.isoformat(sep="T", timespec="seconds"))
+    return out
+
+
+def _slots_map_from_serviceability(resp: dict[str, Any]) -> dict[str, Any]:
+    slots_raw = resp.get("slots")
+    if isinstance(slots_raw, dict):
+        return slots_raw
+    if isinstance(slots_raw, list):
+        slots_map: dict[str, Any] = {}
+        for idx, item in enumerate(slots_raw):
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("slot_datetime") or idx)
+            slots_map[key] = item
+        return slots_map
+    return {}
+
+
+def _partner_reschedule_time_from_entry(map_key: str, slot: dict[str, Any]) -> str:
+    """Prefer the serviceability map key — Orange reschedule expects that token."""
+    key = (map_key or "").strip()
+    slot_dt = str(slot.get("slot_datetime") or key).strip()
+    return key or slot_dt
 
 
 def _find_matched_slot(slots_map: dict[str, Any] | None, locked_slot_id: str) -> dict[str, Any] | None:
-    for slim in slim_orange_health_slots(slots_map):
-        stm = str(slim.get("stm_id") or slim.get("slot_datetime") or "")
-        if _slot_id_matches_partner(stm, locked_slot_id):
-            return slim
+    locked = (locked_slot_id or "").strip()
+    locked_aliases = _expand_slot_id_equivalents(locked)
     if slots_map:
         for key, slot in slots_map.items():
             if not isinstance(slot, dict):
                 continue
-            slot_dt = str(slot.get("slot_datetime") or key)
-            if _slot_id_matches_partner(slot_dt, locked_slot_id):
+            key_s = str(key).strip()
+            slot_dt = str(slot.get("slot_datetime") or key_s).strip()
+            partner_aliases = _expand_slot_id_equivalents(key_s) | _expand_slot_id_equivalents(slot_dt)
+            if locked_aliases & partner_aliases or _slot_id_matches_partner(slot_dt, locked):
+                partner_time = _partner_reschedule_time_from_entry(key_s, slot)
                 return {
-                    "stm_id": slot_dt,
-                    "slot_datetime": slot_dt,
+                    "stm_id": partner_time,
+                    "slot_datetime": partner_time,
+                    "partner_map_key": key_s,
+                    "partner_slot_datetime_raw": slot_dt,
                     **slot,
                 }
+    for slim in slim_orange_health_slots(slots_map):
+        stm = str(slim.get("stm_id") or slim.get("slot_datetime") or "")
+        if _slot_id_matches_partner(stm, locked):
+            return slim
     return None
 
 
@@ -128,7 +188,7 @@ async def revalidate_orange_reschedule_slot(
             message=str(exc),
         ) from exc
 
-    slots_map = resp.get("slots") if isinstance(resp.get("slots"), dict) else {}
+    slots_map = _slots_map_from_serviceability(resp)
     matched = _find_matched_slot(slots_map, locked)
     revalidation: dict[str, Any] = {
         "status": "matched" if matched else "not_found",
