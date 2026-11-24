@@ -823,6 +823,11 @@ class DiagnosticsService:
             tags = tags_by_pkg.get(int(row.diagnostic_package_id), [])
             n_tests = counts.get(row.diagnostic_package_id, 0)
             allergy, cancer = screening_by_pkg.get(row.diagnostic_package_id, (False, False))
+            package_for = (
+                row.package_for.value
+                if hasattr(row.package_for, "value")
+                else (str(row.package_for) if row.package_for is not None else None)
+            )
             items.append(
                 DiagnosticPackageListItem(
                     diagnostic_package_id=row.diagnostic_package_id,
@@ -842,6 +847,7 @@ class DiagnosticsService:
                     has_cancer_screening=cancer,
                     complementary_consultation=row.complementary_consultation,
                     gender_suitability=row.gender_suitability,
+                    package_for=package_for,
                     tags=[self._to_tag_response(tag_row) for tag_row in tags],
                     filter_chips=self._filter_chip_responses_from_links(
                         chip_links_by_pkg.get(int(row.diagnostic_package_id), [])
