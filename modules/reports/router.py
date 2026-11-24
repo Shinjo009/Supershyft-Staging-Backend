@@ -14,6 +14,7 @@ from modules.reports.dependencies import get_reports_service
 from modules.reports.schemas import (
     AllBloodParameterTrendEngagement,
     BloodParameterTrendResponse,
+    GroupedBloodParameterTrendEngagement,
     HealthSpanIndexRequest,
 )
 from modules.reports.service import ReportsService
@@ -46,6 +47,25 @@ async def get_all_blood_parameter_trends(
         reports_service.trigger_user_blood_parameters_refresh(user_id=user.user_id)
     response = [
         AllBloodParameterTrendEngagement.model_validate(item).model_dump() for item in payload
+    ]
+    return success_response(response, meta=meta)
+
+
+@router.get("/trends/blood-parameters/grouped")
+async def get_grouped_blood_parameter_trends(
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+    reports_service: ReportsService = Depends(get_reports_service),
+):
+    payload, meta, should_trigger = await reports_service.get_grouped_blood_parameter_trends_for_user(
+        db,
+        user_id=user.user_id,
+    )
+    if should_trigger:
+        await db.commit()
+        reports_service.trigger_user_blood_parameters_refresh(user_id=user.user_id)
+    response = [
+        GroupedBloodParameterTrendEngagement.model_validate(item).model_dump() for item in payload
     ]
     return success_response(response, meta=meta)
 

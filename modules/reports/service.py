@@ -109,6 +109,9 @@ _SYNC_IDLE = "idle"
 _SYNC_IN_PROGRESS = "in_progress"
 _SYNC_FAILED = "failed"
 
+_OTHER_TREND_GROUP_NAME = "Other"
+_OTHER_TREND_GROUP_KEY = "other"
+
 _blood_parameter_refresh_in_progress: set[int] = set()
 
 # Blood fetch failures that should yield empty profiles, not abort camp/overview aggregation.
@@ -3004,6 +3007,205 @@ class ReportsService:
         user_id: int,
     ) -> tuple[list[dict[str, Any]], dict[str, Any], bool]:
         payload = await self._build_all_blood_parameter_trends_payload(
+            db,
+            user_id=user_id,
+        )
+        meta, should_trigger = await self._blood_parameter_trends_meta_for_user(
+            db,
+            user_id=user_id,
+        )
+        return payload, meta, should_trigger
+
+    @staticmethod
+    def _normalize_trend_parameter_lookup_key(key: str | None) -> str:
+        return (key or "").strip().lower()
+
+    async def _engagements_by_id(
+        self,
+        db: AsyncSession,
+        *,
+        engagement_ids: set[int],
+    ) -> dict[int, Engagement]:
+        if not engagement_ids:
+            return {}
+        result = await db.execute(
+            select(Engagement).where(Engagement.engagement_id.in_(engagement_ids))
+        )
+        return {int(row.engagement_id): row for row in result.scalars().all()}
+
+    async def _package_test_group_layout(
+        self,
+        db: AsyncSession,
+        *,
+        package_id: int,
+        cache: dict[int, dict[str, Any]],
+    ) -> dict[str, Any]:
+        if package_id in cache:
+            return cache[package_id]
+        package = await self._diagnostics_service._repository.get_package_by_id_basic(
+            db,
+            package_id=package_id,
+        )
+        try:
+            package_tests = await self._diagnostics_service.get_package_tests(
+                db,
+                package_id=package_id,
+            )
+        except AppError:
+            layout = {
+                "package_name": package.package_name if package is not None else None,
+                "groups": [],
+                "key_to_group_id": {},
+            }
+            cache[package_id] = layout
+            return layout
+
+        groups_meta: list[dict[str, Any]] = []
+        key_to_group_id: dict[str, int] = {}
+        for group in package_tests.groups:
+            groups_meta.append(
+                {
+                    "group_id": int(group.group_id),
+                    "group_name": group.group_name,
+                    "group_key": group.group_key,
+                }
+            )
+            for test in group.tests:
+                lookup_key = self._normalize_trend_parameter_lookup_key(test.parameter_key)
+                if not lookup_key:
+                    continue
+                group_id = int(group.group_id)
+                existing = key_to_group_id.get(lookup_key)
+                if existing is None or group_id < existing:
+                    key_to_group_id[lookup_key] = group_id
+
+        layout = {
+            "package_name": package.package_name if package is not None else None,
+            "groups": groups_meta,
+            "key_to_group_id": key_to_group_id,
+        }
+        cache[package_id] = layout
+        return layout
+
+    async def _build_grouped_blood_parameter_trends_payload(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+    ) -> list[dict[str, Any]]:
+        flat = await self._build_all_blood_parameter_trends_payload(
+            db,
+            user_id=user_id,
+        )
+        engagement_ids = {int(item["engagement_id"]) for item in flat}
+        engagements = await self._engagements_by_id(db, engagement_ids=engagement_ids)
+
+        package_ids: set[int] = set()
+        for engagement in engagements.values():
+            if engagement.diagnostic_package_id is not None:
+                package_ids.add(int(engagement.diagnostic_package_id))
+
+        layout_cache: dict[int, dict[str, Any]] = {}
+        for package_id in package_ids:
+            await self._package_test_group_layout(db, package_id=package_id, cache=layout_cache)
+
+        grouped: list[dict[str, Any]] = []
+        for item in flat:
+            engagement_id = int(item["engagement_id"])
+            data_points: list[dict[str, Any]] = list(item.get("data_points") or [])
+            engagement = engagements.get(engagement_id)
+            diagnostic_package_id = (
+                int(engagement.diagnostic_package_id)
+                if engagement is not None and engagement.diagnostic_package_id is not None
+                else None
+            )
+
+            if diagnostic_package_id is None:
+                test_groups = (
+                    [
+                        {
+                            "test_group_name": _OTHER_TREND_GROUP_NAME,
+                            "test_group_key": _OTHER_TREND_GROUP_KEY,
+                            "parameters": sorted(data_points, key=lambda row: row.get("parameter_key") or ""),
+                        }
+                    ]
+                    if data_points
+                    else []
+                )
+                grouped.append(
+                    {
+                        "date": item["date"],
+                        "engagement_id": engagement_id,
+                        "diagnostic_package_id": None,
+                        "diagnostic_package_name": None,
+                        "test_groups": test_groups,
+                    }
+                )
+                continue
+
+            layout = layout_cache.get(diagnostic_package_id)
+            if layout is None:
+                layout = await self._package_test_group_layout(
+                    db,
+                    package_id=diagnostic_package_id,
+                    cache=layout_cache,
+                )
+
+            buckets: dict[int, list[dict[str, Any]]] = {
+                int(group["group_id"]): [] for group in layout["groups"]
+            }
+            other_parameters: list[dict[str, Any]] = []
+            for point in data_points:
+                lookup_key = self._normalize_trend_parameter_lookup_key(point.get("parameter_key"))
+                group_id = layout["key_to_group_id"].get(lookup_key) if lookup_key else None
+                if group_id is not None and group_id in buckets:
+                    buckets[group_id].append(point)
+                else:
+                    other_parameters.append(point)
+
+            test_groups: list[dict[str, Any]] = []
+            for group in layout["groups"]:
+                parameters = buckets.get(int(group["group_id"]), [])
+                if not parameters:
+                    continue
+                test_groups.append(
+                    {
+                        "test_group_name": group["group_name"],
+                        "test_group_key": group["group_key"],
+                        "parameters": sorted(parameters, key=lambda row: row.get("parameter_key") or ""),
+                    }
+                )
+            if other_parameters:
+                test_groups.append(
+                    {
+                        "test_group_name": _OTHER_TREND_GROUP_NAME,
+                        "test_group_key": _OTHER_TREND_GROUP_KEY,
+                        "parameters": sorted(
+                            other_parameters,
+                            key=lambda row: row.get("parameter_key") or "",
+                        ),
+                    }
+                )
+
+            grouped.append(
+                {
+                    "date": item["date"],
+                    "engagement_id": engagement_id,
+                    "diagnostic_package_id": diagnostic_package_id,
+                    "diagnostic_package_name": layout.get("package_name"),
+                    "test_groups": test_groups,
+                }
+            )
+
+        return grouped
+
+    async def get_grouped_blood_parameter_trends_for_user(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], bool]:
+        payload = await self._build_grouped_blood_parameter_trends_payload(
             db,
             user_id=user_id,
         )
