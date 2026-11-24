@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.session import AsyncSessionLocal
 from modules.audit.models import IntegrationSyncLog
 from modules.audit.repository import AuditRepository
+from modules.diagnostics.orange_health.sync_log_payload import normalize_orange_health_request_payload
 
 
 async def log_orange_health_call(
@@ -19,7 +20,11 @@ async def log_orange_health_call(
     response_payload: dict | None = None,
     status: str,
     error_message: str | None = None,
+    query_params: dict | None = None,
 ) -> IntegrationSyncLog:
+    logged_request = normalize_orange_health_request_payload(
+        api_url, request_payload, query=query_params
+    )
     audit_repo = AuditRepository()
     return await audit_repo.create_sync_log(
         db,
@@ -28,7 +33,7 @@ async def log_orange_health_call(
             user_id=user_id,
             provider="orange_health",
             api_endpoint_url=api_url,
-            request_payload=request_payload,
+            request_payload=logged_request,
             response_payload=response_payload,
             status=status,
             error_message=error_message,
@@ -45,7 +50,11 @@ async def persist_orange_health_sync_log_isolated(
     response_payload: dict | None = None,
     status: str,
     error_message: str | None = None,
+    query_params: dict | None = None,
 ) -> int:
+    logged_request = normalize_orange_health_request_payload(
+        api_url, request_payload, query=query_params
+    )
     audit_repo = AuditRepository()
     async with AsyncSessionLocal() as audit_db:
         sync_log = await audit_repo.create_sync_log(
@@ -55,7 +64,7 @@ async def persist_orange_health_sync_log_isolated(
                 user_id=user_id,
                 provider="orange_health",
                 api_endpoint_url=api_url,
-                request_payload=request_payload,
+                request_payload=logged_request,
                 response_payload=response_payload,
                 status=status,
                 error_message=error_message,

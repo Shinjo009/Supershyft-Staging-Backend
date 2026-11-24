@@ -2265,6 +2265,7 @@ async def reschedule_orange_participant_booking(
             user_id=participant.user_id,
             api_url=api_url,
             request_payload=reschedule_payload,
+            query_params={"token": "[redacted]"},
             response_payload=exc.body if isinstance(exc.body, dict) else None,
             status="failed",
             error_message=str(exc),
@@ -2286,6 +2287,7 @@ async def reschedule_orange_participant_booking(
             user_id=participant.user_id,
             api_url=api_url,
             request_payload=reschedule_payload,
+            query_params={"token": "[redacted]"},
             status="failed",
             error_message=str(exc),
         )
@@ -2301,6 +2303,7 @@ async def reschedule_orange_participant_booking(
         user_id=participant.user_id,
         api_url=api_url,
         request_payload=reschedule_payload,
+        query_params={"token": "[redacted]"},
         response_payload=resp,
         status="success" if _orange_reschedule_success(resp) else "failed",
     )
