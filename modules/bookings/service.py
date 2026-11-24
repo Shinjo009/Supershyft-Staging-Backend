@@ -24,7 +24,13 @@ from modules.discounts.schemas import CartLine, CheckoutContext
 from modules.diagnostics.orange_health import client as orange_health_client
 from modules.diagnostics.orange_health.booking_helpers import is_orange_health, parse_orange_slot_time
 from modules.diagnostics.orange_health.client import OrangeHealthApiError, reschedule_api_url
+from modules.diagnostics.orange_health.reschedule_helpers import (
+    build_orange_reschedule_partner_body,
+    build_reschedule_internal_metadata,
+    revalidate_orange_reschedule_slot,
+)
 from modules.diagnostics.orange_health.sync_log import log_orange_health_call
+from modules.diagnostics.orange_health.sync_log_payload import build_orange_health_sync_request_payload
 from modules.diagnostics.redcliffe.booking_helpers import is_redcliffe
 from modules.engagements.blood_bookings_access import (
     apply_schedule,
@@ -2231,20 +2237,40 @@ async def reschedule_orange_participant_booking(
             message="Reschedule reason is required",
         )
 
+    partner_slot_time, slot_meta = await revalidate_orange_reschedule_slot(
+        participant=participant,
+        blood_collection_date=blood_collection_date,
+        locked_slot_id=slot_id,
+        blood_collection_time_slot=blood_collection_time_slot,
+    )
+
     try:
-        slot_start_time = parse_orange_slot_time(slot_id)
+        slot_start_time = parse_orange_slot_time(partner_slot_time)
     except ValueError:
         try:
             slot_start_time = _parse_slot_time(blood_collection_time_slot)
         except ValueError as exc:
             raise AppError(status_code=422, error_code="INVALID_SLOT_TIME", message=str(exc)) from exc
 
-    reschedule_payload = {
-        "requested_slot_time": slot_id,
-        "reschedule_reason": reason,
-        "reschedule_explanation": reason,
-    }
+    partner_body = build_orange_reschedule_partner_body(
+        requested_slot_time=partner_slot_time,
+        reschedule_reason=reason,
+        reschedule_explanation=reason,
+    )
     api_url = reschedule_api_url(request_id)
+    sync_request_payload = build_orange_health_sync_request_payload(
+        api_url=api_url,
+        http_method="PATCH",
+        path={"request_id": request_id},
+        query={"token": "[redacted]"},
+        body=partner_body,
+        internal=build_reschedule_internal_metadata(
+            request_id=request_id,
+            token=token,
+            slot_meta=slot_meta,
+            blood_collection_date=blood_collection_date,
+        ),
+    )
 
     await release_request_transaction(db)
 
@@ -2252,7 +2278,7 @@ async def reschedule_orange_participant_booking(
         resp = await orange_health_client.reschedule_order(
             request_id=request_id,
             token=token,
-            payload=reschedule_payload,
+            payload=partner_body,
         )
     except OrangeHealthApiError as exc:
         logger.exception(
@@ -2264,8 +2290,7 @@ async def reschedule_orange_participant_booking(
             engagement_id=engagement.engagement_id,
             user_id=participant.user_id,
             api_url=api_url,
-            request_payload=reschedule_payload,
-            query_params={"token": "[redacted]"},
+            request_payload=sync_request_payload,
             response_payload=exc.body if isinstance(exc.body, dict) else None,
             status="failed",
             error_message=str(exc),
@@ -2286,8 +2311,7 @@ async def reschedule_orange_participant_booking(
             engagement_id=engagement.engagement_id,
             user_id=participant.user_id,
             api_url=api_url,
-            request_payload=reschedule_payload,
-            query_params={"token": "[redacted]"},
+            request_payload=sync_request_payload,
             status="failed",
             error_message=str(exc),
         )
@@ -2302,8 +2326,7 @@ async def reschedule_orange_participant_booking(
         engagement_id=engagement.engagement_id,
         user_id=participant.user_id,
         api_url=api_url,
-        request_payload=reschedule_payload,
-        query_params={"token": "[redacted]"},
+        request_payload=sync_request_payload,
         response_payload=resp,
         status="success" if _orange_reschedule_success(resp) else "failed",
     )

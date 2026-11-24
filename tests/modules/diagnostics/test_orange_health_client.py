@@ -107,6 +107,62 @@ async def test_reschedule_order_success(monkeypatch):
     )
     assert resp == {"result": "ok"}
     assert captured["kwargs"]["params"] == {"token": "tok"}
+    assert "audit" not in captured["kwargs"]["json"]
+
+
+@pytest.mark.asyncio
+async def test_reschedule_order_strips_extra_body_keys(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"result": "ok"}
+
+        def raise_for_status(self):
+            return None
+
+    class FakeClient:
+        async def patch(self, url, **kwargs):
+            captured["json"] = kwargs.get("json")
+            return FakeResponse()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+    monkeypatch.setattr(
+        "modules.diagnostics.orange_health.client.httpx.AsyncClient",
+        lambda **kwargs: FakeClient(),
+    )
+    monkeypatch.setattr(
+        "modules.diagnostics.orange_health.client.settings.ORANGE_HEALTH_API_KEY",
+        "key",
+    )
+    monkeypatch.setattr(
+        "modules.diagnostics.orange_health.client.settings.ORANGE_HEALTH_BASE_URL",
+        "https://example.test",
+    )
+
+    await reschedule_order(
+        request_id="BLR1",
+        token="tok",
+        payload={
+            "requested_slot_time": "2026-06-19T06:00:00",
+            "reschedule_reason": "Reason",
+            "reschedule_explanation": "Reason",
+            "audit": {"operation": "reschedule"},
+        },
+    )
+    assert "audit" not in captured["json"]
+    assert set(captured["json"].keys()) == {
+        "requested_slot_time",
+        "reschedule_reason",
+        "reschedule_explanation",
+    }
 
 
 @pytest.mark.asyncio
@@ -144,7 +200,11 @@ async def test_reschedule_order_maps_400_status(monkeypatch):
         await reschedule_order(
             request_id="BLR1",
             token="tok",
-            payload={"requested_slot_time": "2026-06-19T06:00:00"},
+            payload={
+                "requested_slot_time": "2026-06-19T06:00:00",
+                "reschedule_reason": "r",
+                "reschedule_explanation": "e",
+            },
         )
     assert exc.value.status_code == 400
     assert "not available" in str(exc.value).lower()

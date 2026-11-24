@@ -135,7 +135,17 @@ async def test_orange_reschedule_success_logs_and_updates_row(test_db_session):
     from modules.bookings import service as booking_service
 
     mock_reschedule = AsyncMock(return_value={"result": "ok"})
+    mock_serviceability = AsyncMock(
+        return_value={
+            "slots": {
+                slot_id: {"slot_datetime": slot_id, "is_morning_slot": True},
+            }
+        }
+    )
     with patch(
+        "modules.diagnostics.orange_health.reschedule_helpers.orange_health_client.check_serviceability",
+        mock_serviceability,
+    ), patch(
         "modules.bookings.service.orange_health_client.reschedule_order",
         mock_reschedule,
     ):
@@ -167,6 +177,11 @@ async def test_orange_reschedule_success_logs_and_updates_row(test_db_session):
         )
     ).scalars().all()
     assert any(log.status == "success" for log in logs)
+    success_log = next(log for log in logs if log.status == "success")
+    req = success_log.request_payload
+    assert req.get("body", {}).get("requested_slot_time") == slot_id
+    assert "internal" in req
+    assert "audit" not in req.get("body", {})
 
     rows = (
         await test_db_session.execute(
@@ -181,3 +196,37 @@ async def test_orange_reschedule_success_logs_and_updates_row(test_db_session):
     assert active[0].request_id == "BLR88101"
     assert active[0].token == "tok-88101"
     assert active[0].collection_time_slot_id == slot_id
+
+
+@pytest.mark.asyncio
+async def test_orange_reschedule_skips_patch_when_slot_unavailable(test_db_session):
+    engagement_id, user_id, participant_id, coll_date, slot_id = await _seed_orange_reschedule_fixture(
+        test_db_session
+    )
+
+    participant = await test_db_session.get(EngagementParticipant, participant_id)
+    engagement = await test_db_session.get(Engagement, engagement_id)
+
+    from modules.bookings import service as booking_service
+
+    mock_reschedule = AsyncMock(return_value={"result": "ok"})
+    mock_serviceability = AsyncMock(return_value={"slots": {}})
+    with patch(
+        "modules.diagnostics.orange_health.reschedule_helpers.orange_health_client.check_serviceability",
+        mock_serviceability,
+    ), patch(
+        "modules.bookings.service.orange_health_client.reschedule_order",
+        mock_reschedule,
+    ):
+        with pytest.raises(Exception) as exc:
+            await booking_service.reschedule_orange_participant_booking(
+                test_db_session,
+                participant=participant,
+                engagement=engagement,
+                blood_collection_date=coll_date,
+                blood_collection_time_slot_id=slot_id,
+                blood_collection_time_slot="06:00 AM",
+                reschedule_reason="Patient not available",
+            )
+    assert getattr(exc.value, "error_code", None) == "SLOT_NOT_AVAILABLE"
+    mock_reschedule.assert_not_awaited()

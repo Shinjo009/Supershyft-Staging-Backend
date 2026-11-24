@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
+from modules.diagnostics.orange_health.reschedule_helpers import ORANGE_RESCHEDULE_PARTNER_KEYS
+
 
 def orange_http_method_for_url(api_url: str) -> str:
     path = (urlparse(api_url).path or "").lower()
@@ -25,12 +27,45 @@ def orange_api_name_from_url(api_url: str) -> str:
     return segments[-1] if segments else api_url
 
 
+def extract_partner_body_from_log(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Partner JSON body only — supports envelope or legacy flat rows."""
+    if not isinstance(payload, dict):
+        return {}
+    nested = payload.get("body")
+    if isinstance(nested, dict):
+        return {k: nested[k] for k in ORANGE_RESCHEDULE_PARTNER_KEYS if k in nested}
+    return {k: payload[k] for k in ORANGE_RESCHEDULE_PARTNER_KEYS if k in payload}
+
+
+def extract_internal_from_log(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    internal = payload.get("internal")
+    if isinstance(internal, dict):
+        return internal
+    audit = payload.get("audit")
+    if isinstance(audit, dict):
+        return audit
+    return None
+
+
+def extract_path_from_log(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    path = payload.get("path")
+    if isinstance(path, dict):
+        return path
+    return None
+
+
 def build_orange_health_sync_request_payload(
     *,
     api_url: str,
     body: dict[str, Any] | None = None,
     query: dict[str, Any] | None = None,
     http_method: str | None = None,
+    path: dict[str, Any] | None = None,
+    internal: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Envelope stored in integration_sync_logs.request_payload (admin detail panel)."""
     method = (http_method or orange_http_method_for_url(api_url)).upper()
@@ -39,10 +74,14 @@ def build_orange_health_sync_request_payload(
         "url": api_url,
         "api_name": orange_api_name_from_url(api_url),
     }
+    if path:
+        payload["path"] = path
     if query:
         payload["query"] = query
     if body is not None:
         payload["body"] = body
+    if internal:
+        payload["internal"] = internal
     return payload
 
 

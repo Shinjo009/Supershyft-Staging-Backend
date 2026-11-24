@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from modules.diagnostics.orange_health.sync_log_payload import (
     build_orange_health_sync_request_payload,
+    extract_internal_from_log,
+    extract_partner_body_from_log,
     normalize_orange_health_request_payload,
     orange_http_method_for_url,
 )
@@ -40,3 +42,32 @@ def test_normalize_wraps_legacy_body_only_payload():
     assert out is not None
     assert out["http_method"] == "GET"
     assert out["body"] == legacy
+
+
+def test_build_payload_includes_path_and_internal():
+    url = "https://partner-api.orangehealth.in/v1/partner/MUM1/reschedule"
+    body = {
+        "requested_slot_time": "2026-11-27T09:00:00",
+        "reschedule_reason": "x",
+        "reschedule_explanation": "y",
+    }
+    payload = build_orange_health_sync_request_payload(
+        api_url=url,
+        body=body,
+        path={"request_id": "MUM1"},
+        query={"token": "[redacted]"},
+        internal={"operation": "reschedule"},
+    )
+    assert payload["path"] == {"request_id": "MUM1"}
+    assert payload["internal"] == {"operation": "reschedule"}
+
+
+def test_extract_partner_body_and_internal_legacy():
+    legacy = {
+        "audit": {"operation": "reschedule"},
+        "requested_slot_time": "t",
+        "reschedule_reason": "r",
+        "reschedule_explanation": "e",
+    }
+    assert extract_partner_body_from_log(legacy)["requested_slot_time"] == "t"
+    assert extract_internal_from_log(legacy) == {"operation": "reschedule"}

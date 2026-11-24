@@ -163,13 +163,18 @@ async def reschedule_order(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     """PATCH /v1/partner/{request_id}/reschedule?token=..."""
+    from modules.diagnostics.orange_health.reschedule_helpers import (
+        sanitize_orange_reschedule_patch_body,
+    )
+
     url = reschedule_api_url(request_id)
     params = {"token": (token or "").strip()}
+    partner_body = sanitize_orange_reschedule_patch_body(payload)
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.patch(
             url,
             params=params,
-            json=payload,
+            json=partner_body,
             headers={**_headers(), "Content-Type": "application/json"},
         )
     if resp.status_code == 401:
