@@ -12,8 +12,13 @@ from modules.dashboard.command_period import command_today
 from modules.dashboard.command_service import (
     _build_people_rows,
     _date_period_clauses,
+    _filter_user_ids_by_search,
     _person_name,
     _stamp_period_clauses,
+)
+from modules.dashboard.report_sent_kpi import (
+    EVENT_BLOOD_READY,
+    b2c_report_sent_user_ids,
 )
 from modules.diagnostics.models import DiagnosticPackage
 from modules.discounts.models import DiscountCode, DiscountUsage
@@ -42,7 +47,9 @@ async def _page_b2c_users(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
+    user_ids = await _filter_user_ids_by_search(db, user_ids, search)
     total = len(user_ids)
     offset = max(0, (page - 1) * limit)
     page_ids = user_ids[offset : offset + limit]
@@ -126,6 +133,7 @@ async def b2c_total_bookings_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     ids = await _total_bookings_user_ids(
         db,
@@ -140,6 +148,7 @@ async def b2c_total_bookings_page(
         limit=limit,
         today=today,
         questionnaire_service=questionnaire_service,
+        search=search,
     )
 
 
@@ -226,6 +235,7 @@ async def b2c_collection_tomorrow_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     ids = await _collection_tomorrow_user_ids(
         db,
@@ -241,6 +251,7 @@ async def b2c_collection_tomorrow_page(
         limit=limit,
         today=today,
         questionnaire_service=questionnaire_service,
+        search=search,
     )
 
 
@@ -407,6 +418,7 @@ async def b2c_tests_completed_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     ids = await _tests_completed_b2c_user_ids(
         db,
@@ -421,6 +433,7 @@ async def b2c_tests_completed_page(
         limit=limit,
         today=today,
         questionnaire_service=questionnaire_service,
+        search=search,
     )
 
 
@@ -507,6 +520,7 @@ async def b2c_bioai_reports_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     ids = await _bioai_b2c_user_ids(
         db,
@@ -521,6 +535,7 @@ async def b2c_bioai_reports_page(
         limit=limit,
         today=today,
         questionnaire_service=questionnaire_service,
+        search=search,
     )
 
 
@@ -606,6 +621,7 @@ async def b2c_consultation_done_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     ids = await _consultation_done_b2c_user_ids(
         db,
@@ -620,6 +636,55 @@ async def b2c_consultation_done_page(
         limit=limit,
         today=today,
         questionnaire_service=questionnaire_service,
+        search=search,
+    )
+
+
+async def b2c_lab_report_delivered_count(
+    db: AsyncSession,
+    *,
+    dispatched_from: datetime | None,
+    dispatched_to: datetime | None,
+    all_time: bool,
+) -> int:
+    return len(
+        await b2c_report_sent_user_ids(
+            db,
+            event_code=EVENT_BLOOD_READY,
+            dispatched_from=dispatched_from,
+            dispatched_to=dispatched_to,
+            all_time=all_time,
+        )
+    )
+
+
+async def b2c_lab_report_delivered_page(
+    db: AsyncSession,
+    *,
+    dispatched_from: datetime | None,
+    dispatched_to: datetime | None,
+    all_time: bool,
+    page: int,
+    limit: int,
+    today: date | None = None,
+    questionnaire_service: Any | None = None,
+    search: str | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    ids = await b2c_report_sent_user_ids(
+        db,
+        event_code=EVENT_BLOOD_READY,
+        dispatched_from=dispatched_from,
+        dispatched_to=dispatched_to,
+        all_time=all_time,
+    )
+    return await _page_b2c_users(
+        db,
+        user_ids=ids,
+        page=page,
+        limit=limit,
+        today=today,
+        questionnaire_service=questionnaire_service,
+        search=search,
     )
 
 
@@ -724,6 +789,7 @@ async def b2c_package_users_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     query = (
         select(
@@ -762,6 +828,7 @@ async def b2c_package_users_page(
         limit=limit,
         today=today,
         questionnaire_service=questionnaire_service,
+        search=search,
     )
 
 
@@ -835,6 +902,7 @@ async def b2c_coupon_users_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     query = (
         select(DiscountUsage.user_id)
@@ -867,6 +935,7 @@ async def b2c_coupon_users_page(
         limit=limit,
         today=today,
         questionnaire_service=questionnaire_service,
+        search=search,
     )
 
 
@@ -877,6 +946,7 @@ async def b2c_users_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """All B2C users (org_id null engagements); no timeline filter."""
     query = (
@@ -895,6 +965,7 @@ async def b2c_users_page(
         limit=limit,
         today=today,
         questionnaire_service=questionnaire_service,
+        search=search,
     )
 
 
@@ -920,6 +991,9 @@ async def b2c_summary_counts(
     tests_completed = await b2c_tests_completed_count(
         db, collected_from=start_from, collected_to=start_to, all_time=all_time
     )
+    lab_report_delivered = await b2c_lab_report_delivered_count(
+        db, dispatched_from=start_from, dispatched_to=start_to, all_time=all_time
+    )
     bio_ai_reports = await b2c_bioai_reports_count(
         db, received_from=start_from, received_to=start_to, all_time=all_time
     )
@@ -943,6 +1017,7 @@ async def b2c_summary_counts(
         "total_bookings": total_bookings,
         "collection_tomorrow": collection_tomorrow,
         "tests_completed": tests_completed,
+        "lab_report_delivered": lab_report_delivered,
         "bio_ai_reports": bio_ai_reports,
         "consultation_done": consultation_done,
         "packages": packages,
