@@ -839,3 +839,40 @@ class EmployeeUserListItem(BaseModel):
     metsights_profile_id: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+
+QuestionnaireStatusLabel = Literal["NOT_STARTED", "IN_PROGRESS", "COMPLETED"]
+
+
+class OnboardStatusProfileItem(BaseModel):
+    user_id: int
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    gender: Optional[str] = None
+    age: Optional[int] = None
+    employee_id: Optional[str] = None
+    department: Optional[str] = None
+    blood_group: Optional[str] = None
+    address: Optional[str] = None
+    pincode: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+
+
+class OnboardStatusParticipantItem(BaseModel):
+    user_id: int
+    is_participant: bool
+
+
+class OnboardStatusQuestionnaireItem(BaseModel):
+    user_id: int
+    status: QuestionnaireStatusLabel | None
+
+
+class OnboardStatusResponse(BaseModel):
+    profiles: list[OnboardStatusProfileItem]
+    onboarding_status: list[OnboardStatusParticipantItem]
+    questionnaire_status: list[OnboardStatusQuestionnaireItem]

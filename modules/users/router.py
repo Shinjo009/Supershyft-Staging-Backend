@@ -767,6 +767,29 @@ async def get_my_status(
     )
 
 
+@router.get("/onboard/status")
+@limiter.limit("10/minute")
+async def get_public_onboard_status(
+    request: Request,
+    phone: str | None = Query(default=None),
+    email: str | None = Query(default=None),
+    camp_code: str | None = Query(default=None),
+    engagement_code: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    users_service: UsersService = Depends(get_users_service),
+):
+    """Public lookup of masked user profiles and onboarding or questionnaire status for a camp or engagement."""
+    _ = request
+    result = await users_service.get_onboard_status(
+        db,
+        phone=phone,
+        email=email,
+        camp_code=camp_code,
+        engagement_code=engagement_code,
+    )
+    return success_response(result.model_dump())
+
+
 @router.get("/me/engagement-feedback/pending")
 async def get_my_pending_engagement_feedback(
     db: AsyncSession = Depends(get_db),

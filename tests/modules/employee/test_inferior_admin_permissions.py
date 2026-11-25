@@ -145,6 +145,7 @@ def test_every_category_has_configurable_tasks():
         ("POST", "/discounts/auto-apply"),
         ("GET", "/blog/posts"),
         ("GET", "/blog/posts/{post_id}"),
+        ("GET", "/users/onboard/status"),
     ],
 )
 def test_operation_manifest_explicit_exclusions(method, path):
