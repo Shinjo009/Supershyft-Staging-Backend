@@ -362,6 +362,12 @@ class UsersRepository:
         result = await db.execute(select(User).where(User.parent_id == user_id).order_by(User.user_id.asc()))
         return list(result.scalars().all())
 
+    async def has_child_users(self, db: AsyncSession, user_id: int) -> bool:
+        result = await db.execute(
+            select(User.user_id).where(User.parent_id == user_id).limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
     async def get_profiles_as_sub(self, db: AsyncSession, parent_id: int) -> list[User]:
         result = await db.execute(select(User).where(User.user_id == parent_id).limit(1))
         row = result.scalar_one_or_none()

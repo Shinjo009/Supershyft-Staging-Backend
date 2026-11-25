@@ -2328,40 +2328,66 @@ class UsersService:
 
         return updated
 
-    async def _resolve_user_ids_for_employee_delete(
+    _DELETE_SUB_ACCOUNTS_FIRST_MSG = (
+        "Delete all sub-accounts before deleting this primary account"
+    )
+
+    async def _authorize_and_validate_user_delete(
         self,
         db: AsyncSession,
         *,
-        employee,
         user_id: int,
-    ) -> list[int]:
-        self._ensure_employee_access(employee)
+        employee=None,
+        actor_user_id: int | None = None,
+    ) -> User:
+        """Ensure caller may delete user_id and target has no sub-accounts (single-user delete)."""
+        if employee is None and actor_user_id is None:
+            raise AppError(
+                status_code=401,
+                error_code="AUTH_FAILED",
+                message="Authentication failed",
+            )
 
         user = await self._repository.get_user_by_id(db, user_id)
         if user is None:
             raise AppError(status_code=404, error_code="USER_NOT_FOUND", message="User does not exist")
 
-        user_ids_to_delete = await self._repository.list_descendant_user_ids(db, user_id)
+        if employee is not None:
+            self._ensure_employee_access(employee)
+        else:
+            assert actor_user_id is not None
+            allowed = actor_user_id == user_id or int(user.parent_id or 0) == actor_user_id
+            if not allowed:
+                raise AppError(
+                    status_code=403,
+                    error_code="FORBIDDEN",
+                    message="You do not have permission to perform this action",
+                )
 
-        for candidate_user_id in user_ids_to_delete:
-            if await self._is_protected_employee_user(db, candidate_user_id):
-                raise AppError(status_code=400, error_code="INVALID_INPUT", message="User cannot be deleted")
+        if await self._repository.has_child_users(db, user_id):
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message=self._DELETE_SUB_ACCOUNTS_FIRST_MSG,
+            )
 
-        return user_ids_to_delete
+        if await self._is_protected_employee_user(db, user_id):
+            raise AppError(status_code=400, error_code="INVALID_INPUT", message="User cannot be deleted")
 
-    async def get_delete_user_impact_by_employee(
+        return user
+
+    async def get_delete_user_impact(
         self,
         db: AsyncSession,
         *,
-        employee,
         user_id: int,
+        employee=None,
+        actor_user_id: int | None = None,
     ) -> dict:
-        user_ids_to_delete = await self._resolve_user_ids_for_employee_delete(
-            db, employee=employee, user_id=user_id
+        await self._authorize_and_validate_user_delete(
+            db, user_id=user_id, employee=employee, actor_user_id=actor_user_id
         )
-        engagements = await self._repository.list_engagements_fully_owned_by_users(
-            db, user_ids_to_delete
-        )
+        engagements = await self._repository.list_engagements_fully_owned_by_users(db, [user_id])
         return {
             "engagements_to_orphan": [
                 {
@@ -2372,6 +2398,55 @@ class UsersService:
                 for e in engagements
             ]
         }
+
+    async def get_delete_user_impact_by_employee(
+        self,
+        db: AsyncSession,
+        *,
+        employee,
+        user_id: int,
+    ) -> dict:
+        return await self.get_delete_user_impact(db, employee=employee, user_id=user_id)
+
+    async def delete_user(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+        delete_orphan_engagements: bool = False,
+        employee=None,
+        actor_user_id: int | None = None,
+    ) -> dict:
+        await self._authorize_and_validate_user_delete(
+            db, user_id=user_id, employee=employee, actor_user_id=actor_user_id
+        )
+
+        if self._audit_service is None:
+            raise RuntimeError("Audit service is required")
+
+        audit_action = "EMPLOYEE_DELETE_USER" if employee is not None else "USER_DELETE_ACCOUNT"
+        await self._audit_service.log_event(
+            db,
+            action=audit_action,
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=actor_user_id if employee is None else None,
+            session_id=None,
+        )
+
+        user_ids_to_delete = [user_id]
+        await self._repository.delete_user_related_data(
+            db,
+            user_ids_to_delete,
+            delete_orphan_engagements=delete_orphan_engagements,
+        )
+        deleted_count = await self._repository.delete_users_by_ids(db, user_ids_to_delete)
+
+        return {"deleted_user_id": user_id, "deleted_user_count": deleted_count}
 
     async def delete_user_by_employee(
         self,
@@ -2384,31 +2459,15 @@ class UsersService:
         endpoint: str,
         delete_orphan_engagements: bool = False,
     ) -> dict:
-        user_ids_to_delete = await self._resolve_user_ids_for_employee_delete(
-            db, employee=employee, user_id=user_id
-        )
-
-        await self._repository.delete_user_related_data(
+        return await self.delete_user(
             db,
-            user_ids_to_delete,
-            delete_orphan_engagements=delete_orphan_engagements,
-        )
-        deleted_count = await self._repository.delete_users_by_ids(db, user_ids_to_delete)
-
-        if self._audit_service is None:
-            raise RuntimeError("Audit service is required")
-
-        await self._audit_service.log_event(
-            db,
-            action="EMPLOYEE_DELETE_USER",
-            endpoint=endpoint,
+            user_id=user_id,
             ip_address=ip_address,
             user_agent=user_agent,
-            user_id=None,
-            session_id=None,
+            endpoint=endpoint,
+            delete_orphan_engagements=delete_orphan_engagements,
+            employee=employee,
         )
-
-        return {"deleted_user_id": user_id, "deleted_user_count": deleted_count}
 
     async def _allocate_plus_alias_email(self, db: AsyncSession, base_email: str) -> str:
         """Allocate a free `{local}+{1000-9999}@{domain}` alias derived from *base_email*."""

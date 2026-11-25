@@ -11,7 +11,7 @@ from common.listing import sanitize_list_search
 from common.masking import mask_email, mask_phone
 from common.responses import success_response
 from common.validation import ValidationError
-from core.dependencies import get_current_user
+from core.dependencies import get_current_user, get_optional_user
 from core.exceptions import AppError
 from core.network import get_client_ip
 from core.rate_limit import limiter, user_onboard_rate_limit
@@ -63,6 +63,24 @@ from modules.users.service import UsersService
 
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+def _require_user_or_employee(
+    *,
+    user,
+    employee: EmployeeContext | None,
+) -> tuple[int | None, EmployeeContext | None]:
+    """Accept employee (admin) or user JWT for account delete routes."""
+
+    if employee is not None:
+        return None, employee
+    if user is not None:
+        return int(user.user_id), None
+    raise AppError(
+        status_code=401,
+        error_code="AUTH_FAILED",
+        message="Authentication failed",
+    )
 
 
 @router.post("/public/family-onboard")
@@ -1315,21 +1333,26 @@ async def employee_deactivate_user(
 
 
 @router.get("/{user_id}/delete-impact")
-async def employee_get_user_delete_impact(
+async def get_user_delete_impact(
     user_id: int,
     db: AsyncSession = Depends(get_db),
-    employee: EmployeeContext = Depends(get_current_employee),
+    user=Depends(get_optional_user),
+    employee: EmployeeContext | None = Depends(get_optional_employee),
     users_service: UsersService = Depends(get_users_service),
 ):
-    """Engagements that would have no participants left after deleting this user (and sub-profiles)."""
-    result = await users_service.get_delete_user_impact_by_employee(
-        db, employee=employee, user_id=user_id
+    """Engagements that would have no participants left after deleting this user."""
+    actor_user_id, resolved_employee = _require_user_or_employee(user=user, employee=employee)
+    result = await users_service.get_delete_user_impact(
+        db,
+        user_id=user_id,
+        employee=resolved_employee,
+        actor_user_id=actor_user_id,
     )
     return success_response(result)
 
 
 @router.delete("/{user_id}")
-async def employee_delete_user(
+async def delete_user(
     user_id: int,
     request: Request,
     delete_orphan_engagements: bool = Query(
@@ -1337,17 +1360,21 @@ async def employee_delete_user(
         description="When true, permanently delete engagements that would have no participants after this user is removed.",
     ),
     db: AsyncSession = Depends(get_db),
-    employee: EmployeeContext = Depends(get_current_employee),
+    user=Depends(get_optional_user),
+    employee: EmployeeContext | None = Depends(get_optional_employee),
     users_service: UsersService = Depends(get_users_service),
 ):
-    result = await users_service.delete_user_by_employee(
+    actor_user_id, resolved_employee = _require_user_or_employee(user=user, employee=employee)
+    orphan_delete = delete_orphan_engagements if resolved_employee is not None else False
+    result = await users_service.delete_user(
         db,
-        employee=employee,
         user_id=user_id,
         ip_address=get_client_ip(request),
         user_agent=request.headers.get("User-Agent", "unknown"),
         endpoint=str(request.url.path),
-        delete_orphan_engagements=delete_orphan_engagements,
+        delete_orphan_engagements=orphan_delete,
+        employee=resolved_employee,
+        actor_user_id=actor_user_id,
     )
     await db.commit()
     return success_response(result)
