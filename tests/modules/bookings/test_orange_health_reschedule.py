@@ -157,6 +157,7 @@ async def test_orange_reschedule_success_logs_and_updates_row(test_db_session):
             blood_collection_time_slot_id=slot_id,
             blood_collection_time_slot="06:00 AM",
             reschedule_reason="Patient not available",
+            reschedule_explanation="Family emergency on original date",
         )
 
     assert result["status"] is True
@@ -166,7 +167,8 @@ async def test_orange_reschedule_success_logs_and_updates_row(test_db_session):
     assert call_kwargs["request_id"] == "BLR88101"
     assert call_kwargs["token"] == "tok-88101"
     assert call_kwargs["payload"]["requested_slot_time"] == slot_id
-    assert call_kwargs["payload"]["reschedule_explanation"] == "Patient not available"
+    assert call_kwargs["payload"]["reschedule_reason"] == "Patient not available"
+    assert call_kwargs["payload"]["reschedule_explanation"] == "Family emergency on original date"
 
     logs = (
         await test_db_session.execute(
@@ -236,6 +238,7 @@ async def test_orange_reschedule_failure_persists_isolated_sync_log(test_db_sess
                 blood_collection_time_slot_id=slot_id,
                 blood_collection_time_slot="06:00 AM",
                 reschedule_reason="Patient not available",
+                reschedule_explanation="Family emergency on original date",
             )
 
     logs = (
@@ -282,6 +285,7 @@ async def test_orange_reschedule_skips_patch_when_slot_unavailable(test_db_sessi
                 blood_collection_time_slot_id=slot_id,
                 blood_collection_time_slot="06:00 AM",
                 reschedule_reason="Patient not available",
+                reschedule_explanation="Family emergency on original date",
             )
     assert getattr(exc.value, "error_code", None) == "SLOT_NOT_AVAILABLE"
     mock_reschedule.assert_not_awaited()

@@ -281,7 +281,10 @@ async def test_console_cancel_booking_orange_health(async_client, test_db_sessio
     with patch("modules.bookings.service.orange_health_client.cancel_order", mock_cancel):
         response = await async_client.delete(
             f"/engagements/{engagement_id}/console/participants/{user_id}/book",
-            params={"remarks": "Customer requested cancel"},
+            params={
+                "remarks": "Customer requested cancel",
+                "cancellation_explanation": "Patient unavailable on scheduled day",
+            },
             headers=_auth_header(503),
         )
 
@@ -292,6 +295,7 @@ async def test_console_cancel_booking_orange_health(async_client, test_db_sessio
     assert call_kwargs["request_id"] == "BLR7003"
     assert call_kwargs["token"] == "tok-7003"
     assert call_kwargs["payload"]["cancellationReason"] == "Customer requested cancel"
+    assert call_kwargs["payload"]["cancellationExplanation"] == "Patient unavailable on scheduled day"
 
     blood_row = (
         await test_db_session.execute(
@@ -305,3 +309,91 @@ async def test_console_cancel_booking_orange_health(async_client, test_db_sessio
     assert blood_row.booking_id is None
     assert blood_row.request_id is None
     assert blood_row.token is None
+
+
+@pytest.mark.asyncio
+async def test_console_cancel_booking_orange_requires_explanation(async_client, test_db_session):
+    engagement_id = 7004
+    user_id = 93004
+    participant_id = 95004
+    diag_id = 7004
+
+    existing_pkg = await test_db_session.get(AssessmentPackage, 1)
+    if existing_pkg is None:
+        test_db_session.add(
+            AssessmentPackage(
+                package_id=1,
+                package_code="PKG001",
+                display_name="Test Package",
+                status="active",
+            )
+        )
+    test_db_session.add(
+        DiagnosticPackage(
+            diagnostic_package_id=diag_id,
+            reference_id="REF7004",
+            package_name="Orange Home Console",
+            diagnostic_provider="orange_health",
+            external_package_code="OH7004",
+            status="active",
+            bookings_count=0,
+        )
+    )
+    await seed_employee(test_db_session, employee_id=504, role="admin", commit=False)
+    test_db_session.add(
+        Engagement(
+            engagement_id=engagement_id,
+            engagement_name="Orange Home Eng",
+            engagement_code="OH7004",
+            assessment_package_id=1,
+            diagnostic_package_id=diag_id,
+            status="running",
+            start_date=date.today(),
+            end_date=date.today() + timedelta(days=7),
+            blood_collection_type=BloodCollectionType.home_collection,
+            city="Bangalore",
+        )
+    )
+    test_db_session.add(
+        User(
+            user_id=user_id,
+            age=28,
+            phone="9300400000",
+            status="active",
+            first_name="Orange",
+            last_name="Patient",
+            gender="male",
+            relationship="self",
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        EngagementParticipant(
+            engagement_participant_id=participant_id,
+            engagement_id=engagement_id,
+            user_id=user_id,
+            booked_by_user_id=user_id,
+        )
+    )
+    await test_db_session.flush()
+    test_db_session.add(
+        ParticipantBloodBooking(
+            engagement_participant_id=participant_id,
+            collection_date=date.today() + timedelta(days=2),
+            collection_time=time(7, 0),
+            booking_id="BLR7004",
+            diagnostic_provider="orange_health",
+            request_id="BLR7004",
+            token="tok-7004",
+            status="active",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.delete(
+        f"/engagements/{engagement_id}/console/participants/{user_id}/book",
+        params={"remarks": "Only reason provided"},
+        headers=_auth_header(504),
+    )
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "INVALID_CANCELLATION_EXPLANATION"

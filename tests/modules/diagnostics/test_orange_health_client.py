@@ -276,7 +276,7 @@ async def test_cancel_order_success(monkeypatch):
     assert captured["kwargs"]["params"] == {"token": "tok"}
     assert captured["kwargs"]["json"] == {
         "cancellationReason": "Any Reason",
-        "cancellationExplanation": "",
+        "cancellationExplanation": "Any Reason",
     }
 
 

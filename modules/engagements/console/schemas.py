@@ -42,6 +42,7 @@ class HomeCollectionRescheduleRequest(BaseModel):
     blood_collection_time_slot_id: str = Field(min_length=1, max_length=50)
     blood_collection_time_slot: str = Field(min_length=1, max_length=50)
     reschedule_reason: SafeText
+    reschedule_explanation: SafeText | None = None
 
 
 class ConsoleParticipantBookResponse(BaseModel):

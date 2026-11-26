@@ -992,6 +992,7 @@ class ConsoleService:
         engagement_id: int,
         user_id: int,
         remarks: str,
+        cancellation_explanation: str | None = None,
     ) -> dict:
         from modules.bookings.service import cancel_participant_booking_by_provider
 
@@ -1023,6 +1024,7 @@ class ConsoleService:
             participant=participant,
             engagement=engagement,
             remarks=remarks,
+            cancellation_explanation=cancellation_explanation,
             repository=self._repository,
         )
         return result
@@ -1937,6 +1939,7 @@ class ConsoleService:
         blood_collection_time_slot_id: str,
         blood_collection_time_slot: str,
         reschedule_reason: str,
+        reschedule_explanation: str | None = None,
     ) -> dict:
         await ensure_console_access(db, engagement_id, repository=self._repository, employee=employee, partner=partner)
 
@@ -1960,6 +1963,7 @@ class ConsoleService:
             blood_collection_time_slot_id=blood_collection_time_slot_id,
             blood_collection_time_slot=blood_collection_time_slot,
             reschedule_reason=reschedule_reason,
+            reschedule_explanation=reschedule_explanation,
         )
 
         return {

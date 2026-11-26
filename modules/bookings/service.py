@@ -2030,6 +2030,7 @@ async def cancel_orange_participant_booking(
     participant: EngagementParticipant,
     engagement: Engagement,
     remarks: str,
+    cancellation_explanation: str | None = None,
     repository: EngagementsRepository,
 ) -> dict[str, Any]:
     """Cancel an Orange Health booking for an engagement participant and clear local booking fields."""
@@ -2061,6 +2062,14 @@ async def cancel_orange_participant_booking(
             message="Cancellation reason is required",
         )
 
+    explanation = (cancellation_explanation or "").strip()
+    if not explanation:
+        raise AppError(
+            status_code=422,
+            error_code="INVALID_CANCELLATION_EXPLANATION",
+            message="Cancellation explanation is required",
+        )
+
     pkg = await _get_diagnostic_package_for_user_engagement(
         db, engagement=engagement, user_id=participant.user_id
     )
@@ -2073,7 +2082,7 @@ async def cancel_orange_participant_booking(
 
     partner_body = build_orange_cancel_partner_body(
         cancellation_reason=reason,
-        cancellation_explanation="",
+        cancellation_explanation=explanation,
     )
     api_url = cancel_api_url(request_id)
     sync_request_payload = build_orange_health_sync_request_payload(
@@ -2157,6 +2166,7 @@ async def cancel_participant_booking_by_provider(
     participant: EngagementParticipant,
     engagement: Engagement,
     remarks: str,
+    cancellation_explanation: str | None = None,
     repository: EngagementsRepository,
 ) -> dict[str, Any]:
     pkg = await _get_diagnostic_package_for_user_engagement(
@@ -2168,6 +2178,7 @@ async def cancel_participant_booking_by_provider(
             participant=participant,
             engagement=engagement,
             remarks=remarks,
+            cancellation_explanation=cancellation_explanation,
             repository=repository,
         )
     if _is_redcliffe(pkg):
@@ -2353,6 +2364,7 @@ async def reschedule_orange_participant_booking(
     blood_collection_time_slot_id: str,
     blood_collection_time_slot: str,
     reschedule_reason: str,
+    reschedule_explanation: str | None = None,
 ) -> dict[str, Any]:
     """Reschedule an Orange Health home-collection booking and update local participant fields."""
     blood_repo = BloodBookingsRepository()
@@ -2422,6 +2434,14 @@ async def reschedule_orange_participant_booking(
             message="Reschedule reason is required",
         )
 
+    explanation = (reschedule_explanation or "").strip()
+    if not explanation:
+        raise AppError(
+            status_code=422,
+            error_code="INVALID_RESCHEDULE_EXPLANATION",
+            message="Reschedule explanation is required",
+        )
+
     partner_slot_time, slot_meta = await revalidate_orange_reschedule_slot(
         participant=participant,
         blood_collection_date=blood_collection_date,
@@ -2440,7 +2460,7 @@ async def reschedule_orange_participant_booking(
     partner_body = build_orange_reschedule_partner_body(
         requested_slot_time=partner_slot_time,
         reschedule_reason=reason,
-        reschedule_explanation=reason,
+        reschedule_explanation=explanation,
     )
     api_url = reschedule_api_url(request_id)
     sync_request_payload = build_orange_health_sync_request_payload(
@@ -2549,6 +2569,7 @@ async def reschedule_home_collection_participant_booking(
     blood_collection_time_slot_id: str,
     blood_collection_time_slot: str,
     reschedule_reason: str,
+    reschedule_explanation: str | None = None,
 ) -> dict[str, Any]:
     pkg = await _get_diagnostic_package_for_user_engagement(
         db, engagement=engagement, user_id=participant.user_id
@@ -2562,6 +2583,7 @@ async def reschedule_home_collection_participant_booking(
             blood_collection_time_slot_id=blood_collection_time_slot_id,
             blood_collection_time_slot=blood_collection_time_slot,
             reschedule_reason=reschedule_reason,
+            reschedule_explanation=reschedule_explanation,
         )
     if _is_redcliffe(pkg):
         raise AppError(

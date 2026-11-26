@@ -29,6 +29,9 @@ def build_orange_cancel_partner_body(
             error_code="INVALID_CANCELLATION_REASON",
             message="Cancellation reason is required",
         )
+    # Production partner API rejects an empty cancellationExplanation (docs mark it optional).
+    if not explanation:
+        explanation = reason
     return {
         "cancellationReason": reason,
         "cancellationExplanation": explanation,
