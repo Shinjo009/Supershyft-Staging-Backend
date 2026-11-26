@@ -1048,6 +1048,16 @@ class EngagementsRepository:
         result = await db.execute(query)
         return list(result.scalars().all())
 
+    async def list_scheduled_or_running_engagements(self, db: AsyncSession) -> list[Engagement]:
+        """List engagements with status scheduled or running."""
+        query = (
+            select(Engagement)
+            .where(self._scheduled_or_running_engagement_status_filter())
+            .order_by(Engagement.start_date.desc(), Engagement.engagement_id.desc())
+        )
+        result = await db.execute(query)
+        return list(result.scalars().all())
+
     async def list_running_engagements_for_assigned_partner(
         self,
         db: AsyncSession,

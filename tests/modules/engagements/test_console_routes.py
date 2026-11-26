@@ -318,6 +318,7 @@ async def test_console_list_admin_returns_all_running(async_client, test_db_sess
     await _seed_engagement(test_db_session, engagement_id=6012, status="running", engagement_code="ADMINRUN1")
     await _seed_engagement(test_db_session, engagement_id=6013, status="completed", engagement_code="ADMINDONE1")
     await _seed_engagement(test_db_session, engagement_id=6014, status="running", engagement_code="ADMINRUN2")
+    await _seed_engagement(test_db_session, engagement_id=6016, status="scheduled", engagement_code="ADMINSCH1")
     await test_db_session.commit()
 
     headers = _auth_header(209)
@@ -327,6 +328,7 @@ async def test_console_list_admin_returns_all_running(async_client, test_db_sess
     ids = {row["engagement_id"] for row in response.json()["data"]}
     assert 6012 in ids
     assert 6014 in ids
+    assert 6016 in ids
     assert 6013 not in ids
 
 
