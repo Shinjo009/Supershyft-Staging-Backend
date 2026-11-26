@@ -993,7 +993,7 @@ class ConsoleService:
         user_id: int,
         remarks: str,
     ) -> dict:
-        from modules.bookings.service import cancel_healthians_participant_booking
+        from modules.bookings.service import cancel_participant_booking_by_provider
 
         await ensure_console_access(db, engagement_id, repository=self._repository, employee=employee, partner=partner)
 
@@ -1018,7 +1018,7 @@ class ConsoleService:
                 message="Participant is not enrolled in this engagement",
             )
 
-        result = await cancel_healthians_participant_booking(
+        result = await cancel_participant_booking_by_provider(
             db,
             participant=participant,
             engagement=engagement,

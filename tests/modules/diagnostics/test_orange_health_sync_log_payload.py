@@ -71,3 +71,19 @@ def test_extract_partner_body_and_internal_legacy():
     }
     assert extract_partner_body_from_log(legacy)["requested_slot_time"] == "t"
     assert extract_internal_from_log(legacy) == {"operation": "reschedule"}
+
+
+def test_extract_partner_body_cancel_keys_from_envelope():
+    envelope = {
+        "api_name": "cancel",
+        "body": {
+            "cancellationReason": "Admin remark",
+            "cancellationExplanation": "",
+            "extra": "ignored",
+        },
+    }
+    body = extract_partner_body_from_log(envelope)
+    assert body == {
+        "cancellationReason": "Admin remark",
+        "cancellationExplanation": "",
+    }

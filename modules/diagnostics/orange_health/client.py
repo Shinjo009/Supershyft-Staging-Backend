@@ -42,6 +42,11 @@ def reschedule_api_url(request_id: str) -> str:
     return f"{_base_url()}/v1/partner/{rid}/reschedule"
 
 
+def cancel_api_url(request_id: str) -> str:
+    rid = (request_id or "").strip()
+    return f"{_base_url()}/v1/partner/{rid}/cancel"
+
+
 def _coord(value: float) -> float:
     """Partner docs recommend >= 4 decimal places for serviceability."""
     return round(float(value), 6)
@@ -186,6 +191,43 @@ async def reschedule_order(
             data = {"status": resp.text}
         raise OrangeHealthApiError(
             _format_api_error(data, "Reschedule request failed"),
+            status_code=400,
+            body=data,
+        )
+    resp.raise_for_status()
+    return resp.json()
+
+
+async def cancel_order(
+    *,
+    request_id: str,
+    token: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """PATCH /v1/partner/{request_id}/cancel?token=..."""
+    from modules.diagnostics.orange_health.cancel_helpers import (
+        sanitize_orange_cancel_patch_body,
+    )
+
+    url = cancel_api_url(request_id)
+    params = {"token": (token or "").strip()}
+    partner_body = sanitize_orange_cancel_patch_body(payload)
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.patch(
+            url,
+            params=params,
+            json=partner_body,
+            headers={**_headers(), "Content-Type": "application/json"},
+        )
+    if resp.status_code == 401:
+        raise OrangeHealthApiError("Unauthorized", status_code=401, body=resp.text)
+    if resp.status_code == 400:
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"status": resp.text}
+        raise OrangeHealthApiError(
+            _format_api_error(data, "Cancel request failed"),
             status_code=400,
             body=data,
         )

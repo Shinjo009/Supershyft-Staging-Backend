@@ -23,7 +23,16 @@ from modules.diagnostics.models import DiagnosticPackage
 from modules.discounts.schemas import CartLine, CheckoutContext
 from modules.diagnostics.orange_health import client as orange_health_client
 from modules.diagnostics.orange_health.booking_helpers import is_orange_health, parse_orange_slot_time
-from modules.diagnostics.orange_health.client import OrangeHealthApiError, reschedule_api_url
+from modules.diagnostics.orange_health.cancel_helpers import (
+    build_cancel_internal_metadata,
+    build_orange_cancel_partner_body,
+    build_orange_cancel_query_log,
+)
+from modules.diagnostics.orange_health.client import (
+    OrangeHealthApiError,
+    cancel_api_url,
+    reschedule_api_url,
+)
 from modules.diagnostics.orange_health.reschedule_helpers import (
     build_orange_reschedule_partner_body,
     build_orange_reschedule_query_log,
@@ -2002,6 +2011,178 @@ async def cancel_healthians_participant_booking(
         "message": resp.get("message", "Order Cancelled Successfully!"),
         "booking_id": booking_id,
     }
+
+
+def _orange_cancel_ack_message(resp: dict) -> str:
+    status = resp.get("status")
+    if isinstance(status, dict):
+        text = status.get("status")
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+    if isinstance(status, str) and status.strip():
+        return status.strip()
+    return "Orange Health cancellation request accepted"
+
+
+async def cancel_orange_participant_booking(
+    db: AsyncSession,
+    *,
+    participant: EngagementParticipant,
+    engagement: Engagement,
+    remarks: str,
+    repository: EngagementsRepository,
+) -> dict[str, Any]:
+    """Cancel an Orange Health booking for an engagement participant and clear local booking fields."""
+    blood_repo = BloodBookingsRepository()
+    current = await blood_repo.get_current_collection(
+        db, engagement_participant_id=participant.engagement_participant_id
+    )
+    if current is None:
+        raise AppError(
+            status_code=422,
+            error_code="NO_BOOKING",
+            message="No Orange Health booking exists for this participant",
+        )
+
+    request_id = (current.request_id or current.booking_id or "").strip()
+    token = (current.token or "").strip()
+    if not request_id or not token:
+        raise AppError(
+            status_code=422,
+            error_code="NO_BOOKING",
+            message="No Orange Health booking exists for this participant",
+        )
+
+    reason = remarks.strip()
+    if not reason:
+        raise AppError(
+            status_code=422,
+            error_code="INVALID_CANCELLATION_REASON",
+            message="Cancellation reason is required",
+        )
+
+    pkg = await _get_diagnostic_package_for_user_engagement(
+        db, engagement=engagement, user_id=participant.user_id
+    )
+    if not _is_orange_health(pkg):
+        raise AppError(
+            status_code=422,
+            error_code="INVALID_DIAGNOSTIC_PROVIDER",
+            message="Diagnostic provider is not Orange Health",
+        )
+
+    partner_body = build_orange_cancel_partner_body(
+        cancellation_reason=reason,
+        cancellation_explanation="",
+    )
+    api_url = cancel_api_url(request_id)
+    sync_request_payload = build_orange_health_sync_request_payload(
+        api_url=api_url,
+        http_method="PATCH",
+        path={"request_id": request_id},
+        query=build_orange_cancel_query_log(token),
+        body=partner_body,
+        internal=build_cancel_internal_metadata(request_id=request_id, token=token),
+    )
+
+    await release_request_transaction(db)
+
+    sync_log_id = await persist_orange_health_sync_log_isolated(
+        engagement_id=engagement.engagement_id,
+        user_id=participant.user_id,
+        api_url=api_url,
+        request_payload=sync_request_payload,
+        status="pending",
+    )
+    try:
+        resp = await orange_health_client.cancel_order(
+            request_id=request_id,
+            token=token,
+            payload=partner_body,
+        )
+    except OrangeHealthApiError as exc:
+        logger.exception(
+            "Orange Health cancel failed for participant %s",
+            participant.engagement_participant_id,
+        )
+        await finalize_orange_health_sync_log_isolated(
+            sync_log_id=sync_log_id,
+            status="failed",
+            response_payload=exc.body if isinstance(exc.body, dict) else None,
+            error_message=str(exc),
+        )
+        status_code = 422 if exc.status_code == 400 else 502
+        raise AppError(
+            status_code=status_code,
+            error_code="ORANGE_HEALTH_CANCEL_FAILED",
+            message=str(exc),
+        ) from exc
+    except Exception as exc:
+        logger.exception(
+            "Orange Health cancel failed for participant %s",
+            participant.engagement_participant_id,
+        )
+        await finalize_orange_health_sync_log_isolated(
+            sync_log_id=sync_log_id,
+            status="failed",
+            error_message=str(exc),
+        )
+        raise AppError(
+            status_code=502,
+            error_code="ORANGE_HEALTH_CANCEL_FAILED",
+            message=str(exc),
+        ) from exc
+
+    await finalize_orange_health_sync_log_isolated(
+        sync_log_id=sync_log_id,
+        status="success",
+        response_payload=resp,
+    )
+
+    await repository.clear_participant_orange_booking(
+        db,
+        engagement_participant_id=participant.engagement_participant_id,
+    )
+
+    return {
+        "status": True,
+        "message": _orange_cancel_ack_message(resp),
+        "booking_id": request_id,
+    }
+
+
+async def cancel_participant_booking_by_provider(
+    db: AsyncSession,
+    *,
+    participant: EngagementParticipant,
+    engagement: Engagement,
+    remarks: str,
+    repository: EngagementsRepository,
+) -> dict[str, Any]:
+    pkg = await _get_diagnostic_package_for_user_engagement(
+        db, engagement=engagement, user_id=participant.user_id
+    )
+    if _is_orange_health(pkg):
+        return await cancel_orange_participant_booking(
+            db,
+            participant=participant,
+            engagement=engagement,
+            remarks=remarks,
+            repository=repository,
+        )
+    if _is_redcliffe(pkg):
+        raise AppError(
+            status_code=422,
+            error_code="UNSUPPORTED_PROVIDER",
+            message="Cancel and reschedule are not supported for Redcliffe bookings yet",
+        )
+    return await cancel_healthians_participant_booking(
+        db,
+        participant=participant,
+        engagement=engagement,
+        remarks=remarks,
+        repository=repository,
+    )
 
 
 def _healthians_reschedule_success(resp: dict) -> bool:

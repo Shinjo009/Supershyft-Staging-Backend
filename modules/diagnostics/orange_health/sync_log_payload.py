@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
+from modules.diagnostics.orange_health.cancel_helpers import ORANGE_CANCEL_PARTNER_KEYS
 from modules.diagnostics.orange_health.reschedule_helpers import ORANGE_RESCHEDULE_PARTNER_KEYS
 
 
@@ -27,14 +28,22 @@ def orange_api_name_from_url(api_url: str) -> str:
     return segments[-1] if segments else api_url
 
 
+def _partner_body_keys_for_payload(payload: dict[str, Any]) -> frozenset[str]:
+    api_name = (payload.get("api_name") or "").strip().lower()
+    if api_name == "cancel":
+        return ORANGE_CANCEL_PARTNER_KEYS
+    return ORANGE_RESCHEDULE_PARTNER_KEYS
+
+
 def extract_partner_body_from_log(payload: dict[str, Any] | None) -> dict[str, Any]:
     """Partner JSON body only — supports envelope or legacy flat rows."""
     if not isinstance(payload, dict):
         return {}
+    keys = _partner_body_keys_for_payload(payload)
     nested = payload.get("body")
     if isinstance(nested, dict):
-        return {k: nested[k] for k in ORANGE_RESCHEDULE_PARTNER_KEYS if k in nested}
-    return {k: payload[k] for k in ORANGE_RESCHEDULE_PARTNER_KEYS if k in payload}
+        return {k: nested[k] for k in keys if k in nested}
+    return {k: payload[k] for k in keys if k in payload}
 
 
 def extract_internal_from_log(payload: dict[str, Any] | None) -> dict[str, Any] | None:

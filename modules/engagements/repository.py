@@ -544,6 +544,19 @@ class EngagementsRepository:
             return
         await self._blood_bookings.clear_healthians_booking_on_row(db, row=current)
 
+    async def clear_participant_orange_booking(
+        self,
+        db: AsyncSession,
+        *,
+        engagement_participant_id: int,
+    ) -> None:
+        current = await self._blood_bookings.get_current_collection(
+            db, engagement_participant_id=engagement_participant_id
+        )
+        if current is None:
+            return
+        await self._blood_bookings.clear_orange_booking_on_row(db, row=current)
+
     async def list_enrolled_user_ids_for_engagement(
         self,
         db: AsyncSession,
