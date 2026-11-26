@@ -340,6 +340,7 @@ class BlogService:
             "author_role": self._author_role(author),
             "avatar_url": author.avatar_url if author else None,
             "published_at": fmt_dt(post.published_at),
+            "updated_at": fmt_dt(post.updated_at),
             "read_time": read_minutes(post.content or []),
             "status": _enum_text(post.status),
             "category": post.category.name if post.category else None,

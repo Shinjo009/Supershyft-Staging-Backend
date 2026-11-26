@@ -85,7 +85,10 @@ _SKIP = {"script", "style"}
 _VOID = {"br", "img", "hr", "wbr", "source"}
 _HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
 _TEXT_TAGS = _HEADING_TAGS | {"p", "blockquote"}
-_ALLOWED_TAGS = _TEXT_TAGS | {"ul", "ol", "table", "hr", "img", "video", "audio", "pre", "section"}
+_ALLOWED_TAGS = _TEXT_TAGS | {"ul", "ol", "table", "hr", "img", "video", "audio", "pre", "section", "a"}
+_BUTTON_FONT_WEIGHTS = {"300", "400", "500", "600", "700", "light", "regular", "normal", "medium", "semibold", "semi-bold", "bold"}
+_BUTTON_PADDING = re.compile(r"^(\d{1,3}px)(\s+\d{1,3}px){0,3}$")
+_BUTTON_RADIUS = re.compile(r"^\d{1,3}px$")
 
 
 class _Node:
@@ -555,7 +558,74 @@ def _shape_block(item: dict, strict: bool = False):
         return {"tag": "audio", "attributes": {"src": _attr(item, "src")}}
     if tag == "video":
         return {"tag": "video", "attributes": {"src": _attr(item, "src")}}
+    if tag == "a":
+        return _shape_button_link(item, strict=strict)
     return None
+
+
+def _button_alignment(item: dict) -> str | None:
+    raw = item.get("alignment")
+    if raw is None:
+        raw = _block_style(item).get("textAlign")
+    return _align(raw)
+
+
+def _button_style(style: dict, strict: bool) -> dict:
+    cleaned: dict = {}
+    if not isinstance(style, dict):
+        return cleaned
+    bg = normalize_hex(style.get("backgroundColor"))
+    if bg:
+        cleaned["backgroundColor"] = bg
+    elif style.get("backgroundColor") and strict:
+        raise ApiError("Button backgroundColor must be a hex color")
+    color = normalize_hex(style.get("color"))
+    if color:
+        cleaned["color"] = color
+    elif style.get("color") and strict:
+        raise ApiError("Button color must be a hex color")
+    font_size = _font_size_value(style.get("fontSize"))
+    if font_size:
+        cleaned["fontSize"] = font_size
+    elif style.get("fontSize") and strict:
+        raise ApiError("Button fontSize must be a px size")
+    weight = str(style.get("fontWeight") or "").strip().lower()
+    if weight in _BUTTON_FONT_WEIGHTS:
+        cleaned["fontWeight"] = str(style.get("fontWeight")).strip()
+    elif style.get("fontWeight") and strict:
+        raise ApiError("Button fontWeight is invalid")
+    radius = str(style.get("borderRadius") or "").strip().lower()
+    if _BUTTON_RADIUS.fullmatch(radius):
+        cleaned["borderRadius"] = radius
+    elif style.get("borderRadius") and strict:
+        raise ApiError("Button borderRadius must be like 24px")
+    padding = str(style.get("padding") or "").strip().lower()
+    if _BUTTON_PADDING.fullmatch(padding):
+        cleaned["padding"] = padding
+    elif style.get("padding") and strict:
+        raise ApiError("Button padding must be like 14px 28px")
+    return cleaned
+
+
+def _shape_button_link(item: dict, strict: bool = False) -> dict | None:
+    text = _cell_text(item).strip()
+    href = _link_href(_attr(item, "href") or item.get("href"), strict=strict)
+    if not text or not href:
+        if strict:
+            raise ApiError("Button links need text and an http(s) href")
+        return None
+    attrs: dict = {"href": href}
+    target = str(_block_attrs(item).get("target") or "").strip()
+    if target in {"_blank", "_self"}:
+        attrs["target"] = target
+    style = _button_style(_block_style(item), strict=strict)
+    if style:
+        attrs["style"] = style
+    shaped: dict = {"tag": "a", "type": "button", "text": text, "attributes": attrs}
+    alignment = _button_alignment(item)
+    if alignment:
+        shaped["alignment"] = alignment
+    return shaped
 
 
 def _validate(block: dict) -> dict:
@@ -746,6 +816,11 @@ def present_blocks(blocks) -> list:
                         copy.pop("attributes", None)
             shown.append(copy)
             continue
+        if tag == "a":
+            shaped = _shape_button_link(block, strict=False)
+            if shaped:
+                shown.append(shaped)
+            continue
         # hr / img / video / audio
         copy = _strip_legacy(block)
         copy["tag"] = tag
@@ -826,6 +901,32 @@ def _render_block(block: dict) -> str:
         return f'<audio class="blog-audio" controls src="{url}"></audio>'
     if tag == "video" and _attr(block, "src"):
         return _render_video(_attr(block, "src"))
+    if tag == "a":
+        shaped = _shape_button_link(block, strict=False)
+        if not shaped:
+            return ""
+        href = escape(str(shaped["attributes"]["href"]), quote=True)
+        label = escape(str(shaped.get("text") or ""))
+        target = shaped["attributes"].get("target")
+        target_attr = f' target="{escape(str(target), quote=True)}" rel="noopener noreferrer"' if target == "_blank" else ""
+        style_bits = []
+        for key, css_key in (
+            ("backgroundColor", "background-color"),
+            ("color", "color"),
+            ("fontSize", "font-size"),
+            ("fontWeight", "font-weight"),
+            ("borderRadius", "border-radius"),
+            ("padding", "padding"),
+        ):
+            value = (shaped["attributes"].get("style") or {}).get(key)
+            if value:
+                style_bits.append(f"{css_key}:{escape(str(value), quote=True)}")
+        style_attr = f' style="{";".join(style_bits)}"' if style_bits else ""
+        align = shaped.get("alignment")
+        link = f'<a class="blog-cta" href="{href}"{target_attr}{style_attr}>{label}</a>'
+        if align:
+            return f'<p style="text-align:{escape(str(align), quote=True)}">{link}</p>'
+        return link
     return ""
 
 
