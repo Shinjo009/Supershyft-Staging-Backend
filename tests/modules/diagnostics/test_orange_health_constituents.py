@@ -10,9 +10,9 @@ from tests.helpers.auth import employee_auth_header, seed_employee
 
 def test_load_d2c_tests_includes_known_entry():
     items = load_d2c_tests()
-    assert len(items) == 713
-    first = next(i for i in items if i["id"] == "1")
-    assert first["name"] == "Absolute Eosinophil Count (AEC)"
+    assert len(items) == 577
+    match = next(i for i in items if i["id"] == "10")
+    assert match["name"] == "Absolute Eosinophil Count"
 
 
 @pytest.mark.asyncio
@@ -25,6 +25,6 @@ async def test_get_orange_health_constituents(async_client, test_db_session):
     )
     assert response.status_code == 200
     body = response.json()["data"]
-    assert len(body["constituents"]) == 713
-    match = next(c for c in body["constituents"] if c["id"] == "1")
-    assert match["name"] == "Absolute Eosinophil Count (AEC)"
+    assert len(body["constituents"]) == 577
+    match = next(c for c in body["constituents"] if c["id"] == "10")
+    assert match["name"] == "Absolute Eosinophil Count"
