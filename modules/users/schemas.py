@@ -839,6 +839,11 @@ class EmployeeUserListItem(BaseModel):
     metsights_profile_id: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    parent_id: Optional[int] = None
+    relationship: Optional[str] = None
+    sub_account_count: int = 0
+    sub_accounts: list["EmployeeUserListItem"] = []
+    matched_sub_ids: list[int] = []
 
 
 QuestionnaireStatusLabel = Literal["NOT_STARTED", "IN_PROGRESS", "COMPLETED"]

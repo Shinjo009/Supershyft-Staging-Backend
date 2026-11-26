@@ -2021,32 +2021,38 @@ class UsersService:
         search: str | None = None,
         sort_by: str | None = None,
         sort_dir: str | None = None,
-    ) -> tuple[list[User], int]:
+    ) -> tuple[list[User], dict[int, list[User]], dict[int, list[int]], int, int]:
         self._ensure_employee_access(employee)
 
-        users = await self._repository.list_users(
+        list_kwargs = {
+            "phone": phone,
+            "email": email,
+            "status": status,
+            "is_participant": is_participant,
+            "search": search,
+        }
+
+        primaries, children_by_parent, matched_sub_ids = await self._repository.list_users_hierarchical(
             db,
             page=page,
             limit=limit,
-            phone=phone,
-            email=email,
-            status=status,
-            is_participant=is_participant,
-            search=search,
             sort_by=sort_by,
             sort_dir=sort_dir,
+            **list_kwargs,
         )
 
-        total = await self._repository.count_users(
+        total = await self._repository.count_matching_primary_roots(db, **list_kwargs)
+
+        total_profiles = await self._repository.count_users(
             db,
             phone=phone,
             email=email,
             status=status,
             is_participant=is_participant,
-            search=search,
+            search=None,
         )
 
-        return users, total
+        return primaries, children_by_parent, matched_sub_ids, total, total_profiles
 
     async def get_participant_metsights_counts_for_employee(self, db: AsyncSession, *, employee) -> dict:
         self._ensure_employee_access(employee)

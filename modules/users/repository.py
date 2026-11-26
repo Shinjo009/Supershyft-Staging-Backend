@@ -9,7 +9,7 @@ from typing import Optional
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Integer, and_, asc, cast, delete, desc, extract, func, or_, select, type_coerce, update
+from sqlalchemy import Integer, and_, asc, case, cast, delete, desc, extract, func, or_, select, type_coerce, update
 
 from common.listing import apply_sort, ilike_pattern, normalize_sort_dir
 from sqlalchemy.dialects.postgresql import JSONB, insert
@@ -82,18 +82,127 @@ class UsersRepository:
         if is_participant is not None:
             query = query.where(User.is_participant == is_participant)
         if search is not None and search.strip():
-            pattern = ilike_pattern(search)
-            full_name = func.trim(func.concat(func.coalesce(User.first_name, ""), " ", func.coalesce(User.last_name, "")))
-            query = query.where(
-                or_(
-                    User.first_name.ilike(pattern),
-                    User.last_name.ilike(pattern),
-                    full_name.ilike(pattern),
-                    User.phone.ilike(pattern),
-                    User.email.ilike(pattern),
-                )
-            )
+            query = query.where(self._user_list_search_predicate(search))
         return query
+
+    @classmethod
+    def _primary_root_id_expr(cls):
+        return case((User.parent_id.is_(None), User.user_id), else_=User.parent_id)
+
+    @classmethod
+    def _user_list_search_predicate(cls, search: str):
+        pattern = ilike_pattern(search)
+        full_name = func.trim(func.concat(func.coalesce(User.first_name, ""), " ", func.coalesce(User.last_name, "")))
+        return or_(
+            User.first_name.ilike(pattern),
+            User.last_name.ilike(pattern),
+            full_name.ilike(pattern),
+            User.phone.ilike(pattern),
+            User.email.ilike(pattern),
+        )
+
+    async def count_matching_primary_roots(
+        self,
+        db: AsyncSession,
+        *,
+        phone: str | None = None,
+        email: str | None = None,
+        status: str | None = None,
+        is_participant: bool | None = None,
+        search: str | None = None,
+    ) -> int:
+        root_id = self._primary_root_id_expr()
+        roots_subq = select(root_id.label("root_id")).select_from(User)
+        roots_subq = self._apply_user_list_filters(
+            roots_subq,
+            phone=phone,
+            email=email,
+            status=status,
+            is_participant=is_participant,
+            search=search,
+        )
+        roots_subq = roots_subq.distinct().subquery()
+        result = await db.execute(select(func.count()).select_from(roots_subq))
+        return int(result.scalar_one())
+
+    async def list_users_hierarchical(
+        self,
+        db: AsyncSession,
+        *,
+        page: int,
+        limit: int,
+        phone: str | None = None,
+        email: str | None = None,
+        status: str | None = None,
+        is_participant: bool | None = None,
+        search: str | None = None,
+        sort_by: str | None = None,
+        sort_dir: str | None = None,
+    ) -> tuple[list[User], dict[int, list[User]], dict[int, list[int]]]:
+        """Paginate primary accounts with nested sub-accounts for employee list."""
+        offset = (page - 1) * limit
+        root_id = self._primary_root_id_expr()
+        matching_roots = select(root_id.label("root_id")).select_from(User)
+        matching_roots = self._apply_user_list_filters(
+            matching_roots,
+            phone=phone,
+            email=email,
+            status=status,
+            is_participant=is_participant,
+            search=search,
+        )
+        matching_roots = matching_roots.distinct().subquery()
+
+        primary_query = select(User).where(User.user_id.in_(select(matching_roots.c.root_id)))
+
+        sort_columns = dict(self._USER_SORT_COLUMNS)
+        if (sort_by or "").strip() == "name":
+            direction = asc if normalize_sort_dir(sort_dir) == "asc" else desc
+            primary_query = primary_query.order_by(
+                direction(User.first_name),
+                direction(User.last_name),
+                direction(User.user_id),
+            )
+        else:
+            primary_query = apply_sort(
+                primary_query,
+                sort_by=sort_by,
+                sort_dir=sort_dir,
+                columns=sort_columns,
+                default_column=User.user_id,
+            )
+
+        primary_query = primary_query.offset(offset).limit(limit)
+        result = await db.execute(primary_query)
+        primaries = list(result.scalars().all())
+        if not primaries:
+            return [], {}, {}
+
+        page_root_ids = [p.user_id for p in primaries]
+        children_result = await db.execute(
+            select(User).where(User.parent_id.in_(page_root_ids)).order_by(User.user_id.asc())
+        )
+        children = list(children_result.scalars().all())
+        children_by_parent: dict[int, list[User]] = {}
+        for child in children:
+            pid = int(child.parent_id)
+            children_by_parent.setdefault(pid, []).append(child)
+
+        matched_sub_ids: dict[int, list[int]] = {}
+        if search is not None and search.strip():
+            sub_match_result = await db.execute(
+                select(User.user_id, User.parent_id)
+                .where(
+                    User.parent_id.in_(page_root_ids),
+                    self._user_list_search_predicate(search),
+                )
+                .order_by(User.user_id.asc())
+            )
+            for row in sub_match_result.all():
+                parent_id = int(row.parent_id)
+                matched_sub_ids.setdefault(parent_id, []).append(int(row.user_id))
+
+        return primaries, children_by_parent, matched_sub_ids
 
     async def count_users(
         self,

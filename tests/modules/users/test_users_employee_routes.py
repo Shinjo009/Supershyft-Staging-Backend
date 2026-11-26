@@ -177,6 +177,187 @@ async def test_employee_list_users_paginates_and_filters(async_client, test_db_s
 
 
 @pytest.mark.asyncio
+async def test_employee_list_users_nests_sub_accounts(async_client, test_db_session):
+    emp_id = 10050
+    parent_id = 91500
+    child_a = 91501
+    child_b = 91502
+    test_db_session.add(User(age=30, user_id=9003, phone="9003000000", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=emp_id,
+            name="Employee",
+            phone="0000010050",
+            email="employee10050@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    test_db_session.add(
+        User(
+            age=35,
+            user_id=parent_id,
+            phone="9150000000",
+            email="parent.list@test.example",
+            status="active",
+            first_name="Primary",
+            last_name="Adult",
+        )
+    )
+    test_db_session.add(
+        User(
+            age=10,
+            user_id=child_a,
+            phone="9150100000",
+            email="childa.list@test.example",
+            status="active",
+            first_name="Kid",
+            last_name="One",
+            parent_id=parent_id,
+            relationship="child",
+        )
+    )
+    test_db_session.add(
+        User(
+            age=8,
+            user_id=child_b,
+            phone="9150200000",
+            email="childb.list@test.example",
+            status="inactive",
+            first_name="Kid",
+            last_name="Two",
+            parent_id=parent_id,
+            relationship="child",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        f"/users?search=Primary&limit=50",
+        headers=_auth_header(emp_id),
+    )
+    assert response.status_code == 200
+    rows = response.json()["data"]
+    primary_rows = [r for r in rows if r["user_id"] == parent_id]
+    assert len(primary_rows) == 1
+    primary = primary_rows[0]
+    assert primary["parent_id"] is None
+    assert primary["sub_account_count"] == 2
+    assert len(primary["sub_accounts"]) == 2
+    sub_ids = {s["user_id"] for s in primary["sub_accounts"]}
+    assert sub_ids == {child_a, child_b}
+    assert all(s["parent_id"] == parent_id for s in primary["sub_accounts"])
+    assert "total_profiles" in response.json()["meta"]
+
+
+@pytest.mark.asyncio
+async def test_employee_list_users_search_sub_bubbles_primary(async_client, test_db_session):
+    emp_id = 10051
+    parent_id = 91510
+    child_id = 91511
+    test_db_session.add(User(age=30, user_id=9003, phone="9003000000", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=emp_id,
+            name="Employee",
+            phone="0000010051",
+            email="employee10051@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    test_db_session.add(
+        User(
+            age=35,
+            user_id=parent_id,
+            phone="9151000000",
+            status="active",
+            first_name="Unrelated",
+            last_name="Parent",
+        )
+    )
+    test_db_session.add(
+        User(
+            age=12,
+            user_id=child_id,
+            phone="9151100000",
+            email="uniquechild.search@test.example",
+            status="active",
+            first_name="Searchable",
+            last_name="Child",
+            parent_id=parent_id,
+            relationship="child",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        "/users?search=uniquechild.search",
+        headers=_auth_header(emp_id),
+    )
+    assert response.status_code == 200
+    rows = response.json()["data"]
+    assert any(r["user_id"] == parent_id for r in rows)
+    primary = next(r for r in rows if r["user_id"] == parent_id)
+    assert child_id in primary["matched_sub_ids"]
+    assert not any(r.get("parent_id") == parent_id and r not in primary.get("sub_accounts", []) for r in rows)
+
+
+@pytest.mark.asyncio
+async def test_employee_list_users_status_includes_primary_when_sub_matches(async_client, test_db_session):
+    emp_id = 10052
+    parent_id = 91520
+    child_id = 91521
+    test_db_session.add(User(age=30, user_id=9003, phone="9003000000", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=emp_id,
+            name="Employee",
+            phone="0000010052",
+            email="employee10052@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    test_db_session.add(
+        User(
+            age=35,
+            user_id=parent_id,
+            phone="9152000000",
+            status="inactive",
+            first_name="Inactive",
+            last_name="Primary",
+        )
+    )
+    test_db_session.add(
+        User(
+            age=12,
+            user_id=child_id,
+            phone="9152100000",
+            status="active",
+            first_name="Active",
+            last_name="Kid",
+            parent_id=parent_id,
+            relationship="child",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        "/users?status=active&search=Active",
+        headers=_auth_header(emp_id),
+    )
+    assert response.status_code == 200
+    rows = response.json()["data"]
+    assert any(r["user_id"] == parent_id for r in rows)
+    primary = next(r for r in rows if r["user_id"] == parent_id)
+    assert child_id in {s["user_id"] for s in primary["sub_accounts"]}
+
+
+@pytest.mark.asyncio
 async def test_employee_get_user_returns_details(async_client, test_db_session):
     test_db_session.add(User(age=30, user_id=9004, phone="9004000000", status="active"))
     await test_db_session.flush()

@@ -939,6 +939,30 @@ async def employee_list_duplicate_users(
     return success_response(data)
 
 
+def _employee_user_list_item_payload(user) -> dict:
+    relationship = user.relationship
+    if hasattr(relationship, "value"):
+        relationship = relationship.value
+    return {
+        "user_id": user.user_id,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "age": api_age_for_user(user),
+        "phone": mask_phone(user.phone),
+        "email": mask_email(user.email),
+        "profile_photo": user.profile_photo,
+        "date_of_birth": user.date_of_birth,
+        "city": user.city,
+        "status": user.status,
+        "is_participant": user.is_participant,
+        "metsights_profile_id": user.metsights_profile_id,
+        "created_at": user.created_at,
+        "updated_at": user.updated_at,
+        "parent_id": user.parent_id,
+        "relationship": relationship or "self",
+    }
+
+
 @router.get("")
 async def employee_list_users(
     request: Request,
@@ -963,7 +987,13 @@ async def employee_list_users(
     except ValidationError as exc:
         raise AppError(status_code=400, error_code="INVALID_INPUT", message=str(exc)) from exc
 
-    users, total = await users_service.list_users_for_employee(
+    (
+        primaries,
+        children_by_parent,
+        matched_sub_ids,
+        total,
+        total_profiles,
+    ) = await users_service.list_users_for_employee(
         db,
         employee=employee,
         page=page,
@@ -981,25 +1011,13 @@ async def employee_list_users(
     protected_user_ids = sorted(await users_service._protected_user_ids(db))
 
     data = []
-    for user in users:
-        data.append(
-            {
-                "user_id": user.user_id,
-                "first_name": user.first_name,
-                "last_name": user.last_name,
-                "age": api_age_for_user(user),
-                "phone": mask_phone(user.phone),
-                "email": mask_email(user.email),
-                "profile_photo": user.profile_photo,
-                "date_of_birth": user.date_of_birth,
-                "city": user.city,
-                "status": user.status,
-                "is_participant": user.is_participant,
-                "metsights_profile_id": user.metsights_profile_id,
-                "created_at": user.created_at,
-                "updated_at": user.updated_at,
-            }
-        )
+    for primary in primaries:
+        subs = children_by_parent.get(primary.user_id, [])
+        item = _employee_user_list_item_payload(primary)
+        item["sub_account_count"] = len(subs)
+        item["sub_accounts"] = [_employee_user_list_item_payload(sub) for sub in subs]
+        item["matched_sub_ids"] = matched_sub_ids.get(primary.user_id, [])
+        data.append(item)
 
     return success_response(
         data,
@@ -1007,6 +1025,7 @@ async def employee_list_users(
             "page": page,
             "limit": limit,
             "total": total,
+            "total_profiles": total_profiles,
             "with_metsights_profile": stats.get("with_metsights_profile"),
             "total_participants": stats.get("total_participants"),
             "protected_user_ids": protected_user_ids,
