@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.listing import PageParamsDep
 from common.responses import success_response
 from core.dependencies import get_current_user
 from core.exceptions import AppError
@@ -283,12 +284,22 @@ async def portal_get_dashboard(
 
 @portal_router.get("/requests")
 async def portal_list_consultation_requests(
+    pagination: PageParamsDep,
     db: AsyncSession = Depends(get_db),
     actor: ExpertPortalActor = Depends(get_expert_portal_actor),
     availability_service: ExpertAvailabilityService = Depends(get_availability_service),
 ):
-    data = await availability_service.list_consultation_requests(db, employee=actor.employee, partner=actor.partner)
-    return success_response(data)
+    data, total = await availability_service.list_consultation_requests(
+        db,
+        employee=actor.employee,
+        partner=actor.partner,
+        page=pagination.page,
+        limit=pagination.limit,
+    )
+    return success_response(
+        data,
+        meta={"page": pagination.page, "limit": pagination.limit, "total": total},
+    )
 
 
 @portal_router.post("/confirm")

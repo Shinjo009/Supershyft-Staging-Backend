@@ -1383,15 +1383,26 @@ class ExpertAvailabilityService:
                 message="You are not assigned to this engagement",
             )
 
-    async def list_consultation_requests(self, db, *, employee: EmployeeContext | None = None, partner: Partner | None = None) -> list[dict[str, Any]]:
+    async def list_consultation_requests(
+        self,
+        db,
+        *,
+        employee: EmployeeContext | None = None,
+        partner: Partner | None = None,
+        page: int = 1,
+        limit: int = 20,
+    ) -> tuple[list[dict[str, Any]], int]:
         ensure_expert_portal_access(employee, partner=partner)
         rows = await self._fetch_pending_online_consultation_request_rows(
             db,
             employee=employee,
             partner=partner,
         )
+        total = len(rows)
+        start = (page - 1) * limit
+        page_rows = rows[start : start + limit]
         items: list[dict[str, Any]] = []
-        for booking, participant, engagement, user in rows:
+        for booking, participant, engagement, user in page_rows:
             pref = booking_to_api_preference(booking)
             items.append(
                 {
@@ -1409,7 +1420,7 @@ class ExpertAvailabilityService:
                     "engagement_participant_id": participant.engagement_participant_id,
                 }
             )
-        return items
+        return items, total
 
     async def confirm_consultation_request(
         self,

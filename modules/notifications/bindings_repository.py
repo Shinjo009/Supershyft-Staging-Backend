@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.notifications.models import NotificationEventBinding
@@ -11,23 +11,40 @@ _EMIT_CONDITION_UNSET = object()
 
 
 class NotificationBindingsRepository:
+    async def count_all(
+        self,
+        db: AsyncSession,
+        *,
+        event_code: str | None = None,
+        engagement_type_id: int | None = None,
+    ) -> int:
+        q = select(func.count()).select_from(NotificationEventBinding)
+        if event_code is not None:
+            q = q.where(NotificationEventBinding.event_code == event_code)
+        if engagement_type_id is not None:
+            q = q.where(NotificationEventBinding.engagement_type_id == engagement_type_id)
+        result = await db.execute(q)
+        return int(result.scalar_one() or 0)
+
     async def list_all(
         self,
         db: AsyncSession,
         *,
         event_code: str | None = None,
         engagement_type_id: int | None = None,
+        page: int | None = None,
+        limit: int | None = None,
     ) -> list[NotificationEventBinding]:
         q = select(NotificationEventBinding).order_by(
-            NotificationEventBinding.event_code.asc(),
-            NotificationEventBinding.recipient_type.asc(),
-            NotificationEventBinding.delivery_channel.asc(),
-            NotificationEventBinding.id.asc(),
+            NotificationEventBinding.id.desc(),
         )
         if event_code is not None:
             q = q.where(NotificationEventBinding.event_code == event_code)
         if engagement_type_id is not None:
             q = q.where(NotificationEventBinding.engagement_type_id == engagement_type_id)
+        if page is not None and limit is not None:
+            offset = (page - 1) * limit
+            q = q.offset(offset).limit(limit)
         result = await db.execute(q)
         return list(result.scalars().all())
 

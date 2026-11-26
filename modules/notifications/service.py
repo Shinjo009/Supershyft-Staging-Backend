@@ -872,8 +872,14 @@ class NotificationsService:
 
     # ── Service CRUD ────────────────────────────────────────────────────
 
-    async def list_services(self, db: AsyncSession) -> list[NotificationService]:
-        return await self._repo.list_services(db)
+    async def list_services(
+        self,
+        db: AsyncSession,
+        *,
+        page: int | None = None,
+        limit: int | None = None,
+    ) -> list[NotificationService]:
+        return await self._repo.list_services(db, page=page, limit=limit)
 
     async def _blocked_service_keys(self, db: AsyncSession) -> set[str]:
         binding_keys = await self._repo.list_service_keys_used_in_event_bindings(db)
@@ -885,11 +891,16 @@ class NotificationsService:
         return service_key not in blocked
 
     async def list_services_with_delete_flags(
-        self, db: AsyncSession,
-    ) -> list[tuple[NotificationService, bool]]:
-        services = await self._repo.list_services(db)
+        self,
+        db: AsyncSession,
+        *,
+        page: int = 1,
+        limit: int = 20,
+    ) -> tuple[list[tuple[NotificationService, bool]], int]:
+        total = await self._repo.count_services(db)
+        services = await self._repo.list_services(db, page=page, limit=limit)
         blocked = await self._blocked_service_keys(db)
-        return [(svc, svc.service_key not in blocked) for svc in services]
+        return [(svc, svc.service_key not in blocked) for svc in services], total
 
     async def create_service(
         self, db: AsyncSession, *, payload: NotificationServiceCreate

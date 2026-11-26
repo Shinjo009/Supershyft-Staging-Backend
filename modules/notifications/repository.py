@@ -47,10 +47,24 @@ class NotificationsRepository:
         )
         return result.scalar_one_or_none()
 
-    async def list_services(self, db: AsyncSession) -> list[NotificationService]:
-        result = await db.execute(
-            select(NotificationService).order_by(NotificationService.notification_service_id.asc())
+    async def count_services(self, db: AsyncSession) -> int:
+        result = await db.execute(select(func.count()).select_from(NotificationService))
+        return int(result.scalar_one() or 0)
+
+    async def list_services(
+        self,
+        db: AsyncSession,
+        *,
+        page: int | None = None,
+        limit: int | None = None,
+    ) -> list[NotificationService]:
+        query = select(NotificationService).order_by(
+            NotificationService.notification_service_id.desc()
         )
+        if page is not None and limit is not None:
+            offset = (page - 1) * limit
+            query = query.offset(offset).limit(limit)
+        result = await db.execute(query)
         return list(result.scalars().all())
 
     async def create_service(

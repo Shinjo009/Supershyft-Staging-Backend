@@ -7,6 +7,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.listing import PageParamsDep
 from common.responses import success_response
 from core.exceptions import AppError
 from db.session import get_db
@@ -197,12 +198,19 @@ async def list_notifications(
 
 @router.get("/services")
 async def list_services(
+    pagination: PageParamsDep,
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
     svc: NotificationsService = Depends(get_notifications_service),
 ):
-    rows = await svc.list_services_with_delete_flags(db)
-    return success_response([_service_dict(s, can_delete=can_delete) for s, can_delete in rows])
+    _ = employee
+    rows, total = await svc.list_services_with_delete_flags(
+        db, page=pagination.page, limit=pagination.limit
+    )
+    return success_response(
+        [_service_dict(s, can_delete=can_delete) for s, can_delete in rows],
+        meta={"page": pagination.page, "limit": pagination.limit, "total": total},
+    )
 
 
 @router.post("/services", status_code=201)
@@ -350,14 +358,23 @@ async def list_emit_condition_fields(
 
 @router.get("/bindings")
 async def list_notification_bindings(
+    pagination: PageParamsDep,
     event_code: str | None = None,
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
     service: NotificationBindingsService = Depends(_bindings_service),
 ):
     _ = employee
-    rows = await service.list_bindings(db, event_code=event_code)
-    return success_response([row.model_dump() for row in rows])
+    rows, total = await service.list_bindings(
+        db,
+        event_code=event_code,
+        page=pagination.page,
+        limit=pagination.limit,
+    )
+    return success_response(
+        [row.model_dump() for row in rows],
+        meta={"page": pagination.page, "limit": pagination.limit, "total": total},
+    )
 
 
 @router.get("/bindings/{binding_id}")

@@ -2307,7 +2307,7 @@ class CampReportsRepository:
             query = query.where(func.lower(func.trim(Engagement.city)) == city.lower())
 
         query = (
-            query.order_by(EngagementParticipant.engagement_participant_id.asc())
+            query.order_by(EngagementParticipant.engagement_participant_id.desc())
             .offset(offset)
             .limit(limit)
         )

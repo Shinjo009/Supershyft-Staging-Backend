@@ -7,6 +7,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.listing import PageParamsDep
 from common.responses import success_response
 from core.exceptions import AppError
 from db.session import get_db
@@ -41,12 +42,22 @@ def _client_ip(request: Request) -> str:
 
 @router.get("/console/engagements")
 async def list_console_engagements(
+    pagination: PageParamsDep,
     db: AsyncSession = Depends(get_db),
     actor: ConsoleActor = Depends(get_console_actor),
     console_service: ConsoleService = Depends(get_console_service),
 ):
-    data = await console_service.list_console_engagements(db, employee=actor.employee, partner=actor.partner)
-    return success_response(data)
+    data, total = await console_service.list_console_engagements(
+        db,
+        employee=actor.employee,
+        partner=actor.partner,
+        page=pagination.page,
+        limit=pagination.limit,
+    )
+    return success_response(
+        data,
+        meta={"page": pagination.page, "limit": pagination.limit, "total": total},
+    )
 
 
 @router.get("/{engagement_id}/console")

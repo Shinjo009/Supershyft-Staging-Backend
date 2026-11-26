@@ -302,7 +302,7 @@ class OrganizationsRepository:
             .join(EngagementParticipant, EngagementParticipant.engagement_id == Engagement.engagement_id)
             .join(User, User.user_id == EngagementParticipant.user_id)
             .where(Engagement.organization_id == organization_id)
-            .order_by(User.user_id.asc())
+            .order_by(User.user_id.desc())
             .offset(offset)
             .limit(limit)
         )

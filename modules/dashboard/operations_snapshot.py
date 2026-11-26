@@ -331,8 +331,8 @@ async def build_operations_snapshot(
         return items
 
     async def load_tickets(session: AsyncSession) -> dict:
-        open_tickets = await support_service.list_tickets(
-            session, status_filter="open", limit=PAGE_SIZE
+        open_tickets, _total = await support_service.list_tickets(
+            session, status_filter="open", page=1, limit=PAGE_SIZE
         )
         return {
             "open": [

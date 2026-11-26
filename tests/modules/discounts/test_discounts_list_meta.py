@@ -31,3 +31,6 @@ async def test_discounts_list_includes_abuse_meta_when_available(async_client, t
     assert "abuse_events_24h" in meta
     assert "reports_summary" in meta
     assert isinstance(meta["reports_summary"], dict)
+    assert meta.get("page") == 1
+    assert meta.get("limit") == 10
+    assert isinstance(meta.get("total"), int)

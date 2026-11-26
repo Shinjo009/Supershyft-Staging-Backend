@@ -20,8 +20,24 @@ from modules.checklists.models import (
 
 
 class ChecklistsRepository:
-    async def get_all_templates(self, db: AsyncSession) -> list[ChecklistTemplate]:
-        q = select(ChecklistTemplate).order_by(ChecklistTemplate.template_id.desc())
+    async def count_templates(self, db: AsyncSession) -> int:
+        result = await db.execute(select(func.count()).select_from(ChecklistTemplate))
+        return int(result.scalar_one() or 0)
+
+    async def get_all_templates(
+        self,
+        db: AsyncSession,
+        *,
+        page: int = 1,
+        limit: int = 20,
+    ) -> list[ChecklistTemplate]:
+        offset = (page - 1) * limit
+        q = (
+            select(ChecklistTemplate)
+            .order_by(ChecklistTemplate.template_id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
         res = await db.execute(q)
         return list(res.scalars().all())
 
@@ -285,9 +301,12 @@ class ChecklistsRepository:
         *,
         employee_id: int,
         status_filter: str | None,
+        page: int = 1,
+        limit: int = 20,
     ):
         from modules.engagements.models import Engagement
 
+        offset = (page - 1) * limit
         q = (
             select(
                 EngagementChecklistTask,
@@ -300,10 +319,10 @@ class ChecklistsRepository:
             .join(Engagement, Engagement.engagement_id == EngagementChecklist.engagement_id)
             .join(ChecklistTemplateItem, ChecklistTemplateItem.item_id == EngagementChecklistTask.item_id)
             .where(EngagementChecklistTask.assigned_employee_id == employee_id)
-            .order_by(EngagementChecklistTask.task_id.desc())
         )
         if status_filter is not None:
             q = q.where(EngagementChecklistTask.status == status_filter)
+        q = q.order_by(EngagementChecklistTask.task_id.desc()).offset(offset).limit(limit)
         res = await db.execute(q)
         return list(res.all())
 

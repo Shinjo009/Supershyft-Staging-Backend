@@ -160,10 +160,22 @@ class SupportService:
         db: AsyncSession,
         *,
         status_filter: str | None = None,
-        limit: int | None = None,
-    ) -> list[SupportTicket]:
+        page: int = 1,
+        limit: int = 20,
+        sort_by: str | None = None,
+        sort_dir: str | None = None,
+    ) -> tuple[list[SupportTicket], int]:
         normalized_status = self._normalize_status(status_filter) if status_filter is not None else None
-        return await self._repository.get_all_tickets(db, status=normalized_status, limit=limit)
+        total = await self._repository.count_tickets(db, status=normalized_status)
+        rows = await self._repository.get_all_tickets(
+            db,
+            status=normalized_status,
+            page=page,
+            limit=limit,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+        )
+        return rows, total
 
     async def get_ticket(self, db: AsyncSession, ticket_id: int) -> SupportTicket:
         ticket = await self._repository.get_ticket_by_id(db, ticket_id)

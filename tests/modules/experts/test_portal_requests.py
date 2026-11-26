@@ -198,11 +198,18 @@ async def test_portal_requests_admin_sees_all_pending(async_client, test_db_sess
     response = await async_client.get(
         "/experts/portal/requests",
         headers=employee_auth_header(78699),
+        params={"page": 1, "limit": 20},
     )
     assert response.status_code == 200
-    consultation_ids = {row["consultation_id"] for row in response.json()["data"]}
+    body = response.json()
+    consultation_ids = {row["consultation_id"] for row in body["data"]}
     assert fx["cid_n"] in consultation_ids
     assert fx["cid_d"] in consultation_ids
+    meta = body.get("meta") or {}
+    assert meta.get("page") == 1
+    assert meta.get("limit") == 20
+    assert isinstance(meta.get("total"), int)
+    assert meta["total"] >= 2
 
 
 @pytest.mark.asyncio

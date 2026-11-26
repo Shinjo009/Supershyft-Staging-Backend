@@ -7,9 +7,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.listing import apply_sort
 from modules.support.models import SupportTicket
 
 
@@ -28,19 +29,44 @@ class SupportRepository:
         await db.flush()
         return ticket
 
+    async def count_tickets(
+        self,
+        db: AsyncSession,
+        *,
+        status: str | None = None,
+    ) -> int:
+        query = select(func.count()).select_from(SupportTicket)
+        if status is not None:
+            query = query.where(SupportTicket.status == status)
+        result = await db.execute(query)
+        return int(result.scalar_one() or 0)
+
     async def get_all_tickets(
         self,
         db: AsyncSession,
         *,
         status: str | None = None,
-        limit: int | None = None,
+        page: int = 1,
+        limit: int = 20,
+        sort_by: str | None = None,
+        sort_dir: str | None = None,
     ) -> list[SupportTicket]:
+        offset = (page - 1) * limit
         query = select(SupportTicket)
         if status is not None:
             query = query.where(SupportTicket.status == status)
-        query = query.order_by(SupportTicket.ticket_id.desc())
-        if limit is not None:
-            query = query.limit(limit)
+        query = apply_sort(
+            query,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            columns={
+                "ticket_id": SupportTicket.ticket_id,
+                "created_at": SupportTicket.created_at,
+                "status": SupportTicket.status,
+            },
+            default_column=SupportTicket.ticket_id,
+        )
+        query = query.offset(offset).limit(limit)
         result = await db.execute(query)
         return list(result.scalars().all())
 

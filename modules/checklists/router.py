@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.listing import PageParamsDep
 from common.responses import success_response
 from core.dependencies import get_current_user
 from db.session import get_db
@@ -41,23 +42,39 @@ def _client_ip(request: Request) -> str:
 
 @router.get("/checklist/my-tasks")
 async def list_my_checklist_tasks(
+    pagination: PageParamsDep,
     status: str | None = None,
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
     service: ChecklistsService = Depends(get_checklists_service),
 ):
-    rows = await service.get_my_tasks(db, current_employee=employee, status_filter=status)
-    return success_response([r.model_dump(mode="json") for r in rows])
+    rows, total = await service.get_my_tasks(
+        db,
+        current_employee=employee,
+        status_filter=status,
+        page=pagination.page,
+        limit=pagination.limit,
+    )
+    return success_response(
+        [r.model_dump(mode="json") for r in rows],
+        meta={"page": pagination.page, "limit": pagination.limit, "total": total},
+    )
 
 
 @router.get("/checklist-templates")
 async def list_checklist_templates(
+    pagination: PageParamsDep,
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
     service: ChecklistsService = Depends(get_checklists_service),
 ):
-    rows = await service.get_all_templates(db)
-    return success_response([r.model_dump(mode="json") for r in rows])
+    rows, total = await service.get_all_templates(
+        db, page=pagination.page, limit=pagination.limit
+    )
+    return success_response(
+        [r.model_dump(mode="json") for r in rows],
+        meta={"page": pagination.page, "limit": pagination.limit, "total": total},
+    )
 
 
 @router.post("/checklist-templates", status_code=201)

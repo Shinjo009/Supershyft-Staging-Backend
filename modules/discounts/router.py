@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.listing import PageParamsDep
 from common.responses import success_response
 from core.dependencies import get_current_user
 from core.network import get_client_ip
@@ -102,19 +103,28 @@ async def auto_apply_discount(
 @limiter.limit("60/minute")
 async def list_discounts(
     request: Request,
+    pagination: PageParamsDep,
     status: str | None = None,
     search: str | None = None,
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     _employee: EmployeeContext = Depends(get_current_employee),
     service: DiscountService = Depends(get_discount_service),
 ):
-    data = await service.list_codes(db, status=status, search=search, limit=limit, offset=offset)
+    offset = (pagination.page - 1) * pagination.limit
+    data = await service.list_codes(
+        db,
+        status=status,
+        search=search,
+        limit=pagination.limit,
+        offset=offset,
+    )
     reports_summary = await service.reports_summary(db)
     return success_response(
         data,
         meta={
+            "page": pagination.page,
+            "limit": pagination.limit,
+            "total": data.get("total", 0),
             "abuse_events_24h": reports_summary.get("abuse_events_24h", 0),
             "reports_summary": reports_summary,
         },

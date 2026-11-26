@@ -883,7 +883,7 @@ class EngagementsRepository:
                 ranked_rows.c.booker_relation,
             )
             .where(ranked_rows.c.rn == 1)
-            .order_by(ranked_rows.c.engagement_participant_id.asc())
+            .order_by(ranked_rows.c.engagement_participant_id.desc())
         )
         result = await db.execute(query)
         return list(result.all())
@@ -1371,7 +1371,7 @@ class EngagementsRepository:
                 ranked_rows.c.booker_relation,
             )
             .where(ranked_rows.c.rn == 1)
-            .order_by(ranked_rows.c.engagement_participant_id.asc())
+            .order_by(ranked_rows.c.engagement_participant_id.desc())
             .offset(offset)
             .limit(limit)
         )
@@ -1512,7 +1512,7 @@ class EngagementsRepository:
                 ranked_rows.c.booker_relation,
             )
             .where(ranked_rows.c.rn == 1)
-            .order_by(ranked_rows.c.engagement_participant_id.asc())
+            .order_by(ranked_rows.c.engagement_participant_id.desc())
             .offset(offset)
             .limit(limit)
         )

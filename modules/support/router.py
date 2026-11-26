@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.listing import PageParamsDep
 from common.responses import success_response
 from db.session import get_db
 from modules.audit.repository import AuditRepository
@@ -72,17 +73,35 @@ async def submit_ticket(
 
 @router.get("/tickets")
 async def list_tickets(
+    pagination: PageParamsDep,
     status: str | None = None,
+    sort_by: str | None = None,
+    sort_dir: str | None = None,
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
     support_service: SupportService = Depends(get_support_service),
 ):
     _ = employee
-    tickets = await support_service.list_tickets(db, status_filter=status)
+    tickets, total = await support_service.list_tickets(
+        db,
+        status_filter=status,
+        page=pagination.page,
+        limit=pagination.limit,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
     status_counts = await ticket_status_counts(db)
     payload = await support_service.tickets_to_responses(db, tickets)
 
-    return success_response(payload, meta={"status_counts": status_counts})
+    return success_response(
+        payload,
+        meta={
+            "page": pagination.page,
+            "limit": pagination.limit,
+            "total": total,
+            "status_counts": status_counts,
+        },
+    )
 
 
 @router.get("/tickets/{ticket_id}")

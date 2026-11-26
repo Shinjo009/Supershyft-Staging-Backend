@@ -113,8 +113,15 @@ class ChecklistsService:
                 message="You do not have permission to perform this action",
             )
 
-    async def get_all_templates(self, db: AsyncSession) -> list[ChecklistTemplateResponse]:
-        rows = await self._repository.get_all_templates(db)
+    async def get_all_templates(
+        self,
+        db: AsyncSession,
+        *,
+        page: int = 1,
+        limit: int = 20,
+    ) -> tuple[list[ChecklistTemplateResponse], int]:
+        total = await self._repository.count_templates(db)
+        rows = await self._repository.get_all_templates(db, page=page, limit=limit)
         counts = await self._repository.count_items_by_template_ids(
             db, [int(r.template_id) for r in rows]
         )
@@ -130,7 +137,7 @@ class ChecklistsService:
                 items_count=counts.get(int(r.template_id), 0),
             )
             for r in rows
-        ]
+        ], total
 
     async def get_template_detail(self, db: AsyncSession, template_id: int) -> ChecklistTemplateDetailResponse:
         template = await self._repository.get_template_by_id(db, template_id)
@@ -709,14 +716,23 @@ class ChecklistsService:
         *,
         current_employee: EmployeeContext,
         status_filter: str | None,
-    ) -> list[MyTaskResponse]:
+        page: int = 1,
+        limit: int = 20,
+    ) -> tuple[list[MyTaskResponse], int]:
         self._ensure_employee(current_employee)
         if status_filter is not None and status_filter not in ("pending", "done"):
             raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+        total = await self._repository.count_my_tasks(
+            db,
+            employee_id=current_employee.employee_id,
+            status_filter=status_filter,
+        )
         rows = await self._repository.get_my_tasks(
             db,
             employee_id=current_employee.employee_id,
             status_filter=status_filter,
+            page=page,
+            limit=limit,
         )
         out: list[MyTaskResponse] = []
         for task, eng_id, eng_name, item_title, item_description in rows:
@@ -728,4 +744,4 @@ class ChecklistsService:
                     engagement_name=eng_name,
                 )
             )
-        return out
+        return out, total

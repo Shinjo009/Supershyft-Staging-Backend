@@ -420,7 +420,9 @@ class ConsoleService:
         *,
         employee: EmployeeContext | None = None,
         partner=None,
-    ) -> list[dict]:
+        page: int = 1,
+        limit: int = 20,
+    ) -> tuple[list[dict], int]:
         from modules.partners.models import PartnerRole
 
         if employee is not None and has_route_admin_scope(employee):
@@ -476,13 +478,16 @@ class ConsoleService:
                 error_code="FORBIDDEN",
                 message="You do not have permission to perform this action",
             )
-        engagement_ids = [int(e.engagement_id) for e in engagements]
+        total = len(engagements)
+        start = (page - 1) * limit
+        page_engagements = engagements[start : start + limit]
+        engagement_ids = [int(e.engagement_id) for e in page_engagements]
         counts_by_id = await self._repository.count_distinct_participants_by_engagement_ids(
             db,
             engagement_ids=engagement_ids,
         )
         items: list[dict] = []
-        for e in engagements:
+        for e in page_engagements:
             items.append(
                 await self._engagement_to_console_dict(
                     db,
@@ -490,7 +495,7 @@ class ConsoleService:
                     participant_count=counts_by_id.get(int(e.engagement_id), 0),
                 )
             )
-        return items
+        return items, total
 
     async def get_engagement_for_console(
         self,

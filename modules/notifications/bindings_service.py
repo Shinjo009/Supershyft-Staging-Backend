@@ -57,9 +57,14 @@ class NotificationBindingsService:
         db: AsyncSession,
         *,
         event_code: str | None = None,
-    ) -> list[NotificationBindingResponse]:
-        rows = await self._repo.list_all(db, event_code=event_code)
-        return [self._to_response(r) for r in rows]
+        page: int = 1,
+        limit: int = 20,
+    ) -> tuple[list[NotificationBindingResponse], int]:
+        total = await self._repo.count_all(db, event_code=event_code)
+        rows = await self._repo.list_all(
+            db, event_code=event_code, page=page, limit=limit
+        )
+        return [self._to_response(r) for r in rows], total
 
     async def get_binding(self, db: AsyncSession, binding_id: int) -> NotificationBindingResponse:
         row = await self._repo.get_by_id(db, binding_id)

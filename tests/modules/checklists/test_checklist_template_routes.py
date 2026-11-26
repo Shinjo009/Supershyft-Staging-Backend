@@ -38,9 +38,16 @@ async def test_list_checklist_templates_includes_items_count(async_client, test_
     list_res = await async_client.get(
         "/checklist-templates",
         headers=employee_auth_header(8801),
+        params={"page": 1, "limit": 20},
     )
     assert list_res.status_code == 200
-    rows = list_res.json()["data"]
+    body = list_res.json()
+    rows = body["data"]
+    meta = body.get("meta") or {}
+    assert meta.get("page") == 1
+    assert meta.get("limit") == 20
+    assert isinstance(meta.get("total"), int)
+    assert meta["total"] >= 1
     row = next(r for r in rows if r["template_id"] == template.template_id)
     assert row["items_count"] == 2
 

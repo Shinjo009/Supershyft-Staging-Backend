@@ -131,3 +131,31 @@ async def test_submit_ticket_still_works_without_employee_auth(async_client, tes
     )
     assert response.status_code == 201
     assert response.json()["data"]["status"] == "open"
+
+
+@pytest.mark.asyncio
+async def test_list_tickets_is_paginated_newest_first(async_client, test_db_session):
+    employee_id = 88011
+    user_id = 88012
+    await seed_employee(test_db_session, employee_id=employee_id, name="Lister")
+    test_db_session.add(User(user_id=user_id, age=30, phone="8801200000", status="active"))
+    await test_db_session.commit()
+
+    older = await _create_open_ticket(test_db_session, user_id=user_id, query="Older ticket")
+    newer = await _create_open_ticket(test_db_session, user_id=user_id, query="Newer ticket")
+
+    response = await async_client.get(
+        "/support/tickets",
+        headers=employee_auth_header(employee_id),
+        params={"page": 1, "limit": 1, "sort_by": "ticket_id", "sort_dir": "desc"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    meta = body.get("meta") or {}
+    assert meta.get("page") == 1
+    assert meta.get("limit") == 1
+    assert isinstance(meta.get("total"), int)
+    assert meta["total"] >= 2
+    assert len(body["data"]) == 1
+    assert body["data"][0]["ticket_id"] == newer.ticket_id
+    assert body["data"][0]["ticket_id"] != older.ticket_id
