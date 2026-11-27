@@ -10,10 +10,11 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-from sqlalchemy import cast, delete, func, select, text, type_coerce, update as sql_update
+from sqlalchemy import String, and_, cast, delete, exists, func, or_, select, text, type_coerce, update as sql_update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.listing import ilike_pattern
 from modules.assessments.models import AssessmentInstance, AssessmentPackage
 from modules.employee.models import Employee
 from modules.engagements.models import Engagement
@@ -389,6 +390,7 @@ class NotificationsRepository:
         engagement_id: int | None = None,
         dispatched_from: datetime | None = None,
         dispatched_to: datetime | None = None,
+        search: str | None = None,
     ):
         if statuses:
             query = query.where(Notification.status.in_(statuses))
@@ -408,6 +410,38 @@ class NotificationsRepository:
             query = query.where(Notification.dispatched_at >= dispatched_from)
         if dispatched_to is not None:
             query = query.where(Notification.dispatched_at <= dispatched_to)
+        if search is not None and search.strip():
+            pattern = ilike_pattern(search)
+            full_name = func.trim(
+                func.concat(
+                    func.coalesce(User.first_name, ""),
+                    " ",
+                    func.coalesce(User.last_name, ""),
+                )
+            )
+            user_match = exists(
+                select(1).where(
+                    and_(
+                        cast(Notification.user, JSONB)["user_ids"].contains(
+                            func.jsonb_build_array(User.user_id)
+                        ),
+                        or_(
+                            User.first_name.ilike(pattern),
+                            User.last_name.ilike(pattern),
+                            full_name.ilike(pattern),
+                            User.phone.ilike(pattern),
+                        ),
+                    )
+                )
+            )
+            contacts_text = cast(cast(Notification.user, JSONB)["contacts"], String)
+            query = query.where(
+                or_(
+                    Notification.message.ilike(pattern),
+                    user_match,
+                    contacts_text.ilike(pattern),
+                )
+            )
         return query
 
     async def list_notifications(
@@ -424,6 +458,7 @@ class NotificationsRepository:
         engagement_id: int | None = None,
         dispatched_from: datetime | None = None,
         dispatched_to: datetime | None = None,
+        search: str | None = None,
     ) -> list[Notification]:
         offset = (page - 1) * limit
         query = (
@@ -442,6 +477,7 @@ class NotificationsRepository:
             engagement_id=engagement_id,
             dispatched_from=dispatched_from,
             dispatched_to=dispatched_to,
+            search=search,
         )
         result = await db.execute(query)
         return list(result.scalars().all())
@@ -458,6 +494,7 @@ class NotificationsRepository:
         engagement_id: int | None = None,
         dispatched_from: datetime | None = None,
         dispatched_to: datetime | None = None,
+        search: str | None = None,
     ) -> int:
         query = select(func.count()).select_from(Notification)
         query = self._apply_notification_list_filters(
@@ -470,6 +507,7 @@ class NotificationsRepository:
             engagement_id=engagement_id,
             dispatched_from=dispatched_from,
             dispatched_to=dispatched_to,
+            search=search,
         )
         result = await db.execute(query)
         return int(result.scalar_one())

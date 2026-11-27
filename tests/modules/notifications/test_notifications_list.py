@@ -336,3 +336,96 @@ async def test_list_notifications_channel_filter(async_client, test_db_session):
     for row in response.json()["data"]:
         if row["service_key"] in ("email-svc-list", "wa-svc-list"):
             assert row["channel"] == "email"
+
+
+@pytest.mark.asyncio
+async def test_list_notifications_search_by_message_and_recipient(async_client, test_db_session):
+    await _seed_employee(test_db_session, user_id=9620, employee_id=9620)
+    await _seed_service(test_db_session, service_key="search-msg-svc", display_name="Search Msg")
+    await _seed_service(test_db_session, service_key="search-user-svc", display_name="Search User")
+
+    test_db_session.add(
+        User(
+            user_id=9621,
+            age=28,
+            phone="9621000000",
+            status="active",
+            first_name="Riya",
+            last_name="Kapoor",
+        )
+    )
+    test_db_session.add(
+        User(
+            user_id=9622,
+            age=31,
+            phone="9622000000",
+            status="active",
+            first_name="Other",
+            last_name="Person",
+        )
+    )
+    test_db_session.add(
+        Notification(
+            service_key="search-msg-svc",
+            status="sent",
+            channel="whatsapp",
+            user={"user_ids": [9622]},
+            message="OTP sent successfully UNIQUE-MSG-TOKEN",
+            dispatched_at=datetime.now(timezone.utc),
+        )
+    )
+    test_db_session.add(
+        Notification(
+            service_key="search-user-svc",
+            status="failed",
+            channel="email",
+            user={"user_ids": [9621]},
+            message="delivery failed",
+            dispatched_at=datetime.now(timezone.utc),
+        )
+    )
+    test_db_session.add(
+        Notification(
+            service_key="search-user-svc",
+            status="sent",
+            channel="whatsapp",
+            user={"user_ids": [9622]},
+            message="unrelated row",
+            dispatched_at=datetime.now(timezone.utc),
+        )
+    )
+    await test_db_session.commit()
+
+    by_message = await async_client.get(
+        "/notifications?search=UNIQUE-MSG-TOKEN&limit=50",
+        headers=_auth_header(9620),
+    )
+    assert by_message.status_code == 200
+    message_rows = by_message.json()["data"]
+    assert any(r.get("message") == "OTP sent successfully UNIQUE-MSG-TOKEN" for r in message_rows)
+    assert all("UNIQUE-MSG-TOKEN" in (r.get("message") or "") for r in message_rows)
+
+    by_name = await async_client.get(
+        "/notifications?search=Riya&service_key=search-user-svc&limit=50",
+        headers=_auth_header(9620),
+    )
+    assert by_name.status_code == 200
+    name_rows = by_name.json()["data"]
+    assert len(name_rows) >= 1
+    assert all(r.get("service_key") == "search-user-svc" for r in name_rows)
+    assert any(
+        any((rec.get("first_name") or "") == "Riya" for rec in (r.get("recipients") or []))
+        for r in name_rows
+    )
+
+    by_phone = await async_client.get(
+        "/notifications?search=9621000000&service_key=search-user-svc&limit=50",
+        headers=_auth_header(9620),
+    )
+    assert by_phone.status_code == 200
+    phone_rows = by_phone.json()["data"]
+    assert len(phone_rows) >= 1
+    assert any(
+        any((rec.get("first_name") or "") == "Riya" for rec in (r.get("recipients") or []))
+        for r in phone_rows
+    )

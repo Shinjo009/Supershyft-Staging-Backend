@@ -841,6 +841,7 @@ class NotificationsService:
         engagement_id: int | None = None,
         dispatched_from: datetime | None = None,
         dispatched_to: datetime | None = None,
+        search: str | None = None,
     ) -> tuple[list[dict], int]:
         statuses = _parse_status_filter(status)
         if channel is not None and channel.strip():
@@ -855,6 +856,7 @@ class NotificationsService:
             channel = None
 
         normalized_event = (event_code or "").strip() or None
+        normalized_search = (search or "").strip() or None
 
         filter_kwargs = {
             "statuses": statuses,
@@ -865,6 +867,7 @@ class NotificationsService:
             "engagement_id": engagement_id,
             "dispatched_from": dispatched_from,
             "dispatched_to": dispatched_to,
+            "search": normalized_search,
         }
         items = await self._repo.list_notifications(db, page=page, limit=limit, **filter_kwargs)
         total = await self._repo.count_notifications(db, **filter_kwargs)

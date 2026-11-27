@@ -7,7 +7,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from common.listing import PageParamsDep
+from common.listing import PageParamsDep, sanitize_list_search
 from common.responses import success_response
 from core.exceptions import AppError
 from db.session import get_db
@@ -169,12 +169,14 @@ async def list_notifications(
     engagement_id: int | None = None,
     dispatched_from: datetime | None = None,
     dispatched_to: datetime | None = None,
+    search: str | None = None,
     db: AsyncSession = Depends(get_db),
     employee: EmployeeContext = Depends(get_current_employee),
     svc: NotificationsService = Depends(get_notifications_service),
 ):
     if page < 1 or limit < 1 or limit > 100:
         raise AppError(status_code=400, error_code="INVALID_INPUT", message="Invalid request")
+    search = sanitize_list_search(search)
     items, total = await svc.list_notifications(
         db,
         page=page,
@@ -187,6 +189,7 @@ async def list_notifications(
         engagement_id=engagement_id,
         dispatched_from=dispatched_from,
         dispatched_to=dispatched_to,
+        search=search,
     )
     return success_response(
         items,
