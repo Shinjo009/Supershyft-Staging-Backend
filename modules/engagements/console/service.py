@@ -29,6 +29,7 @@ from modules.metsights.service import outbound_last_name
 from modules.engagements.diagnostic_package_resolution import (
     engagement_has_diagnostic_package,
     healthians_gender_code,
+    is_split_diagnostic_engagement,
     resolve_diagnostic_package_id,
 )
 from modules.employee.access_control import (
@@ -426,7 +427,7 @@ class ConsoleService:
         from modules.partners.models import PartnerRole
 
         if employee is not None and has_route_admin_scope(employee):
-            engagements = await self._repository.list_running_engagements(db)
+            engagements = await self._repository.list_scheduled_or_running_engagements(db)
         elif partner is not None:
             from modules.employee.access_control import is_organization_manager_partner
             from modules.partners.models import PartnerRole
@@ -525,9 +526,117 @@ class ConsoleService:
             engagement_id=engagement_id,
             participant_department_slugs=department_slugs,
         )
-        return await self._engagement_to_console_dict(
+        result = await self._engagement_to_console_dict(
             db, engagement, participant_count=participant_count
         )
+        result["booking_readiness"] = await self._camp_booking_readiness(db, engagement)
+        return result
+
+    async def _camp_booking_readiness(self, db: AsyncSession, engagement: Engagement) -> dict:
+        if engagement.blood_collection_type == BloodCollectionType.home_collection:
+            return {"ready": True, "issues": []}
+
+        issues: list[dict[str, str]] = []
+        seen_messages: set[str] = set()
+
+        def add_issue(code: str, message: str) -> None:
+            if message in seen_messages:
+                return
+            seen_messages.add(message)
+            issues.append({"code": code, "message": message})
+
+        status = (engagement.status or "").strip().lower()
+        if status != "running":
+            display_status = (engagement.status or "unknown").strip()
+            add_issue(
+                "ENGAGEMENT_NOT_RUNNING",
+                f"The engagement is {display_status}, not running. Bookings open once it is running.",
+            )
+
+        if not engagement_has_diagnostic_package(engagement):
+            add_issue(
+                "NO_DIAGNOSTIC_PACKAGE",
+                "No blood test package is set for this camp.",
+            )
+
+        male_id = engagement.diagnostic_package_id_male
+        female_id = engagement.diagnostic_package_id_female
+        split = is_split_diagnostic_engagement(engagement)
+        if split and (male_id is None) != (female_id is None):
+            add_issue(
+                "SPLIT_PACKAGE_INCOMPLETE",
+                "The male or female blood test package is missing for this camp.",
+            )
+
+        packages_to_check: list[tuple[int, str | None]] = []
+        if split:
+            if male_id is not None:
+                packages_to_check.append((int(male_id), "male"))
+            if female_id is not None:
+                packages_to_check.append((int(female_id), "female"))
+        elif engagement.diagnostic_package_id is not None:
+            packages_to_check.append((int(engagement.diagnostic_package_id), None))
+
+        for pkg_id, gender_label in packages_to_check:
+            pkg = (
+                await db.execute(
+                    select(DiagnosticPackage).where(DiagnosticPackage.diagnostic_package_id == pkg_id)
+                )
+            ).scalar_one_or_none()
+            if pkg is None:
+                add_issue(
+                    "PACKAGE_NOT_FOUND",
+                    "The blood test package set for this camp does not exist.",
+                )
+                continue
+            raw_provider = pkg.diagnostic_provider
+            if raw_provider is not None and hasattr(raw_provider, "value"):
+                provider = str(raw_provider.value).strip().lower()
+            else:
+                provider = str(raw_provider or "").strip().lower()
+            if provider not in ("healthians", "orange_health", "redcliffe"):
+                add_issue(
+                    "PACKAGE_PROVIDER_UNSUPPORTED",
+                    "The blood test package provider is not supported for booking.",
+                )
+            if not (pkg.external_package_code or "").strip():
+                if gender_label:
+                    add_issue(
+                        "PACKAGE_EXTERNAL_CODE_MISSING",
+                        f"The blood test package has no external package ID (deal ID) for the {gender_label} package.",
+                    )
+                else:
+                    add_issue(
+                        "PACKAGE_EXTERNAL_CODE_MISSING",
+                        "The blood test package has no external package ID (deal ID).",
+                    )
+
+        if engagement.external_camp_id is None:
+            add_issue(
+                "EXTERNAL_CAMP_ID_MISSING",
+                "The camp has no external camp ID (Healthians camp ID).",
+            )
+
+        missing_location: list[str] = []
+        if engagement.latitude is None:
+            missing_location.append("latitude")
+        if engagement.longitude is None:
+            missing_location.append("longitude")
+        if not (engagement.pincode or "").strip():
+            missing_location.append("pincode")
+        if missing_location:
+            if len(missing_location) == 1:
+                loc_text = missing_location[0]
+            elif len(missing_location) == 2:
+                loc_text = f"{missing_location[0]} and {missing_location[1]}"
+            else:
+                loc_text = f"{missing_location[0]}, {missing_location[1]} and {missing_location[2]}"
+            add_issue(
+                "LOCATION_MISSING",
+                f"The camp location is incomplete: {loc_text} are required.",
+            )
+
+        return {"ready": len(issues) == 0, "issues": issues}
 
     async def get_console_filter_facets(
         self,
@@ -997,8 +1106,9 @@ class ConsoleService:
         engagement_id: int,
         user_id: int,
         remarks: str,
+        cancellation_explanation: str | None = None,
     ) -> dict:
-        from modules.bookings.service import cancel_healthians_participant_booking
+        from modules.bookings.service import cancel_participant_booking_by_provider
 
         await ensure_console_access(db, engagement_id, repository=self._repository, employee=employee, partner=partner)
 
@@ -1023,11 +1133,12 @@ class ConsoleService:
                 message="Participant is not enrolled in this engagement",
             )
 
-        result = await cancel_healthians_participant_booking(
+        result = await cancel_participant_booking_by_provider(
             db,
             participant=participant,
             engagement=engagement,
             remarks=remarks,
+            cancellation_explanation=cancellation_explanation,
             repository=self._repository,
         )
         return result
@@ -1324,7 +1435,7 @@ class ConsoleService:
                 raise AppError(
                     status_code=422,
                     error_code="NO_BOOKING",
-                    message="No Healthians booking exists for this participant",
+                    message="No booking exists for this participant",
                 )
         elif await has_active_booking(db, participant):
             raise AppError(status_code=409, error_code="BOOKING_ALREADY_EXISTS", message="A booking already exists for this participant")
@@ -1942,6 +2053,7 @@ class ConsoleService:
         blood_collection_time_slot_id: str,
         blood_collection_time_slot: str,
         reschedule_reason: str,
+        reschedule_explanation: str | None = None,
     ) -> dict:
         await ensure_console_access(db, engagement_id, repository=self._repository, employee=employee, partner=partner)
 
@@ -1957,7 +2069,7 @@ class ConsoleService:
         if participant is None:
             raise AppError(status_code=404, error_code="PARTICIPANT_NOT_FOUND", message="Participant is not enrolled in this engagement")
 
-        result = await booking_service.reschedule_healthians_participant_booking(
+        result = await booking_service.reschedule_home_collection_participant_booking(
             db,
             participant=participant,
             engagement=engagement,
@@ -1965,6 +2077,7 @@ class ConsoleService:
             blood_collection_time_slot_id=blood_collection_time_slot_id,
             blood_collection_time_slot=blood_collection_time_slot,
             reschedule_reason=reschedule_reason,
+            reschedule_explanation=reschedule_explanation,
         )
 
         return {

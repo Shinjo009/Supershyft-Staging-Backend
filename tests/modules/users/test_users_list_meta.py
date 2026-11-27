@@ -17,4 +17,5 @@ async def test_users_list_includes_meta_stats(async_client, test_db_session):
     assert "total_participants" in meta
     assert "protected_user_ids" in meta
     assert isinstance(meta["protected_user_ids"], list)
+    assert "total_profiles" in meta
     assert "yearly_totals" not in meta

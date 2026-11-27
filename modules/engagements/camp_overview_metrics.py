@@ -20,6 +20,11 @@ from modules.engagements.slot_detail_dates import (
     enabled_consultation_dates,
 )
 from modules.experts.models import ConsultationBooking
+from modules.dashboard.report_sent_kpi import (
+    EVENT_BIOAI_READY,
+    EVENT_BLOOD_READY,
+    count_report_sent_for_engagement,
+)
 from modules.reports.questionnaire_kpi_completion import (
     count_questionnaire_completed_on_day,
     questionnaire_kpi_counts_for_engagement,
@@ -91,13 +96,23 @@ async def build_progress_report(
         or 0
     )
 
+    blood_report_sent = await count_report_sent_for_engagement(
+        db,
+        engagement_id=engagement_id,
+        event_code=EVENT_BLOOD_READY,
+    )
+    bio_ai_report_sent = await count_report_sent_for_engagement(
+        db,
+        engagement_id=engagement_id,
+        event_code=EVENT_BIOAI_READY,
+    )
+
     return {
         "total_registered": total_registered,
         "blood_collected": blood_collected,
         "questionnaire_filled": questionnaire_filled,
-        # Placeholders until counting rules are defined.
-        "blood_report_sent": 0,
-        "bio_ai_report_sent": 0,
+        "blood_report_sent": blood_report_sent,
+        "bio_ai_report_sent": bio_ai_report_sent,
         "consultation_done": consultation_done,
     }
 

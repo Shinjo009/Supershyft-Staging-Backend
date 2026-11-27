@@ -42,14 +42,17 @@ from modules.users.age_policy import (
     policy_result_as_user_attrs,
     resolve_new_user_age_and_dob,
 )
+from modules.users.gender_labels import normalize_gender_label
 from modules.users.models import User, UserAddress, UserPreference
 from modules.users.repository import UsersRepository
+from modules.users.serializers import api_age_for_user
 from modules.engagements.blood_bookings_access import current_booking_id
 from modules.engagements.models import BloodCollectionType, EngagementKind, EngagementParticipant
+from modules.engagements.onboarding_payload_repository import CampOnboardingPayloadRepository
 from modules.engagements.repository import EngagementsRepository
 from modules.engagements.slot_availability import find_active_cabin
 from modules.diagnostics.repository import DiagnosticsRepository
-from common.masking import looks_masked
+from common.masking import looks_masked, mask_email, mask_phone
 from common.phone import phone_lookup_candidates as _phone_lookup_candidates
 from modules.users.address_utils import (
     MAX_USER_ADDRESSES,
@@ -74,6 +77,10 @@ from modules.users.schemas import (
     FamilyOnboardStartResponse,
     FamilyOnboardVerifyPayRequest,
     UpcomingSlotResponse,
+    OnboardStatusProfileItem,
+    OnboardStatusParticipantItem,
+    OnboardStatusQuestionnaireItem,
+    OnboardStatusResponse,
     PublicUserOnboardRequest,
     SubProfileCreate,
     SubProfileUpdate,
@@ -2014,32 +2021,38 @@ class UsersService:
         search: str | None = None,
         sort_by: str | None = None,
         sort_dir: str | None = None,
-    ) -> tuple[list[User], int]:
+    ) -> tuple[list[User], dict[int, list[User]], dict[int, list[int]], int, int]:
         self._ensure_employee_access(employee)
 
-        users = await self._repository.list_users(
+        list_kwargs = {
+            "phone": phone,
+            "email": email,
+            "status": status,
+            "is_participant": is_participant,
+            "search": search,
+        }
+
+        primaries, children_by_parent, matched_sub_ids = await self._repository.list_users_hierarchical(
             db,
             page=page,
             limit=limit,
-            phone=phone,
-            email=email,
-            status=status,
-            is_participant=is_participant,
-            search=search,
             sort_by=sort_by,
             sort_dir=sort_dir,
+            **list_kwargs,
         )
 
-        total = await self._repository.count_users(
+        total = await self._repository.count_matching_primary_roots(db, **list_kwargs)
+
+        total_profiles = await self._repository.count_users(
             db,
             phone=phone,
             email=email,
             status=status,
             is_participant=is_participant,
-            search=search,
+            search=None,
         )
 
-        return users, total
+        return primaries, children_by_parent, matched_sub_ids, total, total_profiles
 
     async def get_participant_metsights_counts_for_employee(self, db: AsyncSession, *, employee) -> dict:
         self._ensure_employee_access(employee)
@@ -2321,40 +2334,66 @@ class UsersService:
 
         return updated
 
-    async def _resolve_user_ids_for_employee_delete(
+    _DELETE_SUB_ACCOUNTS_FIRST_MSG = (
+        "Delete all sub-accounts before deleting this primary account"
+    )
+
+    async def _authorize_and_validate_user_delete(
         self,
         db: AsyncSession,
         *,
-        employee,
         user_id: int,
-    ) -> list[int]:
-        self._ensure_employee_access(employee)
+        employee=None,
+        actor_user_id: int | None = None,
+    ) -> User:
+        """Ensure caller may delete user_id and target has no sub-accounts (single-user delete)."""
+        if employee is None and actor_user_id is None:
+            raise AppError(
+                status_code=401,
+                error_code="AUTH_FAILED",
+                message="Authentication failed",
+            )
 
         user = await self._repository.get_user_by_id(db, user_id)
         if user is None:
             raise AppError(status_code=404, error_code="USER_NOT_FOUND", message="User does not exist")
 
-        user_ids_to_delete = await self._repository.list_descendant_user_ids(db, user_id)
+        if employee is not None:
+            self._ensure_employee_access(employee)
+        else:
+            assert actor_user_id is not None
+            allowed = actor_user_id == user_id or int(user.parent_id or 0) == actor_user_id
+            if not allowed:
+                raise AppError(
+                    status_code=403,
+                    error_code="FORBIDDEN",
+                    message="You do not have permission to perform this action",
+                )
 
-        for candidate_user_id in user_ids_to_delete:
-            if await self._is_protected_employee_user(db, candidate_user_id):
-                raise AppError(status_code=400, error_code="INVALID_INPUT", message="User cannot be deleted")
+        if await self._repository.has_child_users(db, user_id):
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message=self._DELETE_SUB_ACCOUNTS_FIRST_MSG,
+            )
 
-        return user_ids_to_delete
+        if await self._is_protected_employee_user(db, user_id):
+            raise AppError(status_code=400, error_code="INVALID_INPUT", message="User cannot be deleted")
 
-    async def get_delete_user_impact_by_employee(
+        return user
+
+    async def get_delete_user_impact(
         self,
         db: AsyncSession,
         *,
-        employee,
         user_id: int,
+        employee=None,
+        actor_user_id: int | None = None,
     ) -> dict:
-        user_ids_to_delete = await self._resolve_user_ids_for_employee_delete(
-            db, employee=employee, user_id=user_id
+        await self._authorize_and_validate_user_delete(
+            db, user_id=user_id, employee=employee, actor_user_id=actor_user_id
         )
-        engagements = await self._repository.list_engagements_fully_owned_by_users(
-            db, user_ids_to_delete
-        )
+        engagements = await self._repository.list_engagements_fully_owned_by_users(db, [user_id])
         return {
             "engagements_to_orphan": [
                 {
@@ -2365,6 +2404,55 @@ class UsersService:
                 for e in engagements
             ]
         }
+
+    async def get_delete_user_impact_by_employee(
+        self,
+        db: AsyncSession,
+        *,
+        employee,
+        user_id: int,
+    ) -> dict:
+        return await self.get_delete_user_impact(db, employee=employee, user_id=user_id)
+
+    async def delete_user(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+        delete_orphan_engagements: bool = False,
+        employee=None,
+        actor_user_id: int | None = None,
+    ) -> dict:
+        await self._authorize_and_validate_user_delete(
+            db, user_id=user_id, employee=employee, actor_user_id=actor_user_id
+        )
+
+        if self._audit_service is None:
+            raise RuntimeError("Audit service is required")
+
+        audit_action = "EMPLOYEE_DELETE_USER" if employee is not None else "USER_DELETE_ACCOUNT"
+        await self._audit_service.log_event(
+            db,
+            action=audit_action,
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=actor_user_id if employee is None else None,
+            session_id=None,
+        )
+
+        user_ids_to_delete = [user_id]
+        await self._repository.delete_user_related_data(
+            db,
+            user_ids_to_delete,
+            delete_orphan_engagements=delete_orphan_engagements,
+        )
+        deleted_count = await self._repository.delete_users_by_ids(db, user_ids_to_delete)
+
+        return {"deleted_user_id": user_id, "deleted_user_count": deleted_count}
 
     async def delete_user_by_employee(
         self,
@@ -2377,31 +2465,15 @@ class UsersService:
         endpoint: str,
         delete_orphan_engagements: bool = False,
     ) -> dict:
-        user_ids_to_delete = await self._resolve_user_ids_for_employee_delete(
-            db, employee=employee, user_id=user_id
-        )
-
-        await self._repository.delete_user_related_data(
+        return await self.delete_user(
             db,
-            user_ids_to_delete,
-            delete_orphan_engagements=delete_orphan_engagements,
-        )
-        deleted_count = await self._repository.delete_users_by_ids(db, user_ids_to_delete)
-
-        if self._audit_service is None:
-            raise RuntimeError("Audit service is required")
-
-        await self._audit_service.log_event(
-            db,
-            action="EMPLOYEE_DELETE_USER",
-            endpoint=endpoint,
+            user_id=user_id,
             ip_address=ip_address,
             user_agent=user_agent,
-            user_id=None,
-            session_id=None,
+            endpoint=endpoint,
+            delete_orphan_engagements=delete_orphan_engagements,
+            employee=employee,
         )
-
-        return {"deleted_user_id": user_id, "deleted_user_count": deleted_count}
 
     async def _allocate_plus_alias_email(self, db: AsyncSession, base_email: str) -> str:
         """Allocate a free `{local}+{1000-9999}@{domain}` alias derived from *base_email*."""
@@ -5261,3 +5333,232 @@ class UsersService:
             "failures": failures,
             "skipped_items": skipped_items,
         }
+
+    @staticmethod
+    def _trim_query_param(value: str | None) -> str | None:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        return trimmed if trimmed else None
+
+    @staticmethod
+    def _coalesce_address_field(user_value: object | None, participant_value: object | None) -> str | None:
+        user_text = (str(user_value).strip() if user_value is not None else "") or ""
+        if user_text:
+            return user_text
+        participant_text = (str(participant_value).strip() if participant_value is not None else "") or ""
+        return participant_text or None
+
+    @staticmethod
+    def _is_package_category_complete(progress) -> bool:
+        if progress is None:
+            return False
+        status = (progress.status or "").strip().lower()
+        return status in {"complete", "completed"} and bool(progress.is_submitted)
+
+    async def _derive_questionnaire_status_label(
+        self,
+        db: AsyncSession,
+        *,
+        assessment_instance_id: int,
+        package_id: int,
+        instance_status: str | None,
+    ) -> str:
+        if (instance_status or "").strip().lower() == "completed":
+            return "COMPLETED"
+        if self._assessments_service is None:
+            return "NOT_STARTED"
+        assessments_repo = self._assessments_service._repository
+        category_ids = await assessments_repo.get_assigned_category_ids_for_package_ordered(
+            db,
+            package_id=package_id,
+        )
+        progress_rows = await assessments_repo.list_category_progress_for_instance(
+            db,
+            assessment_instance_id=assessment_instance_id,
+        )
+        committed_count = await self._repository.count_committed_responses_for_instance(
+            db,
+            assessment_instance_id=assessment_instance_id,
+        )
+        if not progress_rows and committed_count == 0:
+            return "NOT_STARTED"
+        if category_ids:
+            progress_by_id = {int(row.category_id): row for row in progress_rows}
+            if all(self._is_package_category_complete(progress_by_id.get(cid)) for cid in category_ids):
+                return "COMPLETED"
+        return "IN_PROGRESS"
+
+    async def get_onboard_status(
+        self,
+        db: AsyncSession,
+        *,
+        phone: str | None,
+        email: str | None,
+        camp_code: str | None,
+        engagement_code: str | None,
+    ) -> OnboardStatusResponse:
+        phone_q = self._trim_query_param(phone)
+        email_q = self._trim_query_param(email)
+        camp_q = self._trim_query_param(camp_code)
+        engagement_q = self._trim_query_param(engagement_code)
+
+        if not phone_q and not email_q:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message="At least one of phone or email is required",
+            )
+        if not camp_q and not engagement_q:
+            raise AppError(
+                status_code=400,
+                error_code="INVALID_INPUT",
+                message="At least one of camp_code or engagement_code is required",
+            )
+        if self._engagements_service is None:
+            raise AppError(status_code=503, error_code="INVALID_STATE", message="Engagements service unavailable")
+
+        engagements_repo: EngagementsRepository = self._engagements_service._repository
+        camp_no: int | None = None
+        engagement = None
+
+        if camp_q:
+            camp_row = await CampOnboardingPayloadRepository().get_by_camp_code(db, camp_code=camp_q)
+            if camp_row is None:
+                raise AppError(
+                    status_code=404,
+                    error_code="CAMP_NOT_FOUND",
+                    message="Camp does not exist",
+                )
+            camp_no = int(camp_row.camp_no)
+
+        if engagement_q:
+            engagement = await engagements_repo.get_engagement_by_code(db, engagement_q)
+            if engagement is None:
+                raise AppError(
+                    status_code=404,
+                    error_code="ENGAGEMENT_NOT_FOUND",
+                    message="Engagement does not exist",
+                )
+            if camp_no is not None and int(engagement.camp_no or 0) != camp_no:
+                raise AppError(
+                    status_code=400,
+                    error_code="INVALID_INPUT",
+                    message="Engagement does not belong to the specified camp",
+                )
+
+        if engagement is not None:
+            scope_engagement_ids = [int(engagement.engagement_id)]
+        elif camp_no is not None:
+            scope_engagement_ids = await self._repository.list_engagement_ids_by_camp_no(db, camp_no)
+        else:
+            scope_engagement_ids = []
+
+        users: list[User] = []
+        if phone_q and email_q:
+            phone_candidates = _phone_lookup_candidates(phone_q, strict=False)
+            by_phone = await self._repository.list_users_by_phones(db, phone_candidates)
+            by_email = await self._repository.list_users_by_email_normalized(db, email_q)
+            email_ids = {int(user.user_id) for user in by_email}
+            users = [user for user in by_phone if int(user.user_id) in email_ids]
+        elif phone_q:
+            users = await self._repository.list_users_by_phones(db, _phone_lookup_candidates(phone_q, strict=False))
+        else:
+            users = await self._repository.list_users_by_email_normalized(db, email_q or "")
+
+        users = sorted(users, key=lambda user: (user.parent_id is not None, int(user.user_id)))
+        if not users:
+            return OnboardStatusResponse(profiles=[], onboarding_status=[], questionnaire_status=[])
+
+        user_ids = [int(user.user_id) for user in users]
+        scoped_participants = await self._repository.list_participants_for_users_in_engagements(
+            db,
+            user_ids=user_ids,
+            engagement_ids=scope_engagement_ids,
+        )
+        latest_participant_by_user = await self._repository.list_latest_participant_per_user(db, user_ids=user_ids)
+        assessment_instances = await self._repository.list_assessment_instances_for_users_engagements(
+            db,
+            user_ids=user_ids,
+            engagement_ids=scope_engagement_ids,
+        )
+
+        participants_by_user: dict[int, list[EngagementParticipant]] = {}
+        for row in scoped_participants:
+            participants_by_user.setdefault(int(row.user_id), []).append(row)
+
+        enrolled_engagement_ids_by_user: dict[int, set[int]] = {
+            uid: {int(row.engagement_id) for row in rows} for uid, rows in participants_by_user.items()
+        }
+
+        instances_by_user: dict[int, list] = {}
+        for instance in assessment_instances:
+            instances_by_user.setdefault(int(instance.user_id), []).append(instance)
+
+        profiles: list[OnboardStatusProfileItem] = []
+        onboarding_status: list[OnboardStatusParticipantItem] = []
+        questionnaire_status: list[OnboardStatusQuestionnaireItem] = []
+
+        for user in users:
+            uid = int(user.user_id)
+            scoped_rows = participants_by_user.get(uid, [])
+            is_participant = bool(scoped_rows)
+            chosen_participant = scoped_rows[0] if scoped_rows else latest_participant_by_user.get(uid)
+
+            employee_id = None
+            department = None
+            blood_group = None
+            if chosen_participant is not None:
+                employee_id = chosen_participant.participants_employee_id
+                department = chosen_participant.participant_department
+                blood_group = chosen_participant.participant_blood_group
+
+            profiles.append(
+                OnboardStatusProfileItem(
+                    user_id=uid,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                    phone=mask_phone(user.phone),
+                    email=mask_email(user.email),
+                    gender=normalize_gender_label(user.gender),
+                    age=api_age_for_user(user),
+                    employee_id=employee_id,
+                    department=department,
+                    blood_group=blood_group,
+                    address=self._coalesce_address_field(user.address, getattr(chosen_participant, "address", None)),
+                    pincode=self._coalesce_address_field(user.pin_code, getattr(chosen_participant, "pincode", None)),
+                    city=self._coalesce_address_field(user.city, getattr(chosen_participant, "city", None)),
+                    state=self._coalesce_address_field(user.state, getattr(chosen_participant, "state", None)),
+                    country=self._coalesce_address_field(user.country, getattr(chosen_participant, "country", None)),
+                )
+            )
+            onboarding_status.append(OnboardStatusParticipantItem(user_id=uid, is_participant=is_participant))
+
+            if not is_participant:
+                questionnaire_status.append(OnboardStatusQuestionnaireItem(user_id=uid, status=None))
+                continue
+
+            enrolled_ids = enrolled_engagement_ids_by_user.get(uid, set())
+            picked_instance = None
+            for instance in instances_by_user.get(uid, []):
+                if int(instance.engagement_id) in enrolled_ids:
+                    picked_instance = instance
+                    break
+
+            if picked_instance is None:
+                questionnaire_status.append(OnboardStatusQuestionnaireItem(user_id=uid, status="NOT_STARTED"))
+                continue
+
+            status_label = await self._derive_questionnaire_status_label(
+                db,
+                assessment_instance_id=int(picked_instance.assessment_instance_id),
+                package_id=int(picked_instance.package_id),
+                instance_status=picked_instance.status,
+            )
+            questionnaire_status.append(OnboardStatusQuestionnaireItem(user_id=uid, status=status_label))
+
+        return OnboardStatusResponse(
+            profiles=profiles,
+            onboarding_status=onboarding_status,
+            questionnaire_status=questionnaire_status,
+        )

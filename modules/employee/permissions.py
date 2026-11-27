@@ -349,6 +349,8 @@ def _excluded(path: str, method: str) -> bool:
         return True
     if path.startswith("/users/public") or path.startswith("/users/code/"):
         return True
+    if path == "/users/onboard/status" and method == "GET":
+        return True
     if path.startswith("/users/me") or path.endswith("/book-bio-ai"):
         return True
     if path.endswith("/metsights/sync-records"):

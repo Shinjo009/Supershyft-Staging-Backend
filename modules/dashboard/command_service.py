@@ -5,9 +5,11 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import cast, func, or_, select, type_coerce
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.listing import ilike_pattern, sanitize_list_search
 from modules.assessments.models import (
     AssessmentCategoryProgress,
     AssessmentInstance,
@@ -81,17 +83,31 @@ def _questionnaire_status_label(
     return "pending"
 
 
-def _lab_status(*, has_engagement: bool, diagnostic_report_url: str | None) -> str:
+def _lab_status(
+    *,
+    has_engagement: bool,
+    diagnostic_report_url: str | None,
+    report_sent: bool = False,
+) -> str:
     if not has_engagement:
         return "empty"
+    if report_sent:
+        return "sent"
     if diagnostic_report_url and str(diagnostic_report_url).strip():
         return "loaded"
     return "pending"
 
 
-def _bio_ai_status(*, has_engagement: bool, report_url: str | None) -> str:
+def _bio_ai_status(
+    *,
+    has_engagement: bool,
+    report_url: str | None,
+    report_sent: bool = False,
+) -> str:
     if not has_engagement:
         return "empty"
+    if report_sent:
+        return "sent"
     if report_url and str(report_url).strip():
         return "loaded"
     return "pending"
@@ -118,6 +134,90 @@ def _audience_type(*, has_engagement: bool, organization_id: int | None) -> str:
     if organization_id is not None:
         return "B2B"
     return "B2C"
+
+
+
+def _normalize_list_search(search: str | None) -> str | None:
+    if search is None:
+        return None
+    return sanitize_list_search(search)
+
+
+def _user_name_phone_clause(search: str):
+    """ILIKE match on first/last/full name or phone (same idea as /users search)."""
+    pattern = ilike_pattern(search)
+    full_name = func.trim(
+        func.concat(
+            func.coalesce(User.first_name, ""),
+            " ",
+            func.coalesce(User.last_name, ""),
+        )
+    )
+    return or_(
+        User.first_name.ilike(pattern),
+        User.last_name.ilike(pattern),
+        full_name.ilike(pattern),
+        User.phone.ilike(pattern),
+    )
+
+
+def _user_name_clause(search: str):
+    """ILIKE match on first/last/full name only (notification recipients)."""
+    pattern = ilike_pattern(search)
+    full_name = func.trim(
+        func.concat(
+            func.coalesce(User.first_name, ""),
+            " ",
+            func.coalesce(User.last_name, ""),
+        )
+    )
+    return or_(
+        User.first_name.ilike(pattern),
+        User.last_name.ilike(pattern),
+        full_name.ilike(pattern),
+    )
+
+
+async def _filter_audience_by_search(
+    db: AsyncSession,
+    audience: dict[int, str],
+    search: str | None,
+) -> dict[int, str]:
+    cleaned = _normalize_list_search(search)
+    if not cleaned or not audience:
+        return audience
+    rows = (
+        await db.execute(
+            select(User.user_id).where(
+                User.user_id.in_(list(audience.keys())),
+                _user_name_phone_clause(cleaned),
+            )
+        )
+    ).all()
+    matched = {int(r[0]) for r in rows}
+    return {uid: audience[uid] for uid in audience if uid in matched}
+
+
+async def _filter_user_ids_by_search(
+    db: AsyncSession,
+    user_ids: list[int],
+    search: str | None,
+) -> list[int]:
+    cleaned = _normalize_list_search(search)
+    if not cleaned:
+        return user_ids
+    if not user_ids:
+        return []
+    rows = (
+        await db.execute(
+            select(User.user_id).where(
+                User.user_id.in_(user_ids),
+                _user_name_phone_clause(cleaned),
+            )
+        )
+    ).all()
+    matched = {int(r[0]) for r in rows}
+    return [uid for uid in user_ids if uid in matched]
 
 
 async def notification_health_counts(
@@ -150,15 +250,62 @@ async def failed_notifications_page(
     dispatched_to: datetime | None,
     page: int,
     limit: int,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
-    items, total = await notifications_service.list_notifications(
-        db,
-        page=page,
-        limit=limit,
-        status="failed",
-        dispatched_from=dispatched_from,
-        dispatched_to=dispatched_to,
-    )
+    cleaned = _normalize_list_search(search)
+    if not cleaned:
+        items, total = await notifications_service.list_notifications(
+            db,
+            page=page,
+            limit=limit,
+            status="failed",
+            dispatched_from=dispatched_from,
+            dispatched_to=dispatched_to,
+        )
+    else:
+        pattern = ilike_pattern(cleaned)
+        query = select(Notification).where(Notification.status == "failed")
+        if dispatched_from is not None:
+            query = query.where(Notification.dispatched_at >= dispatched_from)
+        if dispatched_to is not None:
+            query = query.where(Notification.dispatched_at <= dispatched_to)
+
+        eng_match = Notification.engagement_id.in_(
+            select(Engagement.engagement_id).where(
+                or_(
+                    Engagement.engagement_name.ilike(pattern),
+                    Engagement.engagement_code.ilike(pattern),
+                )
+            )
+        )
+        matching_uid_list = [
+            int(uid)
+            for uid in (
+                await db.execute(select(User.user_id).where(_user_name_clause(cleaned)))
+            ).scalars().all()
+        ][:500]
+        search_clauses = [eng_match]
+        if matching_uid_list:
+            search_clauses.append(Notification.triggered_by_user_id.in_(matching_uid_list))
+            for uid in matching_uid_list:
+                search_clauses.append(
+                    cast(Notification.user, JSONB)["user_ids"].contains(
+                        type_coerce([uid], JSONB)
+                    )
+                )
+        query = query.where(or_(*search_clauses))
+        count_q = select(func.count()).select_from(query.order_by(None).subquery())
+        total = int((await db.execute(count_q)).scalar_one() or 0)
+        offset = max(0, (page - 1) * limit)
+        notifs = (
+            await db.execute(
+                query.order_by(Notification.notification_id.desc())
+                .offset(offset)
+                .limit(limit)
+            )
+        ).scalars().all()
+        items = await notifications_service._enrich_notification_list_items(db, list(notifs))
+
     rows: list[dict[str, Any]] = []
     for item in items:
         recipients = item.get("recipients") or []
@@ -208,15 +355,18 @@ async def people_registered_count(
     created_from: datetime | None,
     created_to: datetime | None,
     all_time: bool,
+    search: str | None = None,
 ) -> int:
     base = select(func.count()).select_from(User)
-    if all_time:
-        return int((await db.execute(base)).scalar_one() or 0)
-    base = base.where(User.created_at.is_not(None))
-    if created_from is not None:
-        base = base.where(User.created_at >= created_from)
-    if created_to is not None:
-        base = base.where(User.created_at <= created_to)
+    if not all_time:
+        base = base.where(User.created_at.is_not(None))
+        if created_from is not None:
+            base = base.where(User.created_at >= created_from)
+        if created_to is not None:
+            base = base.where(User.created_at <= created_to)
+    cleaned = _normalize_list_search(search)
+    if cleaned:
+        base = base.where(_user_name_phone_clause(cleaned))
     return int((await db.execute(base)).scalar_one() or 0)
 
 
@@ -230,6 +380,7 @@ async def people_registered_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     day = today or command_today()
     total = await people_registered_count(
@@ -237,6 +388,7 @@ async def people_registered_page(
         created_from=created_from,
         created_to=created_to,
         all_time=all_time,
+        search=search,
     )
     query = await _users_matching_period(
         db,
@@ -244,6 +396,9 @@ async def people_registered_page(
         created_to=created_to,
         all_time=all_time,
     )
+    cleaned = _normalize_list_search(search)
+    if cleaned:
+        query = query.where(_user_name_phone_clause(cleaned))
     offset = max(0, (page - 1) * limit)
     users = (await db.execute(query.offset(offset).limit(limit))).scalars().all()
     if not users:
@@ -399,6 +554,25 @@ async def _build_people_rows(
                 continue
             bio_by_instance[int(ihr.assessment_instance_id)] = ihr.report_url
 
+    from modules.dashboard.report_sent_kpi import (
+        bioai_report_sent_pairs,
+        blood_report_sent_pairs,
+    )
+
+    # Check all enrollments (not only latest) so multi-engagement users still
+    # show lab_report/bio_ai "sent" when the notification was on an older camp.
+    all_user_engagement_pairs = [
+        (int(row.user_id), int(row.engagement_id)) for row in enroll_rows
+    ]
+    blood_sent_pairs = await blood_report_sent_pairs(
+        db,
+        user_engagement_pairs=all_user_engagement_pairs,
+    )
+    bioai_sent_pairs = await bioai_report_sent_pairs(
+        db,
+        user_engagement_pairs=all_user_engagement_pairs,
+    )
+
     # Diagnostic package names + providers
     dx_ids: set[int] = set()
     for r in latest_by_user.values():
@@ -455,6 +629,17 @@ async def _build_people_rows(
             audience = _audience_type(
                 has_engagement=True, organization_id=eng.organization_id
             )
+            eng_id = int(eng.engagement_id)
+            # Prefer any enrollment with a sent notification so KPI detail rows
+            # stay consistent for users with multiple engagements.
+            report_sent = any(
+                (uid, int(r.engagement_id)) in blood_sent_pairs
+                for r in by_user.get(uid, [])
+            )
+            bioai_sent = any(
+                (uid, int(r.engagement_id)) in bioai_sent_pairs
+                for r in by_user.get(uid, [])
+            )
 
             if not is_consult:
                 gender = str(getattr(eng, "gender", None) or getattr(user, "gender", None) or "").lower()
@@ -483,10 +668,18 @@ async def _build_people_rows(
                     collected_at = getattr(blood_row, "collected_at", None)
                     blood = "done" if collected_at is not None else "pending"
                     report_url = getattr(blood_row, "diagnostic_report_url", None)
-                    lab = _lab_status(has_engagement=True, diagnostic_report_url=report_url)
+                    lab = _lab_status(
+                        has_engagement=True,
+                        diagnostic_report_url=report_url,
+                        report_sent=report_sent,
+                    )
                 else:
                     blood = "pending"
-                    lab = "pending"
+                    lab = _lab_status(
+                        has_engagement=True,
+                        diagnostic_report_url=None,
+                        report_sent=report_sent,
+                    )
             else:
                 blood = ""
                 lab = ""
@@ -497,7 +690,11 @@ async def _build_people_rows(
             eng_id = int(eng.engagement_id)
             if ai is None:
                 questionnaire = "pending"
-                bio_ai = "pending"
+                bio_ai = _bio_ai_status(
+                    has_engagement=True,
+                    report_url=None,
+                    report_sent=bioai_sent,
+                )
             else:
                 if user_engagement_kpi_filled(
                     rollups_by_engagement=kpi_rollups,
@@ -510,6 +707,7 @@ async def _build_people_rows(
                 bio_ai = _bio_ai_status(
                     has_engagement=True,
                     report_url=bio_by_instance.get(int(ai.assessment_instance_id)),
+                    report_sent=bioai_sent,
                 )
 
             # consult aggregate across expert types: Attended > Booked > Not Booked
@@ -646,39 +844,23 @@ async def tests_completed_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    day = today or command_today()
     audience = await _tests_completed_audience_by_user(
         db,
         collected_from=collected_from,
         collected_to=collected_to,
         all_time=all_time,
     )
-    counts = _audience_split_counts(audience)
-    user_ids = sorted(audience.keys(), reverse=True)
-    offset = max(0, (page - 1) * limit)
-    page_ids = user_ids[offset : offset + limit]
-    if not page_ids:
-        return [], counts
-
-    users = (
-        await db.execute(
-            select(User)
-            .where(User.user_id.in_(page_ids))
-            .order_by(User.user_id.desc())
-        )
-    ).scalars().all()
-    # Preserve sorted order (user_id desc)
-    by_id = {int(u.user_id): u for u in users}
-    ordered = [by_id[uid] for uid in page_ids if uid in by_id]
-    rows = await _build_people_rows(
+    return await _people_page_for_audience(
         db,
-        users=ordered,
-        user_ids=[int(u.user_id) for u in ordered],
-        today=day,
+        audience=audience,
+        page=page,
+        limit=limit,
+        today=today,
         questionnaire_service=questionnaire_service,
+        search=search,
     )
-    return rows, counts
 
 
 def _pick_primary_instance(
@@ -750,8 +932,8 @@ async def questionnaire_done_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    day = today or command_today()
     audience = await _questionnaire_done_audience_by_user(
         db,
         completed_from=completed_from,
@@ -759,30 +941,15 @@ async def questionnaire_done_page(
         all_time=all_time,
         questionnaire_service=questionnaire_service,
     )
-    counts = _audience_split_counts(audience)
-    user_ids = sorted(audience.keys(), reverse=True)
-    offset = max(0, (page - 1) * limit)
-    page_ids = user_ids[offset : offset + limit]
-    if not page_ids:
-        return [], counts
-
-    users = (
-        await db.execute(
-            select(User)
-            .where(User.user_id.in_(page_ids))
-            .order_by(User.user_id.desc())
-        )
-    ).scalars().all()
-    by_id = {int(u.user_id): u for u in users}
-    ordered = [by_id[uid] for uid in page_ids if uid in by_id]
-    rows = await _build_people_rows(
+    return await _people_page_for_audience(
         db,
-        users=ordered,
-        user_ids=[int(u.user_id) for u in ordered],
-        today=day,
+        audience=audience,
+        page=page,
+        limit=limit,
+        today=today,
         questionnaire_service=questionnaire_service,
+        search=search,
     )
-    return rows, counts
 
 
 def _b2b_start_date_filter(
@@ -979,8 +1146,10 @@ async def _people_page_for_audience(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     day = today or command_today()
+    audience = await _filter_audience_by_search(db, audience, search)
     counts = _audience_split_counts(audience)
     user_ids = sorted(audience.keys(), reverse=True)
     offset = max(0, (page - 1) * limit)
@@ -1095,6 +1264,7 @@ async def blood_report_generated_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     audience = await _blood_report_audience_by_user(
         db,
@@ -1109,6 +1279,7 @@ async def blood_report_generated_page(
         limit=limit,
         today=today,
         questionnaire_service=questionnaire_service,
+        search=search,
     )
 
 
@@ -1194,6 +1365,7 @@ async def bioai_report_generated_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     audience = await _bioai_report_audience_by_user(
         db,
@@ -1208,6 +1380,7 @@ async def bioai_report_generated_page(
         limit=limit,
         today=today,
         questionnaire_service=questionnaire_service,
+        search=search,
     )
 
 
@@ -1295,6 +1468,7 @@ async def consultation_done_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     audience = await _consultation_done_audience_by_user(
         db,
@@ -1309,6 +1483,7 @@ async def consultation_done_page(
         limit=limit,
         today=today,
         questionnaire_service=questionnaire_service,
+        search=search,
     )
 
 
@@ -1463,6 +1638,7 @@ async def tickets_page(
     all_time: bool,
     page: int,
     limit: int,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     counts = await tickets_counts(
         db,
@@ -1470,7 +1646,11 @@ async def tickets_page(
         created_to=created_to,
         all_time=all_time,
     )
-    query = select(SupportTicket).order_by(
+    cleaned = _normalize_list_search(search)
+    query = select(SupportTicket)
+    if cleaned:
+        query = query.join(User, User.user_id == SupportTicket.user_id, isouter=True)
+    query = query.order_by(
         SupportTicket.created_at.desc().nullslast(),
         SupportTicket.ticket_id.desc(),
     )
@@ -1478,6 +1658,11 @@ async def tickets_page(
         created_from=created_from, created_to=created_to, all_time=all_time
     ):
         query = query.where(clause)
+    if cleaned:
+        query = query.where(_user_name_phone_clause(cleaned))
+        count_q = select(func.count()).select_from(query.order_by(None).subquery())
+        filtered_total = int((await db.execute(count_q)).scalar_one() or 0)
+        counts = {**counts, "total": filtered_total}
     offset = max(0, (page - 1) * limit)
     tickets = (await db.execute(query.offset(offset).limit(limit))).scalars().all()
 
@@ -1608,6 +1793,7 @@ async def upcoming_collections_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     audience = await _upcoming_collections_audience_by_user(
         db,
@@ -1623,6 +1809,7 @@ async def upcoming_collections_page(
         limit=limit,
         today=today,
         questionnaire_service=questionnaire_service,
+        search=search,
     )
 
 
@@ -1719,6 +1906,7 @@ async def overdue_collections_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     audience = await _overdue_collections_audience_by_user(
         db,
@@ -1734,6 +1922,7 @@ async def overdue_collections_page(
         limit=limit,
         today=today,
         questionnaire_service=questionnaire_service,
+        search=search,
     )
 
 
@@ -1794,6 +1983,7 @@ async def questionnaire_pending_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     audience = await _questionnaire_pending_audience_by_user(
         db,
@@ -1809,6 +1999,7 @@ async def questionnaire_pending_page(
         limit=limit,
         today=today,
         questionnaire_service=questionnaire_service,
+        search=search,
     )
 
 
@@ -1903,6 +2094,7 @@ async def blood_reports_pending_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     audience = await _blood_reports_pending_audience_by_user(
         db,
@@ -1917,6 +2109,7 @@ async def blood_reports_pending_page(
         limit=limit,
         today=today,
         questionnaire_service=questionnaire_service,
+        search=search,
     )
 
 
@@ -2122,6 +2315,7 @@ async def bio_ai_pending_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     audience = await _bio_ai_pending_audience_by_user(
         db,
@@ -2137,6 +2331,7 @@ async def bio_ai_pending_page(
         limit=limit,
         today=today,
         questionnaire_service=questionnaire_service,
+        search=search,
     )
 
 
@@ -2227,6 +2422,7 @@ async def consultation_pending_page(
     limit: int,
     today: date | None = None,
     questionnaire_service: Any | None = None,
+    search: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     audience = await _consultation_pending_audience_by_user(
         db,
@@ -2241,4 +2437,5 @@ async def consultation_pending_page(
         limit=limit,
         today=today,
         questionnaire_service=questionnaire_service,
+        search=search,
     )

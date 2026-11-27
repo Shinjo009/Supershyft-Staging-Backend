@@ -177,6 +177,187 @@ async def test_employee_list_users_paginates_and_filters(async_client, test_db_s
 
 
 @pytest.mark.asyncio
+async def test_employee_list_users_nests_sub_accounts(async_client, test_db_session):
+    emp_id = 10050
+    parent_id = 91500
+    child_a = 91501
+    child_b = 91502
+    test_db_session.add(User(age=30, user_id=9003, phone="9003000000", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=emp_id,
+            name="Employee",
+            phone="0000010050",
+            email="employee10050@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    test_db_session.add(
+        User(
+            age=35,
+            user_id=parent_id,
+            phone="9150000000",
+            email="parent.list@test.example",
+            status="active",
+            first_name="Primary",
+            last_name="Adult",
+        )
+    )
+    test_db_session.add(
+        User(
+            age=10,
+            user_id=child_a,
+            phone="9150100000",
+            email="childa.list@test.example",
+            status="active",
+            first_name="Kid",
+            last_name="One",
+            parent_id=parent_id,
+            relationship="child",
+        )
+    )
+    test_db_session.add(
+        User(
+            age=8,
+            user_id=child_b,
+            phone="9150200000",
+            email="childb.list@test.example",
+            status="inactive",
+            first_name="Kid",
+            last_name="Two",
+            parent_id=parent_id,
+            relationship="child",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        f"/users?search=Primary&limit=50",
+        headers=_auth_header(emp_id),
+    )
+    assert response.status_code == 200
+    rows = response.json()["data"]
+    primary_rows = [r for r in rows if r["user_id"] == parent_id]
+    assert len(primary_rows) == 1
+    primary = primary_rows[0]
+    assert primary["parent_id"] is None
+    assert primary["sub_account_count"] == 2
+    assert len(primary["sub_accounts"]) == 2
+    sub_ids = {s["user_id"] for s in primary["sub_accounts"]}
+    assert sub_ids == {child_a, child_b}
+    assert all(s["parent_id"] == parent_id for s in primary["sub_accounts"])
+    assert "total_profiles" in response.json()["meta"]
+
+
+@pytest.mark.asyncio
+async def test_employee_list_users_search_sub_bubbles_primary(async_client, test_db_session):
+    emp_id = 10051
+    parent_id = 91510
+    child_id = 91511
+    test_db_session.add(User(age=30, user_id=9003, phone="9003000000", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=emp_id,
+            name="Employee",
+            phone="0000010051",
+            email="employee10051@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    test_db_session.add(
+        User(
+            age=35,
+            user_id=parent_id,
+            phone="9151000000",
+            status="active",
+            first_name="Unrelated",
+            last_name="Parent",
+        )
+    )
+    test_db_session.add(
+        User(
+            age=12,
+            user_id=child_id,
+            phone="9151100000",
+            email="uniquechild.search@test.example",
+            status="active",
+            first_name="Searchable",
+            last_name="Child",
+            parent_id=parent_id,
+            relationship="child",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        "/users?search=uniquechild.search",
+        headers=_auth_header(emp_id),
+    )
+    assert response.status_code == 200
+    rows = response.json()["data"]
+    assert any(r["user_id"] == parent_id for r in rows)
+    primary = next(r for r in rows if r["user_id"] == parent_id)
+    assert child_id in primary["matched_sub_ids"]
+    assert not any(r.get("parent_id") == parent_id and r not in primary.get("sub_accounts", []) for r in rows)
+
+
+@pytest.mark.asyncio
+async def test_employee_list_users_status_includes_primary_when_sub_matches(async_client, test_db_session):
+    emp_id = 10052
+    parent_id = 91520
+    child_id = 91521
+    test_db_session.add(User(age=30, user_id=9003, phone="9003000000", status="active"))
+    await test_db_session.flush()
+    test_db_session.add(
+        Employee(
+            employee_id=emp_id,
+            name="Employee",
+            phone="0000010052",
+            email="employee10052@test.example",
+            role="admin",
+            status="active",
+        )
+    )
+    test_db_session.add(
+        User(
+            age=35,
+            user_id=parent_id,
+            phone="9152000000",
+            status="inactive",
+            first_name="Inactive",
+            last_name="Primary",
+        )
+    )
+    test_db_session.add(
+        User(
+            age=12,
+            user_id=child_id,
+            phone="9152100000",
+            status="active",
+            first_name="Active",
+            last_name="Kid",
+            parent_id=parent_id,
+            relationship="child",
+        )
+    )
+    await test_db_session.commit()
+
+    response = await async_client.get(
+        "/users?status=active&search=Active",
+        headers=_auth_header(emp_id),
+    )
+    assert response.status_code == 200
+    rows = response.json()["data"]
+    assert any(r["user_id"] == parent_id for r in rows)
+    primary = next(r for r in rows if r["user_id"] == parent_id)
+    assert child_id in {s["user_id"] for s in primary["sub_accounts"]}
+
+
+@pytest.mark.asyncio
 async def test_employee_get_user_returns_details(async_client, test_db_session):
     test_db_session.add(User(age=30, user_id=9004, phone="9004000000", status="active"))
     await test_db_session.flush()
@@ -604,7 +785,7 @@ async def test_employee_delete_user_cascades_related_data(async_client, test_db_
 
     response = await async_client.delete(
         f"/users/{target_user_id}?delete_orphan_engagements=false",
-        headers=_auth_header(actor_user_id),
+        headers=_auth_header(19010),
     )
     assert response.status_code == 200
     assert response.json()["data"]["deleted_user_id"] == target_user_id
@@ -686,7 +867,7 @@ async def test_employee_delete_user_clears_notification_assessment_refs(async_cl
 
     response = await async_client.delete(
         f"/users/{target_user_id}?delete_orphan_engagements=true",
-        headers=_auth_header(actor_user_id),
+        headers=_auth_header(19013),
     )
     assert response.status_code == 200, response.text
     assert await test_db_session.get(User, target_user_id) is None
@@ -732,7 +913,7 @@ async def test_employee_delete_user_impact_lists_engagements_fully_owned(async_c
 
     response = await async_client.get(
         f"/users/{target_user_id}/delete-impact",
-        headers=_auth_header(actor_user_id),
+        headers=_auth_header(19011),
     )
     assert response.status_code == 200
     orphans = response.json()["data"]["engagements_to_orphan"]
@@ -773,7 +954,7 @@ async def test_employee_delete_user_deletes_orphan_engagement_when_requested(asy
 
     response = await async_client.delete(
         f"/users/{target_user_id}?delete_orphan_engagements=true",
-        headers=_auth_header(actor_user_id),
+        headers=_auth_header(19012),
     )
     assert response.status_code == 200
     assert await test_db_session.get(User, target_user_id) is None
@@ -826,7 +1007,7 @@ async def test_employee_delete_user_removes_employee_row_org_refs_and_onboarding
     )
     await test_db_session.commit()
 
-    response = await async_client.delete(f"/users/{target_user_id}", headers=_auth_header(actor_user_id))
+    response = await async_client.delete(f"/users/{target_user_id}", headers=_auth_header(19120))
     assert response.status_code == 200
 
     assert await test_db_session.get(User, target_user_id) is None
@@ -847,20 +1028,7 @@ async def test_employee_delete_user_removes_employee_row_org_refs_and_onboarding
 
 
 @pytest.mark.asyncio
-async def test_employee_delete_user_rejects_self_delete(async_client, test_db_session):
-    uid = 99202
-    test_db_session.add(User(age=30, user_id=uid, phone="9920200000", status="active"))
-    await test_db_session.flush()
-    test_db_session.add(Employee(employee_id=19202, name="Employee 19202", phone="0000019202", email="employee19202@test.example", role="admin", status="active"))
-    await test_db_session.commit()
-
-    response = await async_client.delete(f"/users/{uid}", headers=_auth_header(uid))
-    assert response.status_code == 400
-    assert "own account" in (response.json().get("message") or "").lower()
-
-
-@pytest.mark.asyncio
-async def test_employee_delete_user_rejects_when_actor_in_deleted_subtree(async_client, test_db_session):
+async def test_employee_delete_user_rejects_when_primary_has_sub_accounts(async_client, test_db_session):
     parent_id = 99230
     child_id = 99231
     test_db_session.add(User(age=30, user_id=parent_id, phone="9923000000", status="active"))
@@ -871,6 +1039,104 @@ async def test_employee_delete_user_rejects_when_actor_in_deleted_subtree(async_
     test_db_session.add(Employee(employee_id=19231, name="Employee 19231", phone="0000019231", email="employee19231@test.example", role="admin", status="active"))
     await test_db_session.commit()
 
-    response = await async_client.delete(f"/users/{parent_id}", headers=_auth_header(child_id))
+    response = await async_client.delete(f"/users/{parent_id}", headers=_auth_header(19231))
     assert response.status_code == 400
-    assert "family tree" in (response.json().get("message") or "").lower()
+    assert "sub-account" in (response.json().get("message") or "").lower()
+    assert await test_db_session.get(User, parent_id) is not None
+    assert await test_db_session.get(User, child_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_employee_delete_sub_profile_keeps_parent(async_client, test_db_session):
+    parent_id = 99240
+    child_id = 99241
+    test_db_session.add(User(age=30, user_id=parent_id, phone="9924000000", status="active"))
+    test_db_session.add(
+        User(age=12, user_id=child_id, phone="9924100000", status="active", parent_id=parent_id, relationship="child")
+    )
+    await test_db_session.flush()
+    test_db_session.add(Employee(employee_id=19240, name="Employee 19240", phone="0000019240", email="employee19240@test.example", role="admin", status="active"))
+    await test_db_session.commit()
+
+    response = await async_client.delete(f"/users/{child_id}", headers=_auth_header(19240))
+    assert response.status_code == 200
+    assert await test_db_session.get(User, child_id) is None
+    assert await test_db_session.get(User, parent_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_user_delete_self_succeeds(async_client, test_db_session):
+    user_id = 99250
+    test_db_session.add(User(age=30, user_id=user_id, phone="9925000000", status="active"))
+    await test_db_session.commit()
+
+    response = await async_client.delete(f"/users/{user_id}", headers=user_auth_header(user_id))
+    assert response.status_code == 200
+    assert await test_db_session.get(User, user_id) is None
+
+
+@pytest.mark.asyncio
+async def test_user_delete_own_sub_succeeds(async_client, test_db_session):
+    parent_id = 99260
+    child_id = 99261
+    test_db_session.add(User(age=30, user_id=parent_id, phone="9926000000", status="active"))
+    test_db_session.add(
+        User(age=12, user_id=child_id, phone="9926100000", status="active", parent_id=parent_id, relationship="child")
+    )
+    await test_db_session.commit()
+
+    response = await async_client.delete(f"/users/{child_id}", headers=user_auth_header(parent_id))
+    assert response.status_code == 200
+    assert await test_db_session.get(User, child_id) is None
+    assert await test_db_session.get(User, parent_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_user_delete_unrelated_user_forbidden(async_client, test_db_session):
+    actor_id = 99270
+    other_id = 99271
+    test_db_session.add(User(age=30, user_id=actor_id, phone="9927000000", status="active"))
+    test_db_session.add(User(age=30, user_id=other_id, phone="9927100000", status="active"))
+    await test_db_session.commit()
+
+    response = await async_client.delete(f"/users/{other_id}", headers=user_auth_header(actor_id))
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_user_delete_self_blocked_when_sub_accounts_exist(async_client, test_db_session):
+    parent_id = 99280
+    child_id = 99281
+    test_db_session.add(User(age=30, user_id=parent_id, phone="9928000000", status="active"))
+    test_db_session.add(
+        User(age=12, user_id=child_id, phone="9928100000", status="active", parent_id=parent_id, relationship="child")
+    )
+    await test_db_session.commit()
+
+    response = await async_client.delete(f"/users/{parent_id}", headers=user_auth_header(parent_id))
+    assert response.status_code == 400
+    assert "sub-account" in (response.json().get("message") or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_user_delete_parent_forbidden(async_client, test_db_session):
+    parent_id = 99290
+    child_id = 99291
+    test_db_session.add(User(age=30, user_id=parent_id, phone="9929000000", status="active"))
+    test_db_session.add(
+        User(age=12, user_id=child_id, phone="9929100000", status="active", parent_id=parent_id, relationship="child")
+    )
+    await test_db_session.commit()
+
+    response = await async_client.delete(f"/users/{parent_id}", headers=user_auth_header(child_id))
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_delete_user_requires_auth(async_client, test_db_session):
+    user_id = 99300
+    test_db_session.add(User(age=30, user_id=user_id, phone="9930000000", status="active"))
+    await test_db_session.commit()
+
+    response = await async_client.delete(f"/users/{user_id}")
+    assert response.status_code == 401

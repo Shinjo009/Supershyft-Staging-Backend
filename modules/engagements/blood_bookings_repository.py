@@ -323,6 +323,23 @@ class BloodBookingsRepository:
         db.add(row)
         await db.flush()
 
+    async def clear_orange_booking_on_row(
+        self,
+        db: AsyncSession,
+        *,
+        row: ParticipantBloodBooking,
+    ) -> None:
+        row.booking_id = None
+        row.barcode = None
+        row.request_id = None
+        row.token = None
+        row.order_id = None
+        row.alnum_order_id = None
+        row.provider_status = None
+        row.status = BloodBookingStatus.cancelled.value
+        db.add(row)
+        await db.flush()
+
     async def record_reschedule(
         self,
         db: AsyncSession,
@@ -352,6 +369,12 @@ class BloodBookingsRepository:
             relation=BloodBookingRelation.reschedule.value,
             parent_booking_id=old_bid or None,
             status=BloodBookingStatus.active.value,
+            diagnostic_provider=current.diagnostic_provider,
+            request_id=current.request_id,
+            token=current.token,
+            order_id=current.order_id,
+            alnum_order_id=current.alnum_order_id,
+            provider_status=current.provider_status,
             diagnostic_report_url=current.diagnostic_report_url,
             blood_parameters=current.blood_parameters,
             blood_report_raw=current.blood_report_raw,

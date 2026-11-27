@@ -186,18 +186,21 @@ async def cancel_console_participant_booking(
     engagement_id: int,
     user_id: int,
     remarks: str,
+    cancellation_explanation: str | None = None,
     db: AsyncSession = Depends(get_db),
     actor: ConsoleActor = Depends(get_console_actor),
     console_service: ConsoleService = Depends(get_console_service),
 ):
     if not remarks.strip():
         raise AppError(status_code=400, error_code="INVALID_INPUT", message="remarks is required")
+    explanation = cancellation_explanation.strip() if cancellation_explanation else None
     data = await console_service.cancel_participant_booking(
         db,
         employee=actor.employee, partner=actor.partner,
         engagement_id=engagement_id,
         user_id=user_id,
         remarks=remarks.strip(),
+        cancellation_explanation=explanation,
     )
     await db.commit()
     return success_response(data)
@@ -429,6 +432,7 @@ async def reschedule_home_collection(
         blood_collection_time_slot_id=payload.blood_collection_time_slot_id,
         blood_collection_time_slot=payload.blood_collection_time_slot,
         reschedule_reason=payload.reschedule_reason,
+        reschedule_explanation=payload.reschedule_explanation,
     )
     await db.commit()
     return success_response(data)

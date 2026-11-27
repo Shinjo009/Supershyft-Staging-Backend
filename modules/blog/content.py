@@ -86,9 +86,6 @@ _VOID = {"br", "img", "hr", "wbr", "source"}
 _HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
 _TEXT_TAGS = _HEADING_TAGS | {"p", "blockquote"}
 _ALLOWED_TAGS = _TEXT_TAGS | {"ul", "ol", "table", "hr", "img", "video", "audio", "pre", "section", "a", "instagram", "faq"}
-_BUTTON_FONT_WEIGHTS = {"300", "400", "500", "600", "700", "light", "regular", "normal", "medium", "semibold", "semi-bold", "bold"}
-_BUTTON_PADDING = re.compile(r"^(\d{1,3}px)(\s+\d{1,3}px){0,3}$")
-_BUTTON_RADIUS = re.compile(r"^\d{1,3}px$")
 FAQ_DEFAULT_HEADING = "Frequently Asked Questions"
 FAQ_MAX_ITEMS = 50
 FAQ_HEADING_MAX = 200
@@ -97,6 +94,18 @@ FAQ_ANSWER_MAX = 5000
 _INSTAGRAM_HOSTS = {"instagram.com", "m.instagram.com", "instagr.am"}
 _INSTAGRAM_PATH_KINDS = {"p", "reel", "tv"}
 _INSTAGRAM_SHORTCODE = re.compile(r"^[\w-]+$")
+CTA_ALIGNS = {"left", "center", "right"}
+CTA_DEFAULT_STYLE = {
+    "backgroundColor": "#0B2C2A",
+    "color": "#FFFFFF",
+    "fontSize": "16px",
+    "fontWeight": "600",
+    "borderRadius": "8px",
+    "padding": "14px 28px",
+}
+_CTA_RADIUS = re.compile(r"^\d{1,3}(?:\.\d+)?px$")
+_CTA_PADDING = re.compile(r"^\d{1,3}(?:\.\d+)?px(?:\s+\d{1,3}(?:\.\d+)?px){0,3}$")
+_CTA_WEIGHT = re.compile(r"^(?:[1-9]00|bold|normal)$")
 
 
 class _Node:
@@ -218,6 +227,8 @@ def blocks_are_empty(blocks: list) -> bool:
             return False
         if tag == "faq" and _faq_has_text(block):
             return False
+        if tag == "a" and _is_cta_button(block) and _cell_text(block).strip():
+            return False
     return True
 
 
@@ -233,6 +244,8 @@ def story_chars(blocks) -> int:
         elif tag in _TEXT_TAGS:
             total += len(_cell_text(block))
         elif tag == "pre":
+            total += len(_cell_text(block))
+        elif tag == "a" and _is_cta_button(block):
             total += len(_cell_text(block))
         elif tag in {"ul", "ol"}:
             total += sum(len(_cell_text(item)) for item in block.get("items") or [])
@@ -265,6 +278,8 @@ def reading_text(blocks) -> str:
         elif tag in _TEXT_TAGS:
             parts.append(_cell_text(block))
         elif tag == "pre":
+            parts.append(_cell_text(block))
+        elif tag == "a" and _is_cta_button(block):
             parts.append(_cell_text(block))
         elif tag in {"ul", "ol"}:
             parts.extend(_cell_text(item) for item in block.get("items") or [])
@@ -593,73 +608,8 @@ def _shape_block(item: dict, strict: bool = False):
     if tag == "faq":
         return _shape_faq(item, strict=strict)
     if tag == "a":
-        return _shape_button_link(item, strict=strict)
+        return _shape_cta(item, strict=strict)
     return None
-
-
-def _button_alignment(item: dict) -> str | None:
-    raw = item.get("alignment")
-    if raw is None:
-        raw = _block_style(item).get("textAlign")
-    return _align(raw)
-
-
-def _button_style(style: dict, strict: bool) -> dict:
-    cleaned: dict = {}
-    if not isinstance(style, dict):
-        return cleaned
-    bg = normalize_hex(style.get("backgroundColor"))
-    if bg:
-        cleaned["backgroundColor"] = bg
-    elif style.get("backgroundColor") and strict:
-        raise ApiError("Button backgroundColor must be a hex color")
-    color = normalize_hex(style.get("color"))
-    if color:
-        cleaned["color"] = color
-    elif style.get("color") and strict:
-        raise ApiError("Button color must be a hex color")
-    font_size = _font_size_value(style.get("fontSize"))
-    if font_size:
-        cleaned["fontSize"] = font_size
-    elif style.get("fontSize") and strict:
-        raise ApiError("Button fontSize must be a px size")
-    weight = str(style.get("fontWeight") or "").strip().lower()
-    if weight in _BUTTON_FONT_WEIGHTS:
-        cleaned["fontWeight"] = str(style.get("fontWeight")).strip()
-    elif style.get("fontWeight") and strict:
-        raise ApiError("Button fontWeight is invalid")
-    radius = str(style.get("borderRadius") or "").strip().lower()
-    if _BUTTON_RADIUS.fullmatch(radius):
-        cleaned["borderRadius"] = radius
-    elif style.get("borderRadius") and strict:
-        raise ApiError("Button borderRadius must be like 24px")
-    padding = str(style.get("padding") or "").strip().lower()
-    if _BUTTON_PADDING.fullmatch(padding):
-        cleaned["padding"] = padding
-    elif style.get("padding") and strict:
-        raise ApiError("Button padding must be like 14px 28px")
-    return cleaned
-
-
-def _shape_button_link(item: dict, strict: bool = False) -> dict | None:
-    text = _cell_text(item).strip()
-    href = _link_href(_attr(item, "href") or item.get("href"), strict=strict)
-    if not text or not href:
-        if strict:
-            raise ApiError("Button links need text and an http(s) href")
-        return None
-    attrs: dict = {"href": href}
-    target = str(_block_attrs(item).get("target") or "").strip()
-    if target in {"_blank", "_self"}:
-        attrs["target"] = target
-    style = _button_style(_block_style(item), strict=strict)
-    if style:
-        attrs["style"] = style
-    shaped: dict = {"tag": "a", "type": "button", "text": text, "attributes": attrs}
-    alignment = _button_alignment(item)
-    if alignment:
-        shaped["alignment"] = alignment
-    return shaped
 
 
 def _shape_instagram(item: dict, strict: bool = False) -> dict | None:
@@ -876,10 +826,7 @@ def _validate(block: dict) -> dict:
     if tag == "faq":
         return _validate_faq(block)
     if tag == "a":
-        shaped = _shape_button_link(block, strict=True)
-        if not shaped:
-            raise ApiError("Button links need text and an http(s) href")
-        return shaped
+        return _validate_cta(block)
     raise ApiError("Unknown content block")
 
 
@@ -922,9 +869,153 @@ def _align(value) -> str | None:
     return text if text in ALIGNS and text != "left" else None
 
 
+def _cta_align(value) -> str | None:
+    """CTA alignment; stored only when it is not the default (left)."""
+    text = str(value or "").strip().lower()
+    return text if text in CTA_ALIGNS and text != "left" else None
+
+
 def _align_attr(block: dict) -> str:
     align = _text_align_from(block)
     return f' style="text-align:{align}"' if align else ""
+
+
+def _is_cta_button(block: dict) -> bool:
+    return str(block.get("tag") or "").strip().lower() == "a" and str(block.get("type") or "").strip().lower() == "button"
+
+
+def _normalize_cta_hex(value, fallback: str, *, strict: bool) -> str:
+    text = str(value or "").strip()
+    match = _HEX_COLOR.fullmatch(text)
+    if not match:
+        if strict and text:
+            raise ApiError("CTA style colors must be hex")
+        return fallback
+    hex_body = match.group(1)
+    if len(hex_body) == 3:
+        hex_body = "".join(ch * 2 for ch in hex_body)
+    return f"#{hex_body.upper()}"
+
+
+def _cta_style_from(block: dict, *, strict: bool = False) -> dict:
+    style = _block_style(block)
+    background = _normalize_cta_hex(style.get("backgroundColor"), CTA_DEFAULT_STYLE["backgroundColor"], strict=strict)
+    color = _normalize_cta_hex(style.get("color"), CTA_DEFAULT_STYLE["color"], strict=strict)
+    font_size = _font_size_value(style.get("fontSize")) or CTA_DEFAULT_STYLE["fontSize"]
+    if strict and style.get("fontSize") not in (None, "") and not _font_size_value(style.get("fontSize")):
+        raise ApiError("CTA fontSize must be like 16px")
+    weight_raw = str(style.get("fontWeight") or "").strip().lower()
+    if weight_raw:
+        if not _CTA_WEIGHT.fullmatch(weight_raw):
+            if strict:
+                raise ApiError("CTA fontWeight is invalid")
+            weight = CTA_DEFAULT_STYLE["fontWeight"]
+        else:
+            weight = "700" if weight_raw == "bold" else "400" if weight_raw == "normal" else weight_raw
+    else:
+        weight = CTA_DEFAULT_STYLE["fontWeight"]
+    radius_raw = str(style.get("borderRadius") or "").strip().lower()
+    if radius_raw:
+        if not _CTA_RADIUS.fullmatch(radius_raw):
+            if strict:
+                raise ApiError("CTA borderRadius must be like 8px")
+            radius = CTA_DEFAULT_STYLE["borderRadius"]
+        else:
+            radius = radius_raw
+    else:
+        radius = CTA_DEFAULT_STYLE["borderRadius"]
+    padding_raw = str(style.get("padding") or "").strip().lower()
+    if padding_raw:
+        if not _CTA_PADDING.fullmatch(padding_raw):
+            if strict:
+                raise ApiError("CTA padding is invalid")
+            padding = CTA_DEFAULT_STYLE["padding"]
+        else:
+            padding = padding_raw
+    else:
+        padding = CTA_DEFAULT_STYLE["padding"]
+    result = {
+        "backgroundColor": background,
+        "color": color,
+        "fontSize": font_size,
+        "fontWeight": weight,
+        "borderRadius": radius,
+        "padding": padding,
+    }
+    border_width_raw = str(style.get("borderWidth") or "").strip().lower()
+    if border_width_raw:
+        if not _CTA_RADIUS.fullmatch(border_width_raw):
+            if strict:
+                raise ApiError("CTA borderWidth must be like 1px")
+        else:
+            width_value = float(border_width_raw[:-2])
+            if width_value > 0:
+                border_color = _normalize_cta_hex(
+                    style.get("borderColor"),
+                    CTA_DEFAULT_STYLE["backgroundColor"],
+                    strict=strict,
+                )
+                result["borderWidth"] = f"{int(width_value) if width_value.is_integer() else width_value}px"
+                result["borderColor"] = border_color
+    return result
+
+
+def _shape_cta(item: dict, strict: bool = False):
+    if not _is_cta_button(item):
+        return None
+    text = _cell_text(item).strip()
+    if not text:
+        return None
+    href = _link_href(_attr(item, "href"), strict=strict)
+    if not href:
+        return None
+    target = str(_block_attrs(item).get("target") or "_blank").strip().lower()
+    if target != "_blank":
+        if strict:
+            raise ApiError("CTA target must be _blank")
+        target = "_blank"
+    block = {
+        "tag": "a",
+        "type": "button",
+        "text": text,
+        "attributes": {
+            "href": href,
+            "target": target,
+            "style": _cta_style_from(item, strict=False),
+        },
+    }
+    align = _cta_align(item.get("alignment"))
+    if align:
+        block["alignment"] = align
+    return block
+
+
+def _validate_cta(block: dict) -> dict:
+    if not _is_cta_button(block):
+        raise ApiError("Unknown content block")
+    text = _limit(_cell_text(block).strip(), 200, "A CTA label is too long")
+    if not text:
+        raise ApiError("CTA button text is required")
+    href = _link_href(_attr(block, "href"), strict=True)
+    if not href:
+        raise ApiError("CTA button link is required")
+    target = str(_block_attrs(block).get("target") or "_blank").strip().lower()
+    if target != "_blank":
+        raise ApiError("CTA target must be _blank")
+    result = {
+        "tag": "a",
+        "type": "button",
+        "text": text,
+        "attributes": {
+            "href": href,
+            "target": "_blank",
+            "style": _cta_style_from(block, strict=True),
+        },
+    }
+    align = _cta_align(block.get("alignment"))
+    if align:
+        result["alignment"] = align
+    return result
 
 
 _LEGACY_KEYS = ("type", "url", "alt", "language", "code", "align", "level", "ordered", "backgroundColor")
@@ -1007,11 +1098,6 @@ def present_blocks(blocks) -> list:
                         copy.pop("attributes", None)
             shown.append(copy)
             continue
-        if tag == "a":
-            shaped = _shape_button_link(block, strict=False)
-            if shaped:
-                shown.append(shaped)
-            continue
         if tag == "faq":
             copy = _strip_legacy(block)
             copy["tag"] = "faq"
@@ -1020,6 +1106,26 @@ def present_blocks(blocks) -> list:
             copy.pop("content", None)
             copy["items"] = [_present_faq_item(item) for item in block.get("items") or []]
             copy.pop("attributes", None)
+            shown.append(copy)
+            continue
+        if tag == "a" and _is_cta_button(block):
+            text = _cell_text(block).strip()
+            href = _link_href(_attr(block, "href"), strict=False)
+            if not text or not href:
+                continue
+            copy = {
+                "tag": "a",
+                "type": "button",
+                "text": text,
+                "attributes": {
+                    "href": href,
+                    "target": "_blank",
+                    "style": _cta_style_from(block, strict=False),
+                },
+            }
+            align = _cta_align(block.get("alignment"))
+            if align:
+                copy["alignment"] = align
             shown.append(copy)
             continue
         # hr / img / video / audio / instagram
@@ -1106,32 +1212,36 @@ def _render_block(block: dict) -> str:
         return _render_instagram(_attr(block, "src"))
     if tag == "faq":
         return _render_faq(block)
-    if tag == "a":
-        shaped = _shape_button_link(block, strict=False)
-        if not shaped:
+    if tag == "a" and _is_cta_button(block):
+        text = escape(_cell_text(block).strip())
+        href = _link_href(_attr(block, "href"), strict=False)
+        if not text or not href:
             return ""
-        href = escape(str(shaped["attributes"]["href"]), quote=True)
-        label = escape(str(shaped.get("text") or ""))
-        target = shaped["attributes"].get("target")
-        target_attr = f' target="{escape(str(target), quote=True)}" rel="noopener noreferrer"' if target == "_blank" else ""
-        style_bits = []
-        for key, css_key in (
-            ("backgroundColor", "background-color"),
-            ("color", "color"),
-            ("fontSize", "font-size"),
-            ("fontWeight", "font-weight"),
-            ("borderRadius", "border-radius"),
-            ("padding", "padding"),
-        ):
-            value = (shaped["attributes"].get("style") or {}).get(key)
-            if value:
-                style_bits.append(f"{css_key}:{escape(str(value), quote=True)}")
-        style_attr = f' style="{";".join(style_bits)}"' if style_bits else ""
-        align = shaped.get("alignment")
-        link = f'<a class="blog-cta" href="{href}"{target_attr}{style_attr}>{label}</a>'
-        if align:
-            return f'<p style="text-align:{escape(str(align), quote=True)}">{link}</p>'
-        return link
+        style = _cta_style_from(block, strict=False)
+        css_parts = [
+            "display:inline-block",
+            f"background-color:{escape(style['backgroundColor'], quote=True)}",
+            f"color:{escape(style['color'], quote=True)}",
+            f"font-size:{escape(style['fontSize'], quote=True)}",
+            f"font-weight:{escape(style['fontWeight'], quote=True)}",
+            f"border-radius:{escape(style['borderRadius'], quote=True)}",
+            f"padding:{escape(style['padding'], quote=True)}",
+            "text-decoration:none",
+            "line-height:1.2",
+        ]
+        border_width = style.get("borderWidth")
+        border_color = style.get("borderColor")
+        if border_width and border_color:
+            css_parts.append(
+                f"border:{escape(str(border_width), quote=True)} solid {escape(str(border_color), quote=True)}"
+            )
+        css = ";".join(css_parts)
+        align = _cta_align(block.get("alignment")) or "left"
+        link = (
+            f'<a href="{escape(href, quote=True)}" target="_blank" rel="noopener noreferrer" '
+            f'style="{css}">{text}</a>'
+        )
+        return f'<div style="text-align:{align}">{link}</div>'
     return ""
 
 

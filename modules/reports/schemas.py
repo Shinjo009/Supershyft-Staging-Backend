@@ -63,6 +63,20 @@ class AllBloodParameterTrendEngagement(BaseModel):
     data_points: list[AllBloodParameterTrendValue]
 
 
+class GroupedBloodParameterTrendTestGroup(BaseModel):
+    test_group_name: str
+    test_group_key: str
+    parameters: list[AllBloodParameterTrendValue]
+
+
+class GroupedBloodParameterTrendEngagement(BaseModel):
+    date: str
+    engagement_id: int
+    diagnostic_package_id: int | None = None
+    diagnostic_package_name: str | None = None
+    test_groups: list[GroupedBloodParameterTrendTestGroup]
+
+
 class DiseaseOverview(BaseModel):
     code: str
     name: str
