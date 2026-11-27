@@ -85,10 +85,18 @@ _SKIP = {"script", "style"}
 _VOID = {"br", "img", "hr", "wbr", "source"}
 _HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
 _TEXT_TAGS = _HEADING_TAGS | {"p", "blockquote"}
-_ALLOWED_TAGS = _TEXT_TAGS | {"ul", "ol", "table", "hr", "img", "video", "audio", "pre", "section", "a"}
+_ALLOWED_TAGS = _TEXT_TAGS | {"ul", "ol", "table", "hr", "img", "video", "audio", "pre", "section", "a", "instagram", "faq"}
 _BUTTON_FONT_WEIGHTS = {"300", "400", "500", "600", "700", "light", "regular", "normal", "medium", "semibold", "semi-bold", "bold"}
 _BUTTON_PADDING = re.compile(r"^(\d{1,3}px)(\s+\d{1,3}px){0,3}$")
 _BUTTON_RADIUS = re.compile(r"^\d{1,3}px$")
+FAQ_DEFAULT_HEADING = "Frequently Asked Questions"
+FAQ_MAX_ITEMS = 50
+FAQ_HEADING_MAX = 200
+FAQ_QUESTION_MAX = 500
+FAQ_ANSWER_MAX = 5000
+_INSTAGRAM_HOSTS = {"instagram.com", "m.instagram.com", "instagr.am"}
+_INSTAGRAM_PATH_KINDS = {"p", "reel", "tv"}
+_INSTAGRAM_SHORTCODE = re.compile(r"^[\w-]+$")
 
 
 class _Node:
@@ -206,7 +214,9 @@ def blocks_are_empty(blocks: list) -> bool:
             return False
         if tag == "pre" and _cell_text(block).strip():
             return False
-        if tag in {"audio", "video"} and _attr(block, "src"):
+        if tag in {"audio", "video", "instagram"} and _attr(block, "src"):
+            return False
+        if tag == "faq" and _faq_has_text(block):
             return False
     return True
 
@@ -230,6 +240,13 @@ def story_chars(blocks) -> int:
             total += sum(len(_cell_text(cell)) for cell in block.get("headers") or [])
             for row in block.get("rows") or []:
                 total += sum(len(_cell_text(cell)) for cell in row or [])
+        elif tag == "faq":
+            total += len(_cell_text(block))
+            for item in block.get("items") or []:
+                if not isinstance(item, dict):
+                    continue
+                total += len(_cell_text(item))
+                total += len(_cell_text(item.get("answer")))
     return total
 
 
@@ -255,6 +272,19 @@ def reading_text(blocks) -> str:
             parts.extend(_cell_text(cell) for cell in block.get("headers") or [])
             for row in block.get("rows") or []:
                 parts.extend(_cell_text(cell) for cell in row or [])
+        elif tag == "faq":
+            heading = _cell_text(block).strip()
+            if heading:
+                parts.append(heading)
+            for item in block.get("items") or []:
+                if not isinstance(item, dict):
+                    continue
+                question = _cell_text(item).strip()
+                answer = _cell_text(item.get("answer")).strip()
+                if question:
+                    parts.append(question)
+                if answer:
+                    parts.append(answer)
     return " ".join(part for part in parts if part)
 
 
@@ -558,6 +588,10 @@ def _shape_block(item: dict, strict: bool = False):
         return {"tag": "audio", "attributes": {"src": _attr(item, "src")}}
     if tag == "video":
         return {"tag": "video", "attributes": {"src": _attr(item, "src")}}
+    if tag == "instagram":
+        return _shape_instagram(item, strict=strict)
+    if tag == "faq":
+        return _shape_faq(item, strict=strict)
     if tag == "a":
         return _shape_button_link(item, strict=strict)
     return None
@@ -628,6 +662,151 @@ def _shape_button_link(item: dict, strict: bool = False) -> dict | None:
     return shaped
 
 
+def _shape_instagram(item: dict, strict: bool = False) -> dict | None:
+    src = _instagram_url(_attr(item, "src"), strict=strict)
+    if not src:
+        return None
+    return {"tag": "instagram", "attributes": {"src": src}}
+
+
+def _shape_faq(item: dict, strict: bool = False) -> dict | None:
+    heading = _cell_text(item).strip() or FAQ_DEFAULT_HEADING
+    if len(heading) > FAQ_HEADING_MAX:
+        if strict:
+            raise ApiError("FAQ heading is too long")
+        heading = heading[:FAQ_HEADING_MAX]
+    raw_items = item.get("items") or []
+    if not isinstance(raw_items, list):
+        if strict:
+            raise ApiError("FAQ items must be a list")
+        return None
+    if len(raw_items) > FAQ_MAX_ITEMS:
+        if strict:
+            raise ApiError("Too many FAQ questions")
+        raw_items = raw_items[:FAQ_MAX_ITEMS]
+    items = []
+    for part in raw_items:
+        shaped = _shape_faq_item(part, strict=strict)
+        if shaped:
+            items.append(shaped)
+    if not items:
+        if strict:
+            raise ApiError("FAQ needs at least one question and answer")
+        return None
+    return {"tag": "faq", "text": heading, "items": items}
+
+
+def _shape_faq_item(value, strict: bool) -> dict | None:
+    if not isinstance(value, dict):
+        if strict:
+            raise ApiError("FAQ items must be objects")
+        return None
+    question, q_marks = _stored_rich(value.get("text"), value.get("marks"), strict)
+    question = question.strip()
+    if not question:
+        if strict:
+            raise ApiError("FAQ questions cannot be empty")
+        return None
+    if len(question) > FAQ_QUESTION_MAX:
+        if strict:
+            raise ApiError("A FAQ question is too long")
+        question = question[:FAQ_QUESTION_MAX]
+    answer_raw = value.get("answer")
+    if isinstance(answer_raw, dict):
+        answer_text, a_marks = _stored_rich(answer_raw.get("text"), answer_raw.get("marks"), strict)
+    else:
+        answer_text, a_marks = _stored_rich(answer_raw, None, strict)
+    answer_text = answer_text.strip()
+    if not answer_text:
+        if strict:
+            raise ApiError("FAQ answers cannot be empty")
+        return None
+    if len(answer_text) > FAQ_ANSWER_MAX:
+        if strict:
+            raise ApiError("A FAQ answer is too long")
+        answer_text = answer_text[:FAQ_ANSWER_MAX]
+    return {
+        "text": question,
+        "marks": q_marks,
+        "answer": {"text": answer_text, "marks": a_marks},
+    }
+
+
+def _validate_faq(block: dict) -> dict:
+    heading = _limit(_cell_text(block).strip() or FAQ_DEFAULT_HEADING, FAQ_HEADING_MAX, "FAQ heading is too long")
+    raw_items = block.get("items") or []
+    if not isinstance(raw_items, list) or not raw_items:
+        raise ApiError("FAQ needs at least one question and answer")
+    if len(raw_items) > FAQ_MAX_ITEMS:
+        raise ApiError("Too many FAQ questions")
+    items = []
+    for part in raw_items:
+        if not isinstance(part, dict):
+            raise ApiError("FAQ items must be objects")
+        question = _pack_cell(part, FAQ_QUESTION_MAX, "A FAQ question is too long")
+        if not question["text"].strip():
+            raise ApiError("FAQ questions cannot be empty")
+        answer_raw = part.get("answer")
+        if isinstance(answer_raw, dict):
+            answer = _pack_cell(answer_raw, FAQ_ANSWER_MAX, "A FAQ answer is too long")
+        else:
+            answer = _pack_cell({"text": answer_raw or "", "marks": []}, FAQ_ANSWER_MAX, "A FAQ answer is too long")
+        if not answer["text"].strip():
+            raise ApiError("FAQ answers cannot be empty")
+        items.append({"text": question["text"], "marks": question["marks"], "answer": answer})
+    return {"tag": "faq", "text": heading, "items": items}
+
+
+def _faq_has_text(block: dict) -> bool:
+    if _cell_text(block).strip():
+        return True
+    for item in block.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        if _cell_text(item).strip() or _cell_text(item.get("answer")).strip():
+            return True
+    return False
+
+
+def _present_faq_item(value) -> dict:
+    if not isinstance(value, dict):
+        return {"text": "", "marks": [], "answer": {"text": "", "marks": []}}
+    answer_raw = value.get("answer")
+    if isinstance(answer_raw, dict):
+        answer = _present_cell(answer_raw)
+    else:
+        answer = {"text": str(answer_raw or ""), "marks": []}
+    return {"text": _cell_text(value), "marks": list(value.get("marks") or []), "answer": answer}
+
+
+def _instagram_url(value, strict: bool = False) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        if strict:
+            raise ApiError("An Instagram block needs a link")
+        return ""
+    if len(raw) > 2000:
+        if strict:
+            raise ApiError("An Instagram link is too long")
+        return ""
+    parsed = _https(raw)
+    if parsed is None:
+        if strict:
+            raise ApiError("Instagram links must be https")
+        return ""
+    host = _host(parsed)
+    if host not in _INSTAGRAM_HOSTS:
+        if strict:
+            raise ApiError("Use an Instagram post or Reel link")
+        return ""
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) < 2 or parts[0] not in _INSTAGRAM_PATH_KINDS or not _INSTAGRAM_SHORTCODE.fullmatch(parts[1]):
+        if strict:
+            raise ApiError("Use an Instagram post or Reel link")
+        return ""
+    return f"https://www.instagram.com/{parts[0]}/{parts[1]}/"
+
+
 def _validate(block: dict) -> dict:
     tag = block.get("tag")
     if tag == "section":
@@ -689,6 +868,18 @@ def _validate(block: dict) -> dict:
         return {"tag": "audio", "attributes": {"src": _optional_media(_attr(block, "src"), "audio")}}
     if tag == "video":
         return {"tag": "video", "attributes": {"src": _optional_media(_attr(block, "src"), "video")}}
+    if tag == "instagram":
+        return {
+            "tag": "instagram",
+            "attributes": {"src": _instagram_url(_attr(block, "src"), strict=True)},
+        }
+    if tag == "faq":
+        return _validate_faq(block)
+    if tag == "a":
+        shaped = _shape_button_link(block, strict=True)
+        if not shaped:
+            raise ApiError("Button links need text and an http(s) href")
+        return shaped
     raise ApiError("Unknown content block")
 
 
@@ -821,7 +1012,17 @@ def present_blocks(blocks) -> list:
             if shaped:
                 shown.append(shaped)
             continue
-        # hr / img / video / audio
+        if tag == "faq":
+            copy = _strip_legacy(block)
+            copy["tag"] = "faq"
+            heading = _cell_text(block).strip() or FAQ_DEFAULT_HEADING
+            copy["text"] = heading
+            copy.pop("content", None)
+            copy["items"] = [_present_faq_item(item) for item in block.get("items") or []]
+            copy.pop("attributes", None)
+            shown.append(copy)
+            continue
+        # hr / img / video / audio / instagram
         copy = _strip_legacy(block)
         copy["tag"] = tag
         shown.append(copy)
@@ -901,6 +1102,10 @@ def _render_block(block: dict) -> str:
         return f'<audio class="blog-audio" controls src="{url}"></audio>'
     if tag == "video" and _attr(block, "src"):
         return _render_video(_attr(block, "src"))
+    if tag == "instagram" and _attr(block, "src"):
+        return _render_instagram(_attr(block, "src"))
+    if tag == "faq":
+        return _render_faq(block)
     if tag == "a":
         shaped = _shape_button_link(block, strict=False)
         if not shaped:
@@ -1745,3 +1950,39 @@ def _render_video(url: str) -> str:
             )
     safe = escape(url, quote=True)
     return f'<figure class="blog-video"><video controls src="{safe}"></video></figure>'
+
+
+def _render_instagram(url: str) -> str:
+    safe = escape(url, quote=True)
+    embed = escape(url.rstrip("/") + "/embed", quote=True)
+    return (
+        f'<figure class="blog-instagram" data-testid="blog-instagram-embed">'
+        f'<iframe class="blog-instagram-iframe" src="{embed}" title="Instagram post" '
+        f'loading="lazy" allowfullscreen></iframe>'
+        f'<p class="blog-instagram-fallback"><a href="{safe}" rel="noopener noreferrer" '
+        f'target="_blank">Open on Instagram</a></p></figure>'
+    )
+
+
+def _render_faq(block: dict) -> str:
+    heading = escape(_cell_text(block).strip() or FAQ_DEFAULT_HEADING)
+    rows: list[str] = []
+    for item in block.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        question = _inline(item, item.get("marks"))
+        answer_raw = item.get("answer")
+        if isinstance(answer_raw, dict):
+            answer = _inline(answer_raw, answer_raw.get("marks"))
+        else:
+            answer = escape(str(answer_raw or ""))
+        if not question or not answer:
+            continue
+        rows.append(
+            f'<details class="blog-faq-item" open>'
+            f'<summary class="blog-faq-question">{question}</summary>'
+            f'<div class="blog-faq-answer">{answer}</div></details>'
+        )
+    if not rows:
+        return ""
+    return f'<section class="blog-faq" data-testid="blog-faq-block"><h2 class="blog-faq-heading">{heading}</h2>{"".join(rows)}</section>'
