@@ -457,10 +457,12 @@ async def test_command_tickets_open_solved_and_null_created(async_client, test_d
     assert len(body["data"]) == 2
     sample = next(r for r in body["data"] if r["ticket_id"] == 88341)
     assert sample["raised_by"]["name"] == "Tick Et"
-    assert sample["raised_by"]["phone"] == "8834000000"
-    assert sample["contact"] == "8834000000"
+    assert sample["raised_by"]["phone"] == "******0000"
+    assert sample["contact"] == "******0000"
     assert sample["query"] == "Open issue"
     assert sample["status"] == "open"
+    email_ticket = next(r for r in body["data"] if r["ticket_id"] == 88342)
+    assert email_ticket["contact"] == "****@example.com"
 
 
 @pytest.mark.asyncio
