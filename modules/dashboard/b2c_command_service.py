@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.masking import mask_phone
 from modules.dashboard.command_period import command_today
 from modules.dashboard.command_service import (
     _build_people_rows,
@@ -329,7 +330,7 @@ async def b2c_tomorrows_collection_list(
                 "user_id": uid,
                 "collection_time": str(ctime) if ctime is not None else "",
                 "name": _person_name(row.first_name, row.last_name),
-                "phone": row.phone or "",
+                "phone": mask_phone(row.phone) or "",
                 "address": ", ".join(parts),
             }
         )

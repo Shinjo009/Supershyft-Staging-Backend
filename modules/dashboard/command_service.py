@@ -15,6 +15,7 @@ from modules.assessments.models import (
     AssessmentInstance,
     AssessmentPackageCategory,
 )
+from common.masking import mask_email, mask_phone
 from core.exceptions import AppError
 from modules.dashboard.command_period import (
     bound_calendar_date,
@@ -734,8 +735,8 @@ async def _build_people_rows(
                 "user_id": uid,
                 "person": {
                     "name": _person_name(user.first_name, user.last_name),
-                    "phone": user.phone or "",
-                    "email": user.email or "",
+                    "phone": mask_phone(user.phone) or "",
+                    "email": mask_email(user.email) or "",
                 },
                 "type": audience,
                 "engagement": engagement_name,
@@ -1678,6 +1679,12 @@ async def tickets_page(
     for t in tickets:
         user = users_by_id.get(int(t.user_id)) if t.user_id is not None else None
         raised_at = t.created_at
+        contact_raw = str(t.contact_input or "")
+        contact_masked = (
+            (mask_email(contact_raw) or "")
+            if "@" in contact_raw
+            else (mask_phone(contact_raw) or "")
+        )
         result.append(
             {
                 "ticket_id": int(t.ticket_id),
@@ -1688,9 +1695,9 @@ async def tickets_page(
                     )
                     if user
                     else "—",
-                    "phone": str(user.phone) if user and user.phone else "",
+                    "phone": (mask_phone(user.phone) or "") if user and user.phone else "",
                 },
-                "contact": str(t.contact_input or ""),
+                "contact": contact_masked,
                 "query": str(t.query_text or ""),
                 "raised_at": raised_at.isoformat() if raised_at else None,
                 "status": str(t.status or ""),
