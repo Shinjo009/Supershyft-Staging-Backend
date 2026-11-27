@@ -586,13 +586,14 @@ class DiagnosticPackageListItem(BaseModel):
     has_cancer_screening: Optional[bool] = None
     complementary_consultation: Optional[dict[str, bool]] = None
     gender_suitability: Optional[str] = None
-    package_for: Optional[str] = None
     tags: list[TagResponse] = Field(default_factory=list)
     filter_chips: list[PackageFilterChipResponse] = Field(default_factory=list)
     package_group_id: Optional[int] = None
 
 
 class DiagnosticPackageGroupListItem(DiagnosticPackageListItem):
+    # Admin groups list only — keep off the public/member slim list contract.
+    package_for: Optional[str] = None
     package_group: dict[str, int] = Field(default_factory=dict)
     has_unmapped_tests: bool = False
     warnings: list[DiagnosticWarning] = Field(default_factory=list)
