@@ -31,6 +31,7 @@ from modules.diagnostics.schemas import (
     ReorderPackageGroupsRequest,
     ReorderPackagesRequest,
     ReorderFilterChipsRequest,
+    ReorderHealthParametersRequest,
     ReorderPackageReasonsRequest,
     SampleCreate,
     SampleUpdate,
@@ -762,6 +763,26 @@ async def delete_preparation(
 
 
 # diagnostics/health-parameters: static routes before dynamic routes
+@router.patch("/diagnostics/health-parameters/order")
+async def reorder_health_parameters(
+    payload: ReorderHealthParametersRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    employee: EmployeeContext = Depends(get_current_employee),
+    diagnostics_service: DiagnosticsService = Depends(get_diagnostics_service),
+):
+    data = await diagnostics_service.reorder_health_parameters(
+        db,
+        employee=employee,
+        test_ids=payload.test_ids,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("User-Agent", "unknown"),
+        endpoint=str(request.url.path),
+    )
+    await db.commit()
+    return success_response(data)
+
+
 @router.get("/diagnostics/health-parameters")
 async def list_health_parameters(
     parameter_type: ParameterType | None = None,

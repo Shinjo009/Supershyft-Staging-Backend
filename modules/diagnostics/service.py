@@ -1630,6 +1630,29 @@ class DiagnosticsService:
         )
         return {"reordered": True}
 
+    async def reorder_health_parameters(
+        self,
+        db,
+        *,
+        employee: EmployeeContext,
+        test_ids: list[int],
+        ip_address: str,
+        user_agent: str,
+        endpoint: str,
+    ) -> dict:
+        self._ensure_employee_access(employee)
+        await self._repository.reorder_health_parameters(db, test_ids=test_ids)
+        await self._require_audit_service().log_event(
+            db,
+            action="EMPLOYEE_REORDER_HEALTH_PARAMETERS",
+            endpoint=endpoint,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=None,
+            session_id=None,
+        )
+        return {"reordered": True}
+
     async def reorder_package_reasons(
         self,
         db,

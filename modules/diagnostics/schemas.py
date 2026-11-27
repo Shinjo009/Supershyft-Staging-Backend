@@ -449,6 +449,10 @@ class ReorderFilterChipsRequest(BaseModel):
     filter_chip_ids: list[int] = Field(min_length=1)
 
 
+class ReorderHealthParametersRequest(BaseModel):
+    test_ids: list[int] = Field(min_length=1)
+
+
 class ReorderPackageReasonsRequest(BaseModel):
     reason_ids: list[int] = Field(min_length=1)
 

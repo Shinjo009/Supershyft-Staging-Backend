@@ -905,6 +905,17 @@ class DiagnosticsRepository:
             )
         await db.flush()
 
+    async def reorder_health_parameters(self, db: AsyncSession, *, test_ids: list[int]) -> None:
+        from sqlalchemy import update as sql_update
+
+        for index, test_id in enumerate(test_ids, start=1):
+            await db.execute(
+                sql_update(HealthParameter)
+                .where(HealthParameter.test_id == test_id)
+                .values(display_order=index)
+            )
+        await db.flush()
+
     async def reorder_package_reasons(
         self, db: AsyncSession, *, package_id: int, reason_ids: list[int]
     ) -> None:
